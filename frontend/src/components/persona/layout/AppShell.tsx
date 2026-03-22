@@ -40,6 +40,7 @@ import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWit
 import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import useRuntimeHealth from "@/hooks/useRuntimeHealth";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
@@ -395,6 +396,7 @@ export default function AppShell({
   const auth = useAuthState();
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
   const { lastEvent } = useLiveEvents();
+  const runtimeHealth = useRuntimeHealth();
   const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
   const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
     () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
@@ -1611,6 +1613,12 @@ export default function AppShell({
     return { flex: "1 1 0%", maxWidth: "18rem" };
   }, [bp]);
 
+  const runtimeDegraded = runtimeHealth.status === "degraded";
+  const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const runtimeLastHealthy = runtimeHealth.lastSuccessAt
+    ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
+    : "never";
+
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
      When no wallpaper is set, we dramatically adjust background depth/fade
@@ -1813,6 +1821,28 @@ export default function AppShell({
           </div>
         )}
       </div>
+
+      {runtimeDegraded && (
+        <div className="relative z-10 w-full mt-3">
+          <div
+            className="flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <span className="font-semibold tracking-wide">
+              Runtime degraded
+            </span>
+            <span className="opacity-80">failure: {runtimeFailureKind}</span>
+            <span className="opacity-70">
+              last healthy: {runtimeLastHealthy}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area

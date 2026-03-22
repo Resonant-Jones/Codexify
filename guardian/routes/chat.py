@@ -21,7 +21,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
@@ -40,7 +40,11 @@ from guardian.depth import (
 )
 from guardian.protocol_tokens import AcceptanceStatus, ErrorCode, TaskEventType
 from guardian.queue import task_events
-from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
+from guardian.queue.redis_queue import (
+    QueueEnqueueError,
+    enqueue,
+    enqueue_chat_embed,
+)
 from guardian.queue.turn_lock import (
     TurnLockEnvelope,
     acquire_turn_lock,
@@ -168,6 +172,17 @@ def _turn_lock_payload(
     )
 
 
+def _request_id_from_request(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    state = getattr(request, "state", None)
+    request_id = getattr(state, "request_id", None)
+    if request_id is None:
+        return None
+    normalized = str(request_id).strip()
+    return normalized or None
+
+
 def _publish_completion_start_event(
     *,
     task: ChatCompletionTask,
@@ -203,9 +218,18 @@ def _publish_completion_start_event(
             "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
             "failure_class": exc.__class__.__name__,
             "error": str(exc),
+            "exception": exc,
         }
 
     if isinstance(publish_result, dict):
+        if not publish_result.get("ok"):
+            raise task_events.TaskEventPublishError.from_publish_result(
+                publish_result
+            ) from (
+                publish_result.get("exception")
+                if isinstance(publish_result.get("exception"), BaseException)
+                else None
+            )
         return publish_result
 
     visibility_scope = task_events.classify_event_visibility(
@@ -224,7 +248,15 @@ def _publish_completion_start_event(
         "error": (
             "unexpected result type: " f"{type(publish_result).__name__}"
         ),
+        "exception": TypeError(
+            f"unexpected result type: {type(publish_result).__name__}"
+        ),
     }
+    raise task_events.TaskEventPublishError.from_publish_result(failure) from (
+        failure["exception"]
+        if isinstance(failure.get("exception"), BaseException)
+        else None
+    )
 
 
 def _completion_acceptance_outcome(
@@ -1608,7 +1640,9 @@ def chat_list_messages(
 async def chat_complete(
     thread_id: int,
     body: ChatCompletionRequest = Body(...),
+    request: Request = None,
     api_key: str = Depends(require_api_key),
+    request_id: str | None = Header(None, alias="X-Request-ID"),
 ):
     """
     Enqueue an assistant reply for the given thread and return a task id.
@@ -1815,8 +1849,38 @@ async def chat_complete(
         turn_id=turn_id,
     )
 
+    queue_name = "codexify:queue:chat"
+
     try:
-        enqueue(task, "codexify:queue:chat")
+        enqueue(task, queue_name)
+    except QueueEnqueueError as exc:
+        try:
+            release_turn_lock(thread_id, task.turn_lock_owner)
+        except Exception:
+            logger.debug(
+                "[chat.complete] failed to release lock after enqueue error",
+                exc_info=True,
+            )
+        logger.error(
+            "[chat.complete] enqueue failed",
+            extra={
+                "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED",
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "depth_mode": internal_depth_mode,
+                "turn_id": turn_id,
+                "queue_name": exc.queue_name,
+                "exception_class": type(exc).__name__,
+                "cause_class": type(exc.__cause__).__name__
+                if exc.__cause__
+                else None,
+            },
+            exc_info=exc,
+        )
+        detail = _completion_service_unavailable("queue_unavailable").detail
+        if isinstance(detail, dict):
+            detail = {**detail, "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED"}
+        raise HTTPException(status_code=503, detail=detail)
     except Exception as exc:
         try:
             release_turn_lock(thread_id, task.turn_lock_owner)
@@ -1835,38 +1899,64 @@ async def chat_complete(
     # Track latest task for debug endpoint
     _thread_latest_task[thread_id] = task_identity
 
-    task_created_publish_result = _publish_completion_start_event(
-        task=task,
-        thread_id=thread_id,
-        turn_id=turn_id,
-    )
+    task_created_publish_error: task_events.TaskEventPublishError | None = None
+    try:
+        task_created_publish_result = _publish_completion_start_event(
+            task=task,
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
+    except task_events.TaskEventPublishError as exc:
+        task_created_publish_error = exc
+        task_created_publish_result = exc.to_publish_result()
+        cause_class = exc.cause_class
+        if cause_class is None and isinstance(exc.__cause__, BaseException):
+            cause_class = exc.__cause__.__class__.__name__
+        logger.error(
+            (
+                "[chat.complete] error_code=%s task_event_error_code=%s "
+                "task.created publish failed request_id=%s thread_id=%s "
+                "task_id=%s turn_id=%s depth_mode=%s event_type=%s "
+                "cause_class=%s"
+            ),
+            CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
+            exc.error_code,
+            _request_id_from_request(request),
+            thread_id,
+            task_identity,
+            turn_id,
+            internal_depth_mode,
+            exc.event_type,
+            cause_class,
+        )
     acceptance_status, acceptance_warnings = _completion_acceptance_outcome(
         task_created_publish_result
     )
 
-    log_level = (
-        logging.INFO
-        if acceptance_status == COMPLETION_ACCEPTANCE_STATUS_ACCEPTED
-        else logging.WARNING
-    )
-    logger.log(
-        log_level,
-        (
-            "[task] created type=%s id=%s origin=%s thread=%s "
-            "acceptance_status=%s acceptance_warnings=%s "
-            "task_created_visibility_scope=%s task_created_event_id=%s "
-            "task_created_failure_class=%s"
-        ),
-        task.type,
-        task_identity,
-        task.origin,
-        thread_id,
-        acceptance_status,
-        acceptance_warnings,
-        task_created_publish_result.get("visibility_scope"),
-        task_created_publish_result.get("event_id"),
-        task_created_publish_result.get("failure_class"),
-    )
+    if task_created_publish_error is None:
+        log_level = (
+            logging.INFO
+            if acceptance_status == COMPLETION_ACCEPTANCE_STATUS_ACCEPTED
+            else logging.WARNING
+        )
+        logger.log(
+            log_level,
+            (
+                "[task] created type=%s id=%s origin=%s thread=%s "
+                "acceptance_status=%s acceptance_warnings=%s "
+                "task_created_visibility_scope=%s task_created_event_id=%s "
+                "task_created_failure_class=%s"
+            ),
+            task.type,
+            task_identity,
+            task.origin,
+            thread_id,
+            acceptance_status,
+            acceptance_warnings,
+            task_created_publish_result.get("visibility_scope"),
+            task_created_publish_result.get("event_id"),
+            task_created_publish_result.get("failure_class"),
+        )
 
     messages_url = f"/api/chat/{thread_id}/messages"
     trace_url = f"/api/chat/debug/rag-trace/{thread_id}/latest"
@@ -2473,10 +2563,19 @@ def api_chat_list_messages(
 async def api_chat_complete(
     thread_id: int,
     body: ChatCompletionRequest = Body(...),
+    request: Request = None,
     api_key: str = Depends(require_api_key),
+    request_id: str | None = Header(None, alias="X-Request-ID"),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
-    return await chat_complete(thread_id, body, api_key=api_key)
+    return await chat_complete(
+    thread_id,
+    body,
+    request=request,
+    api_key=api_key,
+    request_id=request_id,
+)
+    )
 
 
 @api_chat_router.get("/{thread_id}/profile")
