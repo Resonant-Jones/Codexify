@@ -7,14 +7,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-@dataclass(slots=True)
+@dataclass
 class CheckResult:
     status: str
     label: str
     evidence: str
 
 
-@dataclass(slots=True)
+@dataclass
 class DomainReport:
     name: str
     checks: list[CheckResult]

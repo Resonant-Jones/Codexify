@@ -1,17 +1,26 @@
-# Daily Audit — 2026-03-21
+# Daily Audit — 2026-03-22
 
 ## Repo Status
-- Date: 2026-03-21
+- Date: 2026-03-22
 - Phase: `morning`
-- Branch: `codex/identify-profile-switching`
-- HEAD: `394a510742b722f2e1821b35f16edd4682a92449`
-- Worktree: clean
+- Branch: `codex/centralize-coreloop-protocol-tokens`
+- HEAD: `ee9fb463deca0fb3b4652409ce2ac3f23e65387c`
+- Worktree: dirty
+- Status lines:
+  - ` M docs/audits/daily/evening/latest.json`
+  - ` M docs/audits/daily/evening/latest.md`
+  - ` M docs/audits/latest.json`
+  - ` M docs/audits/latest.md`
+  - ` M scripts/audit_platform_readiness.py`
+  - ` M scripts/daily_audit.py`
+  - `?? docs/audits/daily/evening/2026-03-21-audit.json`
+  - `?? docs/audits/daily/evening/2026-03-21-audit.md`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
 - Attempted commands:
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
+  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
+  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
 - Summary counts: PASS 40, WARN 11, FAIL 0
 - Strongest evidence: `Core Loop Integrity`, `Primitive Stability`, `Extension Boundary`
 - Weakest signals: `Federation Readiness`, `Governance Readiness`, `Alternate Surface Readiness`
@@ -45,33 +54,22 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 11
-- Unique files changed: 31
-- Files changed: `docs/audits/daily/evening/2026-03-20-audit.json`, `docs/audits/daily/evening/2026-03-20-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `guardian/queue/redis_queue.py`, `guardian/routes/chat.py`, `tests/routes/test_chat_complete_enqueue_error_tagging.py`, `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/hooks/useRuntimeHealth.test.ts`, `frontend/src/hooks/useRuntimeHealth.ts`, `docs/architecture/obsidian-sync-recon.md`, `docs/Codexify/RELEASE.md`, `docs/architecture/00-current-state.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/tech-debt-and-risks.md`, `tests/routes/test_chat_routes.py`, `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `tests/routes/test_event_graph_emission.py`, `docs/audits/history/2026-03-20-redis-chat-completion-recon.md`, `tests/core/test_turn_lock_recovery.py`, `docs/architecture/README.md`, `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py`
+- Commit count: 2
+- Unique files changed: 7
+- Files changed: `docs/architecture/canonical-token-philosophy.md`, `docs/architecture/runtime-protocol-token-contract.md`, `guardian/protocol_tokens.py`, `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/chat.py`, `tests/contracts/test_protocol_tokens.py`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `394a510742b7` | Update daily evening audit artifacts | `docs/audits/daily/evening/2026-03-20-audit.json`, `docs/audits/daily/evening/2026-03-20-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `b680dd467f8e` | Tag chat enqueue failures in logs | `guardian/queue/redis_queue.py`, `guardian/routes/chat.py`, `tests/routes/test_chat_complete_enqueue_error_tagging.py` |
-| `cdec733cbc4e` | Add desktop runtime degraded banner | `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/hooks/useRuntimeHealth.test.ts`, `frontend/src/hooks/useRuntimeHealth.ts` |
-| `9c01716cd7ba` | Add Obsidian sync reconnaissance report | `docs/architecture/obsidian-sync-recon.md` |
-| `c4e6e392b0a9` | Align Redis chat reliability docs with implementation | `docs/Codexify/RELEASE.md`, `docs/architecture/00-current-state.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/tech-debt-and-risks.md` |
-| `0326f8fa0f32` | Tighten chat completion acceptance signaling | `guardian/routes/chat.py`, `tests/routes/test_chat_routes.py` |
-| `2916a008ded6` | Surface task event visibility failures | `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `tests/routes/test_event_graph_emission.py` |
-| `1052aada9505` | Add Redis chat completion recon artifact | `docs/audits/history/2026-03-20-redis-chat-completion-recon.md` |
-| `244e3e17a297` | Harden stale turn lock recovery | `guardian/queue/task_events.py`, `guardian/routes/chat.py`, `tests/core/test_turn_lock_recovery.py`, `tests/routes/test_chat_routes.py` |
-| `877d17fea86d` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
-| `788b2b1062b6` | Expose queue progress truth in /health/chat | `guardian/routes/health.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py` |
+| `ee9fb463deca` | Add canonical token philosophy doc | `docs/architecture/canonical-token-philosophy.md` |
+| `6748bb33b670` | Add canonical protocol token registry | `docs/architecture/runtime-protocol-token-contract.md`, `guardian/protocol_tokens.py`, `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/chat.py`, `tests/contracts/test_protocol_tokens.py` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `chat` | 2 | `guardian/routes/chat.py`, `guardian/workers/chat_worker.py` |
-| `docs` | 8 | `docs/architecture/obsidian-sync-recon.md`, `docs/Codexify/RELEASE.md`, `docs/architecture/00-current-state.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/data-and-storage.md`, `docs/architecture/flows.md`, `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/README.md` |
-| `audit` | 7 | `docs/audits/daily/evening/2026-03-20-audit.json`, `docs/audits/daily/evening/2026-03-20-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/audits/history/2026-03-20-redis-chat-completion-recon.md` |
-| `frontend` | 5 | `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/hooks/useRuntimeHealth.test.ts`, `frontend/src/hooks/useRuntimeHealth.ts` |
-| `tests` | 6 | `tests/routes/test_chat_complete_enqueue_error_tagging.py`, `tests/routes/test_chat_routes.py`, `tests/routes/test_event_graph_emission.py`, `tests/core/test_turn_lock_recovery.py`, `guardian/tests/test_health_endpoints.py`, `tests/routes/test_metrics.py` |
-| `unknown` | 3 | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/health.py` |
+| `chat` | 1 | `guardian/routes/chat.py` |
+| `docs` | 2 | `docs/architecture/canonical-token-philosophy.md`, `docs/architecture/runtime-protocol-token-contract.md` |
+| `tests` | 1 | `tests/contracts/test_protocol_tokens.py` |
+| `unknown` | 3 | `guardian/protocol_tokens.py`, `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
