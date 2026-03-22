@@ -92,7 +92,7 @@ RISK_FLAGS = [
 ]
 
 
-@dataclass(slots=True)
+@dataclass
 class CommandResult:
     command: list[str]
     returncode: int

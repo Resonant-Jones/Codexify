@@ -2,13 +2,13 @@
   "audit_cli": {
     "attempts": [
       {
-        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
         "exit_code": 0,
         "stderr": "",
         "stdout_is_json": false
       },
       {
-        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
         "exit_code": 0,
         "stderr": ""
       }
@@ -63,150 +63,43 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 11,
+    "commit_count": 2,
     "commits": [
       {
         "files": [
-          "docs/audits/daily/evening/2026-03-20-audit.json",
-          "docs/audits/daily/evening/2026-03-20-audit.md",
-          "docs/audits/daily/evening/latest.json",
-          "docs/audits/daily/evening/latest.md",
-          "docs/audits/latest.json",
-          "docs/audits/latest.md"
+          "docs/architecture/canonical-token-philosophy.md"
         ],
-        "sha": "394a510742b722f2e1821b35f16edd4682a92449",
-        "subject": "Update daily evening audit artifacts"
+        "sha": "ee9fb463deca0fb3b4652409ce2ac3f23e65387c",
+        "subject": "Add canonical token philosophy doc"
       },
       {
         "files": [
+          "docs/architecture/runtime-protocol-token-contract.md",
+          "guardian/protocol_tokens.py",
           "guardian/queue/redis_queue.py",
-          "guardian/routes/chat.py",
-          "tests/routes/test_chat_complete_enqueue_error_tagging.py"
-        ],
-        "sha": "b680dd467f8e1948f9db3079271643af304503bc",
-        "subject": "Tag chat enqueue failures in logs"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/hooks/useLiveEvents.ts",
-          "frontend/src/hooks/useRuntimeHealth.test.ts",
-          "frontend/src/hooks/useRuntimeHealth.ts"
-        ],
-        "sha": "cdec733cbc4e0d38b911547a9995b8e4d4d014e8",
-        "subject": "Add desktop runtime degraded banner"
-      },
-      {
-        "files": [
-          "docs/architecture/obsidian-sync-recon.md"
-        ],
-        "sha": "9c01716cd7baddcab26390220874a8a54e1df1e8",
-        "subject": "Add Obsidian sync reconnaissance report"
-      },
-      {
-        "files": [
-          "docs/Codexify/RELEASE.md",
-          "docs/architecture/00-current-state.md",
-          "docs/architecture/completion_pipeline.md",
-          "docs/architecture/data-and-storage.md",
-          "docs/architecture/flows.md",
-          "docs/architecture/tech-debt-and-risks.md"
-        ],
-        "sha": "c4e6e392b0a9e498da4afe3072097733d6a302bd",
-        "subject": "Align Redis chat reliability docs with implementation"
-      },
-      {
-        "files": [
-          "guardian/routes/chat.py",
-          "tests/routes/test_chat_routes.py"
-        ],
-        "sha": "0326f8fa0f32b09349ecbeeb03c805cbd5fa5d36",
-        "subject": "Tighten chat completion acceptance signaling"
-      },
-      {
-        "files": [
-          "guardian/queue/task_events.py",
-          "guardian/workers/chat_worker.py",
-          "tests/routes/test_event_graph_emission.py"
-        ],
-        "sha": "2916a008ded6d18de2fc27aa868ed209914c95a9",
-        "subject": "Surface task event visibility failures"
-      },
-      {
-        "files": [
-          "docs/audits/history/2026-03-20-redis-chat-completion-recon.md"
-        ],
-        "sha": "1052aada950567732138c8ace5fb5ece105895a7",
-        "subject": "Add Redis chat completion recon artifact"
-      },
-      {
-        "files": [
           "guardian/queue/task_events.py",
           "guardian/routes/chat.py",
-          "tests/core/test_turn_lock_recovery.py",
-          "tests/routes/test_chat_routes.py"
+          "tests/contracts/test_protocol_tokens.py"
         ],
-        "sha": "244e3e17a2972ccabc55a29abc19bd80d4275725",
-        "subject": "Harden stale turn lock recovery"
-      },
-      {
-        "files": [
-          "docs/architecture/00-current-state.md",
-          "docs/architecture/README.md"
-        ],
-        "sha": "877d17fea86decf3ea9a4bb6f35c40ab389c5a36",
-        "subject": "docs: refresh weekly current-state override"
-      },
-      {
-        "files": [
-          "guardian/routes/health.py",
-          "guardian/tests/test_health_endpoints.py",
-          "tests/routes/test_metrics.py"
-        ],
-        "sha": "788b2b1062b6c9268dd63e32032c1e19036d3c36",
-        "subject": "Expose queue progress truth in /health/chat"
+        "sha": "6748bb33b670eb2730e868b4701e74ce7e942efe",
+        "subject": "Add canonical protocol token registry"
       }
     ],
     "files_changed": [
-      "docs/audits/daily/evening/2026-03-20-audit.json",
-      "docs/audits/daily/evening/2026-03-20-audit.md",
-      "docs/audits/daily/evening/latest.json",
-      "docs/audits/daily/evening/latest.md",
-      "docs/audits/latest.json",
-      "docs/audits/latest.md",
+      "docs/architecture/canonical-token-philosophy.md",
+      "docs/architecture/runtime-protocol-token-contract.md",
+      "guardian/protocol_tokens.py",
       "guardian/queue/redis_queue.py",
-      "guardian/routes/chat.py",
-      "tests/routes/test_chat_complete_enqueue_error_tagging.py",
-      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-      "frontend/src/components/persona/layout/AppShell.tsx",
-      "frontend/src/hooks/useLiveEvents.ts",
-      "frontend/src/hooks/useRuntimeHealth.test.ts",
-      "frontend/src/hooks/useRuntimeHealth.ts",
-      "docs/architecture/obsidian-sync-recon.md",
-      "docs/Codexify/RELEASE.md",
-      "docs/architecture/00-current-state.md",
-      "docs/architecture/completion_pipeline.md",
-      "docs/architecture/data-and-storage.md",
-      "docs/architecture/flows.md",
-      "docs/architecture/tech-debt-and-risks.md",
-      "tests/routes/test_chat_routes.py",
       "guardian/queue/task_events.py",
-      "guardian/workers/chat_worker.py",
-      "tests/routes/test_event_graph_emission.py",
-      "docs/audits/history/2026-03-20-redis-chat-completion-recon.md",
-      "tests/core/test_turn_lock_recovery.py",
-      "docs/architecture/README.md",
-      "guardian/routes/health.py",
-      "guardian/tests/test_health_endpoints.py",
-      "tests/routes/test_metrics.py"
+      "guardian/routes/chat.py",
+      "tests/contracts/test_protocol_tokens.py"
     ],
-    "window_end": "2026-03-21T09:26:50.116630-04:00",
+    "window_end": "2026-03-22T09:11:02.392678-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-20T09:26:50.116630-04:00"
+    "window_start": "2026-03-21T09:11:02.392678-04:00"
   },
-  "date": "2026-03-21",
-  "generated_at": "2026-03-21T09:26:50.116630-04:00",
+  "date": "2026-03-22",
+  "generated_at": "2026-03-22T09:11:02.392678-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -214,11 +107,20 @@
   },
   "phase": "morning",
   "repo": {
-    "branch": "codex/identify-profile-switching",
-    "date": "2026-03-21",
-    "dirty": false,
-    "head": "394a510742b722f2e1821b35f16edd4682a92449",
-    "status_lines": []
+    "branch": "codex/centralize-coreloop-protocol-tokens",
+    "date": "2026-03-22",
+    "dirty": true,
+    "head": "ee9fb463deca0fb3b4652409ce2ac3f23e65387c",
+    "status_lines": [
+      " M docs/audits/daily/evening/latest.json",
+      " M docs/audits/daily/evening/latest.md",
+      " M docs/audits/latest.json",
+      " M docs/audits/latest.md",
+      " M scripts/audit_platform_readiness.py",
+      " M scripts/daily_audit.py",
+      "?? docs/audits/daily/evening/2026-03-21-audit.json",
+      "?? docs/audits/daily/evening/2026-03-21-audit.md"
+    ]
   },
   "risk_flags": [
     {
@@ -274,65 +176,31 @@
     }
   ],
   "subsystems_touched": {
-    "audit": {
-      "count": 7,
-      "files": [
-        "docs/audits/daily/evening/2026-03-20-audit.json",
-        "docs/audits/daily/evening/2026-03-20-audit.md",
-        "docs/audits/daily/evening/latest.json",
-        "docs/audits/daily/evening/latest.md",
-        "docs/audits/latest.json",
-        "docs/audits/latest.md",
-        "docs/audits/history/2026-03-20-redis-chat-completion-recon.md"
-      ]
-    },
     "chat": {
-      "count": 2,
+      "count": 1,
       "files": [
-        "guardian/routes/chat.py",
-        "guardian/workers/chat_worker.py"
+        "guardian/routes/chat.py"
       ]
     },
     "docs": {
-      "count": 8,
+      "count": 2,
       "files": [
-        "docs/architecture/obsidian-sync-recon.md",
-        "docs/Codexify/RELEASE.md",
-        "docs/architecture/00-current-state.md",
-        "docs/architecture/completion_pipeline.md",
-        "docs/architecture/data-and-storage.md",
-        "docs/architecture/flows.md",
-        "docs/architecture/tech-debt-and-risks.md",
-        "docs/architecture/README.md"
-      ]
-    },
-    "frontend": {
-      "count": 5,
-      "files": [
-        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-        "frontend/src/components/persona/layout/AppShell.tsx",
-        "frontend/src/hooks/useLiveEvents.ts",
-        "frontend/src/hooks/useRuntimeHealth.test.ts",
-        "frontend/src/hooks/useRuntimeHealth.ts"
+        "docs/architecture/canonical-token-philosophy.md",
+        "docs/architecture/runtime-protocol-token-contract.md"
       ]
     },
     "tests": {
-      "count": 6,
+      "count": 1,
       "files": [
-        "tests/routes/test_chat_complete_enqueue_error_tagging.py",
-        "tests/routes/test_chat_routes.py",
-        "tests/routes/test_event_graph_emission.py",
-        "tests/core/test_turn_lock_recovery.py",
-        "guardian/tests/test_health_endpoints.py",
-        "tests/routes/test_metrics.py"
+        "tests/contracts/test_protocol_tokens.py"
       ]
     },
     "unknown": {
       "count": 3,
       "files": [
+        "guardian/protocol_tokens.py",
         "guardian/queue/redis_queue.py",
-        "guardian/queue/task_events.py",
-        "guardian/routes/health.py"
+        "guardian/queue/task_events.py"
       ]
     }
   }
