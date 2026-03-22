@@ -47,6 +47,9 @@ export const Notes = {
 export const Agent = {
   whoami:()=>req('/whoami'), updateProfile:(b:any)=>req('/profile',{method:'POST',body:JSON.stringify(b)})
 };
+export const SystemProfiles = {
+  switch:(b:any)=>req('/api/system-profiles/switch',{method:'POST',body:JSON.stringify(b)})
+};
 export const Tools = {
   execute:(b:any)=>req('/tools/execute',{method:'POST',body:JSON.stringify(b)}),
   job:(id:string)=>req(`/jobs/${id}`)

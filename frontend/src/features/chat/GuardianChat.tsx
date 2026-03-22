@@ -53,6 +53,7 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
+import { SystemProfiles } from "@/dcw-services/gc";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -1322,11 +1323,10 @@ export function GuardianChat({
     async (threadId: number, profileId: string): Promise<boolean> => {
       setProfileSwitching(true);
       try {
-        const response = await api.post("/tools/execute", {
-          name: "guardian.profile.switch",
-          args: { thread_id: threadId, profile_id: profileId },
+        const result = await SystemProfiles.switch({
+          thread_id: threadId,
+          profile_id: profileId,
         });
-        const result = response?.data?.result;
         if (result && result.ok === false) {
           const detail =
             typeof result.error === "string"
