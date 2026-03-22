@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-03-20
+2026-03-21
 
 ## Interpretation rule
 
@@ -17,23 +17,16 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is in runtime-stabilization for a local Docker Compose beta path on `main`. Recent merges made the Redis-backed chat loop more truthful about health, queue pressure, stale locks, event visibility, and acceptance boundaries, but release posture is still `hold` until supported-profile runtime behavior and end-to-end proof are re-validated on the live stack.
+Codexify is in release-criteria tightening for a local Docker Compose beta path on `main`. Runtime truth surfaces for chat reliability are stronger than last week, and new audits clarified where compatibility and recon work still exceeds the release promise, but release posture is still `hold` until supported-profile behavior and one full supported-path proof are re-validated on the live stack.
 
 ## What changed recently
 
-- Runtime hardening merged for transient failures in API event streaming and Redis dequeue paths.
-- Startup warmup behavior was made best-effort to reduce noisy boot failures.
-- Provider governance classification and baseline governance docs were added to `main`.
-- Supported-profile proof artifact was added and recorded a profile/runtime mismatch on live Compose.
-- Runtime stability audit template and a 2026-03-17 audit artifact were added under `docs/release/run`.
-- Compose env-file selection normalization was merged, but release evidence still flags profile drift at runtime.
-- Packaged runtime/bootstrap handling and macOS bundle launchability were updated on `main`.
-- Chat UX/runtime behavior was adjusted for cancel unlock and persisted inference mode.
-- Completion matching was hardened in chat flow paths.
+- Chat flow reliability hardening landed on `main` for completion matching, stale-lock recovery, queue-progress truth, and task-event visibility signaling.
+- Route acceptance signaling was tightened so accepted chat work reflects lock + enqueue success rather than ambiguous partial success.
 - `/health/chat` now distinguishes Redis reachability, queue round-trip truth, worker-heartbeat freshness, and sampled queue-progress heuristics more honestly.
-- Stale-turn-lock recovery now depends on task-stream and heartbeat evidence and fails closed when the evidence is ambiguous.
-- Task-event visibility degradation is now surfaced more explicitly in worker logs.
-- Chat acceptance truth is stronger: success now means lock plus enqueue succeeded, while degraded lifecycle visibility is treated as degraded visibility rather than invisible success.
+- Release/run artifacts were refreshed on `main`, including a 2026-03-18 supported-profile proof entry and daily/evening audit snapshots.
+- A legacy tools dependency audit was added on `main` and confirmed live runtime callers still depend on `/tools/execute` compatibility.
+- Obsidian sync recon was added on `main` and confirmed the current path is CLI-based local ingest with no shipped Obsidian connector sync workflow.
 
 ## Current supported reality
 
@@ -44,9 +37,10 @@ Codexify is in runtime-stabilization for a local Docker Compose beta path on `ma
   - stale-lock recovery is evidence-based instead of lease-age-only
   - task-event publish failure is surfaced as visibility degradation
   - route success is a stronger statement about queue acceptance than before
-- Release evidence exists on `main` for runtime audits (`docs/release/run/2026-03-17-runtime-stability-audit.md`) and supported-profile proof attempts (`docs/release/run/2026-03-17-beta-smoke-supported-profile-proof.md`).
+- Release evidence exists on `main` for runtime audits and supported-profile proof attempts under `docs/release/run/`.
 - Architecture-level readiness baseline was captured on `main` (`docs/audits/history/2026-03-19-platform-readiness-baseline.md`).
 - Health, catalog, and supported-profile surfaces are part of current operator workflow; none is sufficient alone for release signoff.
+- Knowledge ingestion remains local-first: Obsidian support is via manual CLI ingest into the vector store, not an active connector sync pipeline.
 
 ## Not yet true / do not assume
 
@@ -60,6 +54,7 @@ Codexify is in runtime-stabilization for a local Docker Compose beta path on `ma
 - Do not assume task-event publication proves downstream UI receipt or rendering.
 - Do not assume accepted work will complete successfully just because the route returned success.
 - Do not assume Redis coupling risk is removed; it is better surfaced, not eliminated.
+- Do not assume Obsidian sync is a shipped connector feature; only local CLI ingest is evidenced on `main`.
 
 ## Active blockers
 
@@ -68,14 +63,15 @@ Codexify is in runtime-stabilization for a local Docker Compose beta path on `ma
 - Provider governance, catalog, and runtime health can still present mixed signals without a single release-grade gate.
 - Tool execution surface remains split between legacy `/tools` behavior and command bus behavior.
 - Redis-backed chat remains a coordination concentration point even after the reliability pass; the branch improves operator truth and failure handling, but does not yet remove Redis as a central dependency for the core loop.
+- Obsidian/local knowledge-source exposure remains unproven in runtime evidence beyond manual ingest and vector-store mechanics.
 
 ## This week's priorities
 
 1. Re-prove supported-profile runtime flags on the actual Compose stack used for release smoke.
 2. Capture one fresh end-to-end supported-path evidence run: thread, completion, upload, embed-ready, retrieval.
 3. Close provider release gating drift by aligning supported profile, catalog output, and runtime health interpretation.
-4. Reduce `/tools` vs command bus ambiguity in release-facing behavior and docs.
-5. Keep chat completion reliability hardening test-backed on `main`.
+4. Reduce `/tools` vs command bus ambiguity in release-facing behavior and client call paths.
+5. Decide and document the beta promise for Obsidian: explicit CLI-only support or scoped connector delivery criteria.
 
 ## Release definition right now
 
