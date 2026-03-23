@@ -30,6 +30,7 @@ import {
   refreshApiBaseUrl,
   setRuntimeApiKey,
 } from "@/lib/api";
+import { updatePersonaSettings } from "@/features/settings/api/persona";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
 import type { RuntimeConfig } from "@/lib/runtimeConfig";
 
@@ -283,6 +284,15 @@ export function SettingsView({
   const isImportTerminal = isTerminalStatus(importStatus);
   const shouldShowImportStatusPanel = importStatus !== "idle" && !importPanelHidden;
   const importElapsed = formatElapsed(importStartedAt, importNow);
+  const [systemPromptSaveStatus, setSystemPromptSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [systemPromptSaveError, setSystemPromptSaveError] = useState<string | null>(
+    null
+  );
+  const [lastSavedPersonaId, setLastSavedPersonaId] = useState<number | null>(
+    null
+  );
 
   function resetImportStatus() {
     setImportTaskId(null);
@@ -311,6 +321,10 @@ export function SettingsView({
   useEffect(() => setURole(role), [role]);
   useEffect(() => setPrompt(systemPrompt), [systemPrompt]);
   useEffect(() => setMemo(notes), [notes]);
+  useEffect(() => {
+    setSystemPromptSaveStatus("idle");
+    setSystemPromptSaveError(null);
+  }, [prompt]);
   useEffect(() => {
     if (!desktopMode) return;
     const settings = getDesktopConnectionSettings();
@@ -602,12 +616,76 @@ export function SettingsView({
     };
   }, []);
 
-  function handleSave() {
+  async function handleSave() {
+    const dirty = prompt !== systemPrompt;
+    const userId = (uName || userName || "default").trim() || "default";
+    const personaId = lastSavedPersonaId;
+    console.log("[SystemPrompt] Save clicked", {
+      value: prompt,
+      length: prompt?.length,
+      dirty,
+      userId,
+      personaId,
+    });
     setGuardianName(name);
     setUserName(uName);
     setRole(uRole);
-    setSystemPrompt(prompt);
     setNotes(memo);
+
+    if (!dirty) {
+      setSystemPromptSaveStatus("saved");
+      return;
+    }
+
+    const projectId =
+      typeof window !== "undefined"
+        ? Number(window.localStorage.getItem("cfy.lastProjectId"))
+        : NaN;
+    const payload = {
+      text: prompt,
+      persona_prompt: prompt,
+      system_prompt: prompt,
+      projectId: Number.isFinite(projectId) ? projectId : undefined,
+    };
+    console.log("[SystemPrompt] Persist payload", payload);
+
+    setSystemPromptSaveStatus("saving");
+    setSystemPromptSaveError(null);
+    try {
+      const response = await updatePersonaSettings(payload);
+      console.log("[SystemPrompt] Save response", response);
+      setSystemPrompt(prompt);
+      setLastSavedPersonaId(response.id);
+      setSystemPromptSaveStatus("saved");
+    } catch (error) {
+      console.error("[SystemPrompt] Save failed", error);
+      setSystemPromptSaveStatus("error");
+      if (
+        error &&
+        typeof error === "object" &&
+        "response" in error &&
+        error.response &&
+        typeof error.response === "object" &&
+        "data" in error.response
+      ) {
+        const response = error.response as {
+          data?: { detail?: unknown; error?: unknown };
+        };
+        if (typeof response.data?.detail === "string" && response.data.detail.trim()) {
+          setSystemPromptSaveError(response.data.detail);
+          return;
+        }
+        if (typeof response.data?.error === "string" && response.data.error.trim()) {
+          setSystemPromptSaveError(response.data.error);
+          return;
+        }
+      }
+      if (error instanceof Error && error.message.trim()) {
+        setSystemPromptSaveError(error.message);
+        return;
+      }
+      setSystemPromptSaveError("Failed to save system prompt.");
+    }
   }
 
   const [fileLabel, setFileLabel] = useState<string>("");
@@ -806,10 +884,27 @@ export function SettingsView({
               <div className="text-sm font-medium">Notes</div>
               <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={4} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
             </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" onClick={handleSave} className="rounded-[var(--tile-radius,19px)]">
-                Save
-              </Button>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={handleSave}
+                  className="rounded-[var(--tile-radius,19px)]"
+                  disabled={systemPromptSaveStatus === "saving"}
+                >
+                  {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
+                </Button>
+                {systemPromptSaveStatus === "saved" && (
+                  <span className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
+                    System prompt saved.
+                  </span>
+                )}
+              </div>
+              {systemPromptSaveError && (
+                <div className="text-xs" style={{ color: "var(--error, #ef4444)" }}>
+                  {systemPromptSaveError}
+                </div>
+              )}
             </div>
           </div>
         )}

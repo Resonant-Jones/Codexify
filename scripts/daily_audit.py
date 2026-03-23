@@ -334,16 +334,28 @@ def collect_repo_metadata(now: datetime) -> dict[str, Any]:
     head = run_git(["rev-parse", "HEAD"]).strip()
     if not branch:
         branch = f"detached@{head[:7]}"
-    status_output = run_git(["status", "--short", "--untracked-files=all"])
-    status_lines = [
-        line.rstrip() for line in status_output.splitlines() if line.strip()
-    ]
+    status_lines: list[str] = []
+    status_error = ""
+    dirty: bool | None = None
+    try:
+        status_output = run_git(["status", "--short", "--untracked-files=all"])
+        status_lines = [
+            line.rstrip() for line in status_output.splitlines() if line.strip()
+        ]
+        dirty = bool(status_lines)
+    except RuntimeError as exc:
+        message = str(exc)
+        if "git-lfs" in message and "filter-process" in message:
+            status_error = message
+        else:
+            raise
     return {
         "date": now.date().isoformat(),
         "branch": branch,
         "head": head,
-        "dirty": bool(status_lines),
+        "dirty": dirty,
         "status_lines": status_lines,
+        "status_error": status_error,
     }
 
 
@@ -582,7 +594,15 @@ def render_markdown(payload: dict[str, Any]) -> str:
         lines.append(f"- Phase: {backtick(payload['phase'])}")
     lines.append(f"- Branch: {backtick(repo['branch'])}")
     lines.append(f"- HEAD: {backtick(repo['head'])}")
-    lines.append(f"- Worktree: {'dirty' if repo['dirty'] else 'clean'}")
+    if repo["dirty"] is True:
+        worktree_state = "dirty"
+    elif repo["dirty"] is False:
+        worktree_state = "clean"
+    else:
+        worktree_state = "unknown"
+    lines.append(f"- Worktree: {worktree_state}")
+    if repo.get("status_error"):
+        lines.append(f"- Worktree status note: {repo['status_error']}")
     if repo["status_lines"]:
         lines.append("- Status lines:")
         for line in repo["status_lines"]:
