@@ -2,13 +2,13 @@
   "audit_cli": {
     "attempts": [
       {
-        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
         "exit_code": 0,
         "stderr": "",
         "stdout_is_json": false
       },
       {
-        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
         "exit_code": 0,
         "stderr": ""
       }
@@ -63,43 +63,47 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 2,
+    "commit_count": 1,
     "commits": [
       {
         "files": [
-          "docs/architecture/canonical-token-philosophy.md"
+          "docs/audits/daily/evening/2026-03-21-audit.json",
+          "docs/audits/daily/evening/2026-03-21-audit.md",
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/daily/morning/2026-03-22-audit.json",
+          "docs/audits/daily/morning/2026-03-22-audit.md",
+          "docs/audits/daily/morning/latest.json",
+          "docs/audits/daily/morning/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md",
+          "scripts/audit_platform_readiness.py",
+          "scripts/daily_audit.py"
         ],
-        "sha": "ee9fb463deca0fb3b4652409ce2ac3f23e65387c",
-        "subject": "Add canonical token philosophy doc"
-      },
-      {
-        "files": [
-          "docs/architecture/runtime-protocol-token-contract.md",
-          "guardian/protocol_tokens.py",
-          "guardian/queue/redis_queue.py",
-          "guardian/queue/task_events.py",
-          "guardian/routes/chat.py",
-          "tests/contracts/test_protocol_tokens.py"
-        ],
-        "sha": "6748bb33b670eb2730e868b4701e74ce7e942efe",
-        "subject": "Add canonical protocol token registry"
+        "sha": "28752cdc963d8edda7943a7ee6c657455610a2b8",
+        "subject": "Update audit scripts and generated daily reports"
       }
     ],
     "files_changed": [
-      "docs/architecture/canonical-token-philosophy.md",
-      "docs/architecture/runtime-protocol-token-contract.md",
-      "guardian/protocol_tokens.py",
-      "guardian/queue/redis_queue.py",
-      "guardian/queue/task_events.py",
-      "guardian/routes/chat.py",
-      "tests/contracts/test_protocol_tokens.py"
+      "docs/audits/daily/evening/2026-03-21-audit.json",
+      "docs/audits/daily/evening/2026-03-21-audit.md",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/evening/latest.md",
+      "docs/audits/daily/morning/2026-03-22-audit.json",
+      "docs/audits/daily/morning/2026-03-22-audit.md",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/daily/morning/latest.md",
+      "docs/audits/latest.json",
+      "docs/audits/latest.md",
+      "scripts/audit_platform_readiness.py",
+      "scripts/daily_audit.py"
     ],
-    "window_end": "2026-03-22T09:11:02.392678-04:00",
+    "window_end": "2026-03-23T09:10:05.711700-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-21T09:11:02.392678-04:00"
+    "window_start": "2026-03-22T09:10:05.711700-04:00"
   },
-  "date": "2026-03-22",
-  "generated_at": "2026-03-22T09:11:02.392678-04:00",
+  "date": "2026-03-23",
+  "generated_at": "2026-03-23T09:10:05.711700-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -107,20 +111,12 @@
   },
   "phase": "morning",
   "repo": {
-    "branch": "codex/centralize-coreloop-protocol-tokens",
-    "date": "2026-03-22",
-    "dirty": true,
-    "head": "ee9fb463deca0fb3b4652409ce2ac3f23e65387c",
-    "status_lines": [
-      " M docs/audits/daily/evening/latest.json",
-      " M docs/audits/daily/evening/latest.md",
-      " M docs/audits/latest.json",
-      " M docs/audits/latest.md",
-      " M scripts/audit_platform_readiness.py",
-      " M scripts/daily_audit.py",
-      "?? docs/audits/daily/evening/2026-03-21-audit.json",
-      "?? docs/audits/daily/evening/2026-03-21-audit.md"
-    ]
+    "branch": "codex/daily-audit-refresh",
+    "date": "2026-03-23",
+    "dirty": null,
+    "head": "28752cdc963d8edda7943a7ee6c657455610a2b8",
+    "status_error": "git status --short --untracked-files=all failed: git-lfs filter-process: git-lfs: command not found\nfatal: the remote end hung up unexpectedly",
+    "status_lines": []
   },
   "risk_flags": [
     {
@@ -176,31 +172,21 @@
     }
   ],
   "subsystems_touched": {
-    "chat": {
-      "count": 1,
+    "audit": {
+      "count": 12,
       "files": [
-        "guardian/routes/chat.py"
-      ]
-    },
-    "docs": {
-      "count": 2,
-      "files": [
-        "docs/architecture/canonical-token-philosophy.md",
-        "docs/architecture/runtime-protocol-token-contract.md"
-      ]
-    },
-    "tests": {
-      "count": 1,
-      "files": [
-        "tests/contracts/test_protocol_tokens.py"
-      ]
-    },
-    "unknown": {
-      "count": 3,
-      "files": [
-        "guardian/protocol_tokens.py",
-        "guardian/queue/redis_queue.py",
-        "guardian/queue/task_events.py"
+        "docs/audits/daily/evening/2026-03-21-audit.json",
+        "docs/audits/daily/evening/2026-03-21-audit.md",
+        "docs/audits/daily/evening/latest.json",
+        "docs/audits/daily/evening/latest.md",
+        "docs/audits/daily/morning/2026-03-22-audit.json",
+        "docs/audits/daily/morning/2026-03-22-audit.md",
+        "docs/audits/daily/morning/latest.json",
+        "docs/audits/daily/morning/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md",
+        "scripts/audit_platform_readiness.py",
+        "scripts/daily_audit.py"
       ]
     }
   }
