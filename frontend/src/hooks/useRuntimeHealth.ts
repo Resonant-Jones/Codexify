@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import api from "@/lib/api";
-import { ConnectionStatus, useLiveEvents } from "@/hooks/useLiveEvents";
+import { useLiveEvents } from "@/hooks/useLiveEvents";
+import {
+  LIVE_EVENT_CONNECTION_STATES,
+  LiveEventConnectionState,
+} from "@/contracts/runtimeTokens";
 
 const POLL_INTERVAL_MS = 15000;
 const STALE_THRESHOLD_MS = 45000;
@@ -19,7 +23,7 @@ export type RuntimeHealthStatus = {
   backendReachable: boolean | null;
   chatHealthy: boolean | null;
   llmHealthy: boolean | null;
-  liveEventsStatus: ConnectionStatus;
+  liveEventsStatus: LiveEventConnectionState;
   lastSuccessAt: number | null;
   lastCheckedAt: number | null;
   stale: boolean;
@@ -88,7 +92,7 @@ function parseHealthResult(
 export function useRuntimeHealth(): RuntimeHealthStatus {
   const liveEvents = useLiveEvents({ passive: true });
   const connectionStatus =
-    liveEvents.connectionStatus ?? "disconnected";
+    liveEvents.connectionStatus ?? LIVE_EVENT_CONNECTION_STATES.DISCONNECTED;
   const statusUpdatedAt = liveEvents.statusUpdatedAt ?? null;
   const [snapshot, setSnapshot] = useState<HealthSnapshot>(INITIAL_SNAPSHOT);
   const inFlightRef = useRef(false);
@@ -151,7 +155,7 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
         ? now - firstCheckAt > STALE_THRESHOLD_MS
         : false;
   const liveEventsDisconnected =
-    connectionStatus === "disconnected" &&
+    connectionStatus === LIVE_EVENT_CONNECTION_STATES.DISCONNECTED &&
     typeof statusUpdatedAt === "number" &&
     now - statusUpdatedAt > STALE_THRESHOLD_MS;
 
