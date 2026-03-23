@@ -1,17 +1,21 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRuntimeHealth } from "@/hooks/useRuntimeHealth";
+import {
+  LIVE_EVENT_CONNECTION_STATES,
+  LiveEventConnectionState,
+} from "@/contracts/runtimeTokens";
 
 type LiveEventsStatus = {
   connected: boolean;
-  connectionStatus: "connecting" | "connected" | "reconnecting" | "disconnected";
+  connectionStatus: LiveEventConnectionState;
   statusUpdatedAt: number | null;
 };
 
 const apiGet = vi.fn();
 let liveEventsStatus: LiveEventsStatus = {
   connected: true,
-  connectionStatus: "connected",
+  connectionStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
   statusUpdatedAt: Date.now(),
 };
 
@@ -90,7 +94,7 @@ describe("useRuntimeHealth", () => {
     apiGet.mockReset();
     liveEventsStatus = {
       connected: true,
-      connectionStatus: "connected",
+      connectionStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
       statusUpdatedAt: Date.now(),
     };
   });
@@ -190,7 +194,7 @@ describe("useRuntimeHealth", () => {
     mockHealthResponses();
     liveEventsStatus = {
       connected: false,
-      connectionStatus: "disconnected",
+      connectionStatus: LIVE_EVENT_CONNECTION_STATES.DISCONNECTED,
       statusUpdatedAt: Date.now() - 46_000,
     };
     const { result } = renderHook(() => useRuntimeHealth());
@@ -201,5 +205,12 @@ describe("useRuntimeHealth", () => {
       expect(result.current.failureKind).toBe("live_events_disconnected");
       expect(result.current.status).toBe("degraded");
     });
+  });
+
+  it("exposes canonical live event connection tokens", () => {
+    expect(LIVE_EVENT_CONNECTION_STATES.CONNECTING).toBe("connecting");
+    expect(LIVE_EVENT_CONNECTION_STATES.CONNECTED).toBe("connected");
+    expect(LIVE_EVENT_CONNECTION_STATES.RECONNECTING).toBe("reconnecting");
+    expect(LIVE_EVENT_CONNECTION_STATES.DISCONNECTED).toBe("disconnected");
   });
 });
