@@ -5,11 +5,15 @@ import AppShell from "@/components/persona/layout/AppShell";
 import {
   LIVE_EVENT_CONNECTION_STATES,
   LiveEventConnectionState,
+  RUNTIME_HEALTH_FAILURE_KINDS,
+  RUNTIME_HEALTH_STATUSES,
+  RuntimeHealthFailureKindToken,
+  RuntimeHealthStatusToken,
 } from "@/contracts/runtimeTokens";
 
 type RuntimeHealthMock = {
-  status: "healthy" | "degraded";
-  failureKind: string | null;
+  status: RuntimeHealthStatusToken;
+  failureKind: RuntimeHealthFailureKindToken | "unknown" | null;
   lastSuccessAt: number | null;
   backendReachable: boolean | null;
   chatHealthy: boolean | null;
@@ -20,7 +24,7 @@ type RuntimeHealthMock = {
 };
 
 const runtimeHealthState: RuntimeHealthMock = {
-  status: "healthy",
+  status: RUNTIME_HEALTH_STATUSES.HEALTHY,
   failureKind: null,
   lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
   backendReachable: true,
@@ -172,7 +176,7 @@ vi.mock("@/theme", () => ({
 
 describe("AppShell runtime health banner", () => {
   beforeEach(() => {
-    runtimeHealthState.status = "healthy";
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
     runtimeHealthState.failureKind = null;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T12:00:00Z");
     if (!window.matchMedia) {
@@ -195,8 +199,9 @@ describe("AppShell runtime health banner", () => {
   });
 
   it("renders banner when runtime is degraded with failure kind and last healthy", () => {
-    runtimeHealthState.status = "degraded";
-    runtimeHealthState.failureKind = "backend_unreachable";
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealthState.failureKind =
+      RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
 
     render(<AppShell />);
@@ -209,8 +214,9 @@ describe("AppShell runtime health banner", () => {
   });
 
   it("does not render banner for missing health endpoint failure kind", () => {
-    runtimeHealthState.status = "degraded";
-    runtimeHealthState.failureKind = "health_endpoint_missing";
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealthState.failureKind =
+      RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
 
     render(<AppShell />);
@@ -219,8 +225,9 @@ describe("AppShell runtime health banner", () => {
   });
 
   it("renders banner for llm_unhealthy degradation", () => {
-    runtimeHealthState.status = "degraded";
-    runtimeHealthState.failureKind = "llm_unhealthy";
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealthState.failureKind =
+      RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
 
     render(<AppShell />);

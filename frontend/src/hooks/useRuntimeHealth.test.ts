@@ -4,6 +4,8 @@ import { useRuntimeHealth } from "@/hooks/useRuntimeHealth";
 import {
   LIVE_EVENT_CONNECTION_STATES,
   LiveEventConnectionState,
+  RUNTIME_HEALTH_FAILURE_KINDS,
+  RUNTIME_HEALTH_STATUSES,
 } from "@/contracts/runtimeTokens";
 
 type LiveEventsStatus = {
@@ -110,7 +112,7 @@ describe("useRuntimeHealth", () => {
       await flushPromises();
     });
     await waitFor(() => {
-      expect(result.current.status).toBe("healthy");
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.HEALTHY);
     });
   });
 
@@ -121,8 +123,10 @@ describe("useRuntimeHealth", () => {
       await flushPromises();
     });
     await waitFor(() => {
-      expect(result.current.failureKind).toBe("backend_unreachable");
-      expect(result.current.status).toBe("degraded");
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE
+      );
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
     });
   });
 
@@ -134,7 +138,9 @@ describe("useRuntimeHealth", () => {
     });
     await waitFor(() => {
       expect(result.current.backendReachable).toBe(true);
-      expect(result.current.failureKind).toBe("health_endpoint_missing");
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING
+      );
     });
   });
 
@@ -146,7 +152,9 @@ describe("useRuntimeHealth", () => {
     });
     await waitFor(() => {
       expect(result.current.backendReachable).toBe(true);
-      expect(result.current.failureKind).toBe("health_endpoint_missing");
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING
+      );
     });
   });
 
@@ -157,7 +165,9 @@ describe("useRuntimeHealth", () => {
       await flushPromises();
     });
     await waitFor(() => {
-      expect(result.current.failureKind).toBe("chat_unhealthy");
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY
+      );
     });
   });
 
@@ -168,7 +178,9 @@ describe("useRuntimeHealth", () => {
       await flushPromises();
     });
     await waitFor(() => {
-      expect(result.current.failureKind).toBe("llm_unhealthy");
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
+      );
     });
   });
 
@@ -179,15 +191,15 @@ describe("useRuntimeHealth", () => {
       await flushPromises();
     });
     await waitFor(() => {
-      expect(result.current.status).toBe("healthy");
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.HEALTHY);
     });
 
     act(() => {
       vi.setSystemTime(new Date("2026-03-20T12:01:00.000Z"));
     });
     rerender();
-    expect(result.current.failureKind).toBe("stale");
-    expect(result.current.status).toBe("degraded");
+    expect(result.current.failureKind).toBe(RUNTIME_HEALTH_FAILURE_KINDS.STALE);
+    expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
   });
 
   it("flags live events disconnected after the threshold", async () => {
@@ -202,8 +214,10 @@ describe("useRuntimeHealth", () => {
       await flushPromises();
     });
     await waitFor(() => {
-      expect(result.current.failureKind).toBe("live_events_disconnected");
-      expect(result.current.status).toBe("degraded");
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.LIVE_EVENTS_DISCONNECTED
+      );
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
     });
   });
 
@@ -212,5 +226,22 @@ describe("useRuntimeHealth", () => {
     expect(LIVE_EVENT_CONNECTION_STATES.CONNECTED).toBe("connected");
     expect(LIVE_EVENT_CONNECTION_STATES.RECONNECTING).toBe("reconnecting");
     expect(LIVE_EVENT_CONNECTION_STATES.DISCONNECTED).toBe("disconnected");
+  });
+
+  it("exposes canonical runtime health tokens", () => {
+    expect(RUNTIME_HEALTH_STATUSES.HEALTHY).toBe("healthy");
+    expect(RUNTIME_HEALTH_STATUSES.DEGRADED).toBe("degraded");
+    expect(RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE).toBe(
+      "backend_unreachable"
+    );
+    expect(RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING).toBe(
+      "health_endpoint_missing"
+    );
+    expect(RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY).toBe("chat_unhealthy");
+    expect(RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY).toBe("llm_unhealthy");
+    expect(RUNTIME_HEALTH_FAILURE_KINDS.LIVE_EVENTS_DISCONNECTED).toBe(
+      "live_events_disconnected"
+    );
+    expect(RUNTIME_HEALTH_FAILURE_KINDS.STALE).toBe("stale");
   });
 });
