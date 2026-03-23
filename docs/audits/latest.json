@@ -106,7 +106,7 @@
   "generated_at": "2026-03-23T09:10:05.711700-04:00",
   "manual_notes": {
     "blocked": "",
-    "finished_today": "",
+    "finished_today": "Supported path proof recorded in docs/architecture/2026-03-23-supported-path-proof.md",
     "next_priority": ""
   },
   "phase": "morning",

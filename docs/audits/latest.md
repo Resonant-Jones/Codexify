@@ -68,7 +68,6 @@ fatal: the remote end hung up unexpectedly
 - `federation_high_blast_radius`: Federation remains sensitive to trust policy, feature flags, and egress behavior. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
 
 ## Manual Notes
-- Finished today: 
+- Finished today: Supported path proof recorded in `docs/architecture/2026-03-23-supported-path-proof.md`
 - Blocked: 
 - Next priority: 
-
