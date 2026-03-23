@@ -1,7 +1,8 @@
+import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import typer
 
@@ -16,6 +17,25 @@ def _yield_md_files(root: Path):
     for p in root.rglob("*.md"):
         if p.is_file():
             yield p
+
+
+def _normalize_tags(value: Any) -> List[str]:
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        tags: List[str] = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                tags.append(text)
+        return tags
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    text = str(value).strip()
+    return [text] if text else []
 
 
 def _warn_frontmatter_parse_failed(path: str) -> None:
@@ -37,9 +57,7 @@ def _parse_frontmatter(text: str, *, path: str) -> Dict:
 
                     fm = yaml.safe_load(text[first_newline + 1 : end]) or {}
                     if not isinstance(fm, dict):
-                        raise ValueError(
-                            "frontmatter must parse to a mapping"
-                        )
+                        raise ValueError("frontmatter must parse to a mapping")
                     content = text[end + 5 :]
                     return {"frontmatter": fm, "content": content}
                 except Exception:
@@ -48,26 +66,94 @@ def _parse_frontmatter(text: str, *, path: str) -> Dict:
     return {"frontmatter": {}, "content": text}
 
 
-@app.command("ingest-obsidian")
-def ingest_obsidian(dir: str):
-    root = Path(dir)
-    store = VectorStore()
-    items: List[Dict] = []
+def _build_obsidian_items(root: Path) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
     for md in _yield_md_files(root):
         t = md.read_text(encoding="utf-8", errors="ignore")
         parsed = _parse_frontmatter(t, path=str(md))
         fm = parsed["frontmatter"]
         title = fm.get("title") or md.stem
-        tags = fm.get("tags") or []
+        tags = _normalize_tags(fm.get("tags"))
+        source_relpath = _obsidian_relpath(root, md)
+        source_root = str(root.resolve())
+        source_id = _obsidian_source_id(root, md, source_relpath)
+        content_hash = _hash_text(parsed["content"])
         items.append(
             {
+                "id": source_id,
                 "text": parsed["content"],
-                "meta": {"path": str(md), "tags": tags, "title": title},
+                "meta": {
+                    "path": str(md),
+                    "tags": tags,
+                    "title": title,
+                    "source_type": "obsidian",
+                    "source_root": source_root,
+                    "source_path": str(md),
+                    "source_relpath": source_relpath,
+                    "source_id": source_id,
+                    "source_content_hash": content_hash,
+                },
             }
         )
+    return items
+
+
+def _hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _obsidian_relpath(root: Path, note: Path) -> str:
+    try:
+        return note.relative_to(root).as_posix()
+    except ValueError:
+        return note.name
+
+
+def _obsidian_source_id(
+    root: Path, note: Path, relpath: str | None = None
+) -> str:
+    rel = relpath if relpath is not None else _obsidian_relpath(root, note)
+    root_id = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[
+        :12
+    ]
+    key = f"{root_id}:{rel}"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"obsidian:{digest}"
+
+
+@app.command("ingest-obsidian")
+def ingest_obsidian(
+    dir: str,
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Remove Obsidian entries under this vault root that are no longer present.",
+    ),
+):
+    if not isinstance(prune, bool):
+        prune = False
+    root = Path(dir)
+    store = VectorStore()
+    items = _build_obsidian_items(root)
     n = store.add_texts(items)
+    pruned = 0
+    if prune:
+        keep_ids = {
+            str(item["id"])
+            for item in items
+            if isinstance(item, dict) and item.get("id")
+        }
+        pruned = store.prune_source_root(str(root.resolve()), keep_ids)
     typer.echo(
-        json.dumps({"ingested": n, "dir": str(root)}, ensure_ascii=False)
+        json.dumps(
+            {
+                "ingested": n,
+                "dir": str(root),
+                "prune": prune,
+                "pruned": pruned,
+            },
+            ensure_ascii=False,
+        )
     )
 
 
