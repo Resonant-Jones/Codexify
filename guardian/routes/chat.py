@@ -21,7 +21,15 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
@@ -207,7 +215,7 @@ def _publish_completion_start_event(
         visibility_scope = task_events.classify_event_visibility(
             TASK_EVENT_TYPE_TASK_CREATED
         )
-        return {
+        failure = {
             "ok": False,
             "task_id": task.task_id,
             "event_type": TASK_EVENT_TYPE_TASK_CREATED,
@@ -220,6 +228,7 @@ def _publish_completion_start_event(
             "error": str(exc),
             "exception": exc,
         }
+        raise task_events.TaskEventPublishError.from_publish_result(failure) from exc
 
     if isinstance(publish_result, dict):
         if not publish_result.get("ok"):
@@ -235,7 +244,7 @@ def _publish_completion_start_event(
     visibility_scope = task_events.classify_event_visibility(
         TASK_EVENT_TYPE_TASK_CREATED
     )
-    return {
+    failure = {
         "ok": False,
         "task_id": task.task_id,
         "event_type": TASK_EVENT_TYPE_TASK_CREATED,
@@ -245,17 +254,13 @@ def _publish_completion_start_event(
         "event_id": None,
         "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
         "failure_class": "InvalidPublishResult",
-        "error": (
-            "unexpected result type: " f"{type(publish_result).__name__}"
-        ),
+        "error": f"unexpected result type: {type(publish_result).__name__}",
         "exception": TypeError(
             f"unexpected result type: {type(publish_result).__name__}"
         ),
     }
     raise task_events.TaskEventPublishError.from_publish_result(failure) from (
         failure["exception"]
-        if isinstance(failure.get("exception"), BaseException)
-        else None
     )
 
 
