@@ -21,7 +21,15 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
@@ -2569,12 +2577,11 @@ async def api_chat_complete(
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(
-    thread_id,
-    body,
-    request=request,
-    api_key=api_key,
-    request_id=request_id,
-)
+        thread_id,
+        body,
+        request=request,
+        api_key=api_key,
+        request_id=request_id,
     )
 
 
