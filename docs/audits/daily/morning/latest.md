@@ -1,26 +1,19 @@
-# Daily Audit — 2026-03-22
+# Daily Audit — 2026-03-23
 
 ## Repo Status
-- Date: 2026-03-22
+- Date: 2026-03-23
 - Phase: `morning`
-- Branch: `codex/centralize-coreloop-protocol-tokens`
-- HEAD: `ee9fb463deca0fb3b4652409ce2ac3f23e65387c`
-- Worktree: dirty
-- Status lines:
-  - ` M docs/audits/daily/evening/latest.json`
-  - ` M docs/audits/daily/evening/latest.md`
-  - ` M docs/audits/latest.json`
-  - ` M docs/audits/latest.md`
-  - ` M scripts/audit_platform_readiness.py`
-  - ` M scripts/daily_audit.py`
-  - `?? docs/audits/daily/evening/2026-03-21-audit.json`
-  - `?? docs/audits/daily/evening/2026-03-21-audit.md`
+- Branch: `codex/daily-audit-refresh`
+- HEAD: `28752cdc963d8edda7943a7ee6c657455610a2b8`
+- Worktree: unknown
+- Worktree status note: git status --short --untracked-files=all failed: git-lfs filter-process: git-lfs: command not found
+fatal: the remote end hung up unexpectedly
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
 - Attempted commands:
-  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
-  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
+  - `/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
+  - `/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
 - Summary counts: PASS 40, WARN 11, FAIL 0
 - Strongest evidence: `Core Loop Integrity`, `Primitive Stability`, `Extension Boundary`
 - Weakest signals: `Federation Readiness`, `Governance Readiness`, `Alternate Surface Readiness`
@@ -54,22 +47,18 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 2
-- Unique files changed: 7
-- Files changed: `docs/architecture/canonical-token-philosophy.md`, `docs/architecture/runtime-protocol-token-contract.md`, `guardian/protocol_tokens.py`, `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/chat.py`, `tests/contracts/test_protocol_tokens.py`
+- Commit count: 1
+- Unique files changed: 12
+- Files changed: `docs/audits/daily/evening/2026-03-21-audit.json`, `docs/audits/daily/evening/2026-03-21-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-03-22-audit.json`, `docs/audits/daily/morning/2026-03-22-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `scripts/audit_platform_readiness.py`, `scripts/daily_audit.py`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `ee9fb463deca` | Add canonical token philosophy doc | `docs/architecture/canonical-token-philosophy.md` |
-| `6748bb33b670` | Add canonical protocol token registry | `docs/architecture/runtime-protocol-token-contract.md`, `guardian/protocol_tokens.py`, `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/routes/chat.py`, `tests/contracts/test_protocol_tokens.py` |
+| `28752cdc963d` | Update audit scripts and generated daily reports | `docs/audits/daily/evening/2026-03-21-audit.json`, `docs/audits/daily/evening/2026-03-21-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-03-22-audit.json`, `docs/audits/daily/morning/2026-03-22-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `scripts/audit_platform_readiness.py`, `scripts/daily_audit.py` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `chat` | 1 | `guardian/routes/chat.py` |
-| `docs` | 2 | `docs/architecture/canonical-token-philosophy.md`, `docs/architecture/runtime-protocol-token-contract.md` |
-| `tests` | 1 | `tests/contracts/test_protocol_tokens.py` |
-| `unknown` | 3 | `guardian/protocol_tokens.py`, `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py` |
+| `audit` | 12 | `docs/audits/daily/evening/2026-03-21-audit.json`, `docs/audits/daily/evening/2026-03-21-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-03-22-audit.json`, `docs/audits/daily/morning/2026-03-22-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `scripts/audit_platform_readiness.py`, `scripts/daily_audit.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
