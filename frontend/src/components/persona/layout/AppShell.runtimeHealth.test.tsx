@@ -203,4 +203,17 @@ describe("AppShell runtime health banner", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/last healthy:/i)).toBeInTheDocument();
   });
+
+  it("renders banner with missing health endpoint failure kind", () => {
+    runtimeHealthState.status = "degraded";
+    runtimeHealthState.failureKind = "health_endpoint_missing";
+    runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
+
+    render(<AppShell />);
+
+    expect(screen.getByText(/Runtime degraded/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/failure:\s*health_endpoint_missing/i)
+    ).toBeInTheDocument();
+  });
 });
