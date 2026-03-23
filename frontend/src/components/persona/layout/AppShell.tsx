@@ -1615,6 +1615,8 @@ export default function AppShell({
 
   const runtimeDegraded = runtimeHealth.status === "degraded";
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const showRuntimeBanner =
+    runtimeDegraded && runtimeFailureKind !== "health_endpoint_missing";
   const runtimeLastHealthy = runtimeHealth.lastSuccessAt
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
@@ -1822,7 +1824,7 @@ export default function AppShell({
         )}
       </div>
 
-      {runtimeDegraded && (
+      {showRuntimeBanner && (
         <div className="relative z-10 w-full mt-3">
           <div
             className="flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
