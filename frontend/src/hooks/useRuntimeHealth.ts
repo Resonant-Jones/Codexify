@@ -7,6 +7,7 @@ const STALE_THRESHOLD_MS = 45000;
 
 export type RuntimeFailureKind =
   | "backend_unreachable"
+  | "health_endpoint_missing"
   | "chat_unhealthy"
   | "llm_unhealthy"
   | "live_events_disconnected"
@@ -26,6 +27,7 @@ export type RuntimeHealthStatus = {
 
 type HealthSnapshot = {
   backendReachable: boolean | null;
+  healthEndpointMissing: boolean | null;
   chatHealthy: boolean | null;
   llmHealthy: boolean | null;
   lastSuccessAt: number | null;
@@ -34,6 +36,7 @@ type HealthSnapshot = {
 
 const INITIAL_SNAPSHOT: HealthSnapshot = {
   backendReachable: null,
+  healthEndpointMissing: null,
   chatHealthy: null,
   llmHealthy: null,
   lastSuccessAt: null,
@@ -45,6 +48,41 @@ function isHealthOk(payload: unknown): boolean {
   const candidate = payload as { ok?: unknown; status?: unknown };
   if (typeof candidate.ok === "boolean") return candidate.ok;
   return String(candidate.status ?? "").toLowerCase() === "ok";
+}
+
+type HealthResult = {
+  reachable: boolean;
+  ok: boolean | null;
+  missing: boolean;
+};
+
+function responseStatusFromResult(
+  result: PromiseSettledResult<{ data?: unknown }>
+): number | null {
+  if (result.status !== "rejected") return null;
+  const reason = result.reason as { response?: { status?: number } } | null;
+  const status = reason?.response?.status;
+  return typeof status === "number" ? status : null;
+}
+
+function parseHealthResult(
+  result: PromiseSettledResult<{ data?: unknown }>
+): HealthResult {
+  if (result.status === "fulfilled") {
+    return {
+      reachable: true,
+      ok: isHealthOk(result.value?.data),
+      missing: false,
+    };
+  }
+  const status = responseStatusFromResult(result);
+  if (status === 404) {
+    return { reachable: true, ok: null, missing: true };
+  }
+  if (status != null) {
+    return { reachable: true, ok: false, missing: false };
+  }
+  return { reachable: false, ok: null, missing: false };
 }
 
 export function useRuntimeHealth(): RuntimeHealthStatus {
@@ -71,17 +109,19 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
           api.get("/health/llm"),
         ]);
 
-      const backendReachable = backendResult.status === "fulfilled";
-      const chatHealthy =
-        chatResult.status === "fulfilled" &&
-        isHealthOk(chatResult.value?.data);
-      const llmHealthy =
-        llmResult.status === "fulfilled" &&
-        isHealthOk(llmResult.value?.data);
+      const backendHealth = parseHealthResult(backendResult);
+      const chatHealth = parseHealthResult(chatResult);
+      const llmHealth = parseHealthResult(llmResult);
+      const backendReachable = backendHealth.reachable;
+      const chatHealthy = chatHealth.ok;
+      const llmHealthy = llmHealth.ok;
+      const healthEndpointMissing =
+        backendHealth.missing || chatHealth.missing || llmHealth.missing;
       const success = backendReachable && chatHealthy && llmHealthy;
 
       setSnapshot((prev) => ({
         backendReachable,
+        healthEndpointMissing,
         chatHealthy,
         llmHealthy,
         lastCheckedAt: startedAt,
@@ -118,6 +158,8 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
   let failureKind: RuntimeFailureKind | null = null;
   if (hasChecked && snapshot.backendReachable === false) {
     failureKind = "backend_unreachable";
+  } else if (hasChecked && snapshot.healthEndpointMissing) {
+    failureKind = "health_endpoint_missing";
   } else if (hasChecked && snapshot.chatHealthy === false) {
     failureKind = "chat_unhealthy";
   } else if (hasChecked && snapshot.llmHealthy === false) {

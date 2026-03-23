@@ -25,12 +25,15 @@ vi.mock("@/hooks/useLiveEvents", () => ({
   useLiveEvents: () => liveEventsStatus,
 }));
 
-const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+const flushPromises = async () => {
+  await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(0);
+};
 
 function mockHealthResponses(overrides: {
-  backend?: "ok" | "fail";
-  chat?: "ok" | "fail";
-  llm?: "ok" | "fail";
+  backend?: "ok" | "fail" | "missing";
+  chat?: "ok" | "fail" | "missing";
+  llm?: "ok" | "fail" | "missing";
 } = {}) {
   const backend = overrides.backend ?? "ok";
   const chat = overrides.chat ?? "ok";
@@ -38,19 +41,43 @@ function mockHealthResponses(overrides: {
 
   apiGet.mockImplementation((path: string) => {
     if (path === "/health") {
-      return backend === "ok"
-        ? Promise.resolve({ data: { status: "ok" } })
-        : Promise.reject(new Error("backend down"));
+      if (backend === "ok") {
+        return Promise.resolve({ data: { status: "ok" } });
+      }
+      if (backend === "missing") {
+        const error = new Error("not found") as Error & {
+          response?: { status?: number };
+        };
+        error.response = { status: 404 };
+        return Promise.reject(error);
+      }
+      return Promise.reject(new Error("backend down"));
     }
     if (path === "/health/chat") {
-      return chat === "ok"
-        ? Promise.resolve({ data: { ok: true } })
-        : Promise.resolve({ data: { ok: false } });
+      if (chat === "ok") {
+        return Promise.resolve({ data: { ok: true } });
+      }
+      if (chat === "missing") {
+        const error = new Error("not found") as Error & {
+          response?: { status?: number };
+        };
+        error.response = { status: 404 };
+        return Promise.reject(error);
+      }
+      return Promise.resolve({ data: { ok: false } });
     }
     if (path === "/health/llm") {
-      return llm === "ok"
-        ? Promise.resolve({ data: { ok: true } })
-        : Promise.resolve({ data: { ok: false } });
+      if (llm === "ok") {
+        return Promise.resolve({ data: { ok: true } });
+      }
+      if (llm === "missing") {
+        const error = new Error("not found") as Error & {
+          response?: { status?: number };
+        };
+        error.response = { status: 404 };
+        return Promise.reject(error);
+      }
+      return Promise.resolve({ data: { ok: false } });
     }
     return Promise.reject(new Error("unknown endpoint"));
   });
@@ -92,6 +119,30 @@ describe("useRuntimeHealth", () => {
     await waitFor(() => {
       expect(result.current.failureKind).toBe("backend_unreachable");
       expect(result.current.status).toBe("degraded");
+    });
+  });
+
+  it("treats /health 404 as missing endpoint, not backend unreachable", async () => {
+    mockHealthResponses({ backend: "missing" });
+    const { result } = renderHook(() => useRuntimeHealth());
+    await act(async () => {
+      await flushPromises();
+    });
+    await waitFor(() => {
+      expect(result.current.backendReachable).toBe(true);
+      expect(result.current.failureKind).toBe("health_endpoint_missing");
+    });
+  });
+
+  it("treats /health/chat 404 as missing endpoint, not backend unreachable", async () => {
+    mockHealthResponses({ chat: "missing" });
+    const { result } = renderHook(() => useRuntimeHealth());
+    await act(async () => {
+      await flushPromises();
+    });
+    await waitFor(() => {
+      expect(result.current.backendReachable).toBe(true);
+      expect(result.current.failureKind).toBe("health_endpoint_missing");
     });
   });
 
