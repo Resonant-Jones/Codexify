@@ -4,21 +4,19 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import {
   LIVE_EVENT_CONNECTION_STATES,
   LiveEventConnectionState,
+  RUNTIME_HEALTH_FAILURE_KINDS,
+  RUNTIME_HEALTH_STATUSES,
+  RuntimeHealthFailureKindToken,
+  RuntimeHealthStatusToken,
 } from "@/contracts/runtimeTokens";
 
 const POLL_INTERVAL_MS = 15000;
 const STALE_THRESHOLD_MS = 45000;
 
-export type RuntimeFailureKind =
-  | "backend_unreachable"
-  | "health_endpoint_missing"
-  | "chat_unhealthy"
-  | "llm_unhealthy"
-  | "live_events_disconnected"
-  | "stale";
+export type RuntimeFailureKind = RuntimeHealthFailureKindToken;
 
 export type RuntimeHealthStatus = {
-  status: "healthy" | "degraded";
+  status: RuntimeHealthStatusToken;
   failureKind: RuntimeFailureKind | null;
   backendReachable: boolean | null;
   chatHealthy: boolean | null;
@@ -161,21 +159,23 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
 
   let failureKind: RuntimeFailureKind | null = null;
   if (hasChecked && snapshot.backendReachable === false) {
-    failureKind = "backend_unreachable";
+    failureKind = RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE;
   } else if (hasChecked && snapshot.healthEndpointMissing) {
-    failureKind = "health_endpoint_missing";
+    failureKind = RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
   } else if (hasChecked && snapshot.chatHealthy === false) {
-    failureKind = "chat_unhealthy";
+    failureKind = RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY;
   } else if (hasChecked && snapshot.llmHealthy === false) {
-    failureKind = "llm_unhealthy";
+    failureKind = RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
   } else if (liveEventsDisconnected) {
-    failureKind = "live_events_disconnected";
+    failureKind = RUNTIME_HEALTH_FAILURE_KINDS.LIVE_EVENTS_DISCONNECTED;
   } else if (stale) {
-    failureKind = "stale";
+    failureKind = RUNTIME_HEALTH_FAILURE_KINDS.STALE;
   }
 
   return {
-    status: failureKind ? "degraded" : "healthy",
+    status: failureKind
+      ? RUNTIME_HEALTH_STATUSES.DEGRADED
+      : RUNTIME_HEALTH_STATUSES.HEALTHY,
     failureKind,
     backendReachable: snapshot.backendReachable,
     chatHealthy: snapshot.chatHealthy,

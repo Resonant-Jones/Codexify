@@ -41,6 +41,10 @@ import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import {
+  RUNTIME_HEALTH_FAILURE_KINDS,
+  RUNTIME_HEALTH_STATUSES,
+} from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
@@ -1613,10 +1617,12 @@ export default function AppShell({
     return { flex: "1 1 0%", maxWidth: "18rem" };
   }, [bp]);
 
-  const runtimeDegraded = runtimeHealth.status === "degraded";
+  const runtimeDegraded =
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
   const showRuntimeBanner =
-    runtimeDegraded && runtimeFailureKind !== "health_endpoint_missing";
+    runtimeDegraded &&
+    runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
   const runtimeLastHealthy = runtimeHealth.lastSuccessAt
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
