@@ -63,10 +63,13 @@ export async function fetchPersonaSettings(
 }
 
 export async function updatePersonaSettings(
-  body: { text: string } & PersonaSettingsContext
+  body: { text: string; persona_prompt?: string; system_prompt?: string } &
+    PersonaSettingsContext
 ): Promise<ActivePersonaSettings> {
   const res = await api.post<UpdatePersonaResponse>("/api/imprint/persona", {
     body: body.text,
+    persona_prompt: body.persona_prompt ?? body.text,
+    system_prompt: body.system_prompt ?? body.text,
     ...toRequestParams(body),
   });
   return normalizePersona(res.data);
