@@ -27,6 +27,7 @@ inline literals.
   `task.cancelled`, `task.event`.
 - Error codes: `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
   `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`.
+- Embedding lifecycle statuses: `pending`, `processing`, `ready`, `failed`.
 
 ## Change process
 - Add the new token to `guardian/protocol_tokens.py`.
