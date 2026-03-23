@@ -2,6 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import AppShell from "@/components/persona/layout/AppShell";
+import {
+  LIVE_EVENT_CONNECTION_STATES,
+  LiveEventConnectionState,
+} from "@/contracts/runtimeTokens";
 
 type RuntimeHealthMock = {
   status: "healthy" | "degraded";
@@ -10,7 +14,7 @@ type RuntimeHealthMock = {
   backendReachable: boolean | null;
   chatHealthy: boolean | null;
   llmHealthy: boolean | null;
-  liveEventsStatus: "connecting" | "connected" | "reconnecting" | "disconnected";
+  liveEventsStatus: LiveEventConnectionState;
   lastCheckedAt: number | null;
   stale: boolean;
 };
@@ -22,7 +26,7 @@ const runtimeHealthState: RuntimeHealthMock = {
   backendReachable: true,
   chatHealthy: true,
   llmHealthy: true,
-  liveEventsStatus: "connected",
+  liveEventsStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
 };
@@ -36,7 +40,7 @@ vi.mock("@/hooks/useLiveEvents", () => ({
     lastEvent: null,
     subscribe: () => () => {},
     connected: true,
-    connectionStatus: "connected",
+    connectionStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
     statusUpdatedAt: Date.now(),
   }),
 }));
