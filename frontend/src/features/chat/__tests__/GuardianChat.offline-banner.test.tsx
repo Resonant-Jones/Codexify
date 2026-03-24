@@ -60,6 +60,7 @@ vi.mock("@/features/chat/useChat", () => ({
     updateCompletionTaskId: vi.fn(),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
+    refreshSnapshot: vi.fn(),
   }),
 }));
 

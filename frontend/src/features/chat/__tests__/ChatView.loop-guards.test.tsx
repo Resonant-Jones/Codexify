@@ -50,6 +50,7 @@ vi.mock("@/features/chat/useChat", () => ({
     hasMore: false,
     shouldRefresh: shouldRefreshMock,
     markRefreshed: markRefreshedMock,
+    refreshSnapshot: vi.fn(),
   }),
   parseMessagesResponse: (data: any) => {
     if (data?.ok && Array.isArray(data.messages)) {
