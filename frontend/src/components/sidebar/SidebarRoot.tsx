@@ -27,7 +27,10 @@ type Props = {
   hasMoreThreads?: boolean;
   loadingMoreThreads?: boolean;
   onLoadMoreThreads?: () => void | Promise<void>;
-  onDeleteThread?: (threadId: string) => void;
+  onDeleteThread?: (threadId: string) => void | Promise<void>;
+  onBeforeDeleteThread?: (
+    threadId: string
+  ) => string | null | Promise<string | null>;
   onCreateProject?: (data: { name: string; icon?: string; color?: string }) => Promise<Project | void> | Project | void;
 };
 
@@ -94,6 +97,7 @@ export default function SidebarRoot({
   loadingMoreThreads = false,
   onLoadMoreThreads,
   onDeleteThread,
+  onBeforeDeleteThread,
   onCreateProject,
 }: Props) {
   const [tab, setTab] = React.useState<"threads" | "projects">(() =>
@@ -196,14 +200,27 @@ export default function SidebarRoot({
 
   const handleDelete = React.useCallback(
     async (id: string) => {
+      const blockedMessage = await onBeforeDeleteThread?.(id);
+      if (blockedMessage) {
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: { kind: "error", message: blockedMessage },
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       await deleteThread(id);
       try {
-        onDeleteThread?.(id);
+        await onDeleteThread?.(id);
       } catch {
         /* ignore */
       }
     },
-    [deleteThread, onDeleteThread]
+    [deleteThread, onBeforeDeleteThread, onDeleteThread]
   );
 
   const handleArchiveToggle = React.useCallback(
