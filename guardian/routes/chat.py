@@ -657,36 +657,74 @@ def _derive_thread_title_from_content(content: str) -> str:
     return first_line
 
 
-def _merge_neo4j_message_edge(
-    *, message_node: Any, target_node: Any, rel_type: str
+def _graph_ingest_query_debug_enabled() -> bool:
+    if not getattr(llm_settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False):
+        return False
+    raw_flag = os.getenv("GUARDIAN_ENABLE_GRAPH_INGEST_QUERY_DEBUG", "")
+    return str(raw_flag).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _execute_neo4j_ingest_cypher(
+    query: str, params: Dict[str, Any]
+) -> tuple[Any, Any]:
+    if neo4j_db is None:
+        return [], None
+    if _graph_ingest_query_debug_enabled():
+        logger.debug(
+            "[chat.ingest.neo4j] cypher=%s param_keys=%s",
+            query.strip(),
+            sorted(params.keys()),
+        )
+    return neo4j_db.cypher_query(query, params)
+
+
+def _sync_live_ingest_message_to_neo4j(
+    *,
+    message_id: str,
+    thread_id: str,
+    user_id: str,
+    message_text: str,
+    created_at: datetime,
 ) -> None:
     """
-    Merge MessageNode->Target relationship with anchored MATCH clauses.
-
-    This avoids Neo4j cartesian-product planner warnings emitted by OGM
-    generated queries for disconnected MATCH patterns.
+    Upsert the live-ingest graph nodes and relationships with a safe chained
+    MERGE flow so the write path never emits disconnected same-scope MATCH
+    patterns.
     """
-    if neo4j_db is None:
-        return
-    if rel_type == "SENT_BY":
-        query = """
-        MATCH (them) WHERE elementId(them) = $them
-        MATCH (us)   WHERE elementId(us)   = $self
-        MERGE(us)-[r:`SENT_BY`]->(them)
-        """
-    elif rel_type == "PART_OF":
-        query = """
-        MATCH (them) WHERE elementId(them) = $them
-        MATCH (us)   WHERE elementId(us)   = $self
-        MERGE(us)-[r:`PART_OF`]->(them)
-        """
-    else:
-        raise ValueError(f"Unsupported relationship type: {rel_type}")
-    neo4j_db.cypher_query(
+    query = """
+    MERGE (user:UserNode {user_id: $user_id})
+    ON CREATE SET
+        user.uuid = $user_uuid,
+        user.name = $user_name,
+        user.created_at = $user_created_at
+    MERGE (thread:ThreadNode {thread_id: $thread_id})
+    ON CREATE SET
+        thread.uuid = $thread_uuid,
+        thread.created_at = $thread_created_at
+    MERGE (message:MessageNode {message_id: $message_id})
+    ON CREATE SET
+        message.uuid = $message_uuid,
+        message.content = $message_content,
+        message.created_at = $message_created_at
+    WITH message, user, thread
+    MERGE (message)-[:SENT_BY]->(user)
+    MERGE (message)-[:PART_OF]->(thread)
+    RETURN elementId(message) AS message_element_id
+    """
+    _execute_neo4j_ingest_cypher(
         query,
         {
-            "them": str(target_node.element_id),
-            "self": str(message_node.element_id),
+            "user_id": user_id,
+            "user_name": user_id,
+            "user_uuid": uuid.uuid4().hex,
+            "user_created_at": created_at,
+            "thread_id": thread_id,
+            "thread_uuid": uuid.uuid4().hex,
+            "thread_created_at": created_at,
+            "message_id": message_id,
+            "message_uuid": uuid.uuid4().hex,
+            "message_content": message_text,
+            "message_created_at": created_at,
         },
     )
 
@@ -840,36 +878,14 @@ def _persist_message_to_thread(
             thread_id_str = str(thread_id)
             user_id_str = str(owner)
             message_text = content
+            created_at = datetime.now(timezone.utc)
 
-            neo_user = UserNode.get_or_create(
-                {"user_id": user_id_str, "name": user_id_str}
-            )
-            if isinstance(neo_user, list):
-                neo_user = neo_user[0]
-
-            neo_thread = ThreadNode.get_or_create({"thread_id": thread_id_str})
-            if isinstance(neo_thread, list):
-                neo_thread = neo_thread[0]
-
-            neo_msg = MessageNode.get_or_create(
-                {
-                    "message_id": message_id,
-                    "content": message_text,
-                    "created_at": datetime.now(timezone.utc),
-                }
-            )
-            if isinstance(neo_msg, list):
-                neo_msg = neo_msg[0]
-
-            _merge_neo4j_message_edge(
-                message_node=neo_msg,
-                target_node=neo_user,
-                rel_type="SENT_BY",
-            )
-            _merge_neo4j_message_edge(
-                message_node=neo_msg,
-                target_node=neo_thread,
-                rel_type="PART_OF",
+            _sync_live_ingest_message_to_neo4j(
+                message_id=message_id,
+                thread_id=thread_id_str,
+                user_id=user_id_str,
+                message_text=message_text,
+                created_at=created_at,
             )
 
         except Exception as e:
