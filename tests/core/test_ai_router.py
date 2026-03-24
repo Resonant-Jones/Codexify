@@ -6,7 +6,7 @@ import pytest
 import requests
 from fastapi import HTTPException
 
-from guardian.core.ai_router import call_alibaba, chat_with_ai
+from guardian.core.ai_router import call_alibaba, call_minimax, chat_with_ai
 from guardian.core.config import Settings
 
 
@@ -191,3 +191,137 @@ def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
     assert "Attempted endpoints" in detail
     assert "127.0.0.1:11434" in detail
     assert "host.docker.internal:11434" in detail
+
+
+def test_call_alibaba_missing_key_surfaces_auth_config_failure():
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="alibaba",
+        ALIBABA_API_KEY="",
+        ALIBABA_API_BASE="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+        ALIBABA_MODEL="qwen-plus",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_alibaba(
+            [{"role": "user", "content": "Hello"}],
+            "qwen-plus",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail["provider"] == "alibaba"
+    assert exc.value.detail["failure_kind"] == "auth_config_error"
+    assert (
+        exc.value.detail["provider_error"]
+        == "ALIBABA_API_KEY is not configured"
+    )
+
+
+def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        raise requests.exceptions.Timeout("request timed out")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router.assert_egress_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="alibaba",
+        ALIBABA_API_KEY="test-alibaba-key",
+        ALIBABA_API_BASE="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+        ALIBABA_MODEL="qwen-plus",
+        ALIBABA_TIMEOUT_SECONDS=5.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_alibaba(
+            [{"role": "user", "content": "Hello"}],
+            "qwen-plus",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "alibaba"
+    assert detail["failure_kind"] == "provider_timeout"
+    assert detail["transport_classification"] == "timeout"
+
+
+def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        raise requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router.assert_egress_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="minimax",
+        MINIMAX_API_KEY="test-minimax-key",
+        MINIMAX_API_BASE="https://api.minimax.chat/v1",
+        MINIMAX_MODEL="abab6.5s-chat",
+        MINIMAX_TIMEOUT_SECONDS=5.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_minimax(
+            [{"role": "user", "content": "Hi"}],
+            "abab6.5s-chat",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "minimax"
+    assert detail["failure_kind"] == "transport_error"
+    assert detail["transport_classification"] == "connection_refused"
+
+
+def test_call_minimax_http_error_surfaces_provider_error_payload(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        return _MockResponse(
+            {"error": {"message": "quota exceeded"}},
+            status_code=429,
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router.assert_egress_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="minimax",
+        MINIMAX_API_KEY="test-minimax-key",
+        MINIMAX_API_BASE="https://api.minimax.chat/v1",
+        MINIMAX_MODEL="abab6.5s-chat",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_minimax(
+            [{"role": "user", "content": "Hi"}],
+            "abab6.5s-chat",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "minimax"
+    assert detail["failure_kind"] == "provider_http_error"
+    assert detail["upstream_status"] == 429
+    assert detail["provider_error"] == "quota exceeded"

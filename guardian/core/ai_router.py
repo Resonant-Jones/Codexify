@@ -508,6 +508,13 @@ def _classify_transport_error(exc: Exception) -> str:
     return "request_error"
 
 
+def _provider_transport_failure_kind(exc: Exception) -> str:
+    classification = _classify_transport_error(exc)
+    if classification == "timeout":
+        return "provider_timeout"
+    return "transport_error"
+
+
 def _normalize_openai_model(model: str, settings: Settings) -> str:
     """Ensure we send a chat-compatible OpenAI model."""
     if model.startswith("gpt-4.1") or model.startswith("o3"):
@@ -1125,6 +1132,7 @@ def _call_openai_compatible_chat(
     model: str,
     timeout: float,
     settings: Settings,
+    typed_failure_kinds: bool = False,
 ):
     try:
         assert_egress_allowed(egress_target, settings=settings)
@@ -1165,12 +1173,18 @@ def _call_openai_compatible_chat(
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=clean_api_key)
+        transport_classification = _classify_transport_error(exc)
+        failure_kind = (
+            _provider_transport_failure_kind(exc)
+            if typed_failure_kinds
+            else "request_error"
+        )
         logger.exception(
             "%s backend request error model=%s endpoint=%s transport=%s",
             provider_display_name,
             model,
             url,
-            _classify_transport_error(exc),
+            transport_classification,
         )
         raise HTTPException(
             status_code=502,
@@ -1178,10 +1192,10 @@ def _call_openai_compatible_chat(
                 provider=provider_name,
                 model=model,
                 endpoint=url,
-                failure_kind="request_error",
+                failure_kind=failure_kind,
                 message=f"{provider_display_name} request failed: {detail}",
                 provider_error=detail,
-                transport_classification=_classify_transport_error(exc),
+                transport_classification=transport_classification,
             ),
         ) from exc
 
@@ -1201,7 +1215,11 @@ def _call_openai_compatible_chat(
                 provider=provider_name,
                 model=model,
                 endpoint=url,
-                failure_kind="http_error",
+                failure_kind=(
+                    "provider_http_error"
+                    if typed_failure_kinds
+                    else "http_error"
+                ),
                 message=(
                     f"{provider_display_name} request failed "
                     f"({response.status_code}): {detail}"
@@ -1228,7 +1246,11 @@ def _call_openai_compatible_chat(
                 provider=provider_name,
                 model=model,
                 endpoint=url,
-                failure_kind="parse_error",
+                failure_kind=(
+                    "provider_payload_error"
+                    if typed_failure_kinds
+                    else "parse_error"
+                ),
                 message=f"{provider_display_name} response parse failed: {detail}",
                 provider_error=detail,
             ),
@@ -1259,6 +1281,38 @@ def call_alibaba(messages, model: str, *, settings: Optional[Settings] = None):
             status_code=403,
             detail="Egress 'alibaba' blocked: ALLOW_CLOUD_PROVIDERS=false.",
         )
+
+    api_key = str(settings.ALIBABA_API_KEY or "").strip()
+    base_url_raw = settings.ALIBABA_API_BASE
+    if base_url_raw is None:
+        base_url = _DEFAULT_ALIBABA_BASE
+    else:
+        base_url = str(base_url_raw).strip()
+    endpoint = f"{base_url.rstrip('/')}/chat/completions"
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=_provider_failure_detail(
+                provider="alibaba",
+                model=model,
+                endpoint=endpoint,
+                failure_kind="auth_config_error",
+                message="Alibaba provider credentials are not configured",
+                provider_error="ALIBABA_API_KEY is not configured",
+            ),
+        )
+    if not base_url:
+        raise HTTPException(
+            status_code=400,
+            detail=_provider_failure_detail(
+                provider="alibaba",
+                model=model,
+                endpoint=endpoint,
+                failure_kind="auth_config_error",
+                message="Alibaba provider endpoint is not configured",
+                provider_error="ALIBABA_API_BASE is not configured",
+            ),
+        )
     return _call_openai_compatible_chat(
         provider_name="alibaba",
         provider_display_name="Alibaba",
@@ -1277,6 +1331,7 @@ def call_alibaba(messages, model: str, *, settings: Optional[Settings] = None):
             )
         ),
         settings=settings,
+        typed_failure_kinds=True,
     )
 
 
@@ -1368,17 +1423,34 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     api_key = (settings.MINIMAX_API_KEY or "").strip()
+    endpoint_hint = "minimax://chat/completions"
     if not api_key:
         raise HTTPException(
             status_code=400,
-            detail="MINIMAX_API_KEY is not configured",
+            detail=_provider_failure_detail(
+                provider="minimax",
+                model=model,
+                endpoint=endpoint_hint,
+                failure_kind="auth_config_error",
+                message="MiniMax provider credentials are not configured",
+                provider_error="MINIMAX_API_KEY is not configured",
+            ),
         )
 
     base_url = (settings.MINIMAX_API_BASE or "").strip().rstrip("/")
+    if base_url:
+        endpoint_hint = f"{base_url}/chat/completions"
     if not base_url:
         raise HTTPException(
             status_code=400,
-            detail="MINIMAX_API_BASE is not configured",
+            detail=_provider_failure_detail(
+                provider="minimax",
+                model=model,
+                endpoint=endpoint_hint,
+                failure_kind="auth_config_error",
+                message="MiniMax provider endpoint is not configured",
+                provider_error="MINIMAX_API_BASE is not configured",
+            ),
         )
 
     api_flavor = str(getattr(settings, "MINIMAX_API_FLAVOR", "openai") or "")
@@ -1444,11 +1516,12 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
+        transport_classification = _classify_transport_error(exc)
         logger.exception(
             "MiniMax backend request error model=%s endpoint=%s transport=%s",
             model,
             url,
-            _classify_transport_error(exc),
+            transport_classification,
         )
         raise HTTPException(
             status_code=502,
@@ -1456,10 +1529,10 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
                 provider="minimax",
                 model=model,
                 endpoint=url,
-                failure_kind="request_error",
+                failure_kind=_provider_transport_failure_kind(exc),
                 message=f"MiniMax request failed: {detail}",
                 provider_error=detail,
-                transport_classification=_classify_transport_error(exc),
+                transport_classification=transport_classification,
             ),
         ) from exc
 
@@ -1471,7 +1544,7 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
                 provider="minimax",
                 model=model,
                 endpoint=url,
-                failure_kind="http_error",
+                failure_kind="provider_http_error",
                 message=f"MiniMax request failed ({response.status_code}): {detail}",
                 upstream_status=response.status_code,
                 provider_error=detail,
@@ -1499,7 +1572,7 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
                 provider="minimax",
                 model=model,
                 endpoint=url,
-                failure_kind="parse_error",
+                failure_kind="provider_payload_error",
                 message=f"MiniMax response parse failed: {detail}",
                 provider_error=detail,
             ),
