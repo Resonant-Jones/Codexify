@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+import requests
+from fastapi import HTTPException
+
 from guardian.core.ai_router import call_alibaba, chat_with_ai
 from guardian.core.config import Settings
 
@@ -11,6 +17,15 @@ class _MockResponse:
 
     def json(self) -> dict:
         return self._payload
+
+
+class _MockRawResponse:
+    def __init__(self, payload: dict, status_code: int = 200) -> None:
+        self.status_code = status_code
+        self.content = json.dumps(payload).encode("utf-8")
+
+    def json(self) -> dict:
+        return json.loads(self.content.decode("utf-8"))
 
 
 def _mock_alibaba_model_index(url, headers, timeout):
@@ -108,3 +123,71 @@ def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
     assert captured["messages"] == messages
     assert captured["model"] == "qwen-plus"
     assert captured["settings"] is settings
+
+
+def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
+    monkeypatch,
+):
+    calls: list[str] = []
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (json, headers, timeout)
+        calls.append(url)
+        if "127.0.0.1:11434" in url:
+            raise requests.exceptions.ConnectionError("connection refused")
+        return _MockRawResponse(
+            {"message": {"content": "Local fallback reply"}}
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_DOCKER_FALLBACK_BASE_URL="http://host.docker.internal:11434",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+    )
+
+    result = chat_with_ai(
+        [{"role": "user", "content": "hello"}],
+        provider="local",
+        model="library2/ministral-3:8b",
+        settings=settings,
+    )
+
+    assert result == "Local fallback reply"
+    assert calls[0].startswith("http://127.0.0.1:11434")
+    assert any(
+        "host.docker.internal:11434" in attempted_url for attempted_url in calls
+    )
+
+
+def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        raise requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_DOCKER_FALLBACK_BASE_URL="http://host.docker.internal:11434",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        chat_with_ai(
+            [{"role": "user", "content": "hello"}],
+            provider="local",
+            model="library2/ministral-3:8b",
+            settings=settings,
+        )
+
+    detail = str(exc.value.detail)
+    assert exc.value.status_code == 502
+    assert "Attempted endpoints" in detail
+    assert "127.0.0.1:11434" in detail
+    assert "host.docker.internal:11434" in detail

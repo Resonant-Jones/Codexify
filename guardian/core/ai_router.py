@@ -2,6 +2,7 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import requests
 from fastapi import HTTPException
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
 _DEFAULT_ALIBABA_BASE = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+_DEFAULT_LOCAL_DOCKER_FALLBACK_BASE = "http://host.docker.internal:11434"
+_LOCAL_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 
 @dataclass(frozen=True)
@@ -598,6 +601,76 @@ def _resolve_local_base(settings: Settings) -> str:
     return normalized_base
 
 
+def _resolve_local_base_candidates(settings: Settings) -> list[str]:
+    primary_base = _resolve_local_base(settings)
+    candidates = [primary_base]
+
+    parsed = urlparse(primary_base)
+    host = str(parsed.hostname or "").strip().lower()
+    if host not in _LOCAL_LOOPBACK_HOSTS:
+        return candidates
+
+    fallback_raw = str(
+        getattr(settings, "LOCAL_DOCKER_FALLBACK_BASE_URL", "") or ""
+    ).strip()
+    fallback_base = fallback_raw or _DEFAULT_LOCAL_DOCKER_FALLBACK_BASE
+    if "://" not in fallback_base:
+        fallback_base = f"http://{fallback_base}"
+    fallback_base = fallback_base.rstrip("/")
+    if not fallback_base:
+        return candidates
+
+    if primary_base.endswith("/v1") and not fallback_base.endswith("/v1"):
+        fallback_base = f"{fallback_base}/v1"
+    if fallback_base not in candidates:
+        candidates.append(fallback_base)
+    return candidates
+
+
+def _local_attempt_urls(
+    base_url: str,
+    *,
+    compat_first: bool,
+    enable_generate_fallback: bool,
+    allow_generate: bool,
+) -> list[tuple[str, str]]:
+    base_url_v1 = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
+    url_openai = f"{base_url_v1}/chat/completions"
+
+    # Ollama-native base: strip explicit /v1 if present.
+    base_url_ollama = base_url[:-3] if base_url.endswith("/v1") else base_url
+    url_ollama_chat = f"{base_url_ollama}/api/chat"
+    url_ollama_generate = f"{base_url_ollama}/api/generate"
+
+    is_gateway = base_url.endswith("/v1")
+    if is_gateway:
+        return [("openai", url_openai)]
+
+    if compat_first:
+        attempt_urls: list[tuple[str, str]] = [
+            ("openai", url_openai),
+            ("ollama_chat", url_ollama_chat),
+        ]
+    else:
+        attempt_urls = [
+            ("ollama_chat", url_ollama_chat),
+            ("openai", url_openai),
+        ]
+    if allow_generate and enable_generate_fallback:
+        attempt_urls.append(("ollama_generate", url_ollama_generate))
+    return attempt_urls
+
+
+def _summarize_local_attempt_failures(failures: list[str]) -> str:
+    if not failures:
+        return "none"
+    limit = 6
+    if len(failures) <= limit:
+        return "; ".join(failures)
+    head = "; ".join(failures[:limit])
+    return f"{head}; ... ({len(failures) - limit} more)"
+
+
 def call_local(
     messages,
     model: str,
@@ -631,16 +704,7 @@ def call_local(
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
-    base_url = _resolve_local_base(settings)
-
-    # Endpoints
-    base_url_v1 = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
-    url_openai = f"{base_url_v1}/chat/completions"
-
-    # Ollama-native base: strip explicit /v1 if present.
-    base_url_ollama = base_url[:-3] if base_url.endswith("/v1") else base_url
-    url_ollama_chat = f"{base_url_ollama}/api/chat"
-    url_ollama_generate = f"{base_url_ollama}/api/generate"
+    base_urls = _resolve_local_base_candidates(settings)
 
     # Routing policy:
     # - If LOCAL_BASE_URL ends with /v1, treat it as an OpenAI-compatible gateway.
@@ -659,74 +723,76 @@ def call_local(
 
     request_timeout = runtime_policy.request_timeout
 
-    # If user explicitly configured /v1, do not silently try Ollama-native endpoints.
-    is_gateway = base_url.endswith("/v1")
-
     def _post_json(url: str, payload_obj: Dict[str, Any]) -> requests.Response:
         return requests.post(
             url, json=payload_obj, headers=headers, timeout=request_timeout
         )
 
-    # Attempt order
-    if is_gateway:
-        attempt_urls = [("openai", url_openai)]
-    else:
-        if compat_first:
-            attempt_urls = [
-                ("openai", url_openai),
-                ("ollama_chat", url_ollama_chat),
-            ]
-        else:
-            attempt_urls = [
-                ("ollama_chat", url_ollama_chat),
-                ("openai", url_openai),
-            ]
-        if enable_generate_fallback:
-            attempt_urls.append(("ollama_generate", url_ollama_generate))
+    attempt_failures: list[str] = []
+    last_transport_error: req_exc.RequestException | None = None
+    last_transport_url: str = ""
 
-    last_response: Optional[requests.Response] = None
-
-    try:
+    for base_url in base_urls:
+        is_gateway = base_url.endswith("/v1")
+        attempt_urls = _local_attempt_urls(
+            base_url,
+            compat_first=compat_first,
+            enable_generate_fallback=enable_generate_fallback,
+            allow_generate=True,
+        )
         for kind, url in attempt_urls:
-            if kind == "openai":
-                resp = _post_json(url, payload)
-            elif kind == "ollama_chat":
-                payload_ollama: Dict[str, Any] = {
-                    "model": model,
-                    "messages": adapted_messages,
-                    "stream": False,
-                }
-                resp = _post_json(url, payload_ollama)
-            else:
-                # /api/generate expects a single prompt string. Keep it as a last resort.
-                prompt = "\n\n".join(
-                    str(m.get("content") or "").strip()
-                    for m in adapted_messages
-                    if isinstance(m, dict)
-                    and str(m.get("content") or "").strip()
-                ).strip()
-                payload_generate: Dict[str, Any] = {
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                }
-                resp = _post_json(url, payload_generate)
-
-            last_response = resp
-
-            # If endpoint missing, try the next one (unless we are in gateway mode)
-            if resp.status_code == 404:
-                if is_gateway:
-                    detail = (
-                        f"Local inference endpoint not found: {url_openai} returned 404. "
-                        "LOCAL_BASE_URL ends with '/v1', so OpenAI-compatible endpoints "
-                        "(e.g. /v1/chat/completions) are required."
-                    )
-                    raise HTTPException(status_code=502, detail=detail)
+            try:
+                if kind == "openai":
+                    resp = _post_json(url, payload)
+                elif kind == "ollama_chat":
+                    payload_ollama: Dict[str, Any] = {
+                        "model": model,
+                        "messages": adapted_messages,
+                        "stream": False,
+                    }
+                    resp = _post_json(url, payload_ollama)
+                else:
+                    # /api/generate expects a single prompt string. Keep it as a last resort.
+                    prompt = "\n\n".join(
+                        str(m.get("content") or "").strip()
+                        for m in adapted_messages
+                        if isinstance(m, dict)
+                        and str(m.get("content") or "").strip()
+                    ).strip()
+                    payload_generate: Dict[str, Any] = {
+                        "model": model,
+                        "prompt": prompt,
+                        "stream": False,
+                    }
+                    resp = _post_json(url, payload_generate)
+            except req_exc.RequestException as exc:
+                last_transport_error = exc
+                last_transport_url = url
+                classification = _classify_transport_error(exc)
+                attempt_failures.append(f"{url} ({classification}: {exc})")
                 continue
 
-            resp.raise_for_status()
-            data = json.loads(resp.content.decode("utf-8"))
+            if resp.status_code == 404:
+                if is_gateway:
+                    attempt_failures.append(
+                        f"{url} (HTTP 404: endpoint requires OpenAI-compatible /v1/chat/completions)"
+                    )
+                else:
+                    attempt_failures.append(f"{url} (HTTP 404)")
+                continue
+
+            if not (200 <= resp.status_code < 300):
+                detail = _extract_provider_error_message(resp, secret=api_key)
+                attempt_failures.append(
+                    f"{url} (HTTP {resp.status_code}: {detail})"
+                )
+                continue
+
+            try:
+                data = json.loads(resp.content.decode("utf-8"))
+            except Exception as exc:
+                attempt_failures.append(f"{url} (invalid JSON: {exc})")
+                continue
 
             # Ollama /api/chat format
             if (
@@ -740,45 +806,34 @@ def call_local(
                 return data.get("response") or ""
 
             # OpenAI-compatible format
-            return data["choices"][0]["message"]["content"]
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                message = choices[0].get("message")
+                if isinstance(message, dict) and "content" in message:
+                    return message.get("content") or ""
 
-        # If we exhausted attempts, surface the last response body.
-        if last_response is not None:
-            detail = _extract_provider_error_message(
-                last_response, secret=api_key
+            attempt_failures.append(
+                f"{url} (response did not include assistant content)"
             )
-            raise HTTPException(
-                status_code=502,
-                detail=f"Local inference request failed ({last_response.status_code}): {detail}",
-            )
-        raise HTTPException(
-            status_code=502, detail="Local inference request failed"
-        )
-    except req_exc.RequestException as e:
-        failed_url = (
-            last_response.url
-            if last_response is not None and getattr(last_response, "url", None)
-            else (attempt_urls[0][1] if attempt_urls else url_openai)
-        )
+
+    if last_transport_error is not None:
         detail = _format_local_connect_error(
-            failed_url,
-            e,
+            last_transport_url,
+            last_transport_error,
             model=model,
             runtime_policy=runtime_policy,
         )
-        if log_exceptions:
-            logger.exception(detail)
-        else:
-            logger.warning(detail)
-        raise HTTPException(status_code=502, detail=detail)
-    except HTTPException:
-        raise
-    except Exception as e:
-        if log_exceptions:
-            logger.exception("Local backend error")
-        else:
-            logger.warning("Local backend error: %s", e)
-        raise HTTPException(status_code=502, detail=str(e))
+    else:
+        detail = f"Local inference request failed for model '{model}'."
+
+    attempt_summary = _summarize_local_attempt_failures(attempt_failures)
+    detail = f"{detail} Attempted endpoints: {attempt_summary}"
+
+    if log_exceptions:
+        logger.error(detail)
+    else:
+        logger.warning(detail)
+    raise HTTPException(status_code=502, detail=detail)
 
 
 def stream_local(
@@ -811,13 +866,7 @@ def stream_local(
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
-    base_url = _resolve_local_base(settings)
-
-    base_url_v1 = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
-    url_openai = f"{base_url_v1}/chat/completions"
-
-    base_url_ollama = base_url[:-3] if base_url.endswith("/v1") else base_url
-    url_ollama_chat = f"{base_url_ollama}/api/chat"
+    base_urls = _resolve_local_base_candidates(settings)
 
     timeout = runtime_policy.request_timeout
 
@@ -826,76 +875,92 @@ def stream_local(
         getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
     )
 
-    is_gateway = base_url.endswith("/v1")
-
-    # Attempt order for streaming (no /api/generate support in streaming mode)
-    if is_gateway:
-        attempt_urls = [("openai", url_openai)]
-    else:
-        if compat_first:
-            attempt_urls = [
-                ("openai", url_openai),
-                ("ollama_chat", url_ollama_chat),
-            ]
-        else:
-            attempt_urls = [
-                ("ollama_chat", url_ollama_chat),
-                ("openai", url_openai),
-            ]
-
-    current_url = attempt_urls[0][1] if attempt_urls else url_openai
-
     response: Optional[requests.Response] = None
+    current_url = ""
+    attempt_failures: list[str] = []
+    last_transport_error: req_exc.RequestException | None = None
 
     try:
-        for kind, url in attempt_urls:
-            current_url = url
-            if kind == "openai":
-                resp = requests.post(
-                    url,
-                    json=payload,
-                    headers=headers,
-                    stream=True,
-                    timeout=timeout,
-                )
-            else:
-                payload_ollama = {
-                    "model": model,
-                    "messages": adapted_messages,
-                    "temperature": 0.7
-                    if temperature is None
-                    else float(temperature),
-                    "stream": True,
-                }
-                resp = requests.post(
-                    url,
-                    json=payload_ollama,
-                    headers=headers,
-                    stream=True,
-                    timeout=timeout,
-                )
+        for base_url in base_urls:
+            is_gateway = base_url.endswith("/v1")
+            attempt_urls = _local_attempt_urls(
+                base_url,
+                compat_first=compat_first,
+                enable_generate_fallback=False,
+                allow_generate=False,
+            )
+            for kind, url in attempt_urls:
+                current_url = url
+                try:
+                    if kind == "openai":
+                        resp = requests.post(
+                            url,
+                            json=payload,
+                            headers=headers,
+                            stream=True,
+                            timeout=timeout,
+                        )
+                    else:
+                        payload_ollama = {
+                            "model": model,
+                            "messages": adapted_messages,
+                            "temperature": 0.7
+                            if temperature is None
+                            else float(temperature),
+                            "stream": True,
+                        }
+                        resp = requests.post(
+                            url,
+                            json=payload_ollama,
+                            headers=headers,
+                            stream=True,
+                            timeout=timeout,
+                        )
+                except req_exc.RequestException as exc:
+                    last_transport_error = exc
+                    classification = _classify_transport_error(exc)
+                    attempt_failures.append(f"{url} ({classification}: {exc})")
+                    continue
 
-            response = resp
+                if resp.status_code == 404:
+                    if is_gateway:
+                        attempt_failures.append(
+                            f"{url} (HTTP 404: endpoint requires OpenAI-compatible /v1/chat/completions)"
+                        )
+                    else:
+                        attempt_failures.append(f"{url} (HTTP 404)")
+                    resp.close()
+                    continue
 
-            if resp.status_code == 404:
-                if is_gateway:
-                    detail = (
-                        f"Local inference endpoint not found: {url_openai} returned 404. "
-                        "LOCAL_BASE_URL ends with '/v1', so OpenAI-compatible endpoints "
-                        "(e.g. /v1/chat/completions) are required."
+                if not (200 <= resp.status_code < 300):
+                    detail = _extract_provider_error_message(
+                        resp, secret=api_key
                     )
-                    raise HTTPException(status_code=502, detail=detail)
-                # Try next endpoint
-                resp.close()
-                response = None
-                continue
+                    attempt_failures.append(
+                        f"{url} (HTTP {resp.status_code}: {detail})"
+                    )
+                    resp.close()
+                    continue
 
-            resp.raise_for_status()
-            break
+                response = resp
+                break
+            if response is not None:
+                break
 
         if response is None:
+            if last_transport_error is not None:
+                detail = _format_local_connect_error(
+                    current_url,
+                    last_transport_error,
+                    model=model,
+                    runtime_policy=runtime_policy,
+                )
+            else:
+                detail = f"Local inference request failed for model '{model}'."
+            summary = _summarize_local_attempt_failures(attempt_failures)
             raise HTTPException(
-                status_code=502, detail="Local inference request failed"
+                status_code=502,
+                detail=f"{detail} Attempted endpoints: {summary}",
             )
 
         try:
@@ -942,6 +1007,8 @@ def stream_local(
                 model=model,
                 runtime_policy=runtime_policy,
             )
+            summary = _summarize_local_attempt_failures(attempt_failures)
+            detail = f"{detail} Attempted endpoints: {summary}"
             logger.warning(detail)
             raise HTTPException(status_code=502, detail=detail) from exc
     finally:
