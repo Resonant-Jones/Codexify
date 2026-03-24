@@ -82,6 +82,23 @@ function isDefaultProjectAlias(value: unknown): boolean {
   return normalized === "general" || normalized === "loose threads";
 }
 
+async function deleteProjectApi(projectId: string | number) {
+  const paths = [`/api/projects/${projectId}`, `/projects/${projectId}`];
+  let lastErr: any = null;
+  for (const path of paths) {
+    try {
+      return await api.delete(path);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error("Project delete route unavailable");
+}
+
 const SIDEBAR_RAIL = "px-3";
 
 export default function SidebarRoot({
@@ -289,6 +306,75 @@ export default function SidebarRoot({
     [onCreateProject, refreshProjectsFromServer, setScope, setProjectList]
   );
 
+  const handleDeleteProject = React.useCallback(
+    async (projectId: string) => {
+      const normalizedId = String(projectId ?? "").trim();
+      if (!normalizedId) return;
+      const existing = projectList.find(
+        (project) => String(project.id) === normalizedId
+      );
+      if (!existing) return;
+
+      const remaining = projectList.filter(
+        (project) => String(project.id) !== normalizedId
+      );
+      const deletingSelectedProject =
+        currentProjectId != null &&
+        String(currentProjectId) === normalizedId;
+      const fallbackProjectId = deletingSelectedProject
+        ? (() => {
+            const generalProject = remaining.find((project) =>
+              isDefaultProjectAlias(project?.name)
+            );
+            if (generalProject?.id != null) {
+              return String(generalProject.id);
+            }
+            const nextProject = remaining[0];
+            return nextProject?.id != null ? String(nextProject.id) : null;
+          })()
+        : null;
+      try {
+        await deleteProjectApi(normalizedId);
+        setProjectList((prev) =>
+          prev.filter((project) => String(project.id) !== normalizedId)
+        );
+        if (deletingSelectedProject) {
+          setScope(fallbackProjectId);
+        }
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: {
+                kind: "success",
+                message: `Project "${existing.name}" deleted`,
+              },
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+        await refreshProjectsFromServer();
+      } catch (err: any) {
+        const status = err?.response?.status;
+        const message =
+          err?.response?.data?.message
+          || err?.response?.data?.detail
+          || err?.message
+          || `Delete failed${status ? ` (${status})` : ""}. Please try again.`;
+        try {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: { kind: "error", message },
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    [currentProjectId, projectList, refreshProjectsFromServer, setProjectList, setScope]
+  );
+
   return (
     <div
       className={clsx(
@@ -392,6 +478,7 @@ export default function SidebarRoot({
             search={q}
             currentId={currentProjectId}
             onPick={(id) => { setScope(id); setTab("threads"); }}
+            onDeleteProject={handleDeleteProject}
             onOpenNewProject={() => {
               setProjectModalError(null);
               setShowProjectModal(true);
