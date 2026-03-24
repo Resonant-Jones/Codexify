@@ -1289,6 +1289,16 @@ def serve_signed_media(
     return FileResponse(candidate)
 
 
+@app.get("/api/health/embedder", tags=["Health"])
+def health_embedder():
+    """Expose lightweight embedder preflight status."""
+    embedder_status = dependencies.get_embedder_preflight_status()
+    return {
+        "status": "ok",
+        "embedder": embedder_status,
+    }
+
+
 # =========================
 # Root Endpoint
 # =========================

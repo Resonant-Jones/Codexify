@@ -510,6 +510,8 @@ def get_database_dsn() -> Optional[str]:
 # These will be initialized by guardian_api.py at startup
 _vector_store: Optional[VectorStore] = None
 _sensors: Optional[Sensors] = None
+_embedder_preflight_cache: Optional[dict[str, Any]] = None
+_embedder_preflight_cache_ts: float = 0.0
 
 
 def init_services(db: ChatDB) -> tuple[VectorStore, Sensors]:
@@ -521,6 +523,54 @@ def init_services(db: ChatDB) -> tuple[VectorStore, Sensors]:
     _vector_store = VectorStore()
     _sensors = Sensors(db)
     return _vector_store, _sensors
+
+
+def _embedder_preflight_cache_ttl_seconds() -> float:
+    raw = (os.getenv("EMBEDDER_PREFLIGHT_CACHE_TTL_SECONDS") or "5").strip()
+    try:
+        ttl = float(raw)
+    except ValueError:
+        ttl = 5.0
+    return max(0.0, ttl)
+
+
+def get_embedder_preflight_status(
+    *, force_refresh: bool = False
+) -> dict[str, Any]:
+    """Return cached embedder preflight status without constructing VectorStore."""
+
+    global _embedder_preflight_cache, _embedder_preflight_cache_ts
+
+    ttl = _embedder_preflight_cache_ttl_seconds()
+    now = time_module.monotonic()
+    if (
+        not force_refresh
+        and _embedder_preflight_cache is not None
+        and ttl > 0.0
+        and (now - _embedder_preflight_cache_ts) <= ttl
+    ):
+        return dict(_embedder_preflight_cache)
+
+    from backend.rag.embedder import inspect_embedder_preflight
+
+    try:
+        payload = inspect_embedder_preflight()
+    except Exception as exc:
+        logger.warning(
+            "[dependencies] embedder preflight failed: %s",
+            str(exc),
+        )
+        payload = {
+            "backend": "unknown",
+            "model": None,
+            "ready": False,
+            "present": None,
+            "reason": f"embedder preflight failed: {exc}",
+        }
+
+    _embedder_preflight_cache = dict(payload)
+    _embedder_preflight_cache_ts = now
+    return dict(payload)
 
 
 # =========================
