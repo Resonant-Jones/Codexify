@@ -184,3 +184,70 @@ def test_local_model_missing_download_succeeds_retry_still_fails(
         ("/models/default-local-embedder", True),
     ]
     assert "still unavailable after auto-download" in caplog.text
+
+
+def test_preflight_stub_backend_reports_not_applicable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEXIFY_EMBEDDINGS_BACKEND", raising=False)
+    monkeypatch.setenv("EMBEDDING_BACKEND", "stub")
+    monkeypatch.delenv("LOCAL_EMBED_MODEL", raising=False)
+
+    result = embedder_module.inspect_embedder_preflight()
+
+    assert result["backend"] == "stub"
+    assert result["model"] is None
+    assert result["present"] is None
+    assert result["ready"] is True
+    assert "not applicable for stub backend" in str(result["reason"])
+
+
+def test_preflight_local_model_present_ready_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEXIFY_EMBEDDINGS_BACKEND", "local")
+    monkeypatch.setenv("LOCAL_EMBED_MODEL", "/models/default-local-embedder")
+    monkeypatch.setattr(
+        embedder_module,
+        "require_local_embed_model",
+        lambda: "/models/default-local-embedder",
+    )
+
+    result = embedder_module.inspect_embedder_preflight()
+
+    assert result == {
+        "backend": "local",
+        "model": "/models/default-local-embedder",
+        "ready": True,
+        "present": True,
+        "reason": "local embedder preflight passed",
+    }
+
+
+def test_preflight_local_model_missing_no_download_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEXIFY_EMBEDDINGS_BACKEND", "local")
+    monkeypatch.setenv("LOCAL_EMBED_MODEL", "/models/default-local-embedder")
+    monkeypatch.setattr(
+        embedder_module,
+        "require_local_embed_model",
+        lambda: (_ for _ in ()).throw(RuntimeError("missing local model")),
+    )
+    monkeypatch.setattr(
+        embedder_module.LocalSemanticEmbedder,
+        "_attempt_local_model_autodownload",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("preflight must not trigger auto-download")
+        ),
+    )
+
+    result = embedder_module.inspect_embedder_preflight()
+
+    assert result["backend"] == "local"
+    assert result["model"] == "/models/default-local-embedder"
+    assert result["ready"] is False
+    assert result["present"] is False
+    assert "configured local embedder not found in cache or invalid" in str(
+        result["reason"]
+    )

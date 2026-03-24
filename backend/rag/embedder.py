@@ -79,6 +79,76 @@ _ALLOWED_BACKENDS = {
 }
 
 
+def inspect_embedder_preflight(
+    backend: str | None = None,
+) -> dict[str, Any]:
+    """Return a lightweight embedder readiness snapshot.
+
+    This check is intentionally side-effect free:
+    - no vector store initialization
+    - no model download attempt
+    - no mutation of embedder runtime state
+    """
+
+    resolved_backend = (
+        backend
+        or os.getenv(_ENV_BACKEND)
+        or os.getenv("EMBEDDING_BACKEND")
+        or _BACKEND_SENTENCE_TRANSFORMER
+    )
+    backend_value = str(resolved_backend or "").strip().lower()
+    model_name = (os.getenv("LOCAL_EMBED_MODEL") or "").strip() or None
+
+    logger.info(
+        "[embedder] preflight backend=%s model=%s",
+        backend_value,
+        model_name or "<unset>",
+    )
+
+    if backend_value != _BACKEND_LOCAL:
+        reason = (
+            "local embedder preflight not applicable for stub backend"
+            if backend_value == "stub"
+            else (
+                f"local embedder preflight not applicable for {backend_value or 'unset'} backend"
+            )
+        )
+        return {
+            "backend": backend_value or "unset",
+            "model": model_name,
+            "ready": True,
+            "present": None,
+            "reason": reason,
+        }
+
+    try:
+        resolved_model = require_local_embed_model()
+    except Exception as exc:
+        logger.warning(
+            "[embedder] preflight local backend not ready model=%s reason=%s",
+            model_name or "<unset>",
+            str(exc),
+        )
+        return {
+            "backend": _BACKEND_LOCAL,
+            "model": model_name,
+            "ready": False,
+            "present": False,
+            "reason": (
+                "configured local embedder not found in cache or invalid: "
+                f"{exc}"
+            ),
+        }
+
+    return {
+        "backend": _BACKEND_LOCAL,
+        "model": resolved_model,
+        "ready": True,
+        "present": True,
+        "reason": "local embedder preflight passed",
+    }
+
+
 def _normalize_metadatas(
     metadatas: list[dict[str, Any]] | None, count: int
 ) -> list[dict[str, Any]]:
