@@ -7,13 +7,19 @@ import api from "@/lib/api";
 const mockRefreshProjects = vi.fn();
 const mockSetProjectList = vi.fn();
 const mockSetScope = vi.fn();
+const mockSidebarState = vi.hoisted(() => ({
+  currentProjectId: null as string | null,
+}));
+const mockProjectsState = vi.hoisted(() => ({
+  list: [] as Array<{ id: string; name: string; icon?: string }>,
+}));
 
 vi.mock("../useSidebarThreads", () => ({
   default: () => ({
     threads: [],
     displayThreads: [],
     scopeLabel: "Loose",
-    currentProjectId: null,
+    currentProjectId: mockSidebarState.currentProjectId,
     setScope: mockSetScope,
     renameThread: vi.fn(),
     toggleArchiveThread: vi.fn(),
@@ -24,7 +30,7 @@ vi.mock("../useSidebarThreads", () => ({
 
 vi.mock("../useProjectsCache", () => ({
   default: () => ({
-    projectList: [],
+    projectList: mockProjectsState.list,
     setProjectList: mockSetProjectList,
     refreshProjectsFromServer: mockRefreshProjects,
     looseCount: 0,
@@ -36,10 +42,29 @@ vi.mock("../ThreadList", () => ({
 }));
 
 vi.mock("../ProjectList", () => ({
-  default: ({ onOpenNewProject }: { onOpenNewProject?: () => void }) => (
-    <button type="button" onClick={onOpenNewProject}>
-      New Project
-    </button>
+  default: ({
+    projects = [],
+    onOpenNewProject,
+    onDeleteProject,
+  }: {
+    projects?: Array<{ id: string; name: string }>;
+    onOpenNewProject?: () => void;
+    onDeleteProject?: (id: string) => Promise<void> | void;
+  }) => (
+    <div>
+      <button type="button" onClick={onOpenNewProject}>
+        New Project
+      </button>
+      {projects.map((project) => (
+        <button
+          key={`delete-${project.id}`}
+          type="button"
+          onClick={() => onDeleteProject?.(String(project.id))}
+        >
+          Delete {project.name}
+        </button>
+      ))}
+    </div>
   ),
 }));
 
@@ -47,10 +72,15 @@ vi.mock("@/lib/api", () => ({
   default: {
     post: vi.fn(),
     get: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
-const mockApi = api as { post: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> };
+const mockApi = api as {
+  post: ReturnType<typeof vi.fn>;
+  get: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+};
 
 describe("CreateProjectModal", () => {
   beforeEach(() => {
@@ -59,6 +89,9 @@ describe("CreateProjectModal", () => {
     mockSetScope.mockReset();
     mockApi.post.mockReset();
     mockApi.get.mockReset();
+    mockApi.delete.mockReset();
+    mockSidebarState.currentProjectId = null;
+    mockProjectsState.list = [];
     window.localStorage.setItem("cfy.sidebarTab", "projects");
   });
 
@@ -136,5 +169,83 @@ describe("CreateProjectModal", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Nope");
+  });
+
+  it("deletes a project on success and removes it from local list state", async () => {
+    mockApi.delete.mockResolvedValue({ data: { ok: true } });
+    mockProjectsState.list = [
+      { id: "10", name: "Alpha" },
+      { id: "20", name: "Beta" },
+    ];
+
+    render(
+      <SidebarRoot
+        threads={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /delete alpha/i }));
+
+    await waitFor(() => {
+      expect(mockApi.delete).toHaveBeenCalledWith("/api/projects/10");
+    });
+
+    expect(mockSetProjectList).toHaveBeenCalled();
+    const updater = mockSetProjectList.mock.calls[0][0] as (value: Array<{ id: string; name: string }>) => Array<{ id: string; name: string }>;
+    expect(updater(mockProjectsState.list).map((project) => project.id)).toEqual(["20"]);
+  });
+
+  it("falls back to a remaining project when deleting the selected project", async () => {
+    mockApi.delete.mockResolvedValue({ data: { ok: true } });
+    mockSidebarState.currentProjectId = "10";
+    mockProjectsState.list = [
+      { id: "10", name: "Alpha" },
+      { id: "20", name: "Beta" },
+    ];
+
+    render(
+      <SidebarRoot
+        threads={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /delete alpha/i }));
+
+    await waitFor(() => {
+      expect(mockApi.delete).toHaveBeenCalledWith("/api/projects/10");
+    });
+    expect(mockSetScope).toHaveBeenCalledWith("20");
+  });
+
+  it("keeps project state intact when delete fails", async () => {
+    mockApi.delete.mockRejectedValue({ response: { status: 500 } });
+    mockSidebarState.currentProjectId = "10";
+    mockProjectsState.list = [
+      { id: "10", name: "Alpha" },
+      { id: "20", name: "Beta" },
+    ];
+
+    render(
+      <SidebarRoot
+        threads={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /delete alpha/i }));
+
+    await waitFor(() => {
+      expect(mockApi.delete).toHaveBeenCalledWith("/api/projects/10");
+    });
+    expect(mockSetProjectList).not.toHaveBeenCalled();
+    expect(mockSetScope).not.toHaveBeenCalled();
   });
 });
