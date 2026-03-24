@@ -79,6 +79,76 @@ _ALLOWED_BACKENDS = {
 }
 
 
+def inspect_embedder_preflight(
+    backend: str | None = None,
+) -> dict[str, Any]:
+    """Return a lightweight embedder readiness snapshot.
+
+    This check is intentionally side-effect free:
+    - no vector store initialization
+    - no model download attempt
+    - no mutation of embedder runtime state
+    """
+
+    resolved_backend = (
+        backend
+        or os.getenv(_ENV_BACKEND)
+        or os.getenv("EMBEDDING_BACKEND")
+        or _BACKEND_SENTENCE_TRANSFORMER
+    )
+    backend_value = str(resolved_backend or "").strip().lower()
+    model_name = (os.getenv("LOCAL_EMBED_MODEL") or "").strip() or None
+
+    logger.info(
+        "[embedder] preflight backend=%s model=%s",
+        backend_value,
+        model_name or "<unset>",
+    )
+
+    if backend_value != _BACKEND_LOCAL:
+        reason = (
+            "local embedder preflight not applicable for stub backend"
+            if backend_value == "stub"
+            else (
+                f"local embedder preflight not applicable for {backend_value or 'unset'} backend"
+            )
+        )
+        return {
+            "backend": backend_value or "unset",
+            "model": model_name,
+            "ready": True,
+            "present": None,
+            "reason": reason,
+        }
+
+    try:
+        resolved_model = require_local_embed_model()
+    except Exception as exc:
+        logger.warning(
+            "[embedder] preflight local backend not ready model=%s reason=%s",
+            model_name or "<unset>",
+            str(exc),
+        )
+        return {
+            "backend": _BACKEND_LOCAL,
+            "model": model_name,
+            "ready": False,
+            "present": False,
+            "reason": (
+                "configured local embedder not found in cache or invalid: "
+                f"{exc}"
+            ),
+        }
+
+    return {
+        "backend": _BACKEND_LOCAL,
+        "model": resolved_model,
+        "ready": True,
+        "present": True,
+        "reason": "local embedder preflight passed",
+    }
+
+
 def _normalize_metadatas(
     metadatas: list[dict[str, Any]] | None, count: int
 ) -> list[dict[str, Any]]:
@@ -247,7 +317,7 @@ class LocalSemanticEmbedder:
             raise RuntimeError("sentence-transformers not installed.")
 
         try:
-            model = SentenceTransformer(
+            model = self._load_sentence_transformer(
                 self.model_name,
                 local_files_only=strict_local,
             )
@@ -265,12 +335,71 @@ class LocalSemanticEmbedder:
                 )
                 return self._init_mock_backend()
             if strict_local:
-                raise RuntimeError(
-                    "LOCAL_EMBED_MODEL could not be loaded from local cache."
-                ) from exc
+                return self._recover_local_model_once(exc)
             raise RuntimeError(
                 f"SentenceTransformer could not be initialized for model '{self.model_name}'."
             ) from exc
+
+    def _load_sentence_transformer(
+        self,
+        model_name: str,
+        *,
+        local_files_only: bool,
+    ):
+        assert SentenceTransformer is not None
+        return SentenceTransformer(
+            model_name,
+            local_files_only=local_files_only,
+        )
+
+    def _attempt_local_model_autodownload(self, model_name: str):
+        # Trigger SentenceTransformer/HF one-time fetch into local cache.
+        return self._load_sentence_transformer(
+            model_name,
+            local_files_only=False,
+        )
+
+    def _recover_local_model_once(self, initial_exc: Exception):
+        model_name = self.model_name or "UNKNOWN"
+        logger.info(
+            "[embedder] local model=%s missing from cache; attempting one-time auto-download",
+            model_name,
+        )
+        try:
+            self._attempt_local_model_autodownload(model_name)
+        except Exception as download_exc:
+            logger.error(
+                "[embedder] local model=%s auto-download failed: %s",
+                model_name,
+                str(download_exc),
+            )
+            raise RuntimeError(
+                f"LOCAL_EMBED_MODEL '{model_name}' could not be loaded from local cache. "
+                "Auto-download was attempted and failed: "
+                f"{download_exc}"
+            ) from initial_exc
+
+        try:
+            model = self._load_sentence_transformer(
+                model_name,
+                local_files_only=True,
+            )
+            logger.info(
+                "[embedder] local model=%s recovered after auto-download",
+                model_name,
+            )
+            return model
+        except Exception as retry_exc:
+            logger.error(
+                "[embedder] local model=%s still unavailable after auto-download: %s",
+                model_name,
+                str(retry_exc),
+            )
+            raise RuntimeError(
+                f"LOCAL_EMBED_MODEL '{model_name}' could not be loaded from local cache. "
+                "Auto-download was attempted, but initialization still failed: "
+                f"{retry_exc}"
+            ) from initial_exc
 
     def _embed_np(self, texts: list[str], batch_size: int = 64) -> np.ndarray:
         if not texts:
