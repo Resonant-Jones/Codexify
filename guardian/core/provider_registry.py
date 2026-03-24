@@ -94,10 +94,10 @@ _PROVIDER_GOVERNANCE_RULES: tuple[ProviderGovernanceRule, ...] = (
     ProviderGovernanceRule(
         provider="groq",
         label="Groq",
-        governance_classification="static_authorized",
-        live_discovery_expected=False,
-        routing_validate_discovered_inventory=False,
-        configured_defaults_allowed_during_degraded_discovery=False,
+        governance_classification="discovery_backed",
+        live_discovery_expected=True,
+        routing_validate_discovered_inventory=True,
+        configured_defaults_allowed_during_degraded_discovery=True,
         local_only=False,
     ),
     ProviderGovernanceRule(
@@ -201,6 +201,7 @@ _MODEL_INDEX_NON_CHAT_HINTS = (
     "tts",
     "video",
 )
+_DEFAULT_GROQ_MODEL_INDEX_BASE = "https://api.groq.com/openai/v1"
 
 _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     "openai": (
@@ -388,7 +389,9 @@ def _provider_model_index_timeout(
     settings: Settings,
 ) -> float:
     provider = normalize_provider(provider_id)
-    if provider == "alibaba":
+    if provider == "groq":
+        raw = getattr(settings, "GROQ_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
+    elif provider == "alibaba":
         raw = getattr(settings, "ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
     elif provider == "minimax":
         raw = getattr(settings, "MINIMAX_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
@@ -402,7 +405,15 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
     override = ""
     base_url = ""
 
-    if provider == "alibaba":
+    if provider == "groq":
+        override = str(
+            getattr(settings, "GROQ_MODEL_DISCOVERY_URL", "") or ""
+        ).strip()
+        base_url = (
+            str(getattr(settings, "GROQ_BASE_URL", "") or "").strip()
+            or _DEFAULT_GROQ_MODEL_INDEX_BASE
+        )
+    elif provider == "alibaba":
         override = str(
             getattr(settings, "ALIBABA_MODEL_DISCOVERY_URL", "") or ""
         ).strip()
@@ -432,6 +443,10 @@ def _provider_model_index_headers(
 ) -> dict[str, str]:
     provider = normalize_provider(provider_id)
     headers = {"Accept": "application/json"}
+    if provider == "groq":
+        api_key = str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
+        headers["Authorization"] = f"Bearer {api_key}"
+        return headers
     if provider == "alibaba":
         headers[
             "Authorization"
