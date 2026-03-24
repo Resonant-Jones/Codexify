@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-03-17
+Last updated: 2026-03-23
 Source anchors:
 - Makefile
 - package.json
@@ -128,6 +128,11 @@ Source anchors:
 | `CODEXIFY_COLLECTION` | Chroma collection name | `guardian/runtime/embed/embedder.py` |
 | storage backend envs | Storage factory can target local filesystem, S3, or GCS | `guardian/core/storage.py` |
 | `GUARDIAN_MEDIA_URL_SECRET` | Signs `/media/*` URLs | `guardian/core/media_signing.py` |
+
+### Local embed model bootstrap contract
+
+- `guardian/scripts/ensure_embed_model.py` only reports success when the local model directory contains sentence-transformer markers (for example `modules.json`, `sentence_bert_config.json`, or `config_sentence_transformers.json`) **and** at least one weight artifact (`model.safetensors` or `pytorch_model.bin`).
+- If the directory exists but is incomplete (for example tokenizer/config files or `onnx/` only), the bootstrap step removes the shell and rehydrates the model before backend/worker startup proceeds. The `.codexify_model_ok` sentinel alone is not sufficient.
 
 ### Federation, graph, and command bus
 
