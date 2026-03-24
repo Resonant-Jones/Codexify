@@ -480,6 +480,7 @@ def _model_index_metadata(
     endpoint: str | None = None,
     reason: str | None = None,
     model_count: int | None = None,
+    failure_kind: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": "live",
@@ -491,7 +492,28 @@ def _model_index_metadata(
         payload["reason"] = reason
     if model_count is not None:
         payload["model_count"] = int(model_count)
+    if failure_kind:
+        payload["failure_kind"] = failure_kind
     return payload
+
+
+def _model_index_unavailable_failure_kind(
+    provider_id: str,
+    disabled_reason: str | None,
+) -> str:
+    provider = normalize_provider(provider_id)
+    reason = str(disabled_reason or "").strip().lower()
+    if not reason:
+        return "provider_unavailable"
+    if "credential" in reason or "api_key" in reason:
+        return "auth_config_error"
+    if "egress" in reason or "allowlist" in reason:
+        return "egress_blocked"
+    if "disabled" in reason:
+        return "provider_disabled"
+    if provider in {"alibaba", "minimax"}:
+        return "auth_config_error"
+    return "provider_unavailable"
 
 
 def _extract_model_index_collections(payload: Any) -> list[list[Any]]:
@@ -672,12 +694,16 @@ def _discover_dynamic_provider_models(
             "unavailable",
             endpoint=endpoint or None,
             reason=disabled_reason or "Provider unavailable",
+            failure_kind=_model_index_unavailable_failure_kind(
+                provider, disabled_reason
+            ),
         )
 
     if not endpoint:
         return [], _model_index_metadata(
             "unavailable",
             reason="Provider model index URL is not configured",
+            failure_kind="auth_config_error",
         )
 
     try:
@@ -691,12 +717,14 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index request timed out",
+            failure_kind="provider_timeout",
         )
     except req_exc.RequestException as exc:
         return [], _model_index_metadata(
             "degraded",
             endpoint=endpoint,
             reason=f"Provider model index request failed: {type(exc).__name__}",
+            failure_kind="transport_error",
         )
 
     if not (200 <= response.status_code < 300):
@@ -707,6 +735,7 @@ def _discover_dynamic_provider_models(
                 "Provider model index request failed "
                 f"(HTTP {response.status_code})"
             ),
+            failure_kind="provider_http_error",
         )
 
     try:
@@ -716,6 +745,7 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index returned invalid JSON",
+            failure_kind="provider_payload_error",
         )
 
     models, recognized_payload = _parse_dynamic_model_descriptors(payload)
@@ -724,6 +754,7 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index payload was invalid",
+            failure_kind="provider_payload_error",
         )
     if not models:
         return [], _model_index_metadata(
@@ -731,6 +762,7 @@ def _discover_dynamic_provider_models(
             endpoint=endpoint,
             reason="Provider model index returned no chat-capable models",
             model_count=0,
+            failure_kind="empty_model_result",
         )
     return models, _model_index_metadata(
         "available",
