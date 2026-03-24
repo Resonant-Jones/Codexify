@@ -2,13 +2,13 @@
   "audit_cli": {
     "attempts": [
       {
-        "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
         "exit_code": 0,
         "stderr": "",
         "stdout_is_json": false
       },
       {
-        "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
         "exit_code": 0,
         "stderr": ""
       }
@@ -63,47 +63,61 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 1,
+    "commit_count": 2,
     "commits": [
       {
         "files": [
-          "docs/audits/daily/evening/2026-03-21-audit.json",
-          "docs/audits/daily/evening/2026-03-21-audit.md",
+          ".gitignore",
+          "frontend/src/features/settings/SettingsView.tsx",
+          "frontend/src/features/settings/api/persona.ts",
+          "guardian/cognition/personas/store.py",
+          "guardian/routes/imprint.py",
+          "scripts/daily_audit.py"
+        ],
+        "sha": "c176b3e9acbcbbb851d53e3104230dad821a9dd0",
+        "subject": "Fix system prompt save wiring"
+      },
+      {
+        "files": [
+          "docs/audits/daily/evening/2026-03-22-audit.json",
+          "docs/audits/daily/evening/2026-03-22-audit.md",
           "docs/audits/daily/evening/latest.json",
           "docs/audits/daily/evening/latest.md",
-          "docs/audits/daily/morning/2026-03-22-audit.json",
-          "docs/audits/daily/morning/2026-03-22-audit.md",
+          "docs/audits/daily/morning/2026-03-23-audit.json",
+          "docs/audits/daily/morning/2026-03-23-audit.md",
           "docs/audits/daily/morning/latest.json",
           "docs/audits/daily/morning/latest.md",
           "docs/audits/latest.json",
-          "docs/audits/latest.md",
-          "scripts/audit_platform_readiness.py",
-          "scripts/daily_audit.py"
+          "docs/audits/latest.md"
         ],
-        "sha": "28752cdc963d8edda7943a7ee6c657455610a2b8",
-        "subject": "Update audit scripts and generated daily reports"
+        "sha": "dfd3d52fc66e973d8a6b8fe4d72e1de98377e402",
+        "subject": "Update daily audit reports"
       }
     ],
     "files_changed": [
-      "docs/audits/daily/evening/2026-03-21-audit.json",
-      "docs/audits/daily/evening/2026-03-21-audit.md",
+      ".gitignore",
+      "frontend/src/features/settings/SettingsView.tsx",
+      "frontend/src/features/settings/api/persona.ts",
+      "guardian/cognition/personas/store.py",
+      "guardian/routes/imprint.py",
+      "scripts/daily_audit.py",
+      "docs/audits/daily/evening/2026-03-22-audit.json",
+      "docs/audits/daily/evening/2026-03-22-audit.md",
       "docs/audits/daily/evening/latest.json",
       "docs/audits/daily/evening/latest.md",
-      "docs/audits/daily/morning/2026-03-22-audit.json",
-      "docs/audits/daily/morning/2026-03-22-audit.md",
+      "docs/audits/daily/morning/2026-03-23-audit.json",
+      "docs/audits/daily/morning/2026-03-23-audit.md",
       "docs/audits/daily/morning/latest.json",
       "docs/audits/daily/morning/latest.md",
       "docs/audits/latest.json",
-      "docs/audits/latest.md",
-      "scripts/audit_platform_readiness.py",
-      "scripts/daily_audit.py"
+      "docs/audits/latest.md"
     ],
-    "window_end": "2026-03-22T21:01:55.873793-04:00",
+    "window_end": "2026-03-23T21:00:25.540780-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-21T21:01:55.873793-04:00"
+    "window_start": "2026-03-22T21:00:25.540780-04:00"
   },
-  "date": "2026-03-22",
-  "generated_at": "2026-03-22T21:01:55.873793-04:00",
+  "date": "2026-03-23",
+  "generated_at": "2026-03-23T21:00:25.540780-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -111,12 +125,15 @@
   },
   "phase": "evening",
   "repo": {
-    "branch": "codex/daily-audit-refresh",
-    "date": "2026-03-22",
-    "dirty": null,
-    "head": "28752cdc963d8edda7943a7ee6c657455610a2b8",
-    "status_error": "git status --short --untracked-files=all failed: git-lfs filter-process: git-lfs: command not found\nfatal: the remote end hung up unexpectedly",
-    "status_lines": []
+    "branch": "codex/add-guarded-logging-for-ingest",
+    "date": "2026-03-23",
+    "dirty": true,
+    "head": "c176b3e9acbcbbb851d53e3104230dad821a9dd0",
+    "status_error": "",
+    "status_lines": [
+      " M guardian/routes/chat.py",
+      "?? guardian/tests/test_chat_neo4j_ingest_cypher.py"
+    ]
   },
   "risk_flags": [
     {
@@ -173,20 +190,34 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 12,
+      "count": 11,
       "files": [
-        "docs/audits/daily/evening/2026-03-21-audit.json",
-        "docs/audits/daily/evening/2026-03-21-audit.md",
+        "scripts/daily_audit.py",
+        "docs/audits/daily/evening/2026-03-22-audit.json",
+        "docs/audits/daily/evening/2026-03-22-audit.md",
         "docs/audits/daily/evening/latest.json",
         "docs/audits/daily/evening/latest.md",
-        "docs/audits/daily/morning/2026-03-22-audit.json",
-        "docs/audits/daily/morning/2026-03-22-audit.md",
+        "docs/audits/daily/morning/2026-03-23-audit.json",
+        "docs/audits/daily/morning/2026-03-23-audit.md",
         "docs/audits/daily/morning/latest.json",
         "docs/audits/daily/morning/latest.md",
         "docs/audits/latest.json",
-        "docs/audits/latest.md",
-        "scripts/audit_platform_readiness.py",
-        "scripts/daily_audit.py"
+        "docs/audits/latest.md"
+      ]
+    },
+    "frontend": {
+      "count": 2,
+      "files": [
+        "frontend/src/features/settings/SettingsView.tsx",
+        "frontend/src/features/settings/api/persona.ts"
+      ]
+    },
+    "unknown": {
+      "count": 3,
+      "files": [
+        ".gitignore",
+        "guardian/cognition/personas/store.py",
+        "guardian/routes/imprint.py"
       ]
     }
   }
