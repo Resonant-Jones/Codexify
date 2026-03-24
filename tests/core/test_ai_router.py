@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from guardian.core.ai_router import call_alibaba, chat_with_ai
+import json
+
+import pytest
+import requests
+from fastapi import HTTPException
+
+from guardian.core.ai_router import call_alibaba, call_minimax, chat_with_ai
 from guardian.core.config import Settings
 
 
@@ -11,6 +17,15 @@ class _MockResponse:
 
     def json(self) -> dict:
         return self._payload
+
+
+class _MockRawResponse:
+    def __init__(self, payload: dict, status_code: int = 200) -> None:
+        self.status_code = status_code
+        self.content = json.dumps(payload).encode("utf-8")
+
+    def json(self) -> dict:
+        return json.loads(self.content.decode("utf-8"))
 
 
 def _mock_alibaba_model_index(url, headers, timeout):
@@ -108,3 +123,205 @@ def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
     assert captured["messages"] == messages
     assert captured["model"] == "qwen-plus"
     assert captured["settings"] is settings
+
+
+def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
+    monkeypatch,
+):
+    calls: list[str] = []
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (json, headers, timeout)
+        calls.append(url)
+        if "127.0.0.1:11434" in url:
+            raise requests.exceptions.ConnectionError("connection refused")
+        return _MockRawResponse(
+            {"message": {"content": "Local fallback reply"}}
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_DOCKER_FALLBACK_BASE_URL="http://host.docker.internal:11434",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+    )
+
+    result = chat_with_ai(
+        [{"role": "user", "content": "hello"}],
+        provider="local",
+        model="library2/ministral-3:8b",
+        settings=settings,
+    )
+
+    assert result == "Local fallback reply"
+    assert calls[0].startswith("http://127.0.0.1:11434")
+    assert any(
+        "host.docker.internal:11434" in attempted_url for attempted_url in calls
+    )
+
+
+def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        raise requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_DOCKER_FALLBACK_BASE_URL="http://host.docker.internal:11434",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        chat_with_ai(
+            [{"role": "user", "content": "hello"}],
+            provider="local",
+            model="library2/ministral-3:8b",
+            settings=settings,
+        )
+
+    detail = str(exc.value.detail)
+    assert exc.value.status_code == 502
+    assert "Attempted endpoints" in detail
+    assert "127.0.0.1:11434" in detail
+    assert "host.docker.internal:11434" in detail
+
+
+def test_call_alibaba_missing_key_surfaces_auth_config_failure():
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="alibaba",
+        ALIBABA_API_KEY="",
+        ALIBABA_API_BASE="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+        ALIBABA_MODEL="qwen-plus",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_alibaba(
+            [{"role": "user", "content": "Hello"}],
+            "qwen-plus",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail["provider"] == "alibaba"
+    assert exc.value.detail["failure_kind"] == "auth_config_error"
+    assert (
+        exc.value.detail["provider_error"]
+        == "ALIBABA_API_KEY is not configured"
+    )
+
+
+def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        raise requests.exceptions.Timeout("request timed out")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router.assert_egress_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="alibaba",
+        ALIBABA_API_KEY="test-alibaba-key",
+        ALIBABA_API_BASE="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+        ALIBABA_MODEL="qwen-plus",
+        ALIBABA_TIMEOUT_SECONDS=5.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_alibaba(
+            [{"role": "user", "content": "Hello"}],
+            "qwen-plus",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "alibaba"
+    assert detail["failure_kind"] == "provider_timeout"
+    assert detail["transport_classification"] == "timeout"
+
+
+def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        raise requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router.assert_egress_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="minimax",
+        MINIMAX_API_KEY="test-minimax-key",
+        MINIMAX_API_BASE="https://api.minimax.chat/v1",
+        MINIMAX_MODEL="abab6.5s-chat",
+        MINIMAX_TIMEOUT_SECONDS=5.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_minimax(
+            [{"role": "user", "content": "Hi"}],
+            "abab6.5s-chat",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "minimax"
+    assert detail["failure_kind"] == "transport_error"
+    assert detail["transport_classification"] == "connection_refused"
+
+
+def test_call_minimax_http_error_surfaces_provider_error_payload(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        return _MockResponse(
+            {"error": {"message": "quota exceeded"}},
+            status_code=429,
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router.assert_egress_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+    settings = Settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="minimax",
+        MINIMAX_API_KEY="test-minimax-key",
+        MINIMAX_API_BASE="https://api.minimax.chat/v1",
+        MINIMAX_MODEL="abab6.5s-chat",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_minimax(
+            [{"role": "user", "content": "Hi"}],
+            "abab6.5s-chat",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "minimax"
+    assert detail["failure_kind"] == "provider_http_error"
+    assert detail["upstream_status"] == 429
+    assert detail["provider_error"] == "quota exceeded"
