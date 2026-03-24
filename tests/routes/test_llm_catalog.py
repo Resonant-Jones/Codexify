@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import requests
 from fastapi.testclient import TestClient
 
 from guardian.core.config import get_settings
@@ -31,6 +32,19 @@ def _mock_local_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
 def _mock_alibaba_model_index(url: str, *args, **kwargs) -> _MockResponse:
     assert url == "https://dashscope-us.aliyuncs.com/compatible-mode/v1/models"
     return _MockResponse({"data": [{"id": "qwen-plus"}]})
+
+
+def _mock_bridge_fallback_catalog_request(calls: list[str]):
+    def _handler(url: str, *args, **kwargs) -> _MockResponse:
+        _ = (args, kwargs)
+        calls.append(url)
+        if "127.0.0.1:11434" in url:
+            raise requests.exceptions.ConnectionError("connection refused")
+        if url.endswith("/api/tags") and "host.docker.internal:11434" in url:
+            return _MockResponse({"models": [{"name": "llama3.2:3b"}]})
+        return _MockResponse({"data": []}, status_code=404)
+
+    return _handler
 
 
 def _provider_by_id(payload: dict, provider_id: str) -> dict:
@@ -95,6 +109,48 @@ def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
         assert [provider["id"] for provider in payload["providers"]] == [
             "local"
         ]
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
+    monkeypatch,
+):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_bridge_fallback_catalog_request(calls),
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "LOCAL_DOCKER_FALLBACK_BASE_URL": settings.LOCAL_DOCKER_FALLBACK_BASE_URL,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+        settings.LOCAL_DOCKER_FALLBACK_BASE_URL = (
+            "http://host.docker.internal:11434"
+        )
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = True
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+        payload = response.json()
+
+        local = _provider_by_id(payload, "local")
+        assert [model["id"] for model in local["models"]] == ["llama3.2:3b"]
+        assert local["models"][0]["source"] == "host.docker.internal:11434"
+        assert any("127.0.0.1:11434" in url for url in calls)
+        assert any("host.docker.internal:11434" in url for url in calls)
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
