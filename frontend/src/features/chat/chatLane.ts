@@ -1,3 +1,4 @@
+// Canonical chat lane width used by message stack, approval rail, and composer.
 export const CHAT_LANE_MAX_WIDTH = 880;
 export const CHAT_LANE_GUTTER_CLASS = "px-4 md:px-3";
 export const CHAT_LANE_STAGE_GUTTER_CLASS = "mx-4 md:mx-3";

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import GuardianChat, {
   flattenChatEventPayload,
 } from "@/features/chat/GuardianChat";
-import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import { CHAT_LANE_MAX_WIDTH, CHAT_STAGE_MAX_WIDTH } from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
 
@@ -196,6 +196,9 @@ describe("GuardianChat session-tab binding", () => {
     const lane = screen.getByTestId("composer-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
     expect(lane.className).toContain("md:max-w-[880px]");
+    expect(screen.getByTestId("composer-shell")).toHaveStyle({
+      maxWidth: `${CHAT_STAGE_MAX_WIDTH}px`,
+    });
     expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
   });
 });

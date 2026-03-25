@@ -2612,26 +2612,79 @@ export function GuardianChat({
                   alert(`Audio file too large. Max ${limitMb} MB.`);
                   return;
                 }
-                setVoiceUploading(true);
-                try {
-                  const form = new FormData();
-                  form.append("thread_id", String(effectiveThreadId));
-                  form.append("audio_file", file);
-                  form.append("tts_enabled", "true");
-                  await api.post("/voice/turn", form, {
-                    headers: { "Content-Type": "multipart/form-data" },
-                    timeout: 180000,
-                  });
-                  triggerReload();
-                } catch (error) {
-                  console.warn("[guardian] voice turn failed", error);
-                  alert("Voice turn failed. Check backend voice configuration.");
-                } finally {
-                  setVoiceUploading(false);
+                depthMode={depth}
+                depthOptions={depthOptions}
+                onDepthModeChange={setDepth}
+                onVoiceTurn={
+                  voiceTurnBasedEnabled
+                    ? () => {
+                        if (effectiveThreadId == null) {
+                          alert(
+                            "Create or open a thread before starting a voice turn."
+                          );
+                          return;
+                        }
+                        voiceFileInputRef.current?.click();
+                      }
+                    : undefined
                 }
-              }}
-            />
-          ) : null}
+                voiceTurnLabel={voiceUploading ? "Processing voice…" : "Upload voice turn"}
+              />
+              {voiceTurnBasedEnabled ? (
+                <input
+                  ref={voiceFileInputRef}
+                  type="file"
+                  accept={voiceUploadAccept}
+                  className="hidden"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) return;
+                    if (effectiveThreadId == null) {
+                      alert("Create or open a thread before starting a voice turn.");
+                      return;
+                    }
+                    const normalizedMime = String(file.type || "")
+                      .trim()
+                      .toLowerCase();
+                    if (
+                      normalizedMime &&
+                      supportedVoiceInputMime.length > 0 &&
+                      !supportedVoiceInputMime.includes(normalizedMime)
+                    ) {
+                      alert(`Unsupported audio type: ${normalizedMime}`);
+                      return;
+                    }
+                    if (
+                      voiceUploadLimitBytes != null &&
+                      file.size > voiceUploadLimitBytes
+                    ) {
+                      const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+                      alert(`Audio file too large. Max ${limitMb} MB.`);
+                      return;
+                    }
+                    setVoiceUploading(true);
+                    try {
+                      const form = new FormData();
+                      form.append("thread_id", String(effectiveThreadId));
+                      form.append("audio_file", file);
+                      form.append("tts_enabled", "true");
+                      await api.post("/voice/turn", form, {
+                        headers: { "Content-Type": "multipart/form-data" },
+                        timeout: 180000,
+                      });
+                      triggerReload();
+                    } catch (error) {
+                      console.warn("[guardian] voice turn failed", error);
+                      alert("Voice turn failed. Check backend voice configuration.");
+                    } finally {
+                      setVoiceUploading(false);
+                    }
+                  }}
+                />
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
     </div>
