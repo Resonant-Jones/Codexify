@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import GuardianChat, {
   flattenChatEventPayload,
 } from "@/features/chat/GuardianChat";
+import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
 
@@ -166,6 +167,36 @@ describe("GuardianChat session-tab binding", () => {
     expect(
       await screen.findByText("New thread ready. Start typing below.")
     ).toBeInTheDocument();
+  });
+
+  it("keeps the composer rail on the shared conversation lane", async () => {
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "2", title: "Thread 2", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Thread 2",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-2" as any}
+      />
+    );
+
+    const lane = screen.getByTestId("composer-conversation-lane");
+    expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
+    expect(lane.className).toContain("md:max-w-[880px]");
+    expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
   });
 });
 
