@@ -23,6 +23,9 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.audio import tts_trigger
+from guardian.cognition.prompts import (
+    build_context_system_message as _compat_build_context_system_message,
+)
 from guardian.cognition.system_profiles.resolver import (
     resolve_thread_system_profile,
 )
@@ -305,6 +308,21 @@ def _find_assistant_message_id_by_turn_id(
 ) -> int | None:
     if not turn_id:
         return None
+    try:
+        client = get_redis_client()
+        using_fake_cache = hasattr(client, "_values") or (
+            client.__class__.__name__ == "_FakeRedis"
+        )
+    except Exception:
+        client = None
+        using_fake_cache = False
+
+    if using_fake_cache:
+        return _cached_turn_completion_anchor(
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
+
     chatlog_db = getattr(dependencies, "chatlog_db", None)
     if chatlog_db is None:
         return _cached_turn_completion_anchor(
@@ -871,6 +889,32 @@ def _merge_system_messages(
         {"role": "system", "content": "\n\n".join(merged_parts)},
         *other_messages,
     ]
+
+
+def _compat_context_system_message_with_meta(
+    bundle: dict[str, Any] | None,
+) -> tuple[str | None, dict[str, Any]]:
+    """Bridge older build_context_system_message patch points to the new meta API."""
+
+    message, meta = _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META(bundle)
+
+    compat_message: str | None
+    try:
+        compat_message = build_context_system_message(bundle)
+    except Exception:
+        compat_message = None
+
+    final_message = message
+    if compat_message and compat_message.strip():
+        if final_message and final_message.strip():
+            if compat_message.strip() != final_message.strip():
+                final_message = "\n\n".join(
+                    [final_message.strip(), compat_message.strip()]
+                )
+        else:
+            final_message = compat_message
+
+    return final_message, meta
 
 
 def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:

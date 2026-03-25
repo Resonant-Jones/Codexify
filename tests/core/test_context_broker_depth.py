@@ -681,3 +681,60 @@ class TestContextBrokerIntegration:
         assert "semantic" in diagnostic
         assert "memory" in diagnostic
         assert "sensors" in diagnostic
+
+
+class TestContextBrokerDocuments:
+    """Document-scoped retrieval behaviors."""
+
+    @pytest.mark.asyncio
+    async def test_scoped_docs_use_sa_session_fallback(self, monkeypatch):
+        """Even without get_session, _sa_session yields linked docs."""
+
+        class _SessionCtx:
+            def __init__(self, session):
+                self._session = session
+
+            def __enter__(self):
+                return self._session
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class _Chatlog:
+            def __init__(self, session):
+                self._session = session
+
+            def _sa_session(self):
+                return _SessionCtx(self._session)
+
+            def last_messages(self, thread_id, n):
+                return []
+
+        session = MagicMock()
+        chatlog = _Chatlog(session)
+        vector = MagicMock()
+        vector.search = MagicMock(return_value=[])
+        broker = ContextBroker(
+            chatlog_db=chatlog,
+            vector_store=vector,
+            memory_store=None,
+            sensors=None,
+        )
+
+        project_docs = [{"id": "proj-1"}]
+        thread_docs = [{"id": "thread-1"}]
+        monkeypatch.setattr(
+            broker, "_query_project_docs", MagicMock(return_value=project_docs)
+        )
+        monkeypatch.setattr(
+            broker, "_query_thread_docs", MagicMock(return_value=thread_docs)
+        )
+
+        context, _ = await broker.assemble(
+            thread_id=7, query="hello", depth_mode="normal", project_id=3
+        )
+
+        assert context["docs"]["project"] == project_docs
+        assert context["docs"]["thread"] == thread_docs
+        broker._query_project_docs.assert_called_once()
+        broker._query_thread_docs.assert_called_once()
