@@ -1,14 +1,32 @@
 name: codexify
 
+x-postgres-env: &postgres_env
+  POSTGRES_USER: ${POSTGRES_USER:-codexify}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codexify}
+  POSTGRES_DB: ${POSTGRES_DB:-Codexify}
+  PGHOST: db
+  PGPORT: "5432"
+  PGUSER: ${POSTGRES_USER:-codexify}
+  PGPASSWORD: ${POSTGRES_PASSWORD:-codexify}
+  PGDATABASE: ${POSTGRES_DB:-Codexify}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+
 services:
   db:
     image: postgres:15
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-codexify}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codexify}
-      POSTGRES_DB: ${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codexify} -d ${POSTGRES_DB:-Codexify}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER:-codexify}\" -d \"$${POSTGRES_DB:-Codexify}\"",
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -58,7 +76,7 @@ services:
       retries: 20
   graph-init:
     image: neo4j:5
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     depends_on:
       neo4j:
         condition: service_healthy
@@ -94,11 +112,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -133,15 +149,13 @@ services:
     profiles:
       - cli
     entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       EMBEDDER_PROVIDER: "local"
@@ -212,7 +226,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -226,13 +240,11 @@ services:
       - hf_cache:/root/.cache/huggingface
       - ./models:/models
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       PORT: "8888"
       # Command bus loopback: required so command execution re-enters the API via HTTP with full authz/middleware.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
@@ -257,8 +269,8 @@ services:
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
       # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
-      CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -335,15 +347,13 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -352,11 +362,11 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
       # VaultNode is the host running Ollama. Keep this as a pure host:port (no /v1) unless you are explicitly targeting an OpenAI-compat gateway.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
 
       # Local inference base URL (Ollama native by default). If you point this at an OpenAI-compat gateway, use a /v1 suffix.
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
 
@@ -397,15 +407,13 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -413,9 +421,9 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -452,22 +460,20 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
-      CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -508,15 +514,13 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -524,9 +528,9 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -567,15 +571,13 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -583,9 +585,9 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://100.109.4.57:11434}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -628,22 +630,20 @@ services:
         condition: service_completed_successfully
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://100.109.4.57:11434}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -688,15 +688,13 @@ services:
         condition: service_completed_successfully
       model-prep:
         condition: service_completed_successfully
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      <<: *postgres_env
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
-      GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-      GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
@@ -826,7 +824,7 @@ services:
       - /app/src/node_modules
       - corepack_cache:/root/.cache/node/corepack
       - frontend_pnpm_store:/pnpm/store
-    env_file: .env
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     # Do not start the dev UI until the core API is actually reachable.
     # This avoids proxy storms against the in-network hostname `backend` during boot.
     depends_on:

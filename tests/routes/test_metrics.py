@@ -3,6 +3,17 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from guardian.routes import health as health_routes
+
+
+@pytest.fixture(autouse=True)
+def reset_chat_queue_progress_state():
+    health_routes._CHAT_QUEUE_LAST_DEPTH = None
+    health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
+    yield
+    health_routes._CHAT_QUEUE_LAST_DEPTH = None
+    health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
+
 
 def test_metrics_endpoint_prometheus(test_client):
     """Test that /metrics endpoint returns Prometheus-compatible metrics."""
@@ -79,11 +90,28 @@ def test_health_chat_endpoint(test_client):
     assert res.status_code == 200
     data = res.json()
     assert "backend" in data
+    assert "status" in data
+    assert "redis" in data
+    assert "worker" in data
+    assert "queue" in data
+    assert "notes" in data
     assert "completion_service" in data
     completion = data["completion_service"]
     assert "redis_reachable" in completion
     assert "enqueue_test_ok" in completion
     assert "worker_heartbeat_detected" in completion
+    assert "worker_heartbeat_age_seconds" in completion
+    assert "worker_heartbeat_status" in completion
+    assert data["status"] in {"healthy", "degraded", "unhealthy"}
+    assert data["redis"] in {"ok", "unhealthy"}
+    assert data["worker"]["status"] in {"fresh", "stale", "dead"}
+    assert "heartbeat_age_seconds" in data["worker"]
+    assert "depth" in data["queue"]
+    assert data["queue"]["status"] in {
+        "progressing",
+        "stalled",
+        "unknown",
+    }
 
 
 def test_health_vector_endpoint(test_client):
@@ -97,3 +125,74 @@ def test_health_vector_endpoint(test_client):
     assert data.get("source") in ("shared", "local", "probe")
     assert data.get("added") == 1
     assert data.get("matches", 0) >= 1
+
+
+def test_health_embedder_endpoint_stub_backend(test_client, monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.dependencies.get_embedder_preflight_status",
+        lambda: {
+            "backend": "stub",
+            "model": None,
+            "ready": True,
+            "present": None,
+            "reason": "local embedder preflight not applicable for stub backend",
+        },
+    )
+
+    res = test_client.get("/api/health/embedder")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["embedder"]["backend"] == "stub"
+    assert data["embedder"]["ready"] is True
+    assert data["embedder"]["present"] is None
+
+
+def test_health_embedder_endpoint_local_present(test_client, monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.dependencies.get_embedder_preflight_status",
+        lambda: {
+            "backend": "local",
+            "model": "/models/default-local-embedder",
+            "ready": True,
+            "present": True,
+            "reason": "local embedder preflight passed",
+        },
+    )
+
+    res = test_client.get("/api/health/embedder")
+    assert res.status_code == 200
+    data = res.json()
+    assert data == {
+        "status": "ok",
+        "embedder": {
+            "backend": "local",
+            "model": "/models/default-local-embedder",
+            "ready": True,
+            "present": True,
+            "reason": "local embedder preflight passed",
+        },
+    }
+
+
+def test_health_embedder_endpoint_local_missing(test_client, monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.dependencies.get_embedder_preflight_status",
+        lambda: {
+            "backend": "local",
+            "model": "/models/default-local-embedder",
+            "ready": False,
+            "present": False,
+            "reason": "configured local embedder not found in cache",
+        },
+    )
+
+    res = test_client.get("/api/health/embedder")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["embedder"]["backend"] == "local"
+    assert data["embedder"]["model"] == "/models/default-local-embedder"
+    assert data["embedder"]["ready"] is False
+    assert data["embedder"]["present"] is False
+    assert "not found in cache" in data["embedder"]["reason"]

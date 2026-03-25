@@ -10,10 +10,11 @@ export function TopBar() {
         alignItems: "center",
         gap: 12,
         padding: "10px 14px",
-        borderBottom: "1px solid rgba(0,0,0,.08)",
+        borderBottom: "1px solid var(--panel-border)",
         position: "sticky",
         top: 0,
-        background: "rgba(255,255,255,.85)",
+        background: "color-mix(in oklab, var(--panel-bg) 88%, transparent)",
+        color: "var(--text)",
         backdropFilter: "saturate(150%) blur(8px)",
         zIndex: 100,
       }}
@@ -22,7 +23,7 @@ export function TopBar() {
       <div style={{ fontWeight: 700, letterSpacing: "-.02em" }}>Codexify</div>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
         <StatusDot ok={connected} />
-        <span style={{ fontSize: 13, color: "rgba(0,0,0,.6)" }}>
+        <span style={{ fontSize: 13, color: "var(--muted)" }}>
           {connected ? "Live" : "Reconnecting…"}
         </span>
       </div>

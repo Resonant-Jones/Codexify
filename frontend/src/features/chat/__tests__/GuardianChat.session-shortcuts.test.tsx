@@ -15,6 +15,7 @@ vi.mock("@/lib/api", () => ({
   buildLlmCatalogPath: () => "/llm/catalog",
   buildChatCompletePath: () => "/chat/complete",
   clearInFlightCompletionTurnId: vi.fn(),
+  getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
 
@@ -56,10 +57,27 @@ vi.mock("@/components/surface/FrameCard", () => ({
 
 vi.mock("@/features/chat/useChat", () => ({
   default: () => ({
-    completionState: { isCompleting: false, activeThreadId: null },
+    messages: [],
+    loading: false,
+    error: null,
+    hasMore: false,
+    activateThread: vi.fn(),
+    refreshSnapshot: vi.fn().mockResolvedValue([]),
+    loadOlderMessages: vi.fn().mockResolvedValue([]),
+    completionState: {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    },
     startCompletion: vi.fn(),
     endCompletion: vi.fn(),
     updateCompletionTaskId: vi.fn(),
+    startCompletionSession: vi.fn(),
+    reassociateCompletionSession: vi.fn(() => true),
+    updateCompletionSessionTurnId: vi.fn(() => true),
+    finalizeCompletionSession: vi.fn(() => true),
+    handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
     refreshSnapshot: vi.fn(),
