@@ -13,8 +13,10 @@ from guardian.context.tool_intents import (
 )
 from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
+from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 
 logger = logging.getLogger(__name__)
+_OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
 
 
 def _thread_namespace(thread_id: int) -> str:
@@ -228,19 +230,36 @@ class ContextBroker:
             context["messages"] = []
 
         # Always include semantic search (for all depths except "shallow")
+        context["obsidian"] = []
         if normalized_depth != "shallow":
             try:
-                semantic = await self._search_semantic(
+                semantic_thread = await self._search_semantic(
                     query,
                     k_semantic,
                     namespace=_thread_namespace(thread_id),
                 )
-                context["semantic"] = semantic
+                semantic_obsidian: list[dict[str, Any]] = []
+                if self._obsidian_retrieval_enabled():
+                    try:
+                        semantic_obsidian = await self._search_semantic(
+                            query,
+                            k_semantic,
+                            namespace=OBSIDIAN_NAMESPACE,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[ContextBroker] Obsidian retrieval failed; continuing without it: %s",
+                            exc,
+                        )
+                context["obsidian"] = semantic_obsidian
+                context["semantic"] = semantic_thread + semantic_obsidian
             except Exception as e:
                 logger.warning(f"Failed to perform semantic search: {e}")
                 context["semantic"] = []
+                context["obsidian"] = []
         else:
             context["semantic"] = []
+            context["obsidian"] = []
 
         context["docs"] = {"project": [], "thread": [], "global": []}
         if normalized_depth in ("normal", "deep", "diagnostic"):
@@ -336,11 +355,12 @@ class ContextBroker:
 
         try:
             logger.info(
-                "[ContextBroker] thread=%s depth=%s messages=%s semantic=%s docs(project/thread)=%s/%s memory=%s graph=%s",
+                "[ContextBroker] thread=%s depth=%s messages=%s semantic=%s obsidian=%s docs(project/thread)=%s/%s memory=%s graph=%s",
                 thread_id,
                 normalized_depth,
                 len(context.get("messages", [])),
                 len(context.get("semantic", [])),
+                len(context.get("obsidian", [])),
                 len(context.get("docs", {}).get("project", [])),
                 len(context.get("docs", {}).get("thread", [])),
                 len(context.get("memory", [])) if "memory" in context else 0,
@@ -350,6 +370,30 @@ class ContextBroker:
             pass
 
         return context, rag_trace
+
+    def _obsidian_retrieval_enabled(self) -> bool:
+        getter = getattr(self.chatlog, "get_connector_config", None)
+        if not callable(getter):
+            return False
+        try:
+            config = getter(_OBSIDIAN_CONNECTOR_NAME)
+            if hasattr(config, "__await__"):
+                return False
+            if not isinstance(config, dict):
+                return False
+            settings = config.get("settings")
+            if not isinstance(settings, dict):
+                return False
+            if not str(settings.get("vault_root") or "").strip():
+                return False
+            if settings.get("enabled") is False:
+                return False
+            return True
+        except Exception as exc:
+            logger.debug(
+                "[ContextBroker] Obsidian connector check failed: %s", exc
+            )
+            return False
 
     async def _fetch_messages(
         self, thread_id: int, n: int
