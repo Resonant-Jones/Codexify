@@ -22,6 +22,7 @@ import {
 } from "@/types/inference";
 import {
   CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS,
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
   CHAT_COMPOSER_CONTROLS_PAD_CLASS,
   CHAT_COMPOSER_INNER_PAD_CLASS,
   CHAT_COMPOSER_SEND_PAD_CLASS,
@@ -704,8 +705,14 @@ export function Composer({
             }}
           />
 
-          <div className={`flex flex-wrap items-center justify-between gap-3 ${CHAT_COMPOSER_CONTROLS_PAD_CLASS}`}>
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div
+            data-testid="composer-controls-row"
+            className={cn(
+              "mt-auto flex items-center justify-between gap-3 px-[8px]",
+              CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
+            )}
+          >
+            <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 depthMode={depthMode}

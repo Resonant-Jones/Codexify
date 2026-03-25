@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
+import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
 import api from "@/lib/api";
+import composerSource from "@/features/chat/components/Composer.tsx?raw";
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -330,5 +332,23 @@ describe("Composer draft sync", () => {
 
     fireEvent.click(voiceTurnButton);
     expect(onVoiceTurn).not.toHaveBeenCalled();
+  });
+
+  it("pins controls row using the shared bottom-gap contract", () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const controlsRow = screen.getByTestId("composer-controls-row");
+    expect(controlsRow.className).toContain("mt-auto");
+    expect(controlsRow.className).toContain(
+      CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
+    );
+
+    expect(composerSource).not.toContain('pb-[2px]');
   });
 });
