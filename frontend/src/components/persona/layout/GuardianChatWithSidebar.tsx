@@ -696,17 +696,107 @@ export default function GuardianChatWithSidebar({
     }
   }, [auth, mapThreadRecord, mergeThreadsPage, selectedProjectFilter]);
 
+  const handleDeleteThreadStateSync = React.useCallback(
+    (threadId: string) => {
+      const normalizedId = String(threadId ?? "").trim();
+      if (!normalizedId) return;
+
+      const current = threadsRef.current;
+      const removedIndex = current.findIndex(
+        (thread) => thread.id === normalizedId
+      );
+      if (removedIndex === -1) return;
+
+      const remaining = current.filter((thread) => thread.id !== normalizedId);
+      threadsRef.current = remaining;
+      setThreads(remaining);
+
+      const activeThreadDeleted = activeId === normalizedId;
+      const activeTabThreadDeleted =
+        (activeSessionTab?.threadId ?? null) === normalizedId;
+      if (!activeThreadDeleted && !activeTabThreadDeleted) {
+        return;
+      }
+
+      const fallbackThread =
+        remaining[removedIndex] ??
+        remaining[Math.max(0, removedIndex - 1)] ??
+        null;
+      const nextActiveId = fallbackThread?.id ?? null;
+      const nextActiveTitle = fallbackThread?.title ?? NEW_THREAD_TITLE;
+
+      setActiveId(nextActiveId);
+      if (sessionSpine && activeSessionTabId) {
+        sessionSpine.tabSetThread(
+          activeSessionTabId,
+          nextActiveId ?? undefined,
+          nextActiveTitle
+        );
+        sessionSpine.cancelActiveCompletion({
+          threadId: normalizedId,
+          restoreDraft: false,
+        });
+      }
+      if (typeof window !== "undefined") {
+        window.history.replaceState(
+          {},
+          "",
+          nextActiveId ? `/chat/${nextActiveId}` : "/chat"
+        );
+      }
+    },
+    [activeId, activeSessionTab?.threadId, activeSessionTabId, sessionSpine]
+  );
+
+  const handleBeforeDeleteThread = React.useCallback(
+    (threadId: string): string | null => {
+      const normalizedId = String(threadId ?? "").trim();
+      if (!normalizedId || !sessionSpine) return null;
+      const activeCompletionThreadId =
+        sessionSpine.getActiveCompletion()?.threadId ?? null;
+      if (
+        activeCompletionThreadId !== normalizedId ||
+        !sessionSpine.isComposerBlocked()
+      ) {
+        return null;
+      }
+      sessionSpine.cancelActiveCompletion({
+        threadId: normalizedId,
+        restoreDraft: false,
+      });
+      if (!sessionSpine.isComposerBlocked()) {
+        return null;
+      }
+      return "Finish or cancel the current assistant reply before deleting this thread.";
+    },
+    [sessionSpine]
+  );
+
+  const handleDeleteThread = React.useCallback(
+    async (threadId: string) => {
+      handleDeleteThreadStateSync(threadId);
+    },
+    [handleDeleteThreadStateSync]
+  );
+
   React.useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const onThreadsRefresh = (event: Event) => {
       const detail = (event as CustomEvent)?.detail ?? {};
       const kind = detail?.kind ?? detail?.type;
+      if (kind === "delete") {
+        const deletedThreadId = detail?.id ?? detail?.thread_id ?? detail?.threadId;
+        if (deletedThreadId != null) {
+          handleDeleteThreadStateSync(String(deletedThreadId));
+        }
+        return;
+      }
       if (kind !== "refresh" && kind !== "import") return;
       void loadThreads({ reset: true });
     };
     window.addEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
     return () => window.removeEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
-  }, [loadThreads]);
+  }, [handleDeleteThreadStateSync, loadThreads]);
 
   React.useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -1266,6 +1356,8 @@ export default function GuardianChatWithSidebar({
                     hasMoreThreads={threadsHasMore}
                     loadingMoreThreads={threadsLoadingMore}
                     onLoadMoreThreads={loadMoreThreads}
+                    onBeforeDeleteThread={handleBeforeDeleteThread}
+                    onDeleteThread={handleDeleteThread}
                   />
                 </PanelShell>
               </div>
@@ -1330,6 +1422,8 @@ export default function GuardianChatWithSidebar({
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}
                   onLoadMoreThreads={loadMoreThreads}
+                  onBeforeDeleteThread={handleBeforeDeleteThread}
+                  onDeleteThread={handleDeleteThread}
                 />
               </PanelShell>
             </div>

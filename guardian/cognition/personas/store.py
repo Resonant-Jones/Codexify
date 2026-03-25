@@ -55,7 +55,7 @@ def get_active_persona(user_id: str, project_id: int | None) -> Persona | None:
                 Persona.project_id == project_id,
                 Persona.is_active.is_(True),
             )
-            .order_by(Persona.created_at.desc())
+            .order_by(Persona.updated_at.desc(), Persona.created_at.desc())
         )
         return session.scalars(stmt).first()
 
