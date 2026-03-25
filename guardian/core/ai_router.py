@@ -523,6 +523,25 @@ def _normalize_openai_model(model: str, settings: Settings) -> str:
     return model
 
 
+def build_openai_vision_content(
+    text: str | None,
+    image_urls: list[str] | None,
+) -> list[dict[str, Any]]:
+    """Build OpenAI-compatible multimodal content parts."""
+    parts: list[dict[str, Any]] = []
+    clean_text = str(text or "").strip()
+    if clean_text:
+        parts.append({"type": "text", "text": clean_text})
+    for raw_url in image_urls or []:
+        url = str(raw_url or "").strip()
+        if not url:
+            continue
+        parts.append({"type": "image_url", "image_url": {"url": url}})
+    if not parts:
+        parts.append({"type": "text", "text": ""})
+    return parts
+
+
 def chat_with_ai(
     messages,
     model: Optional[str] = None,
