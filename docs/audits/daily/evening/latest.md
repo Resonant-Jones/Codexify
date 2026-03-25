@@ -1,23 +1,43 @@
-# Daily Audit — 2026-03-23
+# Daily Audit — 2026-03-24
 
 ## Repo Status
-- Date: 2026-03-23
+- Date: 2026-03-24
 - Phase: `evening`
-- Branch: `codex/add-guarded-logging-for-ingest`
-- HEAD: `c176b3e9acbcbbb851d53e3104230dad821a9dd0`
+- Branch: `codex/diagnose-black-screen-ui`
+- HEAD: `9bb63e1f0aa1a48c6487258973cb948e838406aa`
 - Worktree: dirty
 - Status lines:
-  - ` M guardian/routes/chat.py`
-  - `?? guardian/tests/test_chat_neo4j_ingest_cypher.py`
+  - `?? compound-mcp-server-main/.github/architect.chatmode.md`
+  - `?? compound-mcp-server-main/.github/ask.chatmode.md`
+  - `?? compound-mcp-server-main/.github/code.chatmode.md`
+  - `?? compound-mcp-server-main/.github/debug.chatmode.md`
+  - `?? compound-mcp-server-main/.github/workflows/stale.yaml`
+  - `?? compound-mcp-server-main/.gitignore`
+  - `?? compound-mcp-server-main/LICENSE`
+  - `?? compound-mcp-server-main/README.md`
+  - `?? compound-mcp-server-main/next-env.d.ts`
+  - `?? compound-mcp-server-main/next.config.mjs`
+  - `?? compound-mcp-server-main/package.json`
+  - `?? compound-mcp-server-main/pnpm-lock.yaml`
+  - `?? compound-mcp-server-main/pnpm-workspace.yaml`
+  - `?? compound-mcp-server-main/src/app/api/mcp/[...all]/route.ts`
+  - `?? compound-mcp-server-main/src/app/globals.css`
+  - `?? compound-mcp-server-main/src/app/layout.tsx`
+  - `?? compound-mcp-server-main/src/app/page.tsx`
+  - `?? compound-mcp-server-main/src/index.test.ts`
+  - `?? compound-mcp-server-main/src/index.ts`
+  - `?? compound-mcp-server-main/src/server.ts`
+  - `?? compound-mcp-server-main/tsconfig.json`
+  - `?? compound-mcp-server-main/tsconfig.stdio.json`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
 - Attempted commands:
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
-- Summary counts: PASS 40, WARN 11, FAIL 0
+  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
+  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python3 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
+- Summary counts: PASS 41, WARN 10, FAIL 0
 - Strongest evidence: `Core Loop Integrity`, `Primitive Stability`, `Extension Boundary`
-- Weakest signals: `Federation Readiness`, `Governance Readiness`, `Alternate Surface Readiness`
+- Weakest signals: `Federation Readiness`, `Alternate Surface Readiness`, `Governance Readiness`
 
 ### Current Suggested Score Bands
 | Domain | Band |
@@ -32,37 +52,22 @@
 | `Governance Readiness` | manual review required |
 
 ### Baseline Score State
-- Source: `docs/audits/history/2026-03-19-platform-readiness-baseline.md`
-- Summary: Codexify has progressed beyond prototype into an operational substrate.
-- Phase gate: Early-Adopter Ready: ❌ Not yet
-
-| Domain | Baseline Score |
-| --- | --- |
-| `Core Loop Integrity` | 2 |
-| `Primitive Stability` | 2 |
-| `Extension Boundary` | 2 |
-| `Observability` | 2 |
-| `Durability & Recovery` | 1 |
-| `Alternate Surface Readiness` | 2 |
-| `Federation Readiness` | 1 |
-| `Governance Readiness` | 2 |
+- Phase gate: Early-Adopter Ready: unknown
 
 ## Changes in Last 24 Hours
-- Commit count: 2
-- Unique files changed: 16
-- Files changed: `.gitignore`, `frontend/src/features/settings/SettingsView.tsx`, `frontend/src/features/settings/api/persona.ts`, `guardian/cognition/personas/store.py`, `guardian/routes/imprint.py`, `scripts/daily_audit.py`, `docs/audits/daily/evening/2026-03-22-audit.json`, `docs/audits/daily/evening/2026-03-22-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-03-23-audit.json`, `docs/audits/daily/morning/2026-03-23-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`
+- Commit count: 1
+- Unique files changed: 7
+- Files changed: `frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.offline-banner.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx`, `frontend/src/features/chat/useChat.ts`, `pnpm-lock.yaml`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `c176b3e9acbc` | Fix system prompt save wiring | `.gitignore`, `frontend/src/features/settings/SettingsView.tsx`, `frontend/src/features/settings/api/persona.ts`, `guardian/cognition/personas/store.py`, `guardian/routes/imprint.py`, `scripts/daily_audit.py` |
-| `dfd3d52fc66e` | Update daily audit reports | `docs/audits/daily/evening/2026-03-22-audit.json`, `docs/audits/daily/evening/2026-03-22-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-03-23-audit.json`, `docs/audits/daily/morning/2026-03-23-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `9bb63e1f0aa1` | Add useChat refreshSnapshot contract and update mocks | `frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.offline-banner.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx`, `frontend/src/features/chat/useChat.ts`, `pnpm-lock.yaml` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `audit` | 11 | `scripts/daily_audit.py`, `docs/audits/daily/evening/2026-03-22-audit.json`, `docs/audits/daily/evening/2026-03-22-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-03-23-audit.json`, `docs/audits/daily/morning/2026-03-23-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `frontend` | 2 | `frontend/src/features/settings/SettingsView.tsx`, `frontend/src/features/settings/api/persona.ts` |
-| `unknown` | 3 | `.gitignore`, `guardian/cognition/personas/store.py`, `guardian/routes/imprint.py` |
+| `config` | 1 | `pnpm-lock.yaml` |
+| `frontend` | 6 | `frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.offline-banner.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx`, `frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx`, `frontend/src/features/chat/useChat.ts` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
