@@ -1617,6 +1617,30 @@ export default function AppShell({
     return { flex: "1 1 0%", maxWidth: "18rem" };
   }, [bp]);
 
+  const galleryGridStyle = useMemo(
+    () =>
+      ({
+        "--image-grid-cols": bp === "sm" || bp === "md" ? "2" : "4",
+        "--image-grid-gap": "calc(var(--shell-gap) / 2)",
+        display: "grid",
+        width: "100%",
+        minWidth: 0,
+        minHeight: 0,
+        boxSizing: "border-box",
+        gap: "var(--image-grid-gap)",
+        gridTemplateColumns: "repeat(var(--image-grid-cols), minmax(0, 1fr))",
+        gridAutoRows: "max-content",
+        gridAutoFlow: "row",
+        alignItems: "start",
+        alignContent: "start",
+        justifyContent: "stretch",
+        flex: "1 1 0%",
+        overflow: "auto",
+        paddingRight: "1px",
+      }) as React.CSSProperties,
+    [bp],
+  );
+
   const runtimeDegraded =
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
@@ -1994,22 +2018,25 @@ export default function AppShell({
                 <div className="flex h-full min-h-0 flex-col p-[var(--card-pad)]">
                   <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
                   <div
-                    className="grid auto-rows-[minmax(140px,1fr)] grid-cols-2 gap-[var(--gutter)] md:grid-cols-3 xl:grid-cols-4 flex-1 min-h-0 overflow-auto"
+                    className="min-h-0"
+                    style={galleryGridStyle}
                     onDrop={galleryUploader.onDrop}
                     onDragOver={galleryUploader.onDragOver}
                   >
                     {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => (
                       <div
                         key={g.src || i}
-                        className="relative aspect-square rounded-[var(--radius)] overflow-hidden border"
+                        className="relative w-full min-w-0 overflow-hidden rounded-[var(--radius)] border"
                         style={{
+                          aspectRatio: "1 / 1",
+                          boxSizing: "border-box",
                           background: "var(--panel-bg)",
                           borderColor: "var(--panel-border)",
                           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
                         }}
                         onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
                       >
-                        <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                        <img src={g.src} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
                         {visionBusySrc === g.src && (
                           <div className="absolute inset-0 grid place-items-center bg-black/40">
                             <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
