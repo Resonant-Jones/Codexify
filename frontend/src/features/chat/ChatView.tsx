@@ -24,7 +24,11 @@ import {
   isActiveInferencePhase,
   type InferenceRequestState,
 } from "@/types/inference";
-import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import {
+  CHAT_LANE_GUTTER_CLASS,
+  CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
+} from "@/features/chat/chatLane";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
 type BubblePlayState =
@@ -399,12 +403,18 @@ export function ChatView({
         }}
         data-testid="chat-container"
         data-debug-scroll
-        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-4"
+        className={cn(
+          "flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain",
+          CHAT_LANE_GUTTER_CLASS
+        )}
         style={scrollStyle}
       >
         <div
           data-testid="chat-conversation-lane"
-          className="mx-auto w-full max-w-full md:max-w-[880px] space-y-4"
+          className={cn(
+            "mx-auto w-full max-w-full space-y-4",
+            CHAT_LANE_MAX_WIDTH_CLASS
+          )}
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
         >
           {messages.map((message, index) => {
