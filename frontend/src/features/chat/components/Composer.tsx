@@ -20,6 +20,7 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
+import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
 
 const ACCEPTED_ATTACHMENTS =
   [
@@ -679,8 +680,14 @@ export function Composer({
             }}
           />
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[4px]">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div
+            data-testid="composer-controls-row"
+            className={cn(
+              "mt-auto flex items-center justify-between gap-3 px-[8px]",
+              CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
+            )}
+          >
+            <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 depthMode={depthMode}

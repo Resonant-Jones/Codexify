@@ -2468,7 +2468,7 @@ export function GuardianChat({
       <div className="shrink-0 z-20 mt-2 flex justify-center w-full">
         <div
           data-testid="composer-shell"
-          className="w-full rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
+          className="w-full rounded-[24px] border shadow-2xl backdrop-blur-xl flex min-h-0 flex-col overflow-hidden transition-all duration-200"
           style={{
             maxWidth: CHAT_STAGE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
@@ -2479,10 +2479,10 @@ export function GuardianChat({
             maxHeight: "60vh",
           }}
         >
-          <div className="flex flex-col p-4">
+          <div className="flex h-full min-h-0 flex-col">
             <div
               data-testid="composer-conversation-lane"
-              className="mx-auto w-full max-w-full md:max-w-[880px]"
+              className="mx-auto flex h-full min-h-0 w-full max-w-full flex-col md:max-w-[888px]"
               style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
             >
               <GuardianThreadApprovalRail
