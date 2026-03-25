@@ -1,8 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatView from "@/features/chat/ChatView";
+import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import type { ChatMessage, CompletionState } from "@/features/chat/useChat";
 
 type Subscriber = (event: { type: string; data: unknown }) => void;
 
@@ -79,15 +81,12 @@ vi.mock("@/features/chat/hooks/useChatAutoScroll", async () => {
   };
 });
 
-vi.mock("@/lib/polling/usePollWithBackoff", () => ({
-  usePollWithBackoff: (fn: () => Promise<void>, opts: any) => {
-    pollFnRef = fn;
-    pollOptionsHistory.push(opts);
-  },
-}));
-
 vi.mock("@/components/ui/ContextMenu", () => ({
   default: () => null,
+}));
+
+vi.mock("@/features/chat/components/InferenceStatusBanner", () => ({
+  default: () => <div data-testid="inference-banner">Thinking…</div>,
 }));
 
 vi.mock("@/features/chat/components/ChatBubble", () => ({
@@ -96,41 +95,30 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
     showPlay,
     onPlay,
     playState,
-    playing,
-    }: {
-      message: { id: string; content: string };
-      showPlay?: boolean;
-      onPlay?: () => void;
-      playState?: "idle" | "playing" | "pending" | "unavailable" | "disabled";
-      playing?: boolean;
-    }) => {
-      const resolved =
-      playState ?? (playing ? "playing" : "idle");
+  }: {
+    message: { id: string; content: string };
+    showPlay?: boolean;
+    onPlay?: () => void;
+    playState?: "idle" | "playing" | "pending" | "unavailable" | "disabled";
+  }) => {
     const label =
-      resolved === "playing"
-        ? "Playing..."
-        : resolved === "pending"
-          ? "Generating audio"
-        : resolved === "unavailable"
+      playState === "pending"
+        ? "Generating audio"
+        : playState === "unavailable"
           ? "Audio unavailable"
-        : resolved === "disabled"
-            ? "Voice disabled"
+          : playState === "playing"
+            ? "Playing..."
             : "Read Aloud";
-    const disabled =
-      resolved === "pending" ||
-      resolved === "unavailable" ||
-      resolved === "disabled";
-    const ariaLabel = label === "Read Aloud" ? "Read message aloud" : label;
+    const disabled = playState === "pending" || playState === "unavailable";
     return (
       <div data-testid={`bubble-${message.id}`}>
         <div>{message.content}</div>
         {showPlay ? (
           <button
             type="button"
-            onClick={onPlay}
             disabled={disabled}
-            aria-label={ariaLabel}
-            title={label}
+            onClick={onPlay}
+            aria-label={label}
           >
             {label}
           </button>
@@ -140,40 +128,35 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
   },
 }));
 
-vi.mock("@/lib/api", () => ({
-  default: {
-    post: (...args: any[]) => apiPostMock(...args),
-    get: (...args: any[]) => apiGetMock(...args),
-    getInFlightCompletionTurnId: (...args: any[]) =>
-      getInFlightCompletionTurnIdMock(...args),
-    clearInFlightCompletionTurnId: (...args: any[]) =>
-      clearInFlightCompletionTurnIdMock(...args),
-  },
-  getBackendOutageRemainingMs: vi.fn(() => 0),
-}));
+const baseCompletion: CompletionState = {
+  isCompleting: false,
+  activeTaskId: null,
+  activeThreadId: null,
+  startedAt: null,
+};
+
+function buildMessage(
+  id: number,
+  role: "user" | "assistant",
+  overrides: Partial<ChatMessage> = {}
+): ChatMessage {
+  return {
+    id,
+    thread_id: 7,
+    role,
+    content: `${role}-${id}`,
+    created_at: `2026-03-13T00:00:${String(id).padStart(2, "0")}.000Z`,
+    ...overrides,
+  };
+}
 
 describe("ChatView loop guards", () => {
+  const audioPlayMock = vi.fn().mockResolvedValue(undefined);
+  const audioPauseMock = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mockMessages = [];
-    loadMessagesMock.mockResolvedValue(undefined);
-    appendMessageMock.mockClear();
-    shouldRefreshMock.mockReturnValue(false);
-    markRefreshedMock.mockClear();
-    apiPostMock.mockReset();
-    apiGetMock.mockReset();
-    getInFlightCompletionTurnIdMock.mockReset();
-    clearInFlightCompletionTurnIdMock.mockReset();
-    getInFlightCompletionTurnIdMock.mockReturnValue(null);
-    pollFnRef = null;
-    pollOptionsHistory.length = 0;
-    resetLiveSubscribers();
-    createdAudioSources.length = 0;
-    audioPlayMock.mockReset();
-    audioPlayMock.mockResolvedValue(undefined);
-    audioPauseMock.mockReset();
-    function MockAudio(this: any, src?: string) {
-      createdAudioSources.push(String(src ?? ""));
+    function MockAudio(this: any) {
       this.play = audioPlayMock;
       this.pause = audioPauseMock;
       this.onended = null;
@@ -184,966 +167,113 @@ describe("ChatView loop guards", () => {
       writable: true,
       value: MockAudio,
     });
-
-    subscribeMock.mockImplementation((eventType: string, handler: Subscriber) => {
-      const bucket = liveSubscribersByType.get(eventType) ?? new Set<Subscriber>();
-      bucket.add(handler);
-      liveSubscribersByType.set(eventType, bucket);
-      return () => {
-        const current = liveSubscribersByType.get(eventType);
-        if (!current) return;
-        current.delete(handler);
-        unsubscribeCount += 1;
-        if (current.size === 0) {
-          liveSubscribersByType.delete(eventType);
-        }
-      };
-    });
   });
 
-  it("keeps one message.created subscription per thread and unsubscribes on thread change", async () => {
-    const baseCompletion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-    const endCompletion = vi.fn();
-
-    const { rerender } = render(
-      <ChatView threadId={1} completionState={baseCompletion} endCompletion={endCompletion} />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
-
-    rerender(
+  it("renders audio state controls from props without owning fetch loops", () => {
+    render(
       <ChatView
-        threadId={1}
-        reloadVersion={1}
+        threadId={7}
+        guardianName="Guardian"
+        messages={[
+          buildMessage(1, "assistant", { audio_status: "pending" }),
+          buildMessage(2, "assistant", {
+            audio_status: "failed",
+            audio_error: "boom",
+          }),
+          buildMessage(3, "assistant", {
+            audio_status: "ready",
+            audio_url: "/audio/3.wav",
+          }),
+        ]}
+        loading={false}
+        error={null}
+        hasMore={false}
         completionState={baseCompletion}
-        endCompletion={endCompletion}
+        endCompletion={vi.fn()}
+        voiceReadAloudEnabled
       />
     );
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
 
-    rerender(
+    expect(screen.getByRole("button", { name: "Generating audio" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Audio unavailable" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Read Aloud" })).toBeEnabled();
+  });
+
+  it("loads older messages through the provided callback when scrolled to the top", async () => {
+    const onLoadOlderMessages = vi.fn().mockResolvedValue(undefined);
+
+    render(
       <ChatView
-        threadId={2}
-        reloadVersion={1}
+        threadId={7}
+        guardianName="Guardian"
+        messages={[buildMessage(1, "user"), buildMessage(2, "assistant")]}
+        loading={false}
+        error={null}
+        hasMore
+        onLoadOlderMessages={onLoadOlderMessages}
         completionState={baseCompletion}
-        endCompletion={endCompletion}
-      />
-    );
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
-    expect(unsubscribeCount).toBeGreaterThanOrEqual(1);
-  });
-
-  it("ignores stale-thread completion events and finalizes active-thread completion only", async () => {
-    vi.useFakeTimers();
-    const endCompletion = vi.fn();
-    const completionThread2 = {
-      isCompleting: true,
-      activeTaskId: "task-2",
-      activeThreadId: 2,
-      startedAt: Date.now(),
-    };
-    const completionThread3 = {
-      isCompleting: true,
-      activeTaskId: "task-3",
-      activeThreadId: 3,
-      startedAt: Date.now(),
-    };
-
-    const { rerender } = render(
-      <ChatView threadId={2} completionState={completionThread2} endCompletion={endCompletion} />
-    );
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
-
-    rerender(
-      <ChatView threadId={3} completionState={completionThread3} endCompletion={endCompletion} />
-    );
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
-
-    emitLiveEvent("message.created", { thread_id: 2, role: "assistant", id: 5002 });
-    vi.advanceTimersByTime(200);
-    expect(endCompletion).toHaveBeenCalledTimes(0);
-
-    emitLiveEvent("message.created", { thread_id: 3, role: "assistant", id: 5003 });
-    vi.advanceTimersByTime(200);
-    expect(endCompletion).toHaveBeenCalledTimes(1);
-
-    vi.useRealTimers();
-  });
-
-
-  it("finalizes completion when assistant event omits turn metadata", async () => {
-    vi.useFakeTimers();
-    const endCompletion = vi.fn();
-    const completion = {
-      isCompleting: true,
-      activeTaskId: "task-2",
-      activeThreadId: 2,
-      startedAt: Date.now(),
-    };
-
-    render(
-      <ChatView threadId={2} completionState={completion} endCompletion={endCompletion} />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
-
-    emitLiveEvent("message.created", { thread_id: 2, role: "assistant", id: 5002 });
-    vi.advanceTimersByTime(200);
-
-    expect(endCompletion).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
-  });
-
-  it("clears completion immediately when task.failed arrives for the active task", async () => {
-    const endCompletion = vi.fn();
-    const completion = {
-      isCompleting: true,
-      activeTaskId: "task-11",
-      activeThreadId: 11,
-      startedAt: Date.now(),
-    };
-
-    render(
-      <ChatView
-        threadId={11}
-        completionState={completion}
-        endCompletion={endCompletion}
-      />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("task.failed")).toBe(1);
-    });
-
-    emitLiveEvent("task.failed", {
-      thread_id: 11,
-      task_id: "task-11",
-      error: "boom",
-    });
-
-    await waitFor(() => {
-      expect(endCompletion).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("clears completion immediately when task.cancelled arrives for the active task", async () => {
-    const endCompletion = vi.fn();
-    const completion = {
-      isCompleting: true,
-      activeTaskId: "task-12",
-      activeThreadId: 12,
-      startedAt: Date.now(),
-    };
-
-    render(
-      <ChatView
-        threadId={12}
-        completionState={completion}
-        endCompletion={endCompletion}
-      />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("task.cancelled")).toBe(1);
-    });
-
-    emitLiveEvent("task.cancelled", {
-      thread_id: 12,
-      task_id: "task-12",
-    });
-
-    await waitFor(() => {
-      expect(endCompletion).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("ignores stale task.failed and only finalizes for the active thread/task", async () => {
-    const endCompletion = vi.fn();
-    const completionThread2 = {
-      isCompleting: true,
-      activeTaskId: "task-2",
-      activeThreadId: 2,
-      startedAt: Date.now(),
-    };
-    const completionThread3 = {
-      isCompleting: true,
-      activeTaskId: "task-3",
-      activeThreadId: 3,
-      startedAt: Date.now(),
-    };
-
-    const { rerender } = render(
-      <ChatView
-        threadId={2}
-        completionState={completionThread2}
-        endCompletion={endCompletion}
-      />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("task.failed")).toBe(1);
-    });
-
-    rerender(
-      <ChatView
-        threadId={3}
-        completionState={completionThread3}
-        endCompletion={endCompletion}
-      />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("task.failed")).toBe(1);
-    });
-
-    act(() => {
-      emitLiveEvent("task.failed", {
-        thread_id: 2,
-        task_id: "task-2",
-        error: "stale",
-      });
-    });
-    expect(endCompletion).toHaveBeenCalledTimes(0);
-
-    act(() => {
-      emitLiveEvent("task.failed", {
-        thread_id: 3,
-        task_id: "task-3",
-        error: "active",
-      });
-    });
-    await waitFor(() => {
-      expect(endCompletion).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("uses poll-key idempotency and restarts when depth/profile context changes", async () => {
-    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    mockMessages = [
-      {
-        id: 101,
-        thread_id: 1,
-        role: "user",
-        content: "hello",
-        created_at: "2026-03-02T00:00:00.000Z",
-      },
-    ];
-
-    const completion = {
-      isCompleting: true,
-      activeTaskId: "task-1",
-      activeThreadId: 1,
-      startedAt: Date.now(),
-    };
-    const endCompletion = vi.fn();
-
-    const { rerender } = render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={endCompletion}
-        reloadVersion={0}
-        depthMode="normal"
-        profileId="profile-a"
-      />
-    );
-
-    rerender(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={endCompletion}
-        reloadVersion={1}
-        depthMode="normal"
-        profileId="profile-a"
-      />
-    );
-    await waitFor(() => {
-      expect(
-        debugSpy.mock.calls.some((call) =>
-          String(call[0]).includes("key=1:101:normal:profile-a")
-        )
-      ).toBe(true);
-    });
-
-    expect(pollOptionsHistory.length).toBeGreaterThan(0);
-    const latestOptions = pollOptionsHistory[pollOptionsHistory.length - 1];
-    expect(latestOptions.intervalMs).toBe(1500);
-    expect(latestOptions.maxBackoffMs).toBe(5000);
-
-    rerender(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={endCompletion}
-        reloadVersion={2}
-        depthMode="normal"
-        profileId="profile-a"
-      />
-    );
-    await waitFor(() => {
-      expect(
-        debugSpy.mock.calls.some((call) =>
-          String(call[0]).includes("skip duplicate poll session key=1:101:normal:profile-a")
-        )
-      ).toBe(true);
-    });
-
-    rerender(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={endCompletion}
-        reloadVersion={3}
-        depthMode="deep"
-        profileId="profile-a"
-      />
-    );
-    await waitFor(() => {
-      expect(
-        debugSpy.mock.calls.some((call) =>
-          String(call[0]).includes("key=1:101:deep:profile-a")
-        )
-      ).toBe(true);
-    });
-  });
-
-  it("does not start polling from reload updates when completion is inactive", async () => {
-    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    mockMessages = [
-      {
-        id: 201,
-        thread_id: 1,
-        role: "user",
-        content: "hello",
-        created_at: "2026-03-02T00:00:00.000Z",
-      },
-    ];
-    const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-
-    const { rerender } = render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={vi.fn()}
-        reloadVersion={0}
-      />
-    );
-
-    rerender(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={vi.fn()}
-        reloadVersion={1}
-      />
-    );
-
-    await waitFor(() => {
-      expect(loadMessagesMock).toHaveBeenCalled();
-    });
-
-    expect(
-      debugSpy.mock.calls.some((call) =>
-        String(call[0]).includes("[chat:poll] start reason=")
-      )
-    ).toBe(false);
-  });
-
-  it("stops polling when assistant reply arrives after user message", async () => {
-    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    mockMessages = [
-      {
-        id: 301,
-        thread_id: 1,
-        role: "user",
-        content: "pending",
-        created_at: "2026-03-02T00:00:00.000Z",
-      },
-    ];
-    apiGetMock.mockResolvedValue({
-      data: {
-        ok: true,
-        messages: [
-          {
-            id: 302,
-            thread_id: 1,
-            role: "assistant",
-            content: "done",
-            created_at: "2026-03-02T00:00:01.000Z",
-          },
-        ],
-        total: 2,
-      },
-    });
-    const completion = {
-      isCompleting: true,
-      activeTaskId: "task-301",
-      activeThreadId: 1,
-      startedAt: Date.now(),
-    };
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={vi.fn()}
-        reloadVersion={1}
-      />
-    );
-
-    await waitFor(() => {
-      expect(
-        debugSpy.mock.calls.some((call) =>
-          String(call[0]).includes("[chat:poll] start reason=user-message")
-        )
-      ).toBe(true);
-    });
-
-    expect(pollFnRef).not.toBeNull();
-    await act(async () => {
-      await pollFnRef?.();
-    });
-
-    expect(apiGetMock).toHaveBeenCalledWith("/chat/1/messages", {
-      params: { limit: 100, offset: 0 },
-    });
-    expect(appendMessageMock).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ id: 302, role: "assistant" })
-    );
-    expect(
-      debugSpy.mock.calls.some((call) =>
-        String(call[0]).includes("stop reason=assistant-reply-arrived")
-      )
-    ).toBe(true);
-  });
-
-  it("ignores stale turn-matched assistant messages until a new turn-matched message arrives", async () => {
-    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const endCompletion = vi.fn();
-    const activeTurnId = "5df4dcbb-74de-4f95-8e99-581ce4665a4c";
-
-    getInFlightCompletionTurnIdMock.mockReturnValue(activeTurnId);
-    mockMessages = [
-      {
-        id: 500,
-        thread_id: 1,
-        role: "assistant",
-        content: "old assistant",
-        turn_id: activeTurnId,
-        created_at: "2026-03-02T00:00:00.000Z",
-      },
-      {
-        id: 501,
-        thread_id: 1,
-        role: "user",
-        content: "new question",
-        created_at: "2026-03-02T00:00:02.000Z",
-      },
-    ];
-
-    apiGetMock
-      .mockResolvedValueOnce({
-        data: {
-          ok: true,
-          messages: [
-            {
-              id: 500,
-              thread_id: 1,
-              role: "assistant",
-              content: "old assistant",
-              turn_id: activeTurnId,
-              created_at: "2026-03-02T00:00:00.000Z",
-            },
-            {
-              id: 501,
-              thread_id: 1,
-              role: "user",
-              content: "new question",
-              created_at: "2026-03-02T00:00:02.000Z",
-            },
-          ],
-          total: 2,
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          ok: true,
-          messages: [
-            {
-              id: 502,
-              thread_id: 1,
-              role: "assistant",
-              content: "new assistant",
-              turn_id: activeTurnId,
-              created_at: "2026-03-02T00:00:03.000Z",
-            },
-            {
-              id: 501,
-              thread_id: 1,
-              role: "user",
-              content: "new question",
-              created_at: "2026-03-02T00:00:02.000Z",
-            },
-          ],
-          total: 3,
-        },
-      });
-
-    const completion = {
-      isCompleting: true,
-      activeTaskId: "task-501",
-      activeThreadId: 1,
-      startedAt: Date.now(),
-    };
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={endCompletion}
-        reloadVersion={1}
-      />
-    );
-
-    await waitFor(() => {
-      expect(
-        debugSpy.mock.calls.some((call) =>
-          String(call[0]).includes("[chat:poll] start reason=user-message")
-        )
-      ).toBe(true);
-    });
-
-    expect(pollFnRef).not.toBeNull();
-    await act(async () => {
-      await pollFnRef?.();
-    });
-
-    expect(
-      debugSpy.mock.calls.some((call) =>
-        String(call[0]).includes("stop reason=assistant-turn-arrived")
-      )
-    ).toBe(false);
-    expect(endCompletion).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await pollFnRef?.();
-    });
-
-    expect(appendMessageMock).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ id: 502, role: "assistant", turn_id: activeTurnId })
-    );
-    expect(
-      debugSpy.mock.calls.some((call) =>
-        String(call[0]).includes("stop reason=assistant-turn-arrived")
-      )
-    ).toBe(true);
-    expect(endCompletion).toHaveBeenCalledTimes(1);
-  });
-
-  it("plays stored ready assistant audio on listen press", async () => {
-    const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-    const endCompletion = vi.fn();
-
-    mockMessages = [
-      {
-        id: 700,
-        thread_id: 1,
-        role: "assistant",
-        content: "assistant message",
-        created_at: "2026-03-02T00:00:00.000Z",
-        audio_status: "ready",
-        audio_url: "/api/voice/audio/700",
-        audio_mime_type: "audio/wav",
-      },
-    ];
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={endCompletion}
-        voiceReadAloudEnabled
-      />
-    );
-
-    const playButton = await screen.findByRole("button", {
-      name: "Read message aloud",
-    });
-    fireEvent.click(playButton);
-
-    await waitFor(() => {
-      expect(audioPlayMock).toHaveBeenCalledTimes(1);
-    });
-    expect(createdAudioSources).toEqual(["/api/voice/audio/700"]);
-    expect(apiPostMock).not.toHaveBeenCalled();
-  });
-
-  it("renders the listen button for assistant messages without audio metadata", async () => {
-    const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-
-    mockMessages = [
-      {
-        id: 704,
-        thread_id: 1,
-        role: "assistant",
-        content: "assistant message without audio metadata",
-        created_at: "2026-03-02T00:00:30.000Z",
-      },
-    ];
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={vi.fn()}
-        voiceReadAloudEnabled
-      />
-    );
-
-    const listenButton = await screen.findByRole("button", {
-      name: "Read message aloud",
-    });
-    expect(listenButton).toBeEnabled();
-    expect(audioPlayMock).not.toHaveBeenCalled();
-  });
-
-  it("shows unavailable state when assistant audio is marked ready without a usable url", async () => {
-    const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-
-    mockMessages = [
-      {
-        id: 705,
-        thread_id: 1,
-        role: "assistant",
-        content: "assistant message with broken ready audio",
-        created_at: "2026-03-02T00:00:45.000Z",
-        audio_status: "ready",
-        audio_url: "   ",
-      },
-    ];
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={vi.fn()}
-        voiceReadAloudEnabled
-      />
-    );
-
-    const unavailableButton = await screen.findByRole("button", {
-      name: "Audio unavailable",
-    });
-    expect(unavailableButton).toBeDisabled();
-    expect(audioPlayMock).not.toHaveBeenCalled();
-  });
-
-  it("shows loading state while assistant audio is pending", async () => {
-    const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-    const endCompletion = vi.fn();
-
-    mockMessages = [
-      {
-        id: 701,
-        thread_id: 1,
-        role: "assistant",
-        content: "assistant message pending",
-        created_at: "2026-03-02T00:01:00.000Z",
-        audio_status: "pending",
-      },
-    ];
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={endCompletion}
-        voiceReadAloudEnabled
-      />
-    );
-
-    const pendingButton = await screen.findByRole("button", {
-      name: "Generating audio",
-    });
-    expect(pendingButton).toBeDisabled();
-    expect(audioPlayMock).not.toHaveBeenCalled();
-    expect(apiPostMock).not.toHaveBeenCalled();
-  });
-
-  it("shows assistant audio failure state without breaking the message UI", async () => {
-    const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-
-    mockMessages = [
-      {
-        id: 702,
-        thread_id: 1,
-        role: "assistant",
-        content: "assistant message failed",
-        created_at: "2026-03-02T00:02:00.000Z",
-        audio_status: "failed",
-        audio_error: "TTS generation failed",
-      },
-    ];
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={vi.fn()}
-        voiceReadAloudEnabled
-      />
-    );
-
-    expect(await screen.findByText("assistant message failed")).toBeInTheDocument();
-    const failedButton = await screen.findByRole("button", {
-      name: "Audio unavailable",
-    });
-    expect(failedButton).toBeDisabled();
-    expect(audioPlayMock).not.toHaveBeenCalled();
-  });
-
-  it("does not autoplay stored assistant audio", async () => {
-    const completion = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-
-    mockMessages = [
-      {
-        id: 703,
-        thread_id: 1,
-        role: "assistant",
-        content: "assistant message ready",
-        created_at: "2026-03-02T00:03:00.000Z",
-        audio_status: "ready",
-        audio_url: "/api/voice/audio/703",
-      },
-    ];
-
-    render(
-      <ChatView
-        threadId={1}
-        completionState={completion}
-        endCompletion={vi.fn()}
-        voiceReadAloudEnabled
-        autoReadEnabled
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("assistant message ready")).toBeInTheDocument();
-    });
-    expect(audioPlayMock).not.toHaveBeenCalled();
-    expect(createdAudioSources).toEqual([]);
-    expect(apiPostMock).not.toHaveBeenCalled();
-  });
-
-  it("clears active completion immediately on task.failed events", async () => {
-    const endCompletion = vi.fn();
-    const completionState = {
-      isCompleting: true,
-      activeTaskId: "task-failed-1",
-      activeThreadId: 9,
-      startedAt: Date.now(),
-    };
-
-    render(
-      <ChatView
-        threadId={9}
-        completionState={completionState}
-        endCompletion={endCompletion}
-      />
-    );
-
-    await waitFor(() => {
-      expect(activeSubscriberCount("task.failed")).toBe(1);
-    });
-
-    emitLiveEvent("task.failed", {
-      task_id: "task-failed-1",
-      thread_id: 9,
-      error: "assistant_message_missing",
-    });
-
-    await waitFor(() => {
-      expect(endCompletion).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("clears tracked turn id for the thread that completed after navigation", async () => {
-    const trackedTurns = new Map<number, string>([[1, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]]);
-    getInFlightCompletionTurnIdMock.mockImplementation((tid?: number | null) => {
-      if (tid == null) return null;
-      return trackedTurns.get(Number(tid)) ?? null;
-    });
-    clearInFlightCompletionTurnIdMock.mockImplementation(
-      (tid?: number | null, expectedTurnId?: string | null) => {
-        if (tid == null) return;
-        const numericTid = Number(tid);
-        const current = trackedTurns.get(numericTid);
-        if (!current) return;
-        if (expectedTurnId && current !== expectedTurnId) return;
-        trackedTurns.delete(numericTid);
-      }
-    );
-
-    const completion = {
-      isCompleting: true,
-      activeTaskId: "task-thread-1",
-      activeThreadId: 1,
-      startedAt: Date.now(),
-    };
-
-    const { rerender } = render(
-      <ChatView threadId={1} completionState={completion} endCompletion={vi.fn()} />
-    );
-
-    rerender(<ChatView threadId={2} completionState={completion} endCompletion={vi.fn()} />);
-
-    rerender(
-      <ChatView
-        threadId={2}
-        completionState={{ ...completion, isCompleting: false, activeThreadId: null }}
         endCompletion={vi.fn()}
       />
     );
 
-    await waitFor(() => {
-      expect(clearInFlightCompletionTurnIdMock).toHaveBeenCalledWith(
-        1,
-        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-      );
+    const container = screen.getByTestId("chat-container");
+    Object.defineProperty(container, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 0,
     });
-    expect(trackedTurns.has(1)).toBe(false);
-    expect(trackedTurns.has(2)).toBe(false);
+    Object.defineProperty(container, "scrollHeight", {
+      configurable: true,
+      writable: true,
+      value: 400,
+    });
+
+    fireEvent.scroll(container);
+
+    await waitFor(() => {
+      expect(onLoadOlderMessages).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("treats task.completed without assistant message as completion failure", async () => {
-    const endCompletion = vi.fn();
-    const completionState = {
-      isCompleting: true,
-      activeTaskId: "task-no-message",
-      activeThreadId: 11,
-      startedAt: Date.now(),
-    };
-
+  it("shows the shared inference banner for an active completion on the current thread", () => {
     render(
       <ChatView
-        threadId={11}
-        completionState={completionState}
-        endCompletion={endCompletion}
+        threadId={7}
+        guardianName="Guardian"
+        messages={[buildMessage(1, "user")]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={{
+          isCompleting: true,
+          activeTaskId: "task-7",
+          activeThreadId: 7,
+          startedAt: Date.now(),
+        }}
+        endCompletion={vi.fn()}
       />
     );
 
-    await waitFor(() => {
-      expect(activeSubscriberCount("task.completed")).toBe(1);
-    });
-
-    emitLiveEvent("task.completed", {
-      task_id: "task-no-message",
-      thread_id: 11,
-      message_id: null,
-    });
-
-    await waitFor(() => {
-      expect(endCompletion).toHaveBeenCalledTimes(1);
-    });
+    expect(screen.getByTestId("chat-completing-indicator")).toBeInTheDocument();
+    expect(screen.getByTestId("inference-banner")).toBeInTheDocument();
   });
 
-  it("drops duplicate assistant messages for the same turn_id", async () => {
-    const endCompletion = vi.fn();
-    const completionState = {
-      isCompleting: false,
-      activeTaskId: null,
-      activeThreadId: null,
-      startedAt: null,
-    };
-    mockMessages = [
-      {
-        id: 301,
-        thread_id: 12,
-        role: "assistant",
-        content: "First response",
-        created_at: "2026-03-05T00:00:00Z",
-        turn_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      },
-    ];
-
+  it("centers the message lane at the shared max width", () => {
     render(
       <ChatView
-        threadId={12}
-        completionState={completionState}
-        endCompletion={endCompletion}
+        threadId={7}
+        guardianName="Guardian"
+        messages={[buildMessage(1, "user"), buildMessage(2, "assistant")]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
       />
     );
 
-    await waitFor(() => {
-      expect(activeSubscriberCount("message.created")).toBe(1);
-    });
-
-    emitLiveEvent("message.created", {
-      id: 302,
-      thread_id: 12,
-      role: "assistant",
-      content: "Duplicate response",
-      turn_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    });
-
-    await waitFor(() => {
-      expect(appendMessageMock).toHaveBeenCalledTimes(0);
-    });
+    const lane = screen.getByTestId("chat-conversation-lane");
+    expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
+    expect(lane.className).toContain("md:max-w-[880px]");
   });
-
 });

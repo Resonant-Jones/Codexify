@@ -1,0 +1,372 @@
+{
+  "audit_cli": {
+    "attempts": [
+      {
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "exit_code": 0,
+        "stderr": "",
+        "stdout_is_json": false
+      },
+      {
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "exit_code": 0,
+        "stderr": ""
+      }
+    ],
+    "parsed_text": {
+      "strongest_domains": [
+        "Core Loop Integrity",
+        "Primitive Stability",
+        "Extension Boundary"
+      ],
+      "suggested_score_bands": {
+        "Alternate Surface Readiness": "manual review required",
+        "Core Loop Integrity": "1-2 likely",
+        "Durability & Recovery": "1-2 likely",
+        "Extension Boundary": "1-2 likely",
+        "Federation Readiness": "0-1 likely",
+        "Governance Readiness": "manual review required",
+        "Observability": "1-2 likely",
+        "Primitive Stability": "1-2 likely"
+      },
+      "summary_counts": {
+        "fail": 0,
+        "pass": 40,
+        "warn": 11
+      },
+      "weakest_domains": [
+        "Federation Readiness",
+        "Governance Readiness",
+        "Alternate Surface Readiness"
+      ]
+    },
+    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/tech-debt-and-risks.md contains 'Legacy `/tools` behavior and command bus behavior coexist'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Tools route present: guardian/routes/tools.py exists\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [PASS] Architecture docs describe command-bus and cron execution seams: docs/architecture/system-overview.md matches 'legacy `/tools` compatibility shim', 'Cron and job execution'\n  [PASS] Config docs expose provider selection as configuration: docs/architecture/config-and-ops.md matches 'LLM_PROVIDER', 'ALLOW_CLOUD_PROVIDERS'\n  [WARN] Legacy tools shim still carries process-local behavior: docs/architecture/flows.md contains 'still keeps some process-local job state'\nEvidence summary:\n  Tools, cron, provider configuration, and command-bus documentation give Codexify clear extension seams. The repo also documents that the legacy tools shim still carries process-local behavior, which weakens confidence that every new workflow can stay outside kernel edits.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths prefer durable command-bus or cron lanes over compatibility shims?\n  - Manual review required: is provider switching fully configuration-driven in real deployments, not just in local defaults?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [WARN] IDDB policy documentation present: missing expected path(s): docs/iddb_policy_v1.md, iddb_policy_v1.md\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 40\n  WARN: 11\n  FAIL: 0\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Core Loop Integrity, Primitive Stability, Extension Boundary\n  Clearest structural weakness signals: Federation Readiness, Governance Readiness, Alternate Surface Readiness\n",
+    "selected_mode": "text_fallback"
+  },
+  "baseline": {
+    "phase_gate": {
+      "label": "Early-Adopter Ready",
+      "ready": false,
+      "value": "❌ Not yet"
+    },
+    "scores": {
+      "Alternate Surface Readiness": 2,
+      "Core Loop Integrity": 2,
+      "Durability & Recovery": 1,
+      "Extension Boundary": 2,
+      "Federation Readiness": 1,
+      "Governance Readiness": 2,
+      "Observability": 2,
+      "Primitive Stability": 2
+    },
+    "source": "docs/audits/history/2026-03-19-platform-readiness-baseline.md",
+    "summary": "Codexify has progressed beyond prototype into an operational substrate."
+  },
+  "changes_last_24h": {
+    "commit_count": 14,
+    "commits": [
+      {
+        "files": [
+          "guardian/queue/redis_queue.py",
+          "guardian/routes/chat.py",
+          "tests/routes/test_chat_complete_enqueue_error_tagging.py"
+        ],
+        "sha": "b680dd467f8e1948f9db3079271643af304503bc",
+        "subject": "Tag chat enqueue failures in logs"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/hooks/useLiveEvents.ts",
+          "frontend/src/hooks/useRuntimeHealth.test.ts",
+          "frontend/src/hooks/useRuntimeHealth.ts"
+        ],
+        "sha": "cdec733cbc4e0d38b911547a9995b8e4d4d014e8",
+        "subject": "Add desktop runtime degraded banner"
+      },
+      {
+        "files": [
+          "docs/architecture/obsidian-sync-recon.md"
+        ],
+        "sha": "9c01716cd7baddcab26390220874a8a54e1df1e8",
+        "subject": "Add Obsidian sync reconnaissance report"
+      },
+      {
+        "files": [
+          "docs/Codexify/RELEASE.md",
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/completion_pipeline.md",
+          "docs/architecture/data-and-storage.md",
+          "docs/architecture/flows.md",
+          "docs/architecture/tech-debt-and-risks.md"
+        ],
+        "sha": "c4e6e392b0a9e498da4afe3072097733d6a302bd",
+        "subject": "Align Redis chat reliability docs with implementation"
+      },
+      {
+        "files": [
+          "guardian/routes/chat.py",
+          "tests/routes/test_chat_routes.py"
+        ],
+        "sha": "0326f8fa0f32b09349ecbeeb03c805cbd5fa5d36",
+        "subject": "Tighten chat completion acceptance signaling"
+      },
+      {
+        "files": [
+          "guardian/queue/task_events.py",
+          "guardian/workers/chat_worker.py",
+          "tests/routes/test_event_graph_emission.py"
+        ],
+        "sha": "2916a008ded6d18de2fc27aa868ed209914c95a9",
+        "subject": "Surface task event visibility failures"
+      },
+      {
+        "files": [
+          "docs/audits/history/2026-03-20-redis-chat-completion-recon.md"
+        ],
+        "sha": "1052aada950567732138c8ace5fb5ece105895a7",
+        "subject": "Add Redis chat completion recon artifact"
+      },
+      {
+        "files": [
+          "guardian/queue/task_events.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_turn_lock_recovery.py",
+          "tests/routes/test_chat_routes.py"
+        ],
+        "sha": "244e3e17a2972ccabc55a29abc19bd80d4275725",
+        "subject": "Harden stale turn lock recovery"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md"
+        ],
+        "sha": "877d17fea86decf3ea9a4bb6f35c40ab389c5a36",
+        "subject": "docs: refresh weekly current-state override"
+      },
+      {
+        "files": [
+          "guardian/routes/health.py",
+          "guardian/tests/test_health_endpoints.py",
+          "tests/routes/test_metrics.py"
+        ],
+        "sha": "788b2b1062b6c9268dd63e32032c1e19036d3c36",
+        "subject": "Expose queue progress truth in /health/chat"
+      },
+      {
+        "files": [
+          "docs/Plans/RedisChatReliabilitymd"
+        ],
+        "sha": "9d88eadad4d9fd12100d3039fdfa73e4025f6791",
+        "subject": "Add Redis chat reliability planning document"
+      },
+      {
+        "files": [
+          "guardian/routes/health.py",
+          "guardian/tests/test_health_endpoints.py",
+          "tests/routes/test_metrics.py"
+        ],
+        "sha": "1245b573d5db44e257223dc1f6f6dbc27f8cfc3b",
+        "subject": "Make /health/chat report worker freshness honestly"
+      },
+      {
+        "files": [
+          "docs/Future-Features/artifact_event_capture_and_task_graph.md",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/useChat.ts"
+        ],
+        "sha": "d5e6af08fbf37720affc2437b0ec6054dae748b7",
+        "subject": "Harden completion matching and add artifact capture draft"
+      },
+      {
+        "files": [
+          "docs/audits/daily/evening/2026-03-19-audit.json",
+          "docs/audits/daily/evening/2026-03-19-audit.md",
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
+        ],
+        "sha": "3277f3037dcf57bdc377ed606f577f4e8341de1e",
+        "subject": "Add evening daily audit artifacts"
+      }
+    ],
+    "files_changed": [
+      "guardian/queue/redis_queue.py",
+      "guardian/routes/chat.py",
+      "tests/routes/test_chat_complete_enqueue_error_tagging.py",
+      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/hooks/useLiveEvents.ts",
+      "frontend/src/hooks/useRuntimeHealth.test.ts",
+      "frontend/src/hooks/useRuntimeHealth.ts",
+      "docs/architecture/obsidian-sync-recon.md",
+      "docs/Codexify/RELEASE.md",
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/completion_pipeline.md",
+      "docs/architecture/data-and-storage.md",
+      "docs/architecture/flows.md",
+      "docs/architecture/tech-debt-and-risks.md",
+      "tests/routes/test_chat_routes.py",
+      "guardian/queue/task_events.py",
+      "guardian/workers/chat_worker.py",
+      "tests/routes/test_event_graph_emission.py",
+      "docs/audits/history/2026-03-20-redis-chat-completion-recon.md",
+      "tests/core/test_turn_lock_recovery.py",
+      "docs/architecture/README.md",
+      "guardian/routes/health.py",
+      "guardian/tests/test_health_endpoints.py",
+      "tests/routes/test_metrics.py",
+      "docs/Plans/RedisChatReliabilitymd",
+      "docs/Future-Features/artifact_event_capture_and_task_graph.md",
+      "frontend/src/features/chat/GuardianChat.tsx",
+      "frontend/src/features/chat/useChat.ts",
+      "docs/audits/daily/evening/2026-03-19-audit.json",
+      "docs/audits/daily/evening/2026-03-19-audit.md",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/evening/latest.md",
+      "docs/audits/latest.json",
+      "docs/audits/latest.md"
+    ],
+    "window_end": "2026-03-20T21:00:19.089473-04:00",
+    "window_hours": 24,
+    "window_start": "2026-03-19T21:00:19.089473-04:00"
+  },
+  "date": "2026-03-20",
+  "generated_at": "2026-03-20T21:00:19.089473-04:00",
+  "manual_notes": {
+    "blocked": "",
+    "finished_today": "",
+    "next_priority": ""
+  },
+  "phase": "evening",
+  "repo": {
+    "branch": "codex/identify-stabilization-fixes",
+    "date": "2026-03-20",
+    "dirty": false,
+    "head": "b680dd467f8e1948f9db3079271643af304503bc",
+    "status_lines": []
+  },
+  "risk_flags": [
+    {
+      "active": true,
+      "description": "Chat completion is queue-coupled and depends on Redis plus worker availability.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "chat_depends_on_redis_and_workers",
+      "severity": "high"
+    },
+    {
+      "active": true,
+      "description": "Canonical and legacy config paths still coexist, so startup and operator state can drift.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "config_split_brain_risk",
+      "severity": "high"
+    },
+    {
+      "active": true,
+      "description": "Legacy /tools behavior and the command bus still overlap, which increases contract drift risk.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "legacy_tools_and_command_bus_duality",
+      "severity": "high"
+    },
+    {
+      "active": true,
+      "description": "Sync subscriptions are still process-local rather than durable across restarts.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md",
+        "docs/architecture/data-and-storage.md"
+      ],
+      "flag": "sync_not_durable",
+      "severity": "medium"
+    },
+    {
+      "active": true,
+      "description": "Federation remains sensitive to trust policy, feature flags, and egress behavior.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "federation_high_blast_radius",
+      "severity": "high"
+    }
+  ],
+  "subsystems_touched": {
+    "audit": {
+      "count": 7,
+      "files": [
+        "docs/audits/history/2026-03-20-redis-chat-completion-recon.md",
+        "docs/audits/daily/evening/2026-03-19-audit.json",
+        "docs/audits/daily/evening/2026-03-19-audit.md",
+        "docs/audits/daily/evening/latest.json",
+        "docs/audits/daily/evening/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md"
+      ]
+    },
+    "chat": {
+      "count": 2,
+      "files": [
+        "guardian/routes/chat.py",
+        "guardian/workers/chat_worker.py"
+      ]
+    },
+    "docs": {
+      "count": 10,
+      "files": [
+        "docs/architecture/obsidian-sync-recon.md",
+        "docs/Codexify/RELEASE.md",
+        "docs/architecture/00-current-state.md",
+        "docs/architecture/completion_pipeline.md",
+        "docs/architecture/data-and-storage.md",
+        "docs/architecture/flows.md",
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/README.md",
+        "docs/Plans/RedisChatReliabilitymd",
+        "docs/Future-Features/artifact_event_capture_and_task_graph.md"
+      ]
+    },
+    "frontend": {
+      "count": 7,
+      "files": [
+        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+        "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/hooks/useLiveEvents.ts",
+        "frontend/src/hooks/useRuntimeHealth.test.ts",
+        "frontend/src/hooks/useRuntimeHealth.ts",
+        "frontend/src/features/chat/GuardianChat.tsx",
+        "frontend/src/features/chat/useChat.ts"
+      ]
+    },
+    "tests": {
+      "count": 6,
+      "files": [
+        "tests/routes/test_chat_complete_enqueue_error_tagging.py",
+        "tests/routes/test_chat_routes.py",
+        "tests/routes/test_event_graph_emission.py",
+        "tests/core/test_turn_lock_recovery.py",
+        "guardian/tests/test_health_endpoints.py",
+        "tests/routes/test_metrics.py"
+      ]
+    },
+    "unknown": {
+      "count": 3,
+      "files": [
+        "guardian/queue/redis_queue.py",
+        "guardian/queue/task_events.py",
+        "guardian/routes/health.py"
+      ]
+    }
+  }
+}

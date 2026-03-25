@@ -9,11 +9,16 @@ import {
   markAuthUnauthenticatedFrom401,
   useAuthState,
 } from "@/lib/authState";
+import { SessionSpine } from "@/state/session/SessionSpine";
 import {
   LiveEventsHubEvent,
   subscribeLiveEventsHub,
   subscribeLiveEventsHubStatus,
 } from "@/lib/liveEventsHub";
+import {
+  LIVE_EVENT_CONNECTION_STATES,
+  LiveEventConnectionState,
+} from "@/contracts/runtimeTokens";
 
 const LAST_EVENT_DEBOUNCE_MS = 50;
 const CONNECTED_DEBOUNCE_MS = 200;
@@ -24,15 +29,12 @@ export interface LiveEvent {
   data: unknown;
 }
 
-export type ConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "reconnecting"
-  | "disconnected";
+export type ConnectionStatus = LiveEventConnectionState;
 
 export interface UseLiveEventsResult {
   connected: boolean;
   connectionStatus: ConnectionStatus;
+  statusUpdatedAt: number | null;
   lastEvent: LiveEvent | null;
   subscribe: (eventType: string, handler: (event: LiveEvent) => void) => () => void;
 }
@@ -41,8 +43,10 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
   const { passive = false } = options;
   const auth = useAuthState();
   const [connected, setConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] =
-    useState<ConnectionStatus>("disconnected");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    LIVE_EVENT_CONNECTION_STATES.DISCONNECTED
+  );
+  const [statusUpdatedAt, setStatusUpdatedAt] = useState<number>(() => Date.now());
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null);
   const listenersRef = useRef<Map<string, Set<(event: LiveEvent) => void>>>(
     new Map()
@@ -128,6 +132,10 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
         type: event.type || "message",
         data: event.data,
       };
+      const activeSpine = SessionSpine.getRegisteredSpine();
+      if (activeSpine && !activeSpine.shouldAcceptLiveEvent(payload.type, payload.data)) {
+        return;
+      }
       if (isSameEvent(lastEventRef.current, payload)) {
         return;
       }
@@ -181,7 +189,8 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       pendingConnectedRef.current = null;
       connectedRef.current = false;
       setConnected(false);
-      setConnectionStatus("disconnected");
+      setConnectionStatus(LIVE_EVENT_CONNECTION_STATES.DISCONNECTED);
+      setStatusUpdatedAt(Date.now());
       return;
     }
 
@@ -199,11 +208,14 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     let cancelled = false;
     const unsubscribeStatus = subscribeLiveEventsHubStatus((status) => {
       if (cancelled || isUnmountedRef.current) return;
-      setConnectionStatus((prev) =>
-        prev === status.connectionStatus ? prev : status.connectionStatus
-      );
+      setConnectionStatus((prev) => {
+        if (prev === status.connectionStatus) return prev;
+        setStatusUpdatedAt(Date.now());
+        return status.connectionStatus;
+      });
       updateConnected(
-        status.connectionStatus === "connected" && status.readyState === 1
+        status.connectionStatus === LIVE_EVENT_CONNECTION_STATES.CONNECTED &&
+          status.readyState === 1
       );
     });
 
@@ -257,7 +269,18 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
   return {
     connected,
     connectionStatus,
+    statusUpdatedAt,
     lastEvent: passive ? lastEventRef.current : lastEvent,
     subscribe,
   };
+}
+
+export function useLiveEventsStatus(): Pick<
+  UseLiveEventsResult,
+  "connected" | "connectionStatus" | "statusUpdatedAt"
+> {
+  const { connected, connectionStatus, statusUpdatedAt } = useLiveEvents({
+    passive: true,
+  });
+  return { connected, connectionStatus, statusUpdatedAt };
 }

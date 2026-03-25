@@ -186,11 +186,8 @@ export function useProjectsCache({
     try {
       const res = await api.get("/api/projects");
       const list = normalizeProjectsResponse(res);
-      if (Array.isArray(list) && list.length) {
-        setProjectList((prev) => {
-          const merged = mergeProjects(prev, list);
-          return equalProjectLists(prev, merged) ? prev : merged;
-        });
+      if (Array.isArray(list)) {
+        setProjectList((prev) => (equalProjectLists(prev, list) ? prev : list));
       }
     } catch (err) {
       logOnce("poll:projects", 10_000, () => {
