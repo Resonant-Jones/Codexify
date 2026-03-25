@@ -166,25 +166,52 @@ const CodeBlock = ({ code, label }: CodeBlockProps) => {
   );
 };
 
-const extractPreCode = (children: React.ReactNode) => {
+type ExtractedPreCode = {
+  code: string;
+  className?: string;
+};
+
+const extractPreCodeFromNode = (node: any): ExtractedPreCode | null => {
+  const codeNode = node?.children?.[0];
+  if (!codeNode || codeNode.tagName !== "code") return null;
+  const codeChildren = codeNode.children;
+  if (!Array.isArray(codeChildren)) return null;
+  let text = "";
+  for (const child of codeChildren) {
+    if (!child || child.type !== "text" || typeof child.value !== "string") return null;
+    text += child.value;
+  }
+  const classNameProp = codeNode.properties?.className;
+  const className =
+    Array.isArray(classNameProp) ? classNameProp.join(" ") :
+      typeof classNameProp === "string" ? classNameProp :
+        undefined;
+  return { code: text, className };
+};
+
+const extractPreCodeFromChildren = (children: React.ReactNode): ExtractedPreCode | null => {
   const childArray = React.Children.toArray(children);
-  if (childArray.length !== 1) return null;
-  const onlyChild = childArray[0];
-  if (!React.isValidElement(onlyChild) || onlyChild.type !== "code") return null;
-  const codeChildren = (onlyChild.props as { children?: React.ReactNode }).children;
+  if (childArray.length === 0) return null;
+  const firstChild = childArray[0];
+  if (!React.isValidElement(firstChild) || firstChild.type !== "code") return null;
+  const codeChildren = (firstChild.props as { children?: React.ReactNode }).children;
   if (typeof codeChildren === "string") {
     return {
       code: codeChildren,
-      className: (onlyChild.props as { className?: string }).className,
+      className: (firstChild.props as { className?: string }).className,
     };
   }
   if (Array.isArray(codeChildren) && codeChildren.every((node) => typeof node === "string" || typeof node === "number")) {
     return {
       code: codeChildren.join(""),
-      className: (onlyChild.props as { className?: string }).className,
+      className: (firstChild.props as { className?: string }).className,
     };
   }
   return null;
+};
+
+const extractPreCode = (node: any, children: React.ReactNode): ExtractedPreCode | null => {
+  return extractPreCodeFromNode(node) ?? extractPreCodeFromChildren(children);
 };
 
 const normalizeLanguageLabel = (className?: string) => {
@@ -375,8 +402,8 @@ export function ChatBubble({
         </code>
       );
     },
-    pre: ({ children }: any) => {
-      const extracted = extractPreCode(children);
+    pre: ({ children, node }: any) => {
+      const extracted = extractPreCode(node, children);
       if (!extracted) {
         return (
           <pre className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
