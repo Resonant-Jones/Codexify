@@ -521,7 +521,12 @@ def system_prompt_summary(
 @router.post("/persona")
 def update_persona(body: dict[str, Any] = Body(...)):
     """Explicitly set persona text (source=user) for the current user/project."""
-    text = body.get("body")
+    logger.info("[api/system-prompt/save] incoming body %s", body)
+    text = (
+        body.get("body")
+        or body.get("persona_prompt")
+        or body.get("system_prompt")
+    )
     thread_id = body.get("thread_id")
     project_id = body.get("project_id")
     if not text or not str(text).strip():
@@ -539,8 +544,16 @@ def update_persona(body: dict[str, Any] = Body(...)):
             status_code=403, detail="identity updates disabled for this context"
         )
     try:
+        logger.info(
+            "[persona_prompt] updating active prompt %s",
+            {"userId": user_id, "personaId": None},
+        )
         persona = persona_store.set_persona(
             user_id, resolved_project, str(text), source="user"
+        )
+        logger.info(
+            "[persona_prompt_versions] inserting version row %s",
+            {"userId": user_id, "personaId": persona.id},
         )
         # Best-effort: sync explicit persona changes into user settings system prompt, if supported.
         try:
@@ -562,7 +575,7 @@ def update_persona(body: dict[str, Any] = Body(...)):
             "created_at": getattr(persona, "created_at", None),
         }
     except Exception as e:
-        logger.warning("[imprint] failed to update persona: %s", e)
+        logger.exception("[system-prompt persistence] DB error %s", e)
         return JSONResponse(
             status_code=500, content={"ok": False, "error": "update failed"}
         )

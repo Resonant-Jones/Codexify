@@ -1,124 +1,19 @@
-import hashlib
 import json
-import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import typer
 
+from guardian.obsidian.indexer import (
+    _build_obsidian_items,
+    _obsidian_source_id,
+    _parse_frontmatter,
+    _yield_md_files,
+    index_obsidian_vault,
+)
 from guardian.vector.store import VectorStore
 
 app = typer.Typer(name="ingest")
-logger = logging.getLogger(__name__)
-_LOGGED_FRONTMATTER_FAILURES: set[str] = set()
-
-
-def _yield_md_files(root: Path):
-    for p in root.rglob("*.md"):
-        if p.is_file():
-            yield p
-
-
-def _normalize_tags(value: Any) -> List[str]:
-    if not value:
-        return []
-    if isinstance(value, (list, tuple, set)):
-        tags: List[str] = []
-        for item in value:
-            if item is None:
-                continue
-            text = str(item).strip()
-            if text:
-                tags.append(text)
-        return tags
-    if isinstance(value, str):
-        text = value.strip()
-        return [text] if text else []
-    text = str(value).strip()
-    return [text] if text else []
-
-
-def _warn_frontmatter_parse_failed(path: str) -> None:
-    if path in _LOGGED_FRONTMATTER_FAILURES:
-        return
-    _LOGGED_FRONTMATTER_FAILURES.add(path)
-    logger.warning("frontmatter_parse_failed:%s", path)
-
-
-def _parse_frontmatter(text: str, *, path: str) -> Dict:
-    # Parse frontmatter only when file starts with a leading fence.
-    if text.startswith("---"):
-        first_newline = text.find("\n")
-        if first_newline != -1 and text[:first_newline].strip() == "---":
-            end = text.find("\n---\n", first_newline + 1)
-            if end != -1:
-                try:
-                    import yaml  # type: ignore
-
-                    fm = yaml.safe_load(text[first_newline + 1 : end]) or {}
-                    if not isinstance(fm, dict):
-                        raise ValueError("frontmatter must parse to a mapping")
-                    content = text[end + 5 :]
-                    return {"frontmatter": fm, "content": content}
-                except Exception:
-                    _warn_frontmatter_parse_failed(path)
-                    return {"frontmatter": {}, "content": text}
-    return {"frontmatter": {}, "content": text}
-
-
-def _build_obsidian_items(root: Path) -> List[Dict[str, Any]]:
-    items: List[Dict[str, Any]] = []
-    for md in _yield_md_files(root):
-        t = md.read_text(encoding="utf-8", errors="ignore")
-        parsed = _parse_frontmatter(t, path=str(md))
-        fm = parsed["frontmatter"]
-        title = fm.get("title") or md.stem
-        tags = _normalize_tags(fm.get("tags"))
-        source_relpath = _obsidian_relpath(root, md)
-        source_root = str(root.resolve())
-        source_id = _obsidian_source_id(root, md, source_relpath)
-        content_hash = _hash_text(parsed["content"])
-        items.append(
-            {
-                "id": source_id,
-                "text": parsed["content"],
-                "meta": {
-                    "path": str(md),
-                    "tags": tags,
-                    "title": title,
-                    "source_type": "obsidian",
-                    "source_root": source_root,
-                    "source_path": str(md),
-                    "source_relpath": source_relpath,
-                    "source_id": source_id,
-                    "source_content_hash": content_hash,
-                },
-            }
-        )
-    return items
-
-
-def _hash_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _obsidian_relpath(root: Path, note: Path) -> str:
-    try:
-        return note.relative_to(root).as_posix()
-    except ValueError:
-        return note.name
-
-
-def _obsidian_source_id(
-    root: Path, note: Path, relpath: str | None = None
-) -> str:
-    rel = relpath if relpath is not None else _obsidian_relpath(root, note)
-    root_id = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[
-        :12
-    ]
-    key = f"{root_id}:{rel}"
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    return f"obsidian:{digest}"
 
 
 @app.command("ingest-obsidian")
@@ -132,25 +27,20 @@ def ingest_obsidian(
 ):
     if not isinstance(prune, bool):
         prune = False
-    root = Path(dir)
-    store = VectorStore()
-    items = _build_obsidian_items(root)
-    n = store.add_texts(items)
-    pruned = 0
-    if prune:
-        keep_ids = {
-            str(item["id"])
-            for item in items
-            if isinstance(item, dict) and item.get("id")
-        }
-        pruned = store.prune_source_root(str(root.resolve()), keep_ids)
+    summary = index_obsidian_vault(dir)
+    root = summary.get("vault_root") or str(Path(dir).resolve())
+    ingested = summary.get("indexed", 0)
+    deleted = summary.get("deleted", 0)
     typer.echo(
         json.dumps(
             {
-                "ingested": n,
+                "ingested": ingested,
                 "dir": str(root),
                 "prune": prune,
-                "pruned": pruned,
+                "pruned": deleted,
+                "namespace": summary.get("namespace"),
+                "scanned": summary.get("scanned"),
+                "failures": summary.get("failures"),
             },
             ensure_ascii=False,
         )

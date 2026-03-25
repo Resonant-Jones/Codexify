@@ -169,12 +169,14 @@ chatgpt-conversation.json
 
 # Local/vendor checkouts
 MiniMax-MCP-main/
+compound-mcp-server-main/
 
 # Local exports / data dumps
 conversations.json
 
 # Vendor repos (kept outside repo)
 boxbeyond-kutiraai/
+compound-mcp-server-main/
 
 # never track codex_runner github metadata
 codex_runner/.github/

@@ -87,6 +87,14 @@ describe("ProviderSelect catalog routing", () => {
                 displayName: "Llama 3.1 70B",
                 contextWindow: 128000,
               },
+              {
+                id: "moonshotai/kimi-k2-instruct-0905",
+                displayName: "Kimi K2 Instruct",
+              },
+              {
+                id: "qwen/qwen3-32b",
+                displayName: "Qwen3 32B",
+              },
             ],
           },
         ],
@@ -97,14 +105,17 @@ describe("ProviderSelect catalog routing", () => {
     render(<ProviderSelect value="default" onChange={onChange} openSignal={1} />);
 
     await waitFor(() =>
-      expect(api.get).toHaveBeenCalledWith("/llm/catalog")
+      expect(api.get).toHaveBeenCalledTimes(1)
     );
+    expect(api.get).toHaveBeenCalledWith("/llm/catalog");
     expect(screen.getByText("Select Provider")).toBeInTheDocument();
     expect(screen.getByText("tailscale-server:11434")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Groq" })).toBeInTheDocument();
 
     fireEvent.click(providerButton("Groq"));
     expect(await screen.findByText("Llama 3.1 70B")).toBeInTheDocument();
+    expect(screen.getByText("Kimi K2 Instruct")).toBeInTheDocument();
+    expect(screen.getByText("Qwen3 32B")).toBeInTheDocument();
 
     fireEvent.click(providerButton("Llama 3.1 70B"));
     expect(onChange).toHaveBeenCalledWith("llama-3.1-70b-versatile");
@@ -172,7 +183,7 @@ describe("ProviderSelect catalog routing", () => {
     rerender(<ProviderSelect value="default" onChange={vi.fn()} openSignal={2} />);
 
     await waitFor(() =>
-      expect((api.get as any).mock.calls.length).toBeGreaterThanOrEqual(2)
+      expect((api.get as any).mock.calls.length).toBe(2)
     );
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Groq" })).not.toBeInTheDocument();

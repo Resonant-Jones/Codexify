@@ -40,6 +40,11 @@ import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWit
 import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import {
+  RUNTIME_HEALTH_FAILURE_KINDS,
+  RUNTIME_HEALTH_STATUSES,
+} from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
@@ -395,6 +400,7 @@ export default function AppShell({
   const auth = useAuthState();
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
   const { lastEvent } = useLiveEvents();
+  const runtimeHealth = useRuntimeHealth();
   const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
   const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
     () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
@@ -790,6 +796,7 @@ export default function AppShell({
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
   });
+  const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
   const [projectScopeMode, setProjectScopeMode] = useState<"thread" | "project">(
     () => (readRouteThreadId() != null ? "thread" : "project")
@@ -840,11 +847,22 @@ export default function AppShell({
         cancelled = true;
       };
     }
+    if (generalProjectId != null) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (hasFetchedGeneralProjectRef.current) {
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!checkAuthGate(auth, "projects list load")) {
       return () => {
         cancelled = true;
       };
     }
+    hasFetchedGeneralProjectRef.current = true;
     (async () => {
       try {
         const response = await api.get("/api/projects");
@@ -867,7 +885,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [auth, startupLocked]);
+  }, [auth, generalProjectId, startupLocked]);
   useEffect(() => {
     let cancelled = false;
     if (startupLocked) {
@@ -1611,6 +1629,40 @@ export default function AppShell({
     return { flex: "1 1 0%", maxWidth: "18rem" };
   }, [bp]);
 
+  const galleryGridStyle = useMemo(
+    () =>
+      ({
+        "--image-grid-cols": bp === "sm" || bp === "md" ? "2" : "4",
+        "--image-grid-gap": "calc(var(--shell-gap) / 2)",
+        display: "grid",
+        width: "100%",
+        minWidth: 0,
+        minHeight: 0,
+        boxSizing: "border-box",
+        gap: "var(--image-grid-gap)",
+        gridTemplateColumns: "repeat(var(--image-grid-cols), minmax(0, 1fr))",
+        gridAutoRows: "max-content",
+        gridAutoFlow: "row",
+        alignItems: "start",
+        alignContent: "start",
+        justifyContent: "stretch",
+        flex: "1 1 0%",
+        overflow: "auto",
+        paddingRight: "1px",
+      }) as React.CSSProperties,
+    [bp],
+  );
+
+  const runtimeDegraded =
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
+  const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const showRuntimeBanner =
+    runtimeDegraded &&
+    runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
+  const runtimeLastHealthy = runtimeHealth.lastSuccessAt
+    ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
+    : "never";
+
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
      When no wallpaper is set, we dramatically adjust background depth/fade
@@ -1814,6 +1866,28 @@ export default function AppShell({
         )}
       </div>
 
+      {showRuntimeBanner && (
+        <div className="relative z-10 w-full mt-3">
+          <div
+            className="flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <span className="font-semibold tracking-wide">
+              Runtime degraded
+            </span>
+            <span className="opacity-80">failure: {runtimeFailureKind}</span>
+            <span className="opacity-70">
+              last healthy: {runtimeLastHealthy}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
           The main workspace area. Depending on the selected view, we show:
@@ -1956,22 +2030,25 @@ export default function AppShell({
                 <div className="flex h-full min-h-0 flex-col p-[var(--card-pad)]">
                   <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
                   <div
-                    className="grid auto-rows-[minmax(140px,1fr)] grid-cols-2 gap-[var(--gutter)] md:grid-cols-3 xl:grid-cols-4 flex-1 min-h-0 overflow-auto"
+                    className="min-h-0"
+                    style={galleryGridStyle}
                     onDrop={galleryUploader.onDrop}
                     onDragOver={galleryUploader.onDragOver}
                   >
                     {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => (
                       <div
                         key={g.src || i}
-                        className="relative aspect-square rounded-[var(--radius)] overflow-hidden border"
+                        className="relative w-full min-w-0 overflow-hidden rounded-[var(--radius)] border"
                         style={{
+                          aspectRatio: "1 / 1",
+                          boxSizing: "border-box",
                           background: "var(--panel-bg)",
                           borderColor: "var(--panel-border)",
                           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
                         }}
                         onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
                       >
-                        <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                        <img src={g.src} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
                         {visionBusySrc === g.src && (
                           <div className="absolute inset-0 grid place-items-center bg-black/40">
                             <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />

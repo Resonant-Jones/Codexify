@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -12,7 +13,13 @@ DEFAULT_LOCAL_EMBED_MODEL = "/models/bge-large-en-v1.5"
 DEFAULT_EMBED_MODEL_ID = "BAAI/bge-large-en-v1.5"
 LOCK_PATH = Path("/models/.embed_model.lock")
 SUCCESS_SENTINEL = ".codexify_model_ok"
-CHECK_FILES = ("config.json", "model.safetensors", SUCCESS_SENTINEL)
+SENTENCE_TRANSFORMER_MARKERS = (
+    "modules.json",
+    "sentence_bert_config.json",
+    "config_sentence_transformers.json",
+)
+WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
+WEIGHT_SUBDIRS = ("0_Transformer",)
 MAX_ATTEMPTS = 3
 BASE_BACKOFF_SECONDS = 2
 
@@ -33,10 +40,48 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value
 
 
-def _model_present(model_dir: Path) -> bool:
-    return model_dir.is_dir() and any(
-        (model_dir / filename).exists() for filename in CHECK_FILES
+def _has_sentence_transformer_config(model_dir: Path) -> bool:
+    return any(
+        (model_dir / filename).is_file()
+        for filename in SENTENCE_TRANSFORMER_MARKERS
     )
+
+
+def _has_weight_file(model_dir: Path) -> bool:
+    for filename in WEIGHT_FILES:
+        if (model_dir / filename).is_file():
+            return True
+    for subdir in WEIGHT_SUBDIRS:
+        subdir_path = model_dir / subdir
+        if not subdir_path.is_dir():
+            continue
+        for filename in WEIGHT_FILES:
+            if (subdir_path / filename).is_file():
+                return True
+    return False
+
+
+def _model_status(model_dir: Path) -> tuple[bool, str]:
+    if not model_dir.exists():
+        return False, "model directory missing"
+    if not model_dir.is_dir():
+        return False, "model path is not a directory"
+    if not _has_sentence_transformer_config(model_dir):
+        return (
+            False,
+            "missing sentence-transformer config "
+            "(modules.json, sentence_bert_config.json, or config_sentence_transformers.json)",
+        )
+    if not _has_weight_file(model_dir):
+        return (
+            False,
+            "missing model weights (model.safetensors or pytorch_model.bin)",
+        )
+    return True, "model ready"
+
+
+def _model_present(model_dir: Path) -> bool:
+    return _model_status(model_dir)[0]
 
 
 def _download_model(
@@ -63,7 +108,9 @@ def main() -> int:
     """Ensure the local embedding model exists, downloading it if needed."""
     local_embed_model = _env("LOCAL_EMBED_MODEL", DEFAULT_LOCAL_EMBED_MODEL)
     if not local_embed_model:
-        print("[embed-model] ERROR: LOCAL_EMBED_MODEL is not set", file=sys.stderr)
+        print(
+            "[embed-model] ERROR: LOCAL_EMBED_MODEL is not set", file=sys.stderr
+        )
         return 1
 
     model_dir = Path(local_embed_model)
@@ -84,7 +131,8 @@ def main() -> int:
         )
         return 1
 
-    if _model_present(model_dir):
+    present, reason = _model_status(model_dir)
+    if present:
         print("model present")
         return 0
 
@@ -95,9 +143,24 @@ def main() -> int:
     with LOCK_PATH.open("a+", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
 
-        if _model_present(model_dir):
+        present, reason = _model_status(model_dir)
+        if present:
             print("model present")
             return 0
+
+        if model_dir.exists():
+            print(
+                f"[embed-model] invalid model cache at {model_dir}: {reason}",
+                file=sys.stderr,
+            )
+            print(
+                f"[embed-model] removing incomplete cache at {model_dir}",
+                file=sys.stderr,
+            )
+            if model_dir.is_dir():
+                shutil.rmtree(model_dir)
+            else:
+                model_dir.unlink()
 
         if hf_home:
             os.environ.setdefault("HF_HOME", hf_home)
@@ -114,9 +177,20 @@ def main() -> int:
                     revision=revision,
                     hf_token=hf_token,
                 )
+                present, reason = _model_status(model_dir)
+                if not present:
+                    print(
+                        f"[embed-model] ERROR: download incomplete at {model_dir}: {reason}",
+                        file=sys.stderr,
+                    )
+                    if model_dir.exists():
+                        shutil.rmtree(model_dir, ignore_errors=True)
+                    return 1
                 print("[embed-model] download complete")
                 return 0
-            except Exception as exc:  # pragma: no cover - network/transient failures
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - network/transient failures
                 print(
                     "[embed-model] download failed "
                     f"attempt={attempt}/{MAX_ATTEMPTS}: {exc}",
@@ -128,7 +202,9 @@ def main() -> int:
                 print(f"[embed-model] retrying in {backoff_seconds}s")
                 time.sleep(backoff_seconds)
 
-    print("[embed-model] ERROR: failed to acquire download lock", file=sys.stderr)
+    print(
+        "[embed-model] ERROR: failed to acquire download lock", file=sys.stderr
+    )
     return 1
 
 

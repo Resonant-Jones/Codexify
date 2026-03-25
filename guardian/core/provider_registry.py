@@ -94,10 +94,10 @@ _PROVIDER_GOVERNANCE_RULES: tuple[ProviderGovernanceRule, ...] = (
     ProviderGovernanceRule(
         provider="groq",
         label="Groq",
-        governance_classification="static_authorized",
-        live_discovery_expected=False,
-        routing_validate_discovered_inventory=False,
-        configured_defaults_allowed_during_degraded_discovery=False,
+        governance_classification="discovery_backed",
+        live_discovery_expected=True,
+        routing_validate_discovered_inventory=True,
+        configured_defaults_allowed_during_degraded_discovery=True,
         local_only=False,
     ),
     ProviderGovernanceRule(
@@ -201,6 +201,7 @@ _MODEL_INDEX_NON_CHAT_HINTS = (
     "tts",
     "video",
 )
+_DEFAULT_GROQ_MODEL_INDEX_BASE = "https://api.groq.com/openai/v1"
 
 _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     "openai": (
@@ -388,7 +389,9 @@ def _provider_model_index_timeout(
     settings: Settings,
 ) -> float:
     provider = normalize_provider(provider_id)
-    if provider == "alibaba":
+    if provider == "groq":
+        raw = getattr(settings, "GROQ_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
+    elif provider == "alibaba":
         raw = getattr(settings, "ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
     elif provider == "minimax":
         raw = getattr(settings, "MINIMAX_MODEL_DISCOVERY_TIMEOUT_SECONDS", 3.0)
@@ -402,7 +405,15 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
     override = ""
     base_url = ""
 
-    if provider == "alibaba":
+    if provider == "groq":
+        override = str(
+            getattr(settings, "GROQ_MODEL_DISCOVERY_URL", "") or ""
+        ).strip()
+        base_url = (
+            str(getattr(settings, "GROQ_BASE_URL", "") or "").strip()
+            or _DEFAULT_GROQ_MODEL_INDEX_BASE
+        )
+    elif provider == "alibaba":
         override = str(
             getattr(settings, "ALIBABA_MODEL_DISCOVERY_URL", "") or ""
         ).strip()
@@ -432,6 +443,10 @@ def _provider_model_index_headers(
 ) -> dict[str, str]:
     provider = normalize_provider(provider_id)
     headers = {"Accept": "application/json"}
+    if provider == "groq":
+        api_key = str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
+        headers["Authorization"] = f"Bearer {api_key}"
+        return headers
     if provider == "alibaba":
         headers[
             "Authorization"
@@ -465,6 +480,7 @@ def _model_index_metadata(
     endpoint: str | None = None,
     reason: str | None = None,
     model_count: int | None = None,
+    failure_kind: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": "live",
@@ -476,7 +492,28 @@ def _model_index_metadata(
         payload["reason"] = reason
     if model_count is not None:
         payload["model_count"] = int(model_count)
+    if failure_kind:
+        payload["failure_kind"] = failure_kind
     return payload
+
+
+def _model_index_unavailable_failure_kind(
+    provider_id: str,
+    disabled_reason: str | None,
+) -> str:
+    provider = normalize_provider(provider_id)
+    reason = str(disabled_reason or "").strip().lower()
+    if not reason:
+        return "provider_unavailable"
+    if "credential" in reason or "api_key" in reason:
+        return "auth_config_error"
+    if "egress" in reason or "allowlist" in reason:
+        return "egress_blocked"
+    if "disabled" in reason:
+        return "provider_disabled"
+    if provider in {"alibaba", "minimax"}:
+        return "auth_config_error"
+    return "provider_unavailable"
 
 
 def _extract_model_index_collections(payload: Any) -> list[list[Any]]:
@@ -657,12 +694,16 @@ def _discover_dynamic_provider_models(
             "unavailable",
             endpoint=endpoint or None,
             reason=disabled_reason or "Provider unavailable",
+            failure_kind=_model_index_unavailable_failure_kind(
+                provider, disabled_reason
+            ),
         )
 
     if not endpoint:
         return [], _model_index_metadata(
             "unavailable",
             reason="Provider model index URL is not configured",
+            failure_kind="auth_config_error",
         )
 
     try:
@@ -676,12 +717,14 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index request timed out",
+            failure_kind="provider_timeout",
         )
     except req_exc.RequestException as exc:
         return [], _model_index_metadata(
             "degraded",
             endpoint=endpoint,
             reason=f"Provider model index request failed: {type(exc).__name__}",
+            failure_kind="transport_error",
         )
 
     if not (200 <= response.status_code < 300):
@@ -692,6 +735,7 @@ def _discover_dynamic_provider_models(
                 "Provider model index request failed "
                 f"(HTTP {response.status_code})"
             ),
+            failure_kind="provider_http_error",
         )
 
     try:
@@ -701,6 +745,7 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index returned invalid JSON",
+            failure_kind="provider_payload_error",
         )
 
     models, recognized_payload = _parse_dynamic_model_descriptors(payload)
@@ -709,6 +754,7 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index payload was invalid",
+            failure_kind="provider_payload_error",
         )
     if not models:
         return [], _model_index_metadata(
@@ -716,6 +762,7 @@ def _discover_dynamic_provider_models(
             endpoint=endpoint,
             reason="Provider model index returned no chat-capable models",
             model_count=0,
+            failure_kind="empty_model_result",
         )
     return models, _model_index_metadata(
         "available",

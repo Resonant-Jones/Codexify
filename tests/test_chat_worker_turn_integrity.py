@@ -211,3 +211,77 @@ def test_missing_assistant_message_marks_task_failed_and_releases_lock(
     event_types = [event_type for _task_id, event_type, _payload in published]
     assert "task.failed" in event_types
     assert released == [(task.thread_id, task.task_id)]
+
+
+def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
+    _isolate_turn_anchor(monkeypatch)
+    task = _build_task(task_id="task-summary")
+    published: list[tuple[str, str, dict[str, Any]]] = []
+    persisted_meta: list[dict[str, Any]] = []
+
+    sample_summary = {
+        "payload_char_count": 120,
+        "payload_estimated_tokens": 30,
+        "message_count": 4,
+        "resolved_provider": "groq",
+        "resolved_model": "llama3",
+    }
+
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
+    monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
+    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+
+    def _fake_run_chat_completion(task, *_args, **_kwargs):
+        persisted_meta.append({"payload_summary": sample_summary})
+        return {
+            "message_id": 77,
+            "provider": "groq",
+            "model": "llama3",
+            "attempted_provider": "groq",
+            "attempted_model": "llama3",
+            "resolved_provider": "groq",
+            "resolved_model": "llama3",
+            "selection_source": "default",
+            "payload_summary": sample_summary,
+        }
+
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        _fake_run_chat_completion,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_safe_publish",
+        lambda task_id, event_type, data: published.append(
+            (task_id, event_type, data)
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_turn_id_metadata",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_message_extra_meta",
+        lambda **kwargs: persisted_meta.append(kwargs.get("payload") or {})
+        or True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_schedule_assistant_message_audio_generation",
+        lambda **_kwargs: False,
+    )
+
+    chat_worker._run_chat_task(task)
+
+    completed_payloads = [
+        payload
+        for _task_id, event_type, payload in published
+        if event_type == "task.completed"
+    ]
+    assert completed_payloads
+    assert completed_payloads[-1]["payload_summary"] == sample_summary
+    assert persisted_meta
+    assert persisted_meta[-1].get("payload_summary") == sample_summary
