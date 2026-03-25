@@ -7,6 +7,7 @@ fork context assembly, prompt construction, provider routing, or persistence.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
@@ -44,6 +45,100 @@ def _estimate_tokens(text: str | None) -> int:
     except Exception:
         return 0
     return max(1, length // 4)
+
+
+def build_sanitized_payload_summary(
+    messages: list[dict[str, str]] | None,
+    bundle: dict[str, Any] | None,
+    *,
+    provider: str | None,
+    model: str | None,
+) -> dict[str, Any]:
+    """Build a minimal, non-sensitive summary of the outbound provider payload.
+
+    The summary is intentionally counts/flags-only to avoid persisting raw prompt
+    content while still enabling diagnostics of the assembled payload that
+    reaches the provider.
+    """
+
+    safe_messages = messages or []
+    message_count = len(safe_messages)
+
+    try:
+        payload_char_count = len(
+            json.dumps(safe_messages, ensure_ascii=False, separators=(",", ":"))
+        )
+    except Exception:
+        payload_char_count = sum(
+            len(str(m.get("role") or "")) + len(str(m.get("content") or ""))
+            for m in safe_messages
+            if isinstance(m, dict)
+        )
+
+    payload_estimated_tokens = (
+        max(1, payload_char_count // 4) if payload_char_count else 0
+    )
+
+    system_messages = [
+        str(m.get("content") or "")
+        for m in safe_messages
+        if str(m.get("role") or "").strip().lower() == "system"
+    ]
+    joined_system_text = "\n".join(system_messages).lower()
+    persona_or_imprint_present = any(
+        marker in joined_system_text
+        for marker in (
+            "=== imprint_zero",
+            "=== persona",
+            "persona:",
+            "imprint",
+        )
+    )
+
+    docs = (bundle or {}).get("docs") if isinstance(bundle, dict) else None
+    linked_document_count = 0
+    if isinstance(docs, dict):
+        for key in ("thread", "project", "library"):
+            value = docs.get(key)
+            if isinstance(value, list):
+                linked_document_count += len(value)
+        if not linked_document_count:
+            linked_document_count = sum(
+                len(v) for v in docs.values() if isinstance(v, list)
+            )
+    elif isinstance(docs, list):
+        linked_document_count = len(docs)
+
+    summary = {
+        "version": 1,
+        "has_system_prompt": bool(system_messages),
+        "payload_char_count": int(payload_char_count),
+        "payload_estimated_tokens": int(payload_estimated_tokens),
+        "message_count": message_count,
+        "persona_or_imprint_present": bool(persona_or_imprint_present),
+        "semantic_count": len((bundle or {}).get("semantic") or [])
+        if isinstance(bundle, dict)
+        else 0,
+        "memory_count": len((bundle or {}).get("memory") or [])
+        if isinstance(bundle, dict)
+        else 0,
+        "graph_count": len((bundle or {}).get("graph") or [])
+        if isinstance(bundle, dict)
+        else 0,
+        "linked_document_count": linked_document_count,
+        "has_user_system_override": bool(
+            (bundle or {}).get("user_system_override")
+            if isinstance(bundle, dict)
+            else False
+        ),
+        "resolved_provider": (provider or "").strip() or None,
+        "resolved_model": (model or "").strip() or None,
+    }
+
+    # For callers that later update to reflect a fallback provider/model.
+    summary.setdefault("final_provider", summary["resolved_provider"])
+    summary.setdefault("final_model", summary["resolved_model"])
+    return summary
 
 
 def _embed_message(
@@ -285,6 +380,13 @@ def run_chat_completion_task(
         build_messages_for_llm(task)
     )
 
+    payload_summary = build_sanitized_payload_summary(
+        messages_for_llm,
+        bundle,
+        provider=provider,
+        model=model,
+    )
+
     assistant_text = ""
     if provider == "local":
         streamed_any = False
@@ -342,6 +444,7 @@ def run_chat_completion_task(
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
+        "payload_summary": payload_summary,
     }
 
     if not persist_assistant_message:

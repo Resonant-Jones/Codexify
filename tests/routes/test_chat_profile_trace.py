@@ -30,3 +30,24 @@ def test_rag_trace_includes_profile_debug_fields(monkeypatch):
 
     chat._thread_latest_task.pop(42, None)
     chat._rag_traces.pop(42, None)
+
+
+def test_rag_trace_exposes_payload_summary(monkeypatch):
+    chat._thread_latest_task[77] = "task-77"
+
+    payload_summary = {"payload_char_count": 10, "message_count": 2}
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": payload_summary,
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(77, api_key="test-key")
+    assert trace["payload_summary"] == payload_summary
+
+    chat._thread_latest_task.pop(77, None)
+    chat._rag_traces.pop(77, None)
