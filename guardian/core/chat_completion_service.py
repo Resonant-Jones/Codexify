@@ -335,6 +335,24 @@ def build_sanitized_payload_summary(
         retrieval_meta = prompt_meta.get("context") or {}
         docs_meta = prompt_meta.get("docs") or {}
 
+    semantic_injected = bool(
+        (retrieval_meta.get("semantic") or {}).get("injected")
+    )
+    memory_injected = bool((retrieval_meta.get("memory") or {}).get("injected"))
+    graph_injected = bool((retrieval_meta.get("graph") or {}).get("injected"))
+    federated_injected = bool(
+        (retrieval_meta.get("federated") or {}).get("injected")
+    )
+    linked_document_injected = bool(docs_meta.get("injected"))
+
+    obsidian_count = (
+        len((bundle or {}).get("obsidian") or [])
+        if isinstance(bundle, dict)
+        else 0
+    )
+    # Obsidian entries are injected via the semantic context block.
+    obsidian_injected = bool(obsidian_count and semantic_injected)
+
     summary = {
         "version": 1,
         "has_system_prompt": bool(system_messages),
@@ -357,6 +375,7 @@ def build_sanitized_payload_summary(
             if isinstance(bundle, dict)
             else 0
         ),
+        "obsidian_count": obsidian_count,
         "linked_document_count": linked_document_count,
         "has_user_system_override": bool(
             (bundle or {}).get("user_system_override")
@@ -365,19 +384,12 @@ def build_sanitized_payload_summary(
         ),
         "resolved_provider": (provider or "").strip() or None,
         "resolved_model": (model or "").strip() or None,
-        "semantic_injected": bool(
-            (retrieval_meta.get("semantic") or {}).get("injected")
-        ),
-        "memory_injected": bool(
-            (retrieval_meta.get("memory") or {}).get("injected")
-        ),
-        "graph_injected": bool(
-            (retrieval_meta.get("graph") or {}).get("injected")
-        ),
-        "federated_injected": bool(
-            (retrieval_meta.get("federated") or {}).get("injected")
-        ),
-        "linked_document_injected": bool(docs_meta.get("injected")),
+        "semantic_injected": semantic_injected,
+        "memory_injected": memory_injected,
+        "graph_injected": graph_injected,
+        "federated_injected": federated_injected,
+        "linked_document_injected": linked_document_injected,
+        "obsidian_injected": obsidian_injected,
     }
 
     summary["retrieval_injected"] = any(
@@ -388,6 +400,7 @@ def build_sanitized_payload_summary(
             "graph_injected",
             "federated_injected",
             "linked_document_injected",
+            "obsidian_injected",
         )
     )
 
