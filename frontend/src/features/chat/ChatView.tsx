@@ -24,6 +24,7 @@ import {
   isActiveInferencePhase,
   type InferenceRequestState,
 } from "@/types/inference";
+import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
 type BubblePlayState =
@@ -398,110 +399,116 @@ export function ChatView({
         }}
         data-testid="chat-container"
         data-debug-scroll
-        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-4 space-y-4"
+        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-4"
         style={scrollStyle}
       >
-        {messages.map((message, index) => {
-          const messageId = Number(message.id);
-          const canPlay = message.role !== "user" && Number.isFinite(messageId);
-          const messageAudioStatus = message.audio_status;
-          const messageAudioUrl =
-            typeof message.audio_url === "string" && message.audio_url.trim()
-              ? message.audio_url
-              : null;
-          const showPlay =
-            canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
-          const messageVoiceUnavailable = Boolean(
-            Number.isFinite(messageId) && voiceUnavailableMessageIds[messageId]
-          );
-          const playState: BubblePlayState = !showPlay
-            ? "idle"
-            : messageAudioStatus === "pending"
-              ? "pending"
-              : messageAudioStatus === "failed" ||
-                  messageAudioStatus === "unavailable" ||
-                  (messageAudioStatus === "ready" && !messageAudioUrl) ||
-                  messageVoiceUnavailable
-                ? "unavailable"
-                : playingMessageId === messageId &&
-                    messageAudioStatus === "ready" &&
-                    Boolean(messageAudioUrl)
-                  ? "playing"
-                  : "idle";
+        <div
+          data-testid="chat-conversation-lane"
+          className="mx-auto w-full max-w-full md:max-w-[880px] space-y-4"
+          style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+        >
+          {messages.map((message, index) => {
+            const messageId = Number(message.id);
+            const canPlay = message.role !== "user" && Number.isFinite(messageId);
+            const messageAudioStatus = message.audio_status;
+            const messageAudioUrl =
+              typeof message.audio_url === "string" && message.audio_url.trim()
+                ? message.audio_url
+                : null;
+            const showPlay =
+              canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
+            const messageVoiceUnavailable = Boolean(
+              Number.isFinite(messageId) && voiceUnavailableMessageIds[messageId]
+            );
+            const playState: BubblePlayState = !showPlay
+              ? "idle"
+              : messageAudioStatus === "pending"
+                ? "pending"
+                : messageAudioStatus === "failed" ||
+                    messageAudioStatus === "unavailable" ||
+                    (messageAudioStatus === "ready" && !messageAudioUrl) ||
+                    messageVoiceUnavailable
+                  ? "unavailable"
+                  : playingMessageId === messageId &&
+                      messageAudioStatus === "ready" &&
+                      Boolean(messageAudioUrl)
+                    ? "playing"
+                    : "idle";
 
-          return (
-            <div
-              data-testid="chat-message"
-              key={message.id ?? `${message.role}-${message.created_at ?? index}`}
-              className="max-w-full"
-              onContextMenu={(event) => {
-                event.preventDefault();
-                const content = String(message.content ?? "");
-                if (!content.trim()) return;
-                setMenu({ x: event.clientX, y: event.clientY, text: content });
-              }}
-            >
-              <ChatBubble
-                message={{
-                  id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),
-                  authorId: message.role === "user" ? "me" : "bot",
-                  authorName:
-                    message.role === "user" ? "You" : guardianName || "Guardian",
-                  content: message.content ?? "",
-                  createdAt: normalizeMessageTimestamp(message.created_at),
-                  attachments: message.attachments?.map((attachment) => ({
-                    id: attachment.id,
-                    kind: attachment.kind,
-                    src: attachment.src_url,
-                    name: attachment.filename,
-                  })),
+            return (
+              <div
+                data-testid="chat-message"
+                key={message.id ?? `${message.role}-${message.created_at ?? index}`}
+                className="max-w-full"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  const content = String(message.content ?? "");
+                  if (!content.trim()) return;
+                  setMenu({ x: event.clientX, y: event.clientY, text: content });
                 }}
-                isGuardian={message.role !== "user"}
-                showPlay={showPlay}
-                playing={playState === "playing"}
-                playState={playState}
-                onPlay={() => {
-                  if (!Number.isFinite(messageId)) return;
-                  handlePlayClick(message);
-                }}
-              />
-            </div>
-          );
-        })}
+              >
+                <ChatBubble
+                  message={{
+                    id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),
+                    authorId: message.role === "user" ? "me" : "bot",
+                    authorName:
+                      message.role === "user" ? "You" : guardianName || "Guardian",
+                    content: message.content ?? "",
+                    createdAt: normalizeMessageTimestamp(message.created_at),
+                    attachments: message.attachments?.map((attachment) => ({
+                      id: attachment.id,
+                      kind: attachment.kind,
+                      src: attachment.src_url,
+                      name: attachment.filename,
+                    })),
+                  }}
+                  isGuardian={message.role !== "user"}
+                  showPlay={showPlay}
+                  playing={playState === "playing"}
+                  playState={playState}
+                  onPlay={() => {
+                    if (!Number.isFinite(messageId)) return;
+                    handlePlayClick(message);
+                  }}
+                />
+              </div>
+            );
+          })}
 
-        {showCompletionIndicator ? (
-          <div
-            className="mx-4 mb-2 flex max-w-full justify-start"
-            data-testid="chat-completing-indicator"
-          >
+          {showCompletionIndicator ? (
             <div
-              className="max-w-[min(34rem,calc(100%-1rem))] rounded-[22px] px-4 py-3 shadow-sm"
-              style={{
-                background:
-                  "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
-                color: "var(--text)",
-              }}
+              className="w-full flex justify-start"
+              data-testid="chat-completing-indicator"
             >
-              <InferenceStatusBanner
-                state={activeInferenceState}
-                onCancel={onCancelInference}
-                onSwitchToFast={onSwitchToFast}
-              />
+              <div
+                className="max-w-[min(34rem,calc(100%-1rem))] rounded-[22px] px-4 py-3 shadow-sm"
+                style={{
+                  background:
+                    "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
+                  color: "var(--text)",
+                }}
+              >
+                <InferenceStatusBanner
+                  state={activeInferenceState}
+                  onCancel={onCancelInference}
+                  onSwitchToFast={onSwitchToFast}
+                />
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {loading ? (
-          <div className="text-xs opacity-70" data-testid="chat-loading">
-            Loading...
-          </div>
-        ) : null}
-        {error ? (
-          <div className="text-xs text-red-500" data-testid="chat-error">
-            {error}
-          </div>
-        ) : null}
-        <div ref={endRef} />
+          {loading ? (
+            <div className="text-xs opacity-70" data-testid="chat-loading">
+              Loading...
+            </div>
+          ) : null}
+          {error ? (
+            <div className="text-xs text-red-500" data-testid="chat-error">
+              {error}
+            </div>
+          ) : null}
+          <div ref={endRef} />
+        </div>
       </div>
 
       {menu ? (

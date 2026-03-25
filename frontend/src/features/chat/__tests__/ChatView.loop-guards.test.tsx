@@ -3,6 +3,8 @@ import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatView from "@/features/chat/ChatView";
+import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import type { ChatMessage, CompletionState } from "@/features/chat/useChat";
 
 type Subscriber = (event: { type: string; data: unknown }) => void;
 
@@ -254,5 +256,24 @@ describe("ChatView loop guards", () => {
 
     expect(screen.getByTestId("chat-completing-indicator")).toBeInTheDocument();
     expect(screen.getByTestId("inference-banner")).toBeInTheDocument();
+  });
+
+  it("centers the message lane at the shared max width", () => {
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[buildMessage(1, "user"), buildMessage(2, "assistant")]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    const lane = screen.getByTestId("chat-conversation-lane");
+    expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
+    expect(lane.className).toContain("md:max-w-[880px]");
   });
 });
