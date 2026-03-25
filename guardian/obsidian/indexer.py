@@ -165,17 +165,30 @@ def _collect_markdown_files(
     return [unique[key] for key in sorted(unique.keys())]
 
 
+def _tags_match(
+    note_tags: Sequence[str], allowed_tags: Sequence[str] | None
+) -> bool:
+    if not allowed_tags:
+        return True
+    # Exact match intersection; tags are already normalized to strings
+    note_set = set(note_tags)
+    allowed_set = set(allowed_tags)
+    return bool(note_set & allowed_set)
+
+
 def _build_obsidian_items_with_failures(
     vault_root: Path,
     allowed_paths: Sequence[Path],
     *,
     indexed_at: str,
+    allowed_tags: Sequence[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], int]:
     items: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
 
     markdown_files = _collect_markdown_files(vault_root, allowed_paths)
     scanned = len(markdown_files)
+    allowed_tag_list = _normalize_tags(allowed_tags)
 
     for md in markdown_files:
         try:
@@ -185,6 +198,8 @@ def _build_obsidian_items_with_failures(
             content = parsed["content"]
             title = fm.get("title") or md.stem
             tags = _normalize_tags(fm.get("tags"))
+            if not _tags_match(tags, allowed_tag_list):
+                continue
             source_relpath = _obsidian_relpath(vault_root, md)
             source_id = _obsidian_source_id(vault_root, md, source_relpath)
             content_hash = _hash_text(content)
@@ -218,7 +233,9 @@ def _build_obsidian_items_with_failures(
 
 
 def _build_obsidian_items(
-    vault_root: Path, allowed_paths: Sequence[str | Path] | None = None
+    vault_root: Path,
+    allowed_paths: Sequence[str | Path] | None = None,
+    allowed_tags: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     root = _resolve_vault_root(vault_root)
     resolved_allowlist = _resolve_allowed_paths(root, allowed_paths)
@@ -227,6 +244,7 @@ def _build_obsidian_items(
         root,
         resolved_allowlist,
         indexed_at=indexed_at,
+        allowed_tags=allowed_tags,
     )
     return items
 
@@ -259,9 +277,40 @@ def _delete_namespace_vectors(vector_store: Any) -> int:
         return len(ids)
 
 
+def _scan_obsidian_vault(
+    vault_root: str | Path,
+    allowed_paths: Sequence[str | Path] | None = None,
+    allowed_tags: Sequence[str] | None = None,
+) -> tuple[list[str], int, list[dict[str, str]]]:
+    root = _resolve_vault_root(vault_root)
+    resolved_allowlist = _resolve_allowed_paths(root, allowed_paths)
+    allowed_tag_list = _normalize_tags(allowed_tags)
+
+    markdown_files = _collect_markdown_files(root, resolved_allowlist)
+    scanned = len(markdown_files)
+    matched: list[str] = []
+    failures: list[dict[str, str]] = []
+
+    for md in markdown_files:
+        try:
+            raw_text = md.read_text(encoding="utf-8", errors="ignore")
+            parsed = _parse_frontmatter(raw_text, path=str(md))
+            tags = _normalize_tags(parsed["frontmatter"].get("tags"))
+            if not _tags_match(tags, allowed_tag_list):
+                continue
+            matched.append(str(md.resolve()))
+        except Exception as exc:
+            failures.append({"path": str(md), "error": str(exc)})
+
+    # Deterministic ordering
+    matched = sorted(dict.fromkeys(matched))
+    return matched, scanned, failures
+
+
 def index_obsidian_vault(
     vault_root: str | Path,
     allowed_paths: Sequence[str | Path] | None = None,
+    allowed_tags: Sequence[str] | None = None,
     vector_store: Any | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -277,6 +326,7 @@ def index_obsidian_vault(
         root,
         resolved_allowlist,
         indexed_at=indexed_at,
+        allowed_tags=allowed_tags,
     )
 
     indexed_count = 0
@@ -300,6 +350,7 @@ def index_obsidian_vault(
 __all__ = [
     "OBSIDIAN_NAMESPACE",
     "index_obsidian_vault",
+    "_scan_obsidian_vault",
     "_build_obsidian_items",
     "_parse_frontmatter",
     "_yield_md_files",
