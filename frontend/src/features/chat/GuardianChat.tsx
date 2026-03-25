@@ -52,7 +52,14 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
-import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_SHELL_MARGIN_CLASS,
+  CHAT_COMPOSER_SHELL_PAD_CLASS,
+  CHAT_LANE_GUTTER_CLASS,
+  CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
+  CHAT_LANE_STAGE_GUTTER_CLASS,
+} from "@/features/chat/chatLane";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -2335,7 +2342,7 @@ export function GuardianChat({
   const body = (
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
       {/* Single header rail */}
-      <header className="shrink-0 z-20 px-4 py-2">
+      <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
         <div
           className="relative flex items-center gap-2 px-1 py-2 flex-nowrap"
           style={{
@@ -2389,7 +2396,7 @@ export function GuardianChat({
 
       {llmBackendUnavailable && (
         <div
-          className="mx-4 mt-2 rounded-lg border px-3 py-2 text-xs"
+          className={`mt-2 rounded-lg border px-3 py-2 text-xs ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
           style={{
             borderColor: "var(--panel-border)",
             color: "var(--text)",
@@ -2467,7 +2474,7 @@ export function GuardianChat({
 
       {/* Composer rail - Footer workspace island */}
       <div
-        className="shrink-0 z-20 mx-[6px] mt-2 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
+        className={`shrink-0 z-20 mt-2 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200 ${CHAT_COMPOSER_SHELL_MARGIN_CLASS}`}
         style={{
           borderColor: "var(--panel-border)",
           background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
@@ -2477,101 +2484,101 @@ export function GuardianChat({
           maxHeight: "60vh",
         }}
       >
-        <div className="flex flex-col p-4">
-<div
-  data-testid="composer-conversation-lane"
-  className="mx-auto w-full max-w-full md:max-w-[880px]"
-  style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
->
-  <GuardianThreadApprovalRail
-    className="mb-3"
-    onTellGuardianWhatToDoInstead={handleTellGuardianWhatToDoInstead}
-    reloadSignal={chatReloadVersion}
-    threadId={effectiveThreadId ?? undefined}
-  />
+        <div className={`flex flex-col ${CHAT_COMPOSER_SHELL_PAD_CLASS}`}>
+          <div
+            data-testid="composer-conversation-lane"
+            className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
+            style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+          >
+            <GuardianThreadApprovalRail
+              className="mb-3"
+              onTellGuardianWhatToDoInstead={handleTellGuardianWhatToDoInstead}
+              reloadSignal={chatReloadVersion}
+              threadId={effectiveThreadId ?? undefined}
+            />
 
-  <Composer
-    onSend={handleSendMessage}
-    ensureThreadIdForAttachments={ensureThreadIdForAttachments}
-    prefill={externalPrefill ?? prefill}
-    onPrefillConsumed={() => {
-      setExternalPrefill(undefined);
-      onPrefillConsumed?.();
-    }}
-    threadId={effectiveThreadId ?? undefined}
-    isTurnInFlight={isTurnLocked(effectiveThreadId)}
-    draftValue={activeDraft}
-    draftScopeKey={activeSessionTabId ?? "global"}
-    onDraftValueChange={onSessionDraftChange}
-    activeProviderId={selectedProvider?.id ?? activeProviderId}
-    providerOptions={providerOptions}
-    providerOpenSignal={providerMenuOpenSignal}
-    onProviderChange={(providerId) => {
-      const activeRequestThreadId =
-        completionState.activeThreadId ??
-        inferenceRequest.state.threadId ??
-        effectiveThreadId;
+            <Composer
+              onSend={handleSendMessage}
+              ensureThreadIdForAttachments={ensureThreadIdForAttachments}
+              prefill={externalPrefill ?? prefill}
+              onPrefillConsumed={() => {
+                setExternalPrefill(undefined);
+                onPrefillConsumed?.();
+              }}
+              threadId={effectiveThreadId ?? undefined}
+              isTurnInFlight={isTurnLocked(effectiveThreadId)}
+              draftValue={activeDraft}
+              draftScopeKey={activeSessionTabId ?? "global"}
+              onDraftValueChange={onSessionDraftChange}
+              activeProviderId={selectedProvider?.id ?? activeProviderId}
+              providerOptions={providerOptions}
+              providerOpenSignal={providerMenuOpenSignal}
+              onProviderChange={(providerId) => {
+                const activeRequestThreadId =
+                  completionState.activeThreadId ??
+                  inferenceRequest.state.threadId ??
+                  effectiveThreadId;
 
-      const currentProviderId =
-        selectedProvider?.id ?? activeProviderId ?? null;
+                const currentProviderId =
+                  selectedProvider?.id ?? activeProviderId ?? null;
 
-      const providerChanged = providerId !== currentProviderId;
+                const providerChanged = providerId !== currentProviderId;
 
-      if (
-        providerChanged &&
-        activeRequestThreadId != null &&
-        isTurnLocked(activeRequestThreadId)
-      ) {
-        void inferenceRequest.requestCancel();
-        releaseTurnLease(activeRequestThreadId, {
-          clearCompletion: true,
-          clearInference: true,
-        });
-      }
+                if (
+                  providerChanged &&
+                  activeRequestThreadId != null &&
+                  isTurnLocked(activeRequestThreadId)
+                ) {
+                  void inferenceRequest.requestCancel();
+                  releaseTurnLease(activeRequestThreadId, {
+                    clearCompletion: true,
+                    clearInference: true,
+                  });
+                }
 
-      const nextProvider =
-        catalogProviders.find((p) => p.id === providerId) ?? null;
+                const nextProvider =
+                  catalogProviders.find((p) => p.id === providerId) ?? null;
 
-      onSessionProviderChange?.(providerId);
+                onSessionProviderChange?.(providerId);
 
-      const nextModelId = nextProvider?.models?.[0]?.id ?? null;
+                const nextModelId = nextProvider?.models?.[0]?.id ?? null;
 
-      if (
-        nextProvider &&
-        (!selectedModel ||
-          !nextProvider.models.some((m) => m.id === selectedModel.id)) &&
-        nextModelId
-      ) {
-        onSessionModelChange?.(nextModelId);
-      }
-    }}
-    activeModelId={selectedModel?.id ?? activeModelId}
-    modelOptions={modelOptions}
-    onModelChange={(modelId) => onSessionModelChange?.(modelId)}
-    activeInferenceMode={effectiveInferenceMode}
-    inferenceModeOptions={inferenceModeOptions}
-    onInferenceModeChange={(mode) =>
-      onSessionInferenceModeChange?.(mode)
-    }
-    depthMode={depth}
-    depthOptions={depthOptions}
-    onDepthModeChange={setDepth}
-    onVoiceTurn={
-      voiceTurnBasedEnabled
-        ? () => {
-            if (effectiveThreadId == null) {
-              alert("Create or open a thread before starting a voice turn.");
-              return;
-            }
-            voiceFileInputRef.current?.click();
-          }
-        : undefined
-    }
-    voiceTurnLabel={
-      voiceUploading ? "Processing voice…" : "Upload voice turn"
-    }
-  />
-</div>
+                if (
+                  nextProvider &&
+                  (!selectedModel ||
+                    !nextProvider.models.some((m) => m.id === selectedModel.id)) &&
+                  nextModelId
+                ) {
+                  onSessionModelChange?.(nextModelId);
+                }
+              }}
+              activeModelId={selectedModel?.id ?? activeModelId}
+              modelOptions={modelOptions}
+              onModelChange={(modelId) => onSessionModelChange?.(modelId)}
+              activeInferenceMode={effectiveInferenceMode}
+              inferenceModeOptions={inferenceModeOptions}
+              onInferenceModeChange={(mode) =>
+                onSessionInferenceModeChange?.(mode)
+              }
+              depthMode={depth}
+              depthOptions={depthOptions}
+              onDepthModeChange={setDepth}
+              onVoiceTurn={
+                voiceTurnBasedEnabled
+                  ? () => {
+                      if (effectiveThreadId == null) {
+                        alert("Create or open a thread before starting a voice turn.");
+                        return;
+                      }
+                      voiceFileInputRef.current?.click();
+                    }
+                  : undefined
+              }
+              voiceTurnLabel={
+                voiceUploading ? "Processing voice…" : "Upload voice turn"
+              }
+            />
+          </div>
           {voiceTurnBasedEnabled ? (
             <input
               ref={voiceFileInputRef}
