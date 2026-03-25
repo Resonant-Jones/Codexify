@@ -6,6 +6,71 @@ import ChatView from "@/features/chat/ChatView";
 import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
 import type { ChatMessage, CompletionState } from "@/features/chat/useChat";
 
+type Subscriber = (event: { type: string; data: unknown }) => void;
+
+let mockMessages: any[] = [];
+const loadMessagesMock = vi.fn().mockResolvedValue(undefined);
+const appendMessageMock = vi.fn();
+const shouldRefreshMock = vi.fn().mockReturnValue(false);
+const markRefreshedMock = vi.fn();
+const subscribeMock = vi.fn();
+const apiPostMock = vi.fn();
+const apiGetMock = vi.fn();
+const getInFlightCompletionTurnIdMock = vi.fn();
+const clearInFlightCompletionTurnIdMock = vi.fn();
+const pollOptionsHistory: any[] = [];
+let pollFnRef: (() => Promise<void>) | null = null;
+const audioPlayMock = vi.fn();
+const audioPauseMock = vi.fn();
+const createdAudioSources: string[] = [];
+
+const liveSubscribersByType = new Map<string, Set<Subscriber>>();
+let unsubscribeCount = 0;
+
+function resetLiveSubscribers(): void {
+  liveSubscribersByType.clear();
+  unsubscribeCount = 0;
+}
+
+function emitLiveEvent(eventType: string, payload: unknown): void {
+  const bucket = liveSubscribersByType.get(eventType);
+  if (!bucket) return;
+  [...bucket].forEach((listener) => listener({ type: eventType, data: payload }));
+}
+
+function activeSubscriberCount(eventType: string): number {
+  return liveSubscribersByType.get(eventType)?.size ?? 0;
+}
+
+vi.mock("@/features/chat/useChat", () => ({
+  useChat: () => ({
+    messages: mockMessages,
+    loadMessages: loadMessagesMock,
+    appendMessage: appendMessageMock,
+    loading: false,
+    error: null,
+    hasMore: false,
+    shouldRefresh: shouldRefreshMock,
+    markRefreshed: markRefreshedMock,
+    refreshSnapshot: vi.fn(),
+  }),
+  parseMessagesResponse: (data: any) => {
+    if (data?.ok && Array.isArray(data.messages)) {
+      return [data.messages, data.total ?? data.messages.length];
+    }
+    if (Array.isArray(data)) {
+      return [data, data.length];
+    }
+    return null;
+  },
+}));
+
+vi.mock("@/hooks/useLiveEvents", () => ({
+  useLiveEvents: () => ({
+    subscribe: subscribeMock,
+  }),
+}));
+
 vi.mock("@/features/chat/hooks/useChatAutoScroll", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   return {

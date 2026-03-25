@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, Dict, List, Optional
 
@@ -29,18 +30,56 @@ def _metadata_namespace(meta: Dict[str, Any]) -> str:
     return DEFAULT_NAMESPACE
 
 
+def _coerce_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+    coerced: Dict[str, Any] = {}
+    for key, value in meta.items():
+        if value is None or isinstance(value, (str, int, float, bool)):
+            coerced[key] = value
+            continue
+        if isinstance(value, (list, tuple, set)):
+            normalized = [str(item) for item in value if item is not None]
+            coerced[key] = json.dumps(normalized, ensure_ascii=False)
+            continue
+        if isinstance(value, dict):
+            coerced[key] = json.dumps(value, ensure_ascii=False, default=str)
+            continue
+        coerced[key] = str(value)
+    return coerced
+
+
 class VectorStore:
     def __init__(self, index_dir: Optional[str] = None) -> None:
         # index_dir is kept for backward compatibility but not used for Chroma path (which comes from env)
         store = os.getenv("CODEXIFY_VECTOR_STORE", "faiss").strip().lower()
         if store not in ("faiss", "chroma"):
             store = "faiss"
-        self.embedder = Embedder(store=store)
+        self.store = store
+        chroma_path = (
+            os.getenv("CODEXIFY_CHROMA_PATH", "./.chroma").strip()
+            or "./.chroma"
+        )
+        collection = (
+            os.getenv("CODEXIFY_COLLECTION", "codexify_vault").strip()
+            or "codexify_vault"
+        )
+        self.embedder = Embedder(
+            store=store,
+            chroma_path=chroma_path,
+            collection=collection,
+        )
 
     def add_texts(self, items: List[Dict[str, Any]]) -> int:
         texts = [i.get("text", "") for i in items]
         metas: List[Dict[str, Any]] = []
+        ids: List[str] = []
+        include_ids = self.store == "chroma"
         for item in items:
+            item_id = item.get("id")
+            if include_ids:
+                if item_id:
+                    ids.append(str(item_id))
+                else:
+                    include_ids = False
             raw_meta = item.get("meta", {})
             meta = dict(raw_meta) if isinstance(raw_meta, dict) else {}
             if "namespace" not in meta:
@@ -50,10 +89,16 @@ class VectorStore:
                 if top_level_namespace:
                     meta["namespace"] = top_level_namespace
             meta["namespace"] = _metadata_namespace(meta)
+            if self.store == "chroma":
+                meta = _coerce_chroma_metadata(meta)
             metas.append(meta)
 
         # Use embed_and_index which handles embedding and storage
-        self.embedder.embed_and_index(texts, metadatas=metas)
+        self.embedder.embed_and_index(
+            texts,
+            metadatas=metas,
+            ids=ids if include_ids and ids else None,
+        )
         return len(items)
 
     def search(
@@ -84,3 +129,18 @@ class VectorStore:
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
+
+    def prune_source_root(self, source_root: str, keep_ids: set[str]) -> int:
+        if self.store != "chroma":
+            return 0
+        root = (source_root or "").strip()
+        if not root:
+            return 0
+        existing_ids = self.embedder.get_ids(where={"source_root": root})
+        if not existing_ids:
+            return 0
+        keep = {str(value) for value in keep_ids if str(value).strip()}
+        stale = [value for value in existing_ids if value not in keep]
+        if not stale:
+            return 0
+        return self.embedder.delete_by_ids(stale)
