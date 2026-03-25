@@ -321,7 +321,7 @@ from guardian.routes import (
     migration,
 )
 from guardian.routes import neo as neo_routes
-from guardian.routes import research, share, threads, ui_session
+from guardian.routes import obsidian, research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
@@ -336,6 +336,7 @@ from guardian.routes.imprint import router as imprint_router
 from guardian.routes.imprint import system_docs_router, system_prompt_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
+from guardian.routes.obsidian import router as obsidian_router
 from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
@@ -843,6 +844,12 @@ _include_router(
     label="collaboration",
     flag_name="CODEXIFY_ENABLE_COLLABORATION_ROUTES",
     include_fn=lambda: app.include_router(collaboration.router),
+)
+_include_router(
+    label="obsidian",
+    flag_name="CODEXIFY_ENABLE_OBSIDIAN_ROUTES",
+    include_fn=lambda: app.include_router(obsidian_router),
+    core_surface=True,
 )
 _include_router(
     label="connectors",

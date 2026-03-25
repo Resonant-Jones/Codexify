@@ -5,7 +5,7 @@
  */
 
 import { ChevronDown, ChevronLeft, Loader2 } from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePreferredProvider } from "@/hooks/usePreferredProvider";
@@ -14,7 +14,6 @@ import {
   reconcilePreferredProviderSelection,
   setPreferredProviderSelection,
 } from "@/lib/providerPref";
-import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
 
 type ProviderSelectProps = {
@@ -87,7 +86,10 @@ export function ProviderSelect({
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const CATALOG_POLL_MS = 15_000;
+  const hasFetchedRef = useRef(false);
+  const lastOpenSignalRef = useRef<number | null>(
+    typeof openSignal === "number" && openSignal > 0 ? openSignal : null
+  );
 
   const loadCatalog = useCallback(async (options: { throwOnError?: boolean; silent?: boolean } = {}) => {
     if (!options.silent) {
@@ -189,6 +191,8 @@ export function ProviderSelect({
   }, []);
 
   useEffect(() => {
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
     void loadCatalog();
   }, [loadCatalog]);
 
@@ -238,19 +242,10 @@ export function ProviderSelect({
         ? preferredProviderId || owningProviderId || null
         : null;
     setActiveProviderId(initialProvider);
+    if (lastOpenSignalRef.current === openSignal) return;
+    lastOpenSignalRef.current = openSignal;
     void loadCatalog();
   }, [openSignal, loadCatalog, displayMode, preferredProviderId, owningProviderId]);
-
-  usePollWithBackoff(
-    () => loadCatalog({ throwOnError: true, silent: true }),
-    {
-      intervalMs: CATALOG_POLL_MS,
-      maxBackoffMs: 60_000,
-      enabled: open,
-      onErrorKey: "poll:llm-catalog",
-      logTtlMs: 10_000,
-    }
-  );
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {

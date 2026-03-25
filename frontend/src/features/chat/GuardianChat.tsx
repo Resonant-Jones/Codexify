@@ -42,7 +42,6 @@ import { getWrappedSessionTabId } from "@/state/session/hooks";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
-import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
 import { useLlmCatalog } from "@/features/chat/hooks/useLlmCatalog";
 import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequestState";
@@ -53,14 +52,13 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
-import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import { CHAT_LANE_MAX_WIDTH, CHAT_STAGE_MAX_WIDTH } from "@/features/chat/chatLane";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
   "Keep typing. Send unlocks when the current reply finishes.";
-const LLM_HEALTH_POLL_MS = 15000;
-const THREAD_PROFILE_POLL_MS = 15000;
+const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 
 export function flattenChatEventPayload(data: unknown): Record<string, unknown> {
@@ -549,6 +547,7 @@ export function GuardianChat({
   const [promptCostPopoverOpen, setPromptCostPopoverOpen] = useState(false);
   const [providerMenuOpenSignal, setProviderMenuOpenSignal] = useState(0);
   const promptCostPopoverRef = useRef<HTMLDivElement | null>(null);
+  const profileThreadRef = useRef<number | null>(null);
   const showToast = useCallback((message: string) => {
     try {
       window.dispatchEvent(
@@ -809,13 +808,15 @@ export function GuardianChat({
       }
     }
   }, []);
-  usePollWithBackoff(() => refreshLlmHealth({ throwOnError: true }), {
-    intervalMs: LLM_HEALTH_POLL_MS,
-    maxBackoffMs: 60_000,
-    enabled: true,
-    onErrorKey: "poll:health-llm",
-    logTtlMs: 10_000,
-  });
+  useEffect(() => {
+    void refreshLlmHealth();
+    const timer = window.setInterval(() => {
+      void refreshLlmHealth();
+    }, LLM_HEALTH_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refreshLlmHealth]);
   const llmBackendUnavailable =
     llmHealth.status === "offline" || llmHealth.status === "misconfigured";
   const cloudProvidersDisabled = /ALLOW_CLOUD_PROVIDERS\s*=\s*false/i.test(
@@ -1287,9 +1288,7 @@ export function GuardianChat({
 
       const request = (async () => {
         try {
-          const response = await api.get(`/chat/${threadId}/profile`, {
-            signal: controller.signal,
-          });
+          const response = await api.get(`/chat/${threadId}/profile`);
           if (
             effectiveThreadIdRef.current !== threadId ||
             threadProfileRequestRef.current.token !== nextToken
@@ -1390,6 +1389,7 @@ export function GuardianChat({
 
   useEffect(() => {
     if (effectiveThreadId == null) {
+      profileThreadRef.current = null;
       threadProfileRequestRef.current.controller?.abort();
       threadProfileRequestRef.current = {
         controller: null,
@@ -1400,27 +1400,14 @@ export function GuardianChat({
       applyProfileFallback();
       return;
     }
+    if (profileThreadRef.current === effectiveThreadId) return;
+    profileThreadRef.current = effectiveThreadId;
     void refreshThreadProfile(effectiveThreadId);
   }, [applyProfileFallback, effectiveThreadId, refreshThreadProfile]);
 
   useEffect(() => {
     void activateThread(effectiveThreadId);
   }, [activateThread, effectiveThreadId]);
-
-  usePollWithBackoff(
-    async () => {
-      if (effectiveThreadId == null) return;
-      await refreshThreadProfile(effectiveThreadId, { throwOnError: true });
-    },
-    {
-      intervalMs: THREAD_PROFILE_POLL_MS,
-      maxBackoffMs: 60_000,
-      enabled: effectiveThreadId != null,
-      onErrorKey: "poll:chat-profile",
-      logTtlMs: 10_000,
-    }
-  );
-
   useEffect(() => {
     setPromptCostPopoverOpen(false);
   }, [effectiveThreadId]);
@@ -2478,201 +2465,167 @@ export function GuardianChat({
         )}
       </div>
 
-      {/* Composer rail - Footer workspace island */}
-      <div
-        className="shrink-0 z-20 mx-[6px] mt-2 rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
-        style={{
-          borderColor: "var(--panel-border)",
-          background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
-          clipPath: "inset(0 round 24px)",
-          isolation: "isolate",
-          minHeight: "140px",
-          maxHeight: "60vh",
-        }}
-      >
-        <div className="flex flex-col p-4">
-<div
-  data-testid="composer-conversation-lane"
-  className="mx-auto w-full max-w-full md:max-w-[880px]"
-  style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
->
-  <GuardianThreadApprovalRail
-    className="mb-3"
-    onTellGuardianWhatToDoInstead={handleTellGuardianWhatToDoInstead}
-    reloadSignal={chatReloadVersion}
-    threadId={effectiveThreadId ?? undefined}
-  />
+      <div className="shrink-0 z-20 mt-2 flex justify-center w-full">
+        <div
+          data-testid="composer-shell"
+          className="w-full rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
+          style={{
+            maxWidth: CHAT_STAGE_MAX_WIDTH,
+            borderColor: "var(--panel-border)",
+            background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
+            clipPath: "inset(0 round 24px)",
+            isolation: "isolate",
+            minHeight: "140px",
+            maxHeight: "60vh",
+          }}
+        >
+          <div className="flex flex-col p-4">
+            <div
+              data-testid="composer-conversation-lane"
+              className="mx-auto w-full max-w-full md:max-w-[880px]"
+              style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+            >
+              <GuardianThreadApprovalRail
+                className="mb-3"
+                onTellGuardianWhatToDoInstead={handleTellGuardianWhatToDoInstead}
+                reloadSignal={chatReloadVersion}
+                threadId={effectiveThreadId ?? undefined}
+              />
+              <Composer
+                onSend={handleSendMessage}
+                ensureThreadIdForAttachments={ensureThreadIdForAttachments}
+                prefill={externalPrefill ?? prefill}
+                onPrefillConsumed={() => {
+                  setExternalPrefill(undefined);
+                  onPrefillConsumed?.();
+                }}
+                threadId={effectiveThreadId ?? undefined}
+                isTurnInFlight={isTurnLocked(effectiveThreadId)}
+                draftValue={activeDraft}
+                draftScopeKey={activeSessionTabId ?? "global"}
+                onDraftValueChange={onSessionDraftChange}
+                activeProviderId={selectedProvider?.id ?? activeProviderId}
+                providerOptions={providerOptions}
+                providerOpenSignal={providerMenuOpenSignal}
+                onProviderChange={(providerId) => {
+                  const activeRequestThreadId =
+                    completionState.activeThreadId ??
+                    inferenceRequest.state.threadId ??
+                    effectiveThreadId;
 
-  <Composer
-    onSend={handleSendMessage}
-    ensureThreadIdForAttachments={ensureThreadIdForAttachments}
-    prefill={externalPrefill ?? prefill}
-    onPrefillConsumed={() => {
-      setExternalPrefill(undefined);
-      onPrefillConsumed?.();
-    }}
-    threadId={effectiveThreadId ?? undefined}
-    isTurnInFlight={isTurnLocked(effectiveThreadId)}
-    draftValue={activeDraft}
-    draftScopeKey={activeSessionTabId ?? "global"}
-    onDraftValueChange={onSessionDraftChange}
-    activeProviderId={selectedProvider?.id ?? activeProviderId}
-    providerOptions={providerOptions}
-    providerOpenSignal={providerMenuOpenSignal}
-    onProviderChange={(providerId) => {
-      const activeRequestThreadId =
-        completionState.activeThreadId ??
-        inferenceRequest.state.threadId ??
-        effectiveThreadId;
+                  const currentProviderId =
+                    selectedProvider?.id ?? activeProviderId ?? null;
 
-      const currentProviderId =
-        selectedProvider?.id ?? activeProviderId ?? null;
+                  const providerChanged = providerId !== currentProviderId;
 
-      const providerChanged = providerId !== currentProviderId;
-
-      if (
-        providerChanged &&
-        activeRequestThreadId != null &&
-        isTurnLocked(activeRequestThreadId)
-      ) {
-        void inferenceRequest.requestCancel();
-        releaseTurnLease(activeRequestThreadId, {
-          clearCompletion: true,
-          clearInference: true,
-        });
-      }
-
-      const nextProvider =
-        catalogProviders.find((p) => p.id === providerId) ?? null;
-
-      onSessionProviderChange?.(providerId);
-
-      const nextModelId = nextProvider?.models?.[0]?.id ?? null;
-
-      if (
-        nextProvider &&
-        (!selectedModel ||
-          !nextProvider.models.some((m) => m.id === selectedModel.id)) &&
-        nextModelId
-      ) {
-        onSessionModelChange?.(nextModelId);
-      }
-    }}
-    activeModelId={selectedModel?.id ?? activeModelId}
-    modelOptions={modelOptions}
-    onModelChange={(modelId) => onSessionModelChange?.(modelId)}
-    activeInferenceMode={effectiveInferenceMode}
-    inferenceModeOptions={inferenceModeOptions}
-    onInferenceModeChange={(mode) =>
-      onSessionInferenceModeChange?.(mode)
-    }
-    depthMode={depth}
-    depthOptions={depthOptions}
-    onDepthModeChange={setDepth}
-    onVoiceTurn={
-      voiceTurnBasedEnabled
-        ? () => {
-            if (effectiveThreadId == null) {
-              alert("Create or open a thread before starting a voice turn.");
-              return;
-            }
-            voiceFileInputRef.current?.click();
-          }
-        : undefined
-    }
-    voiceTurnLabel={
-      voiceUploading ? "Processing voice…" : "Upload voice turn"
-    }
-  />
-</div>
-                if (
-                  nextProvider &&
-                  (!selectedModel ||
-                    !nextProvider.models.some((model) => model.id === selectedModel.id)) &&
-                  nextModelId
-                ) {
-                  onSessionModelChange?.(nextModelId);
-                }
-              }}
-              activeModelId={selectedModel?.id ?? activeModelId}
-              modelOptions={modelOptions}
-              onModelChange={(modelId) => onSessionModelChange?.(modelId)}
-              activeInferenceMode={effectiveInferenceMode}
-              inferenceModeOptions={inferenceModeOptions}
-              onInferenceModeChange={(mode) =>
-                onSessionInferenceModeChange?.(mode)
-              }
-              depthMode={depth}
-              depthOptions={depthOptions}
-              onDepthModeChange={setDepth}
-              onVoiceTurn={
-                voiceTurnBasedEnabled
-                  ? () => {
-                      if (effectiveThreadId == null) {
-                        alert(
-                          "Create or open a thread before starting a voice turn."
-                        );
-                        return;
-                      }
-                      voiceFileInputRef.current?.click();
-                    }
-                  : undefined
-              }
-              voiceTurnLabel={voiceUploading ? "Processing voice…" : "Upload voice turn"}
-            />
-            {voiceTurnBasedEnabled ? (
-              <input
-                ref={voiceFileInputRef}
-                type="file"
-                accept={voiceUploadAccept}
-                className="hidden"
-                onChange={async (event) => {
-                  const file = event.target.files?.[0];
-                  event.currentTarget.value = "";
-                  if (!file) return;
-                  if (effectiveThreadId == null) {
-                    alert("Create or open a thread before starting a voice turn.");
-                    return;
-                  }
-                  const normalizedMime = String(file.type || "")
-                    .trim()
-                    .toLowerCase();
                   if (
-                    normalizedMime &&
-                    supportedVoiceInputMime.length > 0 &&
-                    !supportedVoiceInputMime.includes(normalizedMime)
+                    providerChanged &&
+                    activeRequestThreadId != null &&
+                    isTurnLocked(activeRequestThreadId)
                   ) {
-                    alert(`Unsupported audio type: ${normalizedMime}`);
-                    return;
-                  }
-                  if (
-                    voiceUploadLimitBytes != null &&
-                    file.size > voiceUploadLimitBytes
-                  ) {
-                    const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
-                    alert(`Audio file too large. Max ${limitMb} MB.`);
-                    return;
-                  }
-                  setVoiceUploading(true);
-                  try {
-                    const form = new FormData();
-                    form.append("thread_id", String(effectiveThreadId));
-                    form.append("audio_file", file);
-                    form.append("tts_enabled", "true");
-                    await api.post("/voice/turn", form, {
-                      headers: { "Content-Type": "multipart/form-data" },
-                      timeout: 180000,
+                    void inferenceRequest.requestCancel();
+                    releaseTurnLease(activeRequestThreadId, {
+                      clearCompletion: true,
+                      clearInference: true,
                     });
-                    await refreshSnapshot(effectiveThreadId, "voice-turn");
-                  } catch (error) {
-                    console.warn("[guardian] voice turn failed", error);
-                    alert("Voice turn failed. Check backend voice configuration.");
-                  } finally {
-                    setVoiceUploading(false);
+                  }
+
+                  const nextProvider =
+                    catalogProviders.find((p) => p.id === providerId) ?? null;
+
+                  onSessionProviderChange?.(providerId);
+
+                  const nextModelId = nextProvider?.models?.[0]?.id ?? null;
+
+                  if (
+                    nextProvider &&
+                    (!selectedModel ||
+                      !nextProvider.models.some((m) => m.id === selectedModel.id)) &&
+                    nextModelId
+                  ) {
+                    onSessionModelChange?.(nextModelId);
                   }
                 }}
+                activeModelId={selectedModel?.id ?? activeModelId}
+                modelOptions={modelOptions}
+                onModelChange={(modelId) => onSessionModelChange?.(modelId)}
+                activeInferenceMode={effectiveInferenceMode}
+                inferenceModeOptions={inferenceModeOptions}
+                onInferenceModeChange={(mode) =>
+                  onSessionInferenceModeChange?.(mode)
+                }
+                depthMode={depth}
+                depthOptions={depthOptions}
+                onDepthModeChange={setDepth}
+                onVoiceTurn={
+                  voiceTurnBasedEnabled
+                    ? () => {
+                        if (effectiveThreadId == null) {
+                          alert(
+                            "Create or open a thread before starting a voice turn."
+                          );
+                          return;
+                        }
+                        voiceFileInputRef.current?.click();
+                      }
+                    : undefined
+                }
+                voiceTurnLabel={voiceUploading ? "Processing voice…" : "Upload voice turn"}
               />
-            ) : null}
+              {voiceTurnBasedEnabled ? (
+                <input
+                  ref={voiceFileInputRef}
+                  type="file"
+                  accept={voiceUploadAccept}
+                  className="hidden"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) return;
+                    if (effectiveThreadId == null) {
+                      alert("Create or open a thread before starting a voice turn.");
+                      return;
+                    }
+                    const normalizedMime = String(file.type || "")
+                      .trim()
+                      .toLowerCase();
+                    if (
+                      normalizedMime &&
+                      supportedVoiceInputMime.length > 0 &&
+                      !supportedVoiceInputMime.includes(normalizedMime)
+                    ) {
+                      alert(`Unsupported audio type: ${normalizedMime}`);
+                      return;
+                    }
+                    if (
+                      voiceUploadLimitBytes != null &&
+                      file.size > voiceUploadLimitBytes
+                    ) {
+                      const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+                      alert(`Audio file too large. Max ${limitMb} MB.`);
+                      return;
+                    }
+                    setVoiceUploading(true);
+                    try {
+                      const form = new FormData();
+                      form.append("thread_id", String(effectiveThreadId));
+                      form.append("audio_file", file);
+                      form.append("tts_enabled", "true");
+                      await api.post("/voice/turn", form, {
+                        headers: { "Content-Type": "multipart/form-data" },
+                        timeout: 180000,
+                      });
+                      triggerReload();
+                    } catch (error) {
+                      console.warn("[guardian] voice turn failed", error);
+                      alert("Voice turn failed. Check backend voice configuration.");
+                    } finally {
+                      setVoiceUploading(false);
+                    }
+                  }}
+                />
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

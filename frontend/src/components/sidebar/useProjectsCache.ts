@@ -1,11 +1,10 @@
 /**
  * useProjectsCache - maintains a stable project list cache and loose-thread count.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
-import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
 
 type UseProjectsCacheOptions = {
@@ -21,8 +20,6 @@ type UseProjectsCacheResult = {
 };
 
 const STORAGE_KEY = "cfy.projectsCache";
-const PROJECTS_POLL_MS = 30_000;
-
 function normalizeProjectName(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -150,6 +147,7 @@ export function useProjectsCache({
     const cache = readProjectsCache();
     return cache.length ? cache : initialProjects;
   });
+  const hasFetchedRef = useRef(false);
 
   useEffect(() => {
     if (!initialProjects.length) return;
@@ -202,37 +200,10 @@ export function useProjectsCache({
     }
   }, []);
 
-  // Hydrate on mount
-  usePollWithBackoff(
-    () => refreshProjectsFromServer({ throwOnError: true }),
-    {
-      intervalMs: PROJECTS_POLL_MS,
-      maxBackoffMs: 120_000,
-      enabled: true,
-      onErrorKey: "poll:projects",
-      logTtlMs: 10_000,
-    }
-  );
-
-  // Refresh when focus or visibility regained
   useEffect(() => {
-    const onFocus = () => { void refreshProjectsFromServer(); };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        void refreshProjectsFromServer();
-      }
-    };
-    const onProjectsRefresh = () => {
-      void refreshProjectsFromServer();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("cfy:projects:refresh", onProjectsRefresh as EventListener);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("cfy:projects:refresh", onProjectsRefresh as EventListener);
-    };
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
+    void refreshProjectsFromServer({ throwOnError: true });
   }, [refreshProjectsFromServer]);
 
   const looseCount = useMemo(
