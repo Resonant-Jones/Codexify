@@ -23,7 +23,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.audio import tts_trigger
-from guardian.cognition.prompts import build_context_system_message
 from guardian.cognition.system_profiles.resolver import (
     resolve_thread_system_profile,
 )
@@ -974,14 +973,6 @@ async def _build_messages_for_llm(
     model = _normalize_model_override(resolved_task.model) or model
 
     extra_system_messages: list[str] = []
-    if callable(build_context_system_message):
-        try:
-            extra_context = build_context_system_message(bundle)
-        except Exception:
-            extra_context = None
-        if extra_context:
-            extra_system_messages.append(str(extra_context))
-
     media_items = _resolve_media_items(resolved_task, bundle, provider=provider)
     media_system_message = _build_media_system_message(media_items)
     if media_system_message:
