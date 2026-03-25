@@ -123,6 +123,7 @@ class ImageUploadResponse(BaseModel):
     filename: str
     filesize: int
     mime_type: str
+    media_kind: str = Field(default="image")
     source_tag: Optional[str] = None
     created_at: str
 
