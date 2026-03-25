@@ -11,6 +11,10 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { usePreferredProvider } from "@/hooks/usePreferredProvider";
 import api, { buildLlmCatalogPath } from "@/lib/api";
 import {
+  describeModelCapability,
+  isChatSelectableModel,
+} from "@/features/chat/hooks/useLlmCatalog";
+import {
   reconcilePreferredProviderSelection,
   setPreferredProviderSelection,
 } from "@/lib/providerPref";
@@ -32,8 +36,14 @@ type CatalogModel = {
   id: string;
   displayName: string;
   contextWindow?: number;
+  supportsChat?: boolean;
+  supportsVision?: boolean;
+  supportsTextInput?: boolean;
+  modelKind?: "chat" | "vision_chat" | "utility";
   capabilities?: {
+    chat?: boolean;
     vision?: boolean;
+    textInput?: boolean;
     tools?: boolean;
     streaming?: boolean;
   };
@@ -149,11 +159,49 @@ export function ProviderSelect({
                     typeof (model as any).contextWindow === "number"
                       ? (model as any).contextWindow
                       : undefined,
+                  supportsChat:
+                    typeof (model as any).supports_chat === "boolean"
+                      ? (model as any).supports_chat
+                      : typeof (model as any).supportsChat === "boolean"
+                        ? (model as any).supportsChat
+                        : typeof (model as any).capabilities?.chat === "boolean"
+                          ? (model as any).capabilities.chat
+                          : undefined,
+                  supportsVision:
+                    typeof (model as any).supports_vision === "boolean"
+                      ? (model as any).supports_vision
+                      : typeof (model as any).supportsVision === "boolean"
+                        ? (model as any).supportsVision
+                        : typeof (model as any).capabilities?.vision === "boolean"
+                          ? (model as any).capabilities.vision
+                          : undefined,
+                  supportsTextInput:
+                    typeof (model as any).supports_text_input === "boolean"
+                      ? (model as any).supports_text_input
+                      : typeof (model as any).supportsTextInput === "boolean"
+                        ? (model as any).supportsTextInput
+                        : typeof (model as any).capabilities?.textInput === "boolean"
+                          ? (model as any).capabilities.textInput
+                          : undefined,
+                  modelKind:
+                    typeof (model as any).model_kind === "string"
+                      ? (model as any).model_kind
+                      : typeof (model as any).modelKind === "string"
+                        ? (model as any).modelKind
+                        : undefined,
                   capabilities:
                     typeof (model as any).capabilities === "object"
                     && (model as any).capabilities
                       ? {
+                          chat:
+                            typeof (model as any).capabilities.chat === "boolean"
+                              ? (model as any).capabilities.chat
+                              : undefined,
                           vision: Boolean((model as any).capabilities.vision),
+                          textInput:
+                            typeof (model as any).capabilities.textInput === "boolean"
+                              ? (model as any).capabilities.textInput
+                              : undefined,
                           tools: Boolean((model as any).capabilities.tools),
                           streaming: Boolean((model as any).capabilities.streaming),
                         }
@@ -162,7 +210,7 @@ export function ProviderSelect({
                 .filter((model) => model.id.length > 0)
             : [],
         }))
-        .filter((entry) => entry.id.length > 0 && entry.enabled);
+      .filter((entry) => entry.id.length > 0 && entry.enabled);
 
       setProviders(normalizedProviders);
       reconcilePreferredProviderSelection(normalizedProviders);
@@ -201,7 +249,7 @@ export function ProviderSelect({
   const selectedProvider = useMemo(() => {
     if (selectedRaw === "default") return null;
     const byModel = providers.find((entry) =>
-      entry.models.some((model) => model.id === selectedRaw)
+      entry.models.some((model) => isChatSelectableModel(model) && model.id === selectedRaw)
     );
     if (byModel) return byModel;
     return providers.find((entry) => entry.id === selectedRaw) ?? null;
@@ -209,7 +257,8 @@ export function ProviderSelect({
 
   const selectedModel = useMemo(() => {
     if (!selectedProvider) return null;
-    return selectedProvider.models.find((m) => m.id === selectedRaw) ?? null;
+    const chatModels = selectedProvider.models.filter(isChatSelectableModel);
+    return chatModels.find((m) => m.id === selectedRaw) ?? chatModels[0] ?? null;
   }, [selectedProvider, selectedRaw]);
 
   const owningProviderId = useMemo(() => {
@@ -280,7 +329,9 @@ export function ProviderSelect({
           setPreferredProviderSelection(null);
         } else {
           const providerFromModel = providers.find((entry) =>
-            entry.models.some((model) => model.id === normalizedModel)
+            entry.models.some(
+              (model) => isChatSelectableModel(model) && model.id === normalizedModel
+            )
           );
           const providerValue = providerFromModel?.id || null;
           if (providerValue) setProvider(providerValue);
@@ -309,7 +360,9 @@ export function ProviderSelect({
       }
 
       const providerFromModel = providers.find((entry) =>
-        entry.models.some((model) => model.id === normalizedModel)
+        entry.models.some(
+          (model) => isChatSelectableModel(model) && model.id === normalizedModel
+        )
       );
       const providerValue = providerFromModel?.id || null;
       if (providerValue) {
@@ -384,7 +437,9 @@ export function ProviderSelect({
                 Source: {describeProviderSource(activeProvider.source)}
               </div>
             ) : null}
-            {activeProvider.models.map((model) => (
+            {activeProvider.models
+              .filter(isChatSelectableModel)
+              .map((model) => (
               <DropdownMenuItem
                 key={model.id}
                 disabled={!activeProvider.available}
@@ -401,7 +456,12 @@ export function ProviderSelect({
                 }}
               >
                 <span className="flex items-center justify-between w-full gap-2">
-                  <span className="truncate">{model.displayName}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate">{model.displayName}</span>
+                    <span className="block truncate text-[10px] opacity-65">
+                      {describeModelCapability(model)}
+                    </span>
+                  </span>
                   <span className="inline-flex items-center gap-1">
                     {typeof model.contextWindow === "number" ? (
                       <span
@@ -418,8 +478,10 @@ export function ProviderSelect({
                 </span>
               </DropdownMenuItem>
             ))}
-            {activeProvider.models.length === 0 ? (
-              <div className="px-3 py-2 text-xs opacity-75">No models available.</div>
+            {activeProvider.models.filter(isChatSelectableModel).length === 0 ? (
+              <div className="px-3 py-2 text-xs opacity-75">
+                No chat-capable models available.
+              </div>
             ) : null}
             {!activeProvider.available && activeProvider.disabled_reason ? (
               <div
@@ -432,13 +494,19 @@ export function ProviderSelect({
           </div>
         ) : (
           <div className="transition-all duration-150 ease-out">
-            {providers.map((entry) => (
+            {providers.map((entry) => {
+              const chatModels = entry.models.filter(isChatSelectableModel);
+              return (
               <DropdownMenuItem
                 key={entry.id}
+                aria-label={entry.displayName}
                 onClick={(event) => {
                   event.preventDefault();
-                  setActiveProviderId(entry.id);
+                  if (chatModels.length > 0) {
+                    setActiveProviderId(entry.id);
+                  }
                 }}
+                disabled={chatModels.length === 0}
                 style={{ color: "var(--text)" }}
               >
                 <span className="flex items-center justify-between w-full gap-2">
@@ -450,12 +518,20 @@ export function ProviderSelect({
                       </span>
                     ) : null}
                   </span>
+                  {chatModels.length > 0 ? (
+                    <span className="text-[10px] opacity-70">
+                      {chatModels.length} chat model{chatModels.length === 1 ? "" : "s"}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] opacity-70">No chat models</span>
+                  )}
                   {!entry.available ? (
                     <span className="text-[10px] opacity-70">Unavailable</span>
                   ) : null}
                 </span>
               </DropdownMenuItem>
-            ))}
+              );
+            })}
             {providers.length === 0 ? (
               <div className="px-3 py-2 text-xs opacity-75">No providers available.</div>
             ) : null}
