@@ -410,7 +410,7 @@ export function ChatView({
       >
         <div
           data-testid="chat-conversation-lane"
-          className="mx-auto w-full max-w-full md:max-w-[880px] space-y-4"
+          className="mx-auto w-full max-w-full md:max-w-[888px] space-y-4"
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
         >
           {messages.map((message, index) => {
