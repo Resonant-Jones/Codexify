@@ -105,7 +105,6 @@ type CompletionEventIdentity = {
   messageId: string | null;
 };
 
-const INFERENCE_MODE_STORAGE_KEY = "cfy.chat.inferenceMode";
 const FALLBACK_INFERENCE_MODE: ComposerInferenceMode = "no_think";
 const COMPLETION_HISTORY_LIMIT = 12;
 const RECENT_COMPLETION_EVENT_LIMIT = 48;
@@ -207,33 +206,6 @@ function copyState(state: SessionSpineState): SessionSpineState {
     activeCompletion: copyCompletion(state.activeCompletion),
     completionHistory: copyCompletionHistory(state.completionHistory),
   };
-}
-
-function readStoredInferenceMode(): ComposerInferenceMode | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(INFERENCE_MODE_STORAGE_KEY);
-    if (isReasoningMode(raw)) return raw;
-    if (raw != null) {
-      window.localStorage.removeItem(INFERENCE_MODE_STORAGE_KEY);
-    }
-  } catch {
-    // Ignore locked/private storage contexts.
-  }
-  return null;
-}
-
-function writeStoredInferenceMode(mode: ComposerInferenceMode | null): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (mode && isReasoningMode(mode)) {
-      window.localStorage.setItem(INFERENCE_MODE_STORAGE_KEY, mode);
-      return;
-    }
-    window.localStorage.removeItem(INFERENCE_MODE_STORAGE_KEY);
-  } catch {
-    // Ignore locked/private storage contexts.
-  }
 }
 
 function resolveDefaultInferenceMode(
@@ -499,7 +471,6 @@ export class SessionSpine {
     if (cached) {
       this.state = cached;
       this.syncActivationHistory(cached);
-      writeStoredInferenceMode(this.getSelectedInferenceMode(cached));
       this.hydrated = true;
       this.emit();
       return copyState(cached);
@@ -509,7 +480,6 @@ export class SessionSpine {
       const next = this.createDefaultState(options);
       this.state = next;
       this.writeRuntimeSnapshot(next);
-      writeStoredInferenceMode(this.getSelectedInferenceMode(next));
       this.hydrated = true;
       this.emit();
       return copyState(next);
@@ -527,7 +497,6 @@ export class SessionSpine {
     this.state = next;
     this.writeRuntimeSnapshot(next);
     this.syncActivationHistory(next);
-    writeStoredInferenceMode(this.getSelectedInferenceMode(next));
     this.hydrated = true;
     this.emit();
     if (!loaded) {
@@ -843,11 +812,12 @@ export class SessionSpine {
         title,
         providerId: active?.providerId ?? this.defaultProviderId,
         modelId: active?.modelId || this.defaultModelId,
-        inferenceMode: this.getSelectedInferenceMode(current),
+        inferenceMode: this.defaultInferenceMode,
       });
       current.tabs.push(tab);
       current.activeTabId = tab.tabId;
       this.markTabActive(tab.tabId);
+      current.selectedInferenceMode = tab.inferenceMode;
       return tab;
     });
   }
@@ -884,11 +854,12 @@ export class SessionSpine {
         const replacement = this.createTab({
           providerId: closed?.providerId ?? this.defaultProviderId,
           modelId: closed?.modelId || this.defaultModelId,
-          inferenceMode: this.getSelectedInferenceMode(current),
+          inferenceMode: this.defaultInferenceMode,
         });
         current.tabs.push(replacement);
         current.activeTabId = replacement.tabId;
         this.markTabActive(replacement.tabId);
+        current.selectedInferenceMode = replacement.inferenceMode;
         return;
       }
 
@@ -900,15 +871,18 @@ export class SessionSpine {
           current.tabs[0];
         current.activeTabId = nextActive.tabId;
         this.markTabActive(nextActive.tabId);
+        current.selectedInferenceMode = nextActive.inferenceMode;
       }
     });
   }
 
   tabActivate(tabId: TabId): void {
     this.mutate((current) => {
-      if (!current.tabs.some((tab) => tab.tabId === tabId)) return;
+      const tab = current.tabs.find((candidate) => candidate.tabId === tabId);
+      if (!tab) return;
       current.activeTabId = tabId;
       this.markTabActive(tabId);
+      current.selectedInferenceMode = tab.inferenceMode;
     });
   }
 
@@ -968,24 +942,26 @@ export class SessionSpine {
     inferenceMode: ComposerInferenceMode
   ): void {
     this.mutate((current) => {
-      if (!current.tabs.some((candidate) => candidate.tabId === tabId)) return;
+      const tab = current.tabs.find((candidate) => candidate.tabId === tabId);
+      if (!tab) return;
       const normalized = isReasoningMode(inferenceMode)
         ? inferenceMode
         : this.defaultInferenceMode;
-      const nextSelectedInferenceMode = current.selectedInferenceMode;
-      const alreadySelected =
-        isReasoningMode(nextSelectedInferenceMode) &&
-        nextSelectedInferenceMode === normalized;
-      let changed = !alreadySelected;
       const timestamp = nowIso();
-      for (const tab of current.tabs) {
-        if (tab.inferenceMode === normalized) continue;
+      let changed = false;
+      if (tab.inferenceMode !== normalized) {
         tab.inferenceMode = normalized;
         tab.updatedAt = timestamp;
         changed = true;
       }
+      if (
+        current.activeTabId === tabId &&
+        current.selectedInferenceMode !== normalized
+      ) {
+        current.selectedInferenceMode = normalized;
+        changed = true;
+      }
       if (!changed) return;
-      current.selectedInferenceMode = normalized;
     });
   }
 
@@ -1047,7 +1023,6 @@ export class SessionSpine {
     }
     runtimeSessionCacheByKey.delete(this.runtimeKey);
     await this.store.deleteSessionState(this.userId, this.deviceId);
-    writeStoredInferenceMode(null);
     if (SessionSpine.activeInstance === this) {
       SessionSpine.activeInstance = null;
       SessionSpine.emitActiveSnapshot();
@@ -1080,7 +1055,6 @@ export class SessionSpine {
     );
     this.writeRuntimeSnapshot(this.state);
     this.syncActivationHistory(this.state);
-    writeStoredInferenceMode(this.getSelectedInferenceMode(this.state));
     this.emit();
     this.schedulePersist(options.debounceMs ?? 0);
     return result;
@@ -1288,11 +1262,9 @@ export class SessionSpine {
   }
 
   private createDefaultState(options: HydrateOptions): SessionSpineState {
-    const selectedInferenceMode = this.resolveSelectedInferenceMode({
-      tabs: [],
-      activeTabId: "",
-      selectedInferenceMode: options.inferenceMode,
-    });
+    const selectedInferenceMode = isReasoningMode(options.inferenceMode)
+      ? options.inferenceMode
+      : this.defaultInferenceMode;
     const tab = this.createTab({
       threadId: options.threadId,
       title: options.title,
@@ -1320,11 +1292,28 @@ export class SessionSpine {
     options: { includeRuntimeFields?: boolean } = {}
   ): SessionSpineState {
     const persistedState = state as SessionSpineState;
-    const selectedInferenceMode = this.resolveSelectedInferenceMode(persistedState);
     const safeTabs = Array.isArray(state.tabs) ? state.tabs : [];
+    const persistedSelectedInferenceMode = isReasoningMode(
+      persistedState.selectedInferenceMode
+    )
+      ? persistedState.selectedInferenceMode
+      : null;
+    const shouldMigrateLegacyGlobalSelection =
+      persistedSelectedInferenceMode != null &&
+      persistedSelectedInferenceMode !== "default" &&
+      safeTabs.length > 0 &&
+      safeTabs.every(
+        (tab) =>
+          !isReasoningMode(tab.inferenceMode) || tab.inferenceMode === "default"
+      );
     const tabs = safeTabs.length
       ? safeTabs.map((tab) => {
           const normalizedThreadId = tab.threadId?.trim() || undefined;
+          const normalizedInferenceMode = shouldMigrateLegacyGlobalSelection
+            ? persistedSelectedInferenceMode
+            : isReasoningMode(tab.inferenceMode)
+              ? tab.inferenceMode
+              : this.defaultInferenceMode;
           return {
             tabId: tab.tabId || generateTabId(),
             threadId: normalizedThreadId,
@@ -1337,7 +1326,7 @@ export class SessionSpine {
             title: tab.title?.trim() || undefined,
             providerId: tab.providerId?.trim() || this.defaultProviderId,
             modelId: tab.modelId?.trim() || this.defaultModelId,
-            inferenceMode: selectedInferenceMode,
+            inferenceMode: normalizedInferenceMode,
             createdAt: tab.createdAt || nowIso(),
             updatedAt: tab.updatedAt || tab.createdAt || nowIso(),
           };
@@ -1346,7 +1335,7 @@ export class SessionSpine {
           this.createTab({
             providerId: this.defaultProviderId,
             modelId: this.defaultModelId,
-            inferenceMode: selectedInferenceMode,
+            inferenceMode: this.defaultInferenceMode,
           }),
         ];
 
@@ -1388,12 +1377,14 @@ export class SessionSpine {
       activeTabId,
       drafts,
       pendingSubmittedDrafts,
-      selectedInferenceMode,
+      selectedInferenceMode: this.defaultInferenceMode,
       version: Math.max(state.version || 0, SESSION_SCHEMA_VERSION),
       updatedAt: state.updatedAt || nowIso(),
       activeCompletion: null,
       completionHistory: undefined,
     };
+
+    base.selectedInferenceMode = this.resolveSelectedInferenceMode(base);
 
     if (!options.includeRuntimeFields) {
       return base;
@@ -1493,20 +1484,9 @@ export class SessionSpine {
     return true;
   }
 
-  private getSelectedInferenceMode(
-    state: SessionSpineState | null | undefined
-  ): ComposerInferenceMode {
-    return this.resolveSelectedInferenceMode(state ?? null);
-  }
-
   private resolveSelectedInferenceMode(
     state: Partial<SessionSpineState> | null | undefined
   ): ComposerInferenceMode {
-    const persisted = state?.selectedInferenceMode;
-    if (isReasoningMode(persisted)) {
-      return persisted;
-    }
-
     const tabs = Array.isArray(state?.tabs) ? state.tabs : [];
     const activeTab =
       typeof state?.activeTabId === "string"
@@ -1516,11 +1496,16 @@ export class SessionSpine {
       return activeTab.inferenceMode;
     }
 
+    const persisted = state?.selectedInferenceMode;
+    if (isReasoningMode(persisted)) {
+      return persisted;
+    }
+
     const firstValidTab = tabs.find((tab) => isReasoningMode(tab.inferenceMode));
     if (firstValidTab?.inferenceMode) {
       return firstValidTab.inferenceMode;
     }
 
-    return readStoredInferenceMode() ?? this.defaultInferenceMode;
+    return this.defaultInferenceMode;
   }
 }

@@ -143,6 +143,13 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:11434/v1",
         description="Base URL for the local OpenAI-compatible API (e.g., Ollama ).",
     )
+    LOCAL_DOCKER_FALLBACK_BASE_URL: str = Field(
+        default="http://host.docker.internal:11434",
+        description=(
+            "Optional Docker-host bridge fallback for local Ollama when "
+            "LOCAL_BASE_URL points to localhost/loopback inside containers."
+        ),
+    )
     LOCAL_API_KEY: str = Field(
         default="local",
         description="API key placeholder for the local OpenAI-compatible API (often ignored by Ollama).",

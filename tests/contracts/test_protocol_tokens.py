@@ -1,8 +1,10 @@
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    EMBEDDING_LIFECYCLE_STATUSES,
     ERROR_CODES,
     TASK_EVENT_TYPES,
     AcceptanceStatus,
+    EmbeddingLifecycleStatus,
     ErrorCode,
     TaskEventType,
 )
@@ -37,4 +39,17 @@ def test_error_code_tokens() -> None:
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
+    }
+
+
+def test_embedding_lifecycle_tokens() -> None:
+    assert EmbeddingLifecycleStatus.PENDING.value == "pending"
+    assert EmbeddingLifecycleStatus.PROCESSING.value == "processing"
+    assert EmbeddingLifecycleStatus.READY.value == "ready"
+    assert EmbeddingLifecycleStatus.FAILED.value == "failed"
+    assert EMBEDDING_LIFECYCLE_STATUSES == {
+        "pending",
+        "processing",
+        "ready",
+        "failed",
     }

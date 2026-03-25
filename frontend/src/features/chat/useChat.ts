@@ -1461,6 +1461,20 @@ export function useChat(options: UseChatOptions = {}) {
     };
   }, []);
 
+
+  const noopRefreshSnapshot = (threadId?: number, reason?: string) => {
+    console.warn("[useChat] refreshSnapshot fallback invoked", {
+      threadId,
+      reason,
+    });
+  };
+
+  if (process.env.NODE_ENV === "development") {
+    if (typeof refreshSnapshot !== "function") {
+      console.error("[useChat] refreshSnapshot missing from return contract");
+    }
+  }
+
   return {
     messages,
     total,
@@ -1468,12 +1482,12 @@ export function useChat(options: UseChatOptions = {}) {
     error,
     hasMore,
     activateThread,
-    refreshSnapshot,
     loadOlderMessages,
     loadMessages,
     appendMessage,
     sendMessage,
     deleteMessage,
+    refreshSnapshot: refreshSnapshot ?? noopRefreshSnapshot,
     completionState,
     startCompletion,
     endCompletion,
