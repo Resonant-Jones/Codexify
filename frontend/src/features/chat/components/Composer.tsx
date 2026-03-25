@@ -597,6 +597,18 @@ export function Composer({
     modelOptions.find((option) => option.value === activeModelId)?.label ??
     modelOptions[0]?.label ??
     "Model";
+  const hasImageAttachments = draftAttachments.some((att) => att.kind === "image");
+  const hasVisionCapableModel = modelOptions.some((option) => {
+    if (option.supportsChat === false || option.modelKind === "utility") {
+      return false;
+    }
+    return option.supportsVision === true;
+  });
+  const imageCapabilityMessage = hasImageAttachments
+    ? hasVisionCapableModel
+      ? "Image attached. Vision-capable chat models can inspect it; text-only chat models will not see it natively."
+      : "Image attached, but no vision-capable chat models are available for this provider."
+    : null;
   const inferenceModeLabel =
     inferenceModeOptions.find((option) => option.value === activeInferenceMode)
       ?.label ??
@@ -783,6 +795,11 @@ export function Composer({
               </Button>
             </div>
           </div>
+          {imageCapabilityMessage ? (
+            <div className="px-[12px] pb-[6px] text-[11px] leading-snug" style={{ color: "var(--muted)" }}>
+              {imageCapabilityMessage}
+            </div>
+          ) : null}
         </div>
       </div>
       <ImageGenModal
