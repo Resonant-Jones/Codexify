@@ -12,6 +12,7 @@ def mock_chatlog_db():
     """Mock database providing chat history."""
     mock = AsyncMock()
     mock.last_messages = MagicMock(return_value=["msg1", "msg2"])
+    mock.get_connector_config = MagicMock(return_value=None)
     return mock
 
 
@@ -186,6 +187,39 @@ class TestContextBrokerNormalDepth:
 
         # Should have semantic results (mocked as [{"text": "semantic"}])
         assert context["semantic"] == [{"text": "semantic"}]
+
+    @pytest.mark.asyncio
+    async def test_normal_depth_includes_obsidian_when_enabled(
+        self, context_broker, mock_chatlog_db, mock_vector_store
+    ):
+        """Verify configured Obsidian retrieval is included in assembled context."""
+        mock_chatlog_db.get_connector_config.return_value = {
+            "name": "obsidian_local",
+            "type": "obsidian",
+            "settings": {"vault_root": "/tmp/vault"},
+        }
+
+        def _search(query, k, namespace=None):
+            if namespace == "thread:1":
+                return [{"text": "thread semantic"}]
+            if namespace == "obsidian:local":
+                return [{"text": "obsidian semantic"}]
+            return []
+
+        mock_vector_store.search = MagicMock(side_effect=_search)
+
+        context, _ = await context_broker.assemble(
+            thread_id=1, query="test query", depth_mode="normal", k_semantic=4
+        )
+
+        assert context["obsidian"] == [{"text": "obsidian semantic"}]
+        assert context["semantic"] == [
+            {"text": "thread semantic"},
+            {"text": "obsidian semantic"},
+        ]
+        mock_vector_store.search.assert_any_call(
+            "test query", k=4, namespace="obsidian:local"
+        )
 
 
 class TestContextBrokerDeepDepth:

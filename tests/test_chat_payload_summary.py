@@ -13,6 +13,7 @@ def test_build_sanitized_payload_summary_counts_and_sanitizes():
     ]
     bundle = {
         "semantic": [{"id": 1}, {"id": 2}],
+        "obsidian": [{"id": "o1"}],
         "memory": [{"id": 10}],
         "graph": [{"id": "g1"}],
         "docs": {"thread": [{"title": "Doc1"}]},
@@ -27,6 +28,7 @@ def test_build_sanitized_payload_summary_counts_and_sanitizes():
     assert summary["persona_or_imprint_present"] is True
     assert summary["message_count"] == 3
     assert summary["semantic_count"] == 2
+    assert summary["obsidian_count"] == 1
     assert summary["memory_count"] == 1
     assert summary["graph_count"] == 1
     assert summary["linked_document_count"] == 1
@@ -51,6 +53,7 @@ def test_payload_summary_retrieval_injection_flags():
 
     bundle = {
         "semantic": [{"text": "doc1"}, {"text": "doc2"}],
+        "obsidian": [{"text": "obsidian note"}],
         "memory": [{"text": "mem"}],
         "graph": [],
         "docs": {"thread": [{"title": "T1"}]},
@@ -70,6 +73,7 @@ def test_payload_summary_retrieval_injection_flags():
     )
 
     assert summary["semantic_injected"] is True
+    assert summary["obsidian_injected"] is True
     assert summary["memory_injected"] is False
     assert summary["linked_document_injected"] is True
     assert summary["retrieval_injected"] is True
