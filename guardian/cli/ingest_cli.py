@@ -6,10 +6,11 @@ import typer
 
 from guardian.obsidian.indexer import (
     _build_obsidian_items,
+    _hash_text,
     _obsidian_source_id,
     _parse_frontmatter,
     _yield_md_files,
-    index_obsidian_vault,
+    index_obsidian_vault_readonly,
 )
 from guardian.vector.store import VectorStore
 
@@ -19,15 +20,29 @@ app = typer.Typer(name="ingest")
 @app.command("ingest-obsidian")
 def ingest_obsidian(
     dir: str,
+    rebuild: bool = typer.Option(
+        True,
+        "--rebuild/--no-rebuild",
+        help=(
+            "Refresh behavior for beta read-only mode. "
+            "Only full rebuild is supported."
+        ),
+    ),
     prune: bool = typer.Option(
         False,
         "--prune",
-        help="Remove Obsidian entries under this vault root that are no longer present.",
+        help=(
+            "Deprecated for beta read-only mode. " "Use --rebuild for refresh."
+        ),
     ),
 ):
-    if not isinstance(prune, bool):
-        prune = False
-    summary = index_obsidian_vault(dir)
+    if not rebuild:
+        raise typer.BadParameter(
+            "obsidian_beta_requires_rebuild_refresh (--rebuild)"
+        )
+
+    prune_requested = bool(prune)
+    summary = index_obsidian_vault_readonly(dir, rebuild=True)
     root = summary.get("vault_root") or str(Path(dir).resolve())
     ingested = summary.get("indexed", 0)
     deleted = summary.get("deleted", 0)
@@ -36,8 +51,13 @@ def ingest_obsidian(
             {
                 "ingested": ingested,
                 "dir": str(root),
-                "prune": prune,
-                "pruned": deleted,
+                "mode": summary.get("mode"),
+                "read_only": summary.get("read_only"),
+                "rebuild": True,
+                "refresh_strategy": summary.get("refresh_strategy"),
+                "prune_requested": prune_requested,
+                "prune_supported": False,
+                "cleared": deleted,
                 "namespace": summary.get("namespace"),
                 "scanned": summary.get("scanned"),
                 "failures": summary.get("failures"),
