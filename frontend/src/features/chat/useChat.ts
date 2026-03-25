@@ -491,11 +491,16 @@ export function useChat(options: UseChatOptions = {}) {
   const paginationMessagesRef = useRef<ChatMessage[]>([]);
   const totalRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
-  const lastRefreshRef = useRef<{ threadId: number; messageCount: number; timestamp: number }>({
+  const lastRefreshGuardRef = useRef<{
+    threadId: number;
+    messageCount: number;
+    timestamp: number;
+  }>({
     threadId: 0,
     messageCount: 0,
     timestamp: 0,
   });
+  const lastRefreshRef = useRef<Record<number, number>>({});
   const snapshotLaneRef = useRef<RequestLaneState>({
     controller: null,
     promise: null,
@@ -883,7 +888,30 @@ export function useChat(options: UseChatOptions = {}) {
 
   const refreshSnapshot = useCallback(
     async (threadId: number, reason = "manual") => {
-      return runSnapshotRefresh(threadId, reason);
+      if (!Number.isFinite(threadId)) return;
+      const now = Date.now();
+      const last = lastRefreshRef.current[threadId] ?? 0;
+      if (now - last < 500) {
+        if (process.env.NODE_ENV === "development") {
+          console.debug(`[useChat] refreshSnapshot skipped (rate-limited)`, {
+            threadId,
+            reason,
+          });
+        }
+        return;
+      }
+      lastRefreshRef.current[threadId] = now;
+      try {
+        await runSnapshotRefresh(threadId, reason);
+        if (process.env.NODE_ENV === "development") {
+          console.debug(`[useChat] refreshSnapshot executed`, {
+            threadId,
+            reason,
+          });
+        }
+      } catch (err) {
+        console.warn("[useChat] refreshSnapshot failed", err);
+      }
     },
     [runSnapshotRefresh]
   );
@@ -1415,7 +1443,7 @@ export function useChat(options: UseChatOptions = {}) {
 
   const shouldRefresh = useCallback(
     (threadId: number, currentMessageCount: number) => {
-      const last = lastRefreshRef.current;
+      const last = lastRefreshGuardRef.current;
       const now = Date.now();
       if (last.threadId !== threadId) return true;
       if (last.messageCount !== currentMessageCount) return true;
@@ -1426,7 +1454,7 @@ export function useChat(options: UseChatOptions = {}) {
   );
 
   const markRefreshed = useCallback((threadId: number, messageCount: number) => {
-    lastRefreshRef.current = {
+    lastRefreshGuardRef.current = {
       threadId,
       messageCount,
       timestamp: Date.now(),
