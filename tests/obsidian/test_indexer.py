@@ -58,7 +58,7 @@ def test_allowlisted_notes_indexed_and_outside_excluded(tmp_path):
     store = StubVectorStore(existing_ids=[])
     now = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-    summary = obsidian_indexer.index_obsidian_vault(
+    summary = obsidian_indexer.index_obsidian_vault_readonly(
         vault,
         allowed_paths=[allowed_dir],
         vector_store=store,
@@ -85,6 +85,21 @@ def test_allowlisted_notes_indexed_and_outside_excluded(tmp_path):
     assert indexed_item["meta"]["content_hash"]
 
 
+def test_readonly_mode_requires_rebuild_refresh(tmp_path):
+    vault, allowed_dir, _, _, _ = _setup_vault(tmp_path)
+    store = StubVectorStore(existing_ids=[])
+
+    with pytest.raises(
+        ValueError, match="obsidian_beta_requires_rebuild_refresh"
+    ):
+        obsidian_indexer.index_obsidian_vault_readonly(
+            vault,
+            allowed_paths=[allowed_dir],
+            vector_store=store,
+            rebuild=False,
+        )
+
+
 def test_path_traversal_rejected(tmp_path):
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -105,13 +120,16 @@ def test_namespace_rebuild_deletes_existing_ids(tmp_path):
     vault, allowed_dir, _, _, _ = _setup_vault(tmp_path)
     store = StubVectorStore(existing_ids=["a", "b"])
 
-    summary = obsidian_indexer.index_obsidian_vault(
+    summary = obsidian_indexer.rebuild_obsidian_namespace(
         vault,
         allowed_paths=[allowed_dir],
         vector_store=store,
     )
 
     assert summary["deleted"] == 2
+    assert summary["mode"] == obsidian_indexer.BETA_READONLY_MODE
+    assert summary["read_only"] is True
+    assert summary["refresh_strategy"] == "rebuild"
     assert store.calls[0] == (
         "get_ids",
         {"namespace": obsidian_indexer.OBSIDIAN_NAMESPACE},
@@ -123,19 +141,31 @@ def test_namespace_rebuild_deletes_existing_ids(tmp_path):
 def test_cli_delegates_to_indexer(monkeypatch, tmp_path):
     called = {}
 
-    def fake_index(vault_root, allowed_paths=None, vector_store=None, now=None):
+    def fake_index(
+        vault_root,
+        allowed_paths=None,
+        allowed_tags=None,
+        vector_store=None,
+        now=None,
+        rebuild=True,
+    ):
         called["vault_root"] = vault_root
+        called["rebuild"] = rebuild
         return {
             "vault_root": str(Path(vault_root).resolve()),
             "namespace": obsidian_indexer.OBSIDIAN_NAMESPACE,
+            "mode": obsidian_indexer.BETA_READONLY_MODE,
+            "read_only": True,
+            "refresh_strategy": "rebuild",
             "indexed": 0,
             "deleted": 0,
             "scanned": 0,
             "failures": [],
         }
 
-    monkeypatch.setattr(ingest_cli, "index_obsidian_vault", fake_index)
+    monkeypatch.setattr(ingest_cli, "index_obsidian_vault_readonly", fake_index)
 
     ingest_cli.ingest_obsidian(str(tmp_path))
 
     assert called["vault_root"] == str(tmp_path)
+    assert called["rebuild"] is True

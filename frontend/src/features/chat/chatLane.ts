@@ -9,9 +9,8 @@ export const CHAT_LANE_INLINE_GUTTER = 16;
 // composer edge aligns to the shared chat column contract.
 export const CHAT_STAGE_MAX_WIDTH = CHAT_LANE_MAX_WIDTH;
 
-// Token-derived bottom padding for the composer control row.
-export const CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS =
-  "pb-[calc(var(--card-pad)/5)]";
+// Shared class contract for control-row bottom seating in the composer.
+export const CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS = "pb-[2px]";
 
 // Token-friendly padding expression reused by chat surfaces so portrait and
 // fullscreen share the same baseline inset without bespoke numbers.
