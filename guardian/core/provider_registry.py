@@ -258,6 +258,16 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
             },
         },
         {
+            "id": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "displayName": "Llama 4 Scout 17B",
+            "contextWindow": 128000,
+            "capabilities": {
+                "vision": True,
+                "tools": False,
+                "streaming": True,
+            },
+        },
+        {
             "id": "llama-3.1-70b-versatile",
             "displayName": "Llama 3.1 70B",
             "contextWindow": 128000,
@@ -976,6 +986,27 @@ def get_provider_model_descriptors(
     ):
         return [{"id": default_model, "displayName": default_model}]
     return []
+
+
+def model_supports_capability(
+    provider_id: str,
+    model_id: str | None,
+    capability_key: str,
+    settings: Settings,
+) -> bool:
+    provider = normalize_provider(provider_id)
+    target = normalize_model_id(model_id)
+    if not target:
+        return False
+    for item in get_provider_model_descriptors(provider, settings):
+        if normalize_model_id(item.get("id")) != target:
+            continue
+        capabilities = item.get("capabilities")
+        if not isinstance(capabilities, dict):
+            return False
+        value = capabilities.get(capability_key)
+        return bool(value) if isinstance(value, bool) else False
+    return False
 
 
 def resolve_provider_for_model(

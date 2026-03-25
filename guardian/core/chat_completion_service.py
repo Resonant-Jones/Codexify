@@ -12,19 +12,29 @@ import logging
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
 
+from fastapi import HTTPException
+
 from guardian.cognition.prompts import (
     build_context_system_message as _compat_build_context_system_message,
 )
 from guardian.cognition.prompts import build_context_system_message_with_meta
 from guardian.context.broker import ContextBroker
 from guardian.core import dependencies, event_bus
-from guardian.core.ai_router import chat_with_ai, stream_local
-from guardian.core.chat_attachments import render_content_for_inference
+from guardian.core.ai_router import (
+    build_openai_vision_content,
+    chat_with_ai,
+    stream_local,
+)
+from guardian.core.chat_attachments import (
+    extract_attachments_and_text,
+    render_content_for_inference,
+)
 from guardian.core.config import (
     LLMConfigError,
     get_settings,
     validate_llm_config,
 )
+from guardian.core.provider_registry import model_supports_capability
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -61,6 +71,187 @@ def _estimate_tokens(text: str | None) -> int:
     except Exception:
         return 0
     return max(1, length // 4)
+
+
+def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
+    target_role = str(role or "").strip().lower()
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role") or "").strip().lower() == target_role:
+            return index
+    return -1
+
+
+def _image_attachments_from_meta(
+    latest_user_meta: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    attachments = []
+    if isinstance(latest_user_meta, dict):
+        attachments = latest_user_meta.get("attachments") or []
+    images: list[dict[str, Any]] = []
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        kind = str(attachment.get("kind") or "").strip().lower()
+        if kind != "image":
+            continue
+        images.append(attachment)
+    return images
+
+
+def _format_image_label(attachment: dict[str, Any]) -> str:
+    label = str(attachment.get("name") or "").strip()
+    if not label:
+        label = str(attachment.get("id") or "").strip()
+    return label or "image"
+
+
+def _build_interpreter_context(
+    interpretations: list[dict[str, Any]],
+) -> str:
+    lines = [
+        "Derived image context (interpreted; the chat model did not see the raw image):"
+    ]
+    for idx, item in enumerate(interpretations, start=1):
+        label = str(item.get("label") or "").strip() or "image"
+        summary = str(item.get("summary") or "").strip()
+        if summary:
+            lines.append(f"Image {idx} ({label}): {summary}")
+        else:
+            lines.append(f"Image {idx} ({label}): [no description]")
+    return "\n".join(lines).strip()
+
+
+def _interpret_image_attachments(
+    image_attachments: list[dict[str, Any]],
+    *,
+    settings: Any,
+) -> list[dict[str, Any]] | None:
+    vision_model = str(getattr(settings, "GROQ_VISION_MODEL", "") or "").strip()
+    api_key = str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
+    if not vision_model or not api_key:
+        return None
+
+    prompt = (
+        "Describe the image for downstream reasoning. "
+        "If the image includes readable text, extract it."
+    )
+    interpretations: list[dict[str, Any]] = []
+    for attachment in image_attachments:
+        src = str(attachment.get("src") or "").strip()
+        if not src:
+            continue
+        try:
+            content = build_openai_vision_content(prompt, [src])
+            summary = chat_with_ai(
+                [{"role": "user", "content": content}],
+                model=vision_model,
+                provider="groq",
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Image interpreter failed: {exc}",
+            ) from exc
+        interpretations.append(
+            {
+                "label": _format_image_label(attachment),
+                "summary": str(summary or "").strip(),
+            }
+        )
+    if not interpretations:
+        return None
+    return interpretations
+
+
+def _apply_image_attachment_routing(
+    messages: list[dict[str, Any]],
+    *,
+    bundle: dict[str, Any] | None,
+    provider: str,
+    model: str,
+    settings: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    latest_user_meta = None
+    if isinstance(bundle, dict):
+        attachment_meta = bundle.get("_attachment_meta")
+        if isinstance(attachment_meta, dict):
+            latest_user_meta = attachment_meta.get("latest_user")
+
+    image_attachments = _image_attachments_from_meta(latest_user_meta)
+    image_attachment_count = len(image_attachments)
+    routing_meta = {
+        "image_routing_path": "none",
+        "image_attachment_count": image_attachment_count,
+        "derived_image_context_injected": False,
+    }
+    if not image_attachments:
+        return messages, routing_meta
+
+    supports_vision = model_supports_capability(
+        provider, model, "vision", settings
+    )
+    last_user_index = _find_last_message_index(messages, "user")
+    if last_user_index < 0:
+        return messages, routing_meta
+
+    updated = [
+        dict(message) if isinstance(message, dict) else message
+        for message in messages
+    ]
+
+    if supports_vision:
+        image_urls = [
+            str(item.get("src") or "").strip() for item in image_attachments
+        ]
+        image_urls = [url for url in image_urls if url]
+        if not image_urls:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Image attachments are missing source URLs; "
+                    "unable to route to a vision-capable model."
+                ),
+            )
+        text = ""
+        if isinstance(latest_user_meta, dict):
+            text = str(latest_user_meta.get("text") or "")
+        updated[last_user_index] = {
+            "role": "user",
+            "content": build_openai_vision_content(text, image_urls),
+        }
+        routing_meta["image_routing_path"] = "vlm"
+        return updated, routing_meta
+
+    interpretations = _interpret_image_attachments(
+        image_attachments, settings=settings
+    )
+    if not interpretations:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Image attachments present but no valid vision-capable model "
+                "or interpreter is available."
+            ),
+        )
+
+    context_block = _build_interpreter_context(interpretations)
+    user_text = ""
+    if isinstance(latest_user_meta, dict):
+        user_text = str(latest_user_meta.get("text") or "").strip()
+    stitched = context_block
+    if user_text:
+        stitched = f"{context_block}\n\n{user_text}"
+
+    updated[last_user_index] = {
+        "role": "user",
+        "content": stitched,
+    }
+    routing_meta["image_routing_path"] = "interpreter"
+    routing_meta["derived_image_context_injected"] = True
+    return updated, routing_meta
 
 
 def build_sanitized_payload_summary(
@@ -328,8 +519,18 @@ async def build_messages_for_llm(
         pass
 
     context: list[dict[str, str]] = []
+    latest_user_meta: dict[str, Any] | None = None
     for msg in items:
         role = str(msg.get("role") or "").strip()
+        raw_content = msg.get("content")
+        if isinstance(raw_content, str):
+            attachments, clean_text = extract_attachments_and_text(raw_content)
+            if role == "user":
+                latest_user_meta = {
+                    "id": msg.get("id"),
+                    "text": clean_text,
+                    "attachments": attachments,
+                }
         content = render_content_for_inference(msg.get("content"))
         if content and content.strip() and content.strip().lower() != "null":
             context.append({"role": role, "content": content})
@@ -452,6 +653,9 @@ async def build_messages_for_llm(
             bundle["_prompt_meta"] = merged_meta
         except Exception:
             bundle["_prompt_meta"] = dict(prompt_meta or {})
+        bundle["_attachment_meta"] = {
+            "latest_user": latest_user_meta,
+        }
     messages_for_llm.extend(context)
 
     model = task.model
@@ -480,12 +684,42 @@ def run_chat_completion_task(
         build_messages_for_llm(task)
     )
 
+    settings = get_settings()
+    messages_for_llm, routing_meta = _apply_image_attachment_routing(
+        messages_for_llm,
+        bundle=bundle,
+        provider=provider,
+        model=model,
+        settings=settings,
+    )
+
     payload_summary = build_sanitized_payload_summary(
         messages_for_llm,
         bundle,
         provider=provider,
         model=model,
     )
+    payload_summary.update(
+        {
+            "image_routing_path": routing_meta.get("image_routing_path"),
+            "image_attachment_count": routing_meta.get(
+                "image_attachment_count", 0
+            ),
+            "derived_image_context_injected": routing_meta.get(
+                "derived_image_context_injected", False
+            ),
+        }
+    )
+    if isinstance(bundle, dict):
+        prompt_meta = dict(bundle.get("_prompt_meta") or {})
+        prompt_meta["images"] = {
+            "routing_path": routing_meta.get("image_routing_path"),
+            "attachment_count": routing_meta.get("image_attachment_count", 0),
+            "derived_context_injected": routing_meta.get(
+                "derived_image_context_injected", False
+            ),
+        }
+        bundle["_prompt_meta"] = prompt_meta
 
     assistant_text = ""
     if provider == "local":
