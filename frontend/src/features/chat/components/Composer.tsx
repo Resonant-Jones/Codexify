@@ -37,6 +37,7 @@ const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 const MIN_COMPOSER_ROWS = 2;
 const MAX_COMPOSER_ROWS = 6;
 const FALLBACK_LINE_HEIGHT_PX = 24;
+const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 
 const parsePx = (value?: string | null) => {
   const parsed = Number.parseFloat(value ?? "");
@@ -84,14 +85,19 @@ type DraftAttachment = {
   previewUrl?: string;
 };
 
-function inferProjectIdFromLocation(fallback = 1): number {
+function normalizeOptionalPositiveProjectId(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed > 0 ? parsed : null;
+}
+
+function inferProjectIdFromLocation(fallback: number | null = null): number | null {
   if (typeof window === "undefined") return fallback;
   const path = window.location.pathname || "";
   // Common shapes: /projects/:id, /project/:id, /p/:id
   const match = path.match(/\/(?:projects?|p)\/(\d+)/i);
   if (!match) return fallback;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return normalizeOptionalPositiveProjectId(match[1]) ?? fallback;
 }
 
 function inferProjectIdFromStorage(): number | null {
@@ -106,11 +112,37 @@ function inferProjectIdFromStorage(): number | null {
     ];
     for (const key of keys) {
       const raw = window.localStorage.getItem(key);
-      const parsed = Number(raw);
-      if (Number.isFinite(parsed)) return parsed;
+      const parsed = normalizeOptionalPositiveProjectId(raw);
+      if (parsed !== null) return parsed;
     }
   } catch {}
   return null;
+}
+
+function sanitizeUploadError(err: unknown): string {
+  const detail = (err as any)?.response?.data?.detail;
+  const rawMessage =
+    typeof detail === "string"
+      ? detail
+      : typeof detail?.message === "string"
+        ? detail.message
+        : typeof (err as any)?.message === "string"
+          ? (err as any).message
+          : "";
+
+  if (!rawMessage.trim()) {
+    return GENERIC_UPLOAD_ERROR_MESSAGE;
+  }
+
+  if (
+    /(foreignkey|psycopg|sqlalchemy|traceback|stack trace|insert into|constraint)/i.test(
+      rawMessage
+    )
+  ) {
+    return GENERIC_UPLOAD_ERROR_MESSAGE;
+  }
+
+  return rawMessage;
 }
 
 export function Composer({
@@ -343,7 +375,7 @@ export function Composer({
     // Prefer explicit storage values to reduce reliance on URL shape.
     const fromStorage = inferProjectIdFromStorage();
     if (fromStorage !== null) return fromStorage;
-    return inferProjectIdFromLocation(1);
+    return inferProjectIdFromLocation(null);
   };
 
   function stageFiles(files: FileList | File[]) {
@@ -399,7 +431,10 @@ export function Composer({
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
-    form.append("project_id", String(resolveProjectId()));
+    const resolvedProjectId = resolveProjectId();
+    if (resolvedProjectId !== null) {
+      form.append("project_id", String(resolvedProjectId));
+    }
     form.append("thread_id", String(uploadThreadId));
     form.append("file", file);
     form.append("tag", "uploaded");
@@ -421,11 +456,7 @@ export function Composer({
         filename: data?.filename || file.name,
       };
     } catch (err: any) {
-      const message =
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Failed to upload attachment.";
-      showToast(message);
+      showToast(sanitizeUploadError(err));
       return null;
     }
   }
