@@ -21,7 +21,15 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
@@ -38,8 +46,13 @@ from guardian.depth import (
     project_requested_depth_mode,
     resolve_depth,
 )
+from guardian.protocol_tokens import AcceptanceStatus, ErrorCode, TaskEventType
 from guardian.queue import task_events
-from guardian.queue.redis_queue import enqueue, enqueue_chat_embed
+from guardian.queue.redis_queue import (
+    QueueEnqueueError,
+    enqueue,
+    enqueue_chat_embed,
+)
 from guardian.queue.turn_lock import (
     TurnLockEnvelope,
     acquire_turn_lock,
@@ -57,13 +70,20 @@ logger = logging.getLogger(__name__)
 COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
     "Completion service unavailable — check Docker/Redis."
 )
-COMPLETION_ACCEPTANCE_STATUS_ACCEPTED = "accepted"
-COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED = "accepted_degraded"
+COMPLETION_ACCEPTANCE_STATUS_ACCEPTED = AcceptanceStatus.ACCEPTED.value
+COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED = (
+    AcceptanceStatus.ACCEPTED_DEGRADED.value
+)
 COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_PUBLISH_FAILED = (
     "task_created_event_publish_failed"
 )
 COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_MISSING_EVENT_ID = (
     "task_created_event_missing_event_id"
+)
+TASK_EVENT_TYPE_TASK_CREATED = TaskEventType.TASK_CREATED.value
+CHAT_COMPLETE_ENQUEUE_ERROR_CODE = ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value
+CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE = (
+    ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
 )
 CHAT_WORKER_HEARTBEAT_KEY = os.getenv(
     "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
@@ -160,6 +180,17 @@ def _turn_lock_payload(
     )
 
 
+def _request_id_from_request(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    state = getattr(request, "state", None)
+    request_id = getattr(state, "request_id", None)
+    if request_id is None:
+        return None
+    normalized = str(request_id).strip()
+    return normalized or None
+
+
 def _publish_completion_start_event(
     *,
     task: ChatCompletionTask,
@@ -177,40 +208,63 @@ def _publish_completion_start_event(
     try:
         publish_result = task_events.publish_with_visibility(
             task.task_id,
-            "task.created",
+            TASK_EVENT_TYPE_TASK_CREATED,
             payload,
         )
     except Exception as exc:
-        visibility_scope = task_events.classify_event_visibility("task.created")
+        visibility_scope = task_events.classify_event_visibility(
+            TASK_EVENT_TYPE_TASK_CREATED
+        )
         return {
             "ok": False,
             "task_id": task.task_id,
-            "event_type": "task.created",
+            "event_type": TASK_EVENT_TYPE_TASK_CREATED,
             "visibility_scope": visibility_scope,
             "terminal_visibility": visibility_scope == "terminal",
             "execution_continued": True,
             "event_id": None,
+            "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
             "failure_class": exc.__class__.__name__,
             "error": str(exc),
+            "exception": exc,
         }
 
     if isinstance(publish_result, dict):
+        if not publish_result.get("ok"):
+            raise task_events.TaskEventPublishError.from_publish_result(
+                publish_result
+            ) from (
+                publish_result.get("exception")
+                if isinstance(publish_result.get("exception"), BaseException)
+                else None
+            )
         return publish_result
 
-    visibility_scope = task_events.classify_event_visibility("task.created")
+    visibility_scope = task_events.classify_event_visibility(
+        TASK_EVENT_TYPE_TASK_CREATED
+    )
     return {
         "ok": False,
         "task_id": task.task_id,
-        "event_type": "task.created",
+        "event_type": TASK_EVENT_TYPE_TASK_CREATED,
         "visibility_scope": visibility_scope,
         "terminal_visibility": visibility_scope == "terminal",
         "execution_continued": True,
         "event_id": None,
+        "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
         "failure_class": "InvalidPublishResult",
         "error": (
             "unexpected result type: " f"{type(publish_result).__name__}"
         ),
+        "exception": TypeError(
+            f"unexpected result type: {type(publish_result).__name__}"
+        ),
     }
+    raise task_events.TaskEventPublishError.from_publish_result(failure) from (
+        failure["exception"]
+        if isinstance(failure.get("exception"), BaseException)
+        else None
+    )
 
 
 def _completion_acceptance_outcome(
@@ -643,36 +697,74 @@ def _derive_thread_title_from_content(content: str) -> str:
     return first_line
 
 
-def _merge_neo4j_message_edge(
-    *, message_node: Any, target_node: Any, rel_type: str
+def _graph_ingest_query_debug_enabled() -> bool:
+    if not getattr(llm_settings, "GUARDIAN_ENABLE_GRAPH_LOGGING", False):
+        return False
+    raw_flag = os.getenv("GUARDIAN_ENABLE_GRAPH_INGEST_QUERY_DEBUG", "")
+    return str(raw_flag).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _execute_neo4j_ingest_cypher(
+    query: str, params: Dict[str, Any]
+) -> tuple[Any, Any]:
+    if neo4j_db is None:
+        return [], None
+    if _graph_ingest_query_debug_enabled():
+        logger.debug(
+            "[chat.ingest.neo4j] cypher=%s param_keys=%s",
+            query.strip(),
+            sorted(params.keys()),
+        )
+    return neo4j_db.cypher_query(query, params)
+
+
+def _sync_live_ingest_message_to_neo4j(
+    *,
+    message_id: str,
+    thread_id: str,
+    user_id: str,
+    message_text: str,
+    created_at: datetime,
 ) -> None:
     """
-    Merge MessageNode->Target relationship with anchored MATCH clauses.
-
-    This avoids Neo4j cartesian-product planner warnings emitted by OGM
-    generated queries for disconnected MATCH patterns.
+    Upsert the live-ingest graph nodes and relationships with a safe chained
+    MERGE flow so the write path never emits disconnected same-scope MATCH
+    patterns.
     """
-    if neo4j_db is None:
-        return
-    if rel_type == "SENT_BY":
-        query = """
-        MATCH (them) WHERE elementId(them) = $them
-        MATCH (us)   WHERE elementId(us)   = $self
-        MERGE(us)-[r:`SENT_BY`]->(them)
-        """
-    elif rel_type == "PART_OF":
-        query = """
-        MATCH (them) WHERE elementId(them) = $them
-        MATCH (us)   WHERE elementId(us)   = $self
-        MERGE(us)-[r:`PART_OF`]->(them)
-        """
-    else:
-        raise ValueError(f"Unsupported relationship type: {rel_type}")
-    neo4j_db.cypher_query(
+    query = """
+    MERGE (user:UserNode {user_id: $user_id})
+    ON CREATE SET
+        user.uuid = $user_uuid,
+        user.name = $user_name,
+        user.created_at = $user_created_at
+    MERGE (thread:ThreadNode {thread_id: $thread_id})
+    ON CREATE SET
+        thread.uuid = $thread_uuid,
+        thread.created_at = $thread_created_at
+    MERGE (message:MessageNode {message_id: $message_id})
+    ON CREATE SET
+        message.uuid = $message_uuid,
+        message.content = $message_content,
+        message.created_at = $message_created_at
+    WITH message, user, thread
+    MERGE (message)-[:SENT_BY]->(user)
+    MERGE (message)-[:PART_OF]->(thread)
+    RETURN elementId(message) AS message_element_id
+    """
+    _execute_neo4j_ingest_cypher(
         query,
         {
-            "them": str(target_node.element_id),
-            "self": str(message_node.element_id),
+            "user_id": user_id,
+            "user_name": user_id,
+            "user_uuid": uuid.uuid4().hex,
+            "user_created_at": created_at,
+            "thread_id": thread_id,
+            "thread_uuid": uuid.uuid4().hex,
+            "thread_created_at": created_at,
+            "message_id": message_id,
+            "message_uuid": uuid.uuid4().hex,
+            "message_content": message_text,
+            "message_created_at": created_at,
         },
     )
 
@@ -826,36 +918,14 @@ def _persist_message_to_thread(
             thread_id_str = str(thread_id)
             user_id_str = str(owner)
             message_text = content
+            created_at = datetime.now(timezone.utc)
 
-            neo_user = UserNode.get_or_create(
-                {"user_id": user_id_str, "name": user_id_str}
-            )
-            if isinstance(neo_user, list):
-                neo_user = neo_user[0]
-
-            neo_thread = ThreadNode.get_or_create({"thread_id": thread_id_str})
-            if isinstance(neo_thread, list):
-                neo_thread = neo_thread[0]
-
-            neo_msg = MessageNode.get_or_create(
-                {
-                    "message_id": message_id,
-                    "content": message_text,
-                    "created_at": datetime.now(timezone.utc),
-                }
-            )
-            if isinstance(neo_msg, list):
-                neo_msg = neo_msg[0]
-
-            _merge_neo4j_message_edge(
-                message_node=neo_msg,
-                target_node=neo_user,
-                rel_type="SENT_BY",
-            )
-            _merge_neo4j_message_edge(
-                message_node=neo_msg,
-                target_node=neo_thread,
-                rel_type="PART_OF",
+            _sync_live_ingest_message_to_neo4j(
+                message_id=message_id,
+                thread_id=thread_id_str,
+                user_id=user_id_str,
+                message_text=message_text,
+                created_at=created_at,
             )
 
         except Exception as e:
@@ -1594,7 +1664,9 @@ def chat_list_messages(
 async def chat_complete(
     thread_id: int,
     body: ChatCompletionRequest = Body(...),
+    request: Request = None,
     api_key: str = Depends(require_api_key),
+    request_id: str | None = Header(None, alias="X-Request-ID"),
 ):
     """
     Enqueue an assistant reply for the given thread and return a task id.
@@ -1801,8 +1873,38 @@ async def chat_complete(
         turn_id=turn_id,
     )
 
+    queue_name = "codexify:queue:chat"
+
     try:
-        enqueue(task, "codexify:queue:chat")
+        enqueue(task, queue_name)
+    except QueueEnqueueError as exc:
+        try:
+            release_turn_lock(thread_id, task.turn_lock_owner)
+        except Exception:
+            logger.debug(
+                "[chat.complete] failed to release lock after enqueue error",
+                exc_info=True,
+            )
+        logger.error(
+            "[chat.complete] enqueue failed",
+            extra={
+                "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED",
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "depth_mode": internal_depth_mode,
+                "turn_id": turn_id,
+                "queue_name": exc.queue_name,
+                "exception_class": type(exc).__name__,
+                "cause_class": type(exc.__cause__).__name__
+                if exc.__cause__
+                else None,
+            },
+            exc_info=exc,
+        )
+        detail = _completion_service_unavailable("queue_unavailable").detail
+        if isinstance(detail, dict):
+            detail = {**detail, "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED"}
+        raise HTTPException(status_code=503, detail=detail)
     except Exception as exc:
         try:
             release_turn_lock(thread_id, task.turn_lock_owner)
@@ -1811,44 +1913,74 @@ async def chat_complete(
                 "[chat.complete] failed to release lock after enqueue error",
                 exc_info=True,
             )
-        logger.warning("[chat.complete] queue unavailable: %s", exc)
+        logger.warning(
+            "[chat.complete] queue unavailable error_code=%s: %s",
+            CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
+            exc,
+        )
         raise _completion_service_unavailable("queue_unavailable")
 
     # Track latest task for debug endpoint
     _thread_latest_task[thread_id] = task_identity
 
-    task_created_publish_result = _publish_completion_start_event(
-        task=task,
-        thread_id=thread_id,
-        turn_id=turn_id,
-    )
+    task_created_publish_error: task_events.TaskEventPublishError | None = None
+    try:
+        task_created_publish_result = _publish_completion_start_event(
+            task=task,
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
+    except task_events.TaskEventPublishError as exc:
+        task_created_publish_error = exc
+        task_created_publish_result = exc.to_publish_result()
+        cause_class = exc.cause_class
+        if cause_class is None and isinstance(exc.__cause__, BaseException):
+            cause_class = exc.__cause__.__class__.__name__
+        logger.error(
+            (
+                "[chat.complete] error_code=%s task_event_error_code=%s "
+                "task.created publish failed request_id=%s thread_id=%s "
+                "task_id=%s turn_id=%s depth_mode=%s event_type=%s "
+                "cause_class=%s"
+            ),
+            CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
+            exc.error_code,
+            _request_id_from_request(request),
+            thread_id,
+            task_identity,
+            turn_id,
+            internal_depth_mode,
+            exc.event_type,
+            cause_class,
+        )
     acceptance_status, acceptance_warnings = _completion_acceptance_outcome(
         task_created_publish_result
     )
 
-    log_level = (
-        logging.INFO
-        if acceptance_status == COMPLETION_ACCEPTANCE_STATUS_ACCEPTED
-        else logging.WARNING
-    )
-    logger.log(
-        log_level,
-        (
-            "[task] created type=%s id=%s origin=%s thread=%s "
-            "acceptance_status=%s acceptance_warnings=%s "
-            "task_created_visibility_scope=%s task_created_event_id=%s "
-            "task_created_failure_class=%s"
-        ),
-        task.type,
-        task_identity,
-        task.origin,
-        thread_id,
-        acceptance_status,
-        acceptance_warnings,
-        task_created_publish_result.get("visibility_scope"),
-        task_created_publish_result.get("event_id"),
-        task_created_publish_result.get("failure_class"),
-    )
+    if task_created_publish_error is None:
+        log_level = (
+            logging.INFO
+            if acceptance_status == COMPLETION_ACCEPTANCE_STATUS_ACCEPTED
+            else logging.WARNING
+        )
+        logger.log(
+            log_level,
+            (
+                "[task] created type=%s id=%s origin=%s thread=%s "
+                "acceptance_status=%s acceptance_warnings=%s "
+                "task_created_visibility_scope=%s task_created_event_id=%s "
+                "task_created_failure_class=%s"
+            ),
+            task.type,
+            task_identity,
+            task.origin,
+            thread_id,
+            acceptance_status,
+            acceptance_warnings,
+            task_created_publish_result.get("visibility_scope"),
+            task_created_publish_result.get("event_id"),
+            task_created_publish_result.get("failure_class"),
+        )
 
     messages_url = f"/api/chat/{thread_id}/messages"
     trace_url = f"/api/chat/debug/rag-trace/{thread_id}/latest"
@@ -2273,6 +2405,7 @@ def get_latest_rag_trace(
     Returns empty arrays if no trace is available.
     """
     trace: Dict[str, Any] | None = None
+    payload_summary: Dict[str, Any] | None = None
     profile_debug: Dict[str, Any] = {
         "active_profile_id": None,
         "provider_override": None,
@@ -2291,6 +2424,11 @@ def get_latest_rag_trace(
             if isinstance(payload_trace, dict):
                 trace = dict(payload_trace)
                 _rag_traces[thread_id] = trace  # Cache it
+            if isinstance(completed_payload.get("payload_summary"), dict):
+                payload_summary = dict(completed_payload.get("payload_summary"))
+                if trace is not None:
+                    trace["payload_summary"] = payload_summary
+                    _rag_traces[thread_id] = trace
             for key in (
                 "active_profile_id",
                 "provider_override",
@@ -2312,6 +2450,9 @@ def get_latest_rag_trace(
     else:
         trace.setdefault("documents", [])
         trace.setdefault("graph", [])
+
+    if payload_summary is not None:
+        trace["payload_summary"] = payload_summary
 
     if resolve_thread_system_profile and (
         profile_debug["active_profile_id"] is None
@@ -2455,10 +2596,18 @@ def api_chat_list_messages(
 async def api_chat_complete(
     thread_id: int,
     body: ChatCompletionRequest = Body(...),
+    request: Request = None,
     api_key: str = Depends(require_api_key),
+    request_id: str | None = Header(None, alias="X-Request-ID"),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
-    return await chat_complete(thread_id, body, api_key=api_key)
+    return await chat_complete(
+        thread_id,
+        body,
+        request=request,
+        api_key=api_key,
+        request_id=request_id,
+    )
 
 
 @api_chat_router.get("/{thread_id}/profile")

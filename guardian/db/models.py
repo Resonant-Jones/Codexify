@@ -29,11 +29,21 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from guardian.protocol_tokens import EmbeddingLifecycleStatus
+
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
 
     pass
+
+
+EMBEDDING_LIFECYCLE_VALUES_SQL = "','".join(
+    status.value for status in EmbeddingLifecycleStatus
+)
+UPLOADED_DOCUMENT_EMBEDDING_STATUS_CHECK = (
+    f"embedding_status IN ('{EMBEDDING_LIFECYCLE_VALUES_SQL}')"
+)
 
 
 # =========================
@@ -1171,7 +1181,9 @@ class UploadedDocument(Base):
         Text
     )  # Extracted text for FTS
     embedding_status: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="pending"
+        String(32),
+        nullable=False,
+        server_default=EmbeddingLifecycleStatus.PENDING.value,
     )
     embedding_error: Mapped[str | None] = mapped_column(Text)
     embedding_started_at: Mapped[datetime | None] = mapped_column(
@@ -1199,7 +1211,7 @@ class UploadedDocument(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "embedding_status IN ('pending','processing','ready','failed')",
+            UPLOADED_DOCUMENT_EMBEDDING_STATUS_CHECK,
             name="uploaded_documents_embedding_status_check",
         ),
     )

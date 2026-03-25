@@ -6,6 +6,7 @@ Maintains user-editable persona prompts with an active flag per (user, project).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select, update
@@ -14,6 +15,8 @@ from sqlalchemy.orm import sessionmaker
 from guardian.core.dependencies import get_database_dsn
 from guardian.core.event_graph import get_event_writer
 from guardian.db.models import Persona
+
+logger = logging.getLogger(__name__)
 
 _SessionFactory: sessionmaker | None = None
 
@@ -52,7 +55,7 @@ def get_active_persona(user_id: str, project_id: int | None) -> Persona | None:
                 Persona.project_id == project_id,
                 Persona.is_active.is_(True),
             )
-            .order_by(Persona.created_at.desc())
+            .order_by(Persona.updated_at.desc(), Persona.created_at.desc())
         )
         return session.scalars(stmt).first()
 
@@ -88,6 +91,10 @@ def create_persona(
     """Create a non-active persona using the canonical task API shape."""
     Session = _get_session_factory()
     with Session() as session:
+        logger.info(
+            "[persona_prompt_versions] inserting version row %s",
+            {"userId": user_id, "personaId": None},
+        )
         persona = Persona(
             user_id=user_id,
             project_id=project_id,

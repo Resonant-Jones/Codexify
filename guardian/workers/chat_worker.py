@@ -23,7 +23,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.audio import tts_trigger
-from guardian.cognition.prompts import build_context_system_message
 from guardian.cognition.system_profiles.resolver import (
     resolve_thread_system_profile,
 )
@@ -974,14 +973,6 @@ async def _build_messages_for_llm(
     model = _normalize_model_override(resolved_task.model) or model
 
     extra_system_messages: list[str] = []
-    if callable(build_context_system_message):
-        try:
-            extra_context = build_context_system_message(bundle)
-        except Exception:
-            extra_context = None
-        if extra_context:
-            extra_system_messages.append(str(extra_context))
-
     media_items = _resolve_media_items(resolved_task, bundle, provider=provider)
     media_system_message = _build_media_system_message(media_items)
     if media_system_message:
@@ -1010,6 +1001,12 @@ def _run_chat_completion_task_compat(
         bundle,
         trace,
     ) = _coerce_build_messages_result(build_result)
+    payload_summary = _chat_completion_service.build_sanitized_payload_summary(
+        messages_for_llm,
+        bundle,
+        provider=provider,
+        model=model,
+    )
     settings = get_settings()
     attempted_provider = provider
     attempted_model = model
@@ -1116,9 +1113,23 @@ def _run_chat_completion_task_compat(
         fallback_reason = "cloud_failure_local_rescue"
         final_provider = "local"
         final_model = fallback_model
+        payload_summary["final_provider"] = final_provider
+        payload_summary["final_model"] = final_model
 
     if not assistant_text.strip():
         assistant_text = "No assistant response was generated."
+
+    payload_summary.update(
+        {
+            "attempted_provider": attempted_provider,
+            "attempted_model": attempted_model,
+            "resolved_provider": provider,
+            "resolved_model": model,
+            "final_provider": final_provider,
+            "final_model": final_model,
+            "fallback_reason": fallback_reason,
+        }
+    )
 
     result: dict[str, Any] = {
         "assistant_text": assistant_text,
@@ -1140,6 +1151,7 @@ def _run_chat_completion_task_compat(
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
+        "payload_summary": payload_summary,
     }
 
     if not persist_assistant_message:
@@ -1196,6 +1208,7 @@ def _run_chat_completion_task_compat(
                 "final_model": final_model,
                 "selection_source": selection_source,
                 "fallback_reason": fallback_reason,
+                "payload_summary": payload_summary,
             },
         )
 
@@ -1494,6 +1507,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
+                "payload_summary": result.get("payload_summary"),
             },
         )
         logger.info(

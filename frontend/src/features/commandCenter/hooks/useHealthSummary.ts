@@ -14,7 +14,7 @@ import type {
   CommandCenterHealthStatus,
 } from "@/features/commandCenter/types";
 
-const POLL_INTERVAL_MS = 15_000;
+const POLL_INTERVAL_MS = 5_000;
 
 type UseHealthSummaryOptions = {
   enabled: boolean;

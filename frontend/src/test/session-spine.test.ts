@@ -41,6 +41,19 @@ const sampleState = {
   updatedAt: "2026-02-14T00:00:00.000Z",
 };
 
+function createPersistentSpine(
+  store: InMemorySessionStateStore,
+  userId: string,
+  deviceId: string
+) {
+  return new SessionSpine({
+    userId,
+    deviceId,
+    store,
+    defaultModelId: "default",
+  });
+}
+
 describe("SessionSpine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -141,6 +154,119 @@ describe("SessionSpine", () => {
     const persisted = await store.getSessionState("user-1", "device-1");
     expect(persisted?.tabs[0].providerId).toBe("local");
     expect(persisted?.tabs[0].inferenceMode).toBe("think");
+  });
+
+  it("defaults inference mode to fast when nothing is stored", async () => {
+    const store = new InMemorySessionStateStore();
+    const spine = createPersistentSpine(store, "user-fast-default", "device-fast-default");
+
+    const hydrated = await spine.hydrate();
+
+    expect(hydrated.tabs[0]?.inferenceMode).toBe("no_think");
+    expect(spine.getActiveTab()?.inferenceMode).toBe("no_think");
+  });
+
+  it("persists selected mode after submit/completion and remount", async () => {
+    const store = new InMemorySessionStateStore();
+    const userId = "user-submit-mode";
+    const deviceId = "device-submit-mode";
+    const spine = createPersistentSpine(store, userId, deviceId);
+    await spine.hydrate({ threadId: "101", title: "Alpha" });
+
+    const active = spine.getActiveTab();
+    if (!active) throw new Error("Expected active tab");
+
+    spine.tabSetInferenceMode(active.tabId, "think");
+    spine.rememberSubmittedDraft("run with deep mode", { tabId: active.tabId });
+    spine.startCompletion({
+      tabId: active.tabId,
+      threadId: "101",
+      taskId: "task-submit-1",
+      turnId: "turn-submit-1",
+    });
+    spine.completeActiveCompletion({ taskId: "task-submit-1" });
+    await Promise.resolve();
+
+    expect(spine.getActiveTab()?.inferenceMode).toBe("think");
+
+    const persisted = await store.getSessionState(userId, deviceId);
+    expect(persisted?.tabs[0]?.inferenceMode).toBe("think");
+
+    const remounted = createPersistentSpine(store, userId, deviceId);
+    const hydrated = await remounted.hydrate({ threadId: "101", title: "Alpha" });
+    expect(hydrated.tabs[0]?.inferenceMode).toBe("think");
+    expect(remounted.getActiveTab()?.inferenceMode).toBe("think");
+  });
+
+  it("keeps inference mode per thread and defaults new tabs to fast", async () => {
+    const store = new InMemorySessionStateStore();
+    const userId = "user-per-thread-mode";
+    const deviceId = "device-per-thread-mode";
+    const spine = createPersistentSpine(store, userId, deviceId);
+    await spine.hydrate({ threadId: "101", title: "Alpha" });
+
+    const tabA = spine.getActiveTab();
+    if (!tabA) throw new Error("Expected first active tab");
+
+    spine.tabSetInferenceMode(tabA.tabId, "think");
+    const tabB = spine.tabOpen("202", "Beta");
+    expect(tabB.inferenceMode).toBe("no_think");
+    spine.tabSetInferenceMode(tabB.tabId, "default");
+    await Promise.resolve();
+
+    const tabAState = spine.getTabs().find((tab) => tab.tabId === tabA.tabId);
+    const tabBState = spine.getTabs().find((tab) => tab.tabId === tabB.tabId);
+    expect(tabAState?.inferenceMode).toBe("think");
+    expect(tabBState?.inferenceMode).toBe("default");
+
+    spine.tabActivate(tabA.tabId);
+    expect(spine.getActiveTab()?.inferenceMode).toBe("think");
+    spine.tabActivate(tabB.tabId);
+    expect(spine.getActiveTab()?.inferenceMode).toBe("default");
+
+    const persisted = await store.getSessionState(userId, deviceId);
+    expect(
+      persisted?.tabs.find((tab) => tab.tabId === tabA.tabId)?.inferenceMode
+    ).toBe("think");
+    expect(
+      persisted?.tabs.find((tab) => tab.tabId === tabB.tabId)?.inferenceMode
+    ).toBe("default");
+  });
+
+  it("defaults restored tabs without saved inference mode to fast", async () => {
+    const store = new InMemorySessionStateStore();
+    const userId = "user-missing-mode";
+    const deviceId = "device-missing-mode";
+    await store.setSessionState(
+      userId,
+      deviceId,
+      {
+        userId,
+        deviceId,
+        tabs: [
+          {
+            tabId: "tab-1",
+            threadId: "101",
+            pendingThread: false,
+            title: "Alpha",
+            providerId: null,
+            modelId: "default",
+            createdAt: "2026-03-24T00:00:00.000Z",
+            updatedAt: "2026-03-24T00:00:00.000Z",
+          },
+        ],
+        activeTabId: "tab-1",
+        version: 2,
+        updatedAt: "2026-03-24T00:00:00.000Z",
+      } as any,
+      1000
+    );
+
+    const spine = createPersistentSpine(store, userId, deviceId);
+    const hydrated = await spine.hydrate();
+
+    expect(hydrated.tabs[0]?.inferenceMode).toBe("no_think");
+    expect(spine.getActiveTab()?.inferenceMode).toBe("no_think");
   });
 
   it("coalesces rapid draft persistence writes", async () => {

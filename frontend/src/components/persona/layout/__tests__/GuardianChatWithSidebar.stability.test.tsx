@@ -112,10 +112,52 @@ vi.mock("@/state/session/SessionStateStore", () => ({
 
 vi.mock("@/state/session/SessionSpine", () => ({
   SessionSpine: class {
+    __activeCompletion: any;
+    __composerBlocked: boolean;
+    __cancelShouldUnblock: boolean;
+
     hydrate = vi.fn(async () => null);
     getDraft = vi.fn(() => "");
+    getActiveCompletion = vi.fn(() => this.__activeCompletion ?? null);
+    isComposerBlocked = vi.fn(() => Boolean(this.__composerBlocked));
+    cancelActiveCompletion = vi.fn((options?: any) => {
+      const targetThreadId = String(options?.threadId ?? "");
+      const activeThreadId = String(this.__activeCompletion?.threadId ?? "");
+      if (!targetThreadId || !activeThreadId || targetThreadId !== activeThreadId) {
+        return null;
+      }
+      if (this.__cancelShouldUnblock !== false) {
+        this.__composerBlocked = false;
+        this.__activeCompletion = {
+          ...this.__activeCompletion,
+          status: "canceled",
+        };
+      }
+      return this.__activeCompletion;
+    });
     tabOpen = vi.fn();
-    tabSetThread = vi.fn();
+    tabSetThread = vi.fn((tabId: string, threadId?: string, title?: string) => {
+      const rail = sessionHooksState.railSlice;
+      const tabs = Array.isArray(rail?.tabs) ? rail.tabs : [];
+      const index = tabs.findIndex((tab: any) => tab.tabId === tabId);
+      if (index === -1) return;
+      const baseTab = tabs[index];
+      const nextTab = {
+        ...baseTab,
+        threadId: threadId ?? undefined,
+        pendingThread: !threadId,
+        title: title ?? baseTab.title,
+      };
+      const nextTabs = tabs.slice();
+      nextTabs[index] = nextTab;
+      sessionHooksState.railSlice = {
+        ...rail,
+        tabs: nextTabs,
+      };
+      if (rail.activeTabId === tabId) {
+        sessionHooksState.activeTab = nextTab;
+      }
+    });
     tabActivate = vi.fn();
     tabClose = vi.fn();
     tabSetProvider = vi.fn();
@@ -124,6 +166,9 @@ vi.mock("@/state/session/SessionSpine", () => ({
     tabSetDraft = vi.fn();
 
     constructor() {
+      this.__activeCompletion = null;
+      this.__composerBlocked = false;
+      this.__cancelShouldUnblock = true;
       sessionSpineInstances.push(this);
     }
   },
@@ -533,5 +578,126 @@ describe("GuardianChatWithSidebar stability contract", () => {
       )
     ).toBe(false);
     expect(screen.getByTestId("active-thread-id").textContent).toBe("2");
+  });
+
+  it("deleting the active thread applies a safe fallback and updates tab binding", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(11, "Thread 11"), t(22, "Thread 22")], has_more: false },
+      },
+    });
+
+    sessionHooksState.railSlice = {
+      tabs: [
+        {
+          tabId: "tab-1",
+          threadId: "11",
+          pendingThread: false,
+          title: "Thread 11",
+          modelId: "default",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      activeTabId: "tab-1",
+    };
+    sessionHooksState.activeTab = sessionHooksState.railSlice.tabs[0];
+
+    const user = userEvent.setup();
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-11");
+    await user.click(screen.getByTestId("thread-11"));
+    await waitFor(() => {
+      expect(screen.getByTestId("active-thread-id").textContent).toBe("11");
+    });
+
+    const sidebarProps = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+    expect(sidebarProps).toBeDefined();
+    await act(async () => {
+      await sidebarProps.onDeleteThread?.("11");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-thread-id").textContent).toBe("22");
+    });
+    expect(window.location.pathname).toBe("/chat/22");
+    expect(screen.queryByTestId("thread-11")).not.toBeInTheDocument();
+
+    const spine = sessionSpineInstances[0];
+    expect(
+      spine.tabSetThread.mock.calls.some(
+        (args: unknown[]) =>
+          args[0] === "tab-1" && args[1] === "22" && args[2] === "Thread 22"
+      )
+    ).toBe(true);
+  });
+
+  it("allows deleting a thread after canceling an in-flight completion lock", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(11, "Thread 11")], has_more: false },
+      },
+    });
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+
+    const spine = sessionSpineInstances[0];
+    spine.__activeCompletion = {
+      completionId: "c-1",
+      threadId: "11",
+      status: "streaming",
+    };
+    spine.__composerBlocked = true;
+    spine.__cancelShouldUnblock = true;
+
+    const sidebarProps = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+    expect(sidebarProps).toBeDefined();
+    const guardMessage = await sidebarProps.onBeforeDeleteThread?.("11");
+
+    expect(guardMessage).toBeNull();
+    expect(
+      spine.cancelActiveCompletion.mock.calls.some(
+        (args: unknown[]) =>
+          (args?.[0] as any)?.threadId === "11" &&
+          (args?.[0] as any)?.restoreDraft === false
+      )
+    ).toBe(true);
+    expect(spine.isComposerBlocked()).toBe(false);
+  });
+
+  it("blocks deletion with a clear message when in-flight completion cannot be unwound", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(11, "Thread 11")], has_more: false },
+      },
+    });
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    await screen.findByTestId("thread-11");
+
+    const spine = sessionSpineInstances[0];
+    spine.__activeCompletion = {
+      completionId: "c-2",
+      threadId: "11",
+      status: "streaming",
+    };
+    spine.__composerBlocked = true;
+    spine.__cancelShouldUnblock = false;
+
+    const sidebarProps = sidebarPropsSpy.mock.calls.at(-1)?.[0];
+    expect(sidebarProps).toBeDefined();
+    const guardMessage = await sidebarProps.onBeforeDeleteThread?.("11");
+
+    expect(guardMessage).toBe(
+      "Finish or cancel the current assistant reply before deleting this thread."
+    );
+    expect(
+      spine.cancelActiveCompletion.mock.calls.some(
+        (args: unknown[]) => (args?.[0] as any)?.threadId === "11"
+      )
+    ).toBe(true);
+    expect(spine.isComposerBlocked()).toBe(true);
   });
 });
