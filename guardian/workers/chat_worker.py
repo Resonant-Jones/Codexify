@@ -78,10 +78,32 @@ _embed_message = _chat_completion_service._embed_message
 _ORIGINAL_BUILD_MESSAGES_FOR_LLM = (
     _chat_completion_service.build_messages_for_llm
 )
-build_context_system_message = _compat_build_context_system_message
 _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META = (
     _chat_completion_service.build_context_system_message_with_meta
 )
+
+
+def build_context_system_message(bundle: dict[str, Any] | None) -> str | None:
+    """Compatibility seam for legacy tests/hooks that patch this symbol."""
+    message, _meta = _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META(bundle)
+    return message
+
+
+def _build_context_system_message_with_meta_compat(
+    bundle: dict[str, Any] | None,
+) -> tuple[str | None, dict[str, Any]]:
+    message, meta = _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META(bundle)
+    renderer = globals().get("build_context_system_message")
+    if callable(renderer):
+        try:
+            compat_message = renderer(bundle)
+        except Exception:
+            compat_message = None
+        if isinstance(compat_message, str):
+            cleaned = compat_message.strip()
+            if cleaned:
+                message = cleaned
+    return message, meta
 
 
 def _resolve_media_items(*_args: Any, **_kwargs: Any) -> list[Any]:
@@ -1000,10 +1022,7 @@ def _sync_build_messages_compat_seams() -> None:
         build_guardian_system_prompt
     )
     _chat_completion_service.build_context_system_message_with_meta = (
-        _compat_context_system_message_with_meta
-    )
-    _chat_completion_service.build_context_system_message = (
-        build_context_system_message
+        _build_context_system_message_with_meta_compat
     )
 
 

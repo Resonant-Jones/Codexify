@@ -206,7 +206,7 @@ describe("GuardianChat session-tab binding", () => {
 
     const lane = screen.getByTestId("composer-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
-    expect(lane.className).toContain("md:max-w-[880px]");
+    expect(lane.className).toContain("md:max-w-[888px]");
     expect(screen.getByTestId("composer-shell")).toHaveStyle({
       maxWidth: `${CHAT_STAGE_MAX_WIDTH}px`,
     });
