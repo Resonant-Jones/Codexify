@@ -430,6 +430,13 @@ async def build_messages_for_llm(
     prompt_meta["docs"].update(
         {"count": doc_count, "injected": bool(doc_message)}
     )
+    if isinstance(bundle, dict):
+        try:
+            merged_meta = dict(bundle.get("_prompt_meta") or {})
+            merged_meta.update(prompt_meta or {})
+            bundle["_prompt_meta"] = merged_meta
+        except Exception:
+            bundle["_prompt_meta"] = dict(prompt_meta or {})
     messages_for_llm.extend(context)
 
     model = task.model

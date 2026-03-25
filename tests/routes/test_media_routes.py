@@ -402,6 +402,69 @@ class TestUploadDedupeAndResolve:
         assert link_kwargs["relation"] == "attached"
 
     @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._ensure_project_document_link")
+    @patch("guardian.routes.media._ensure_thread_document_link")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_links_thread_and_project_scope(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_create_asset,
+        mock_get_db,
+        mock_ensure_thread_document_link,
+        mock_ensure_project_document_link,
+        mock_storage,
+        client,
+    ):
+        """Uploading in chat builds both thread and project link rows."""
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260325-feedface--notes.txt",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded_doc.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(
+            id="asset-doc-new",
+            deterministic_id="20260325-feedface",
+            system_name="20260325-feedface--notes.txt",
+            normalized_slug="notes",
+            media_kind="document",
+            provenance="uploaded",
+            source_tag="uploaded",
+            content_hash="feedfacecafebeef",
+        )
+        mock_storage.upload_file.return_value = (
+            "/media/documents/20260325-feedface--notes.txt"
+        )
+
+        mock_db, _mock_session = _mock_db_with_session()
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/document",
+            data={"project_id": 5, "thread_id": 9, "user_id": "u-2"},
+            files={"file": ("notes.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        _, thread_kwargs = mock_ensure_thread_document_link.call_args
+        assert thread_kwargs["thread_id"] == 9
+        assert thread_kwargs["document_id"] == payload["id"]
+        _, project_kwargs = mock_ensure_project_document_link.call_args
+        assert project_kwargs["project_id"] == 5
+        assert project_kwargs["document_id"] == payload["id"]
+        assert project_kwargs["document_type"] == "uploaded"
+
+    @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media._ensure_thread_document_link")
     @patch("guardian.routes.media._get_db")
     @patch("guardian.routes.media._find_uploaded_document_for_asset")
