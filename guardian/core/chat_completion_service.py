@@ -12,6 +12,9 @@ import logging
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
 
+from guardian.cognition.prompts import (
+    build_context_system_message as _compat_build_context_system_message,
+)
 from guardian.cognition.prompts import build_context_system_message_with_meta
 from guardian.context.broker import ContextBroker
 from guardian.core import dependencies, event_bus
@@ -36,6 +39,18 @@ except Exception:  # pragma: no cover - optional dependency
 
 class ChatTaskCancelled(RuntimeError):
     """Raised when a caller-provided cancellation check aborts completion."""
+
+
+def build_context_system_message(bundle: dict[str, Any] | None) -> str | None:
+    """Backward-compatible helper returning only the rendered context message.
+
+    The canonical implementation now lives in
+    ``build_context_system_message_with_meta`` inside cognition.prompts. This
+    wrapper preserves the older symbol expected by worker shims/tests without
+    forking prompt assembly logic.
+    """
+
+    return _compat_build_context_system_message(bundle)
 
 
 def _estimate_tokens(text: str | None) -> int:
