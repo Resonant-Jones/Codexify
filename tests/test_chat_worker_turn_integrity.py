@@ -232,11 +232,7 @@ def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
     monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
 
     def _fake_run_chat_completion(task, *_args, **_kwargs):
-        chat_worker._persist_message_extra_meta(
-            thread_id=task.thread_id,
-            message_id=77,
-            payload={"payload_summary": sample_summary},
-        )
+        persisted_meta.append({"payload_summary": sample_summary})
         return {
             "message_id": 77,
             "provider": "groq",

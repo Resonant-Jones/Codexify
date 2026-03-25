@@ -92,8 +92,21 @@ def build_sanitized_payload_summary(
             "=== persona",
             "persona:",
             "imprint",
+            "user-provided persona instructions",
         )
     )
+
+    prompt_meta = None
+    if isinstance(bundle, dict):
+        prompt_meta = bundle.get("_prompt_meta")
+    if isinstance(prompt_meta, dict):
+        persona_or_imprint_present = persona_or_imprint_present or bool(
+            prompt_meta.get("persona_has_body")
+        )
+        persona_or_imprint_present = persona_or_imprint_present or (
+            str(prompt_meta.get("resolved_imprint_source") or "").strip()
+            not in {"", "system_default"}
+        )
 
     docs = (bundle or {}).get("docs") if isinstance(bundle, dict) else None
     linked_document_count = 0
@@ -116,15 +129,21 @@ def build_sanitized_payload_summary(
         "payload_estimated_tokens": int(payload_estimated_tokens),
         "message_count": message_count,
         "persona_or_imprint_present": bool(persona_or_imprint_present),
-        "semantic_count": len((bundle or {}).get("semantic") or [])
-        if isinstance(bundle, dict)
-        else 0,
-        "memory_count": len((bundle or {}).get("memory") or [])
-        if isinstance(bundle, dict)
-        else 0,
-        "graph_count": len((bundle or {}).get("graph") or [])
-        if isinstance(bundle, dict)
-        else 0,
+        "semantic_count": (
+            len((bundle or {}).get("semantic") or [])
+            if isinstance(bundle, dict)
+            else 0
+        ),
+        "memory_count": (
+            len((bundle or {}).get("memory") or [])
+            if isinstance(bundle, dict)
+            else 0
+        ),
+        "graph_count": (
+            len((bundle or {}).get("graph") or [])
+            if isinstance(bundle, dict)
+            else 0
+        ),
         "linked_document_count": linked_document_count,
         "has_user_system_override": bool(
             (bundle or {}).get("user_system_override")
@@ -345,6 +364,12 @@ async def build_messages_for_llm(
             "You are Guardian, a careful and honest AI assistant. "
             "Answer concisely, avoid speculation, and clearly mark any uncertainty."
         )
+
+    if isinstance(bundle, dict) and "_prompt_meta" not in bundle:
+        try:
+            bundle["_prompt_meta"] = dict(prompt_meta or {})
+        except Exception:
+            bundle["_prompt_meta"] = {}
 
     messages_for_llm.append({"role": "system", "content": system_content})
     thread_doc_context = _build_thread_document_context_message(bundle)
