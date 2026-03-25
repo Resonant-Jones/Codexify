@@ -41,3 +41,37 @@ def test_build_sanitized_payload_summary_counts_and_sanitizes():
         if isinstance(value, str):
             assert "User secret message" not in value
             assert "Assistant reply" not in value
+
+
+def test_payload_summary_retrieval_injection_flags():
+    messages = [
+        {"role": "system", "content": "=== BASE SYSTEM ==="},
+        {"role": "system", "content": "**Semantic Context:**\n- item"},
+    ]
+
+    bundle = {
+        "semantic": [{"text": "doc1"}, {"text": "doc2"}],
+        "memory": [{"text": "mem"}],
+        "graph": [],
+        "docs": {"thread": [{"title": "T1"}]},
+        "_prompt_meta": {
+            "context": {
+                "semantic": {"count": 2, "injected": True},
+                "memory": {"count": 1, "injected": False},
+                "graph": {"count": 0, "injected": False},
+                "federated": {"count": 0, "injected": False},
+            },
+            "docs": {"count": 1, "injected": True},
+        },
+    }
+
+    summary = build_sanitized_payload_summary(
+        messages, bundle, provider="groq", model="llama3"
+    )
+
+    assert summary["semantic_injected"] is True
+    assert summary["memory_injected"] is False
+    assert summary["linked_document_injected"] is True
+    assert summary["retrieval_injected"] is True
+    assert summary["semantic_count"] == 2
+    assert summary["memory_count"] == 1
