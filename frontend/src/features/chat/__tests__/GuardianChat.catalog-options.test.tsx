@@ -41,14 +41,31 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 }));
 
 vi.mock("@/features/chat/components", () => ({
-  Composer: ({ modelOptions }: { modelOptions?: Array<{ label: string; description?: string }> }) => (
+  Composer: ({
+    providerOptions,
+    modelOptions,
+  }: {
+    providerOptions?: Array<{ label: string; description?: string; disabled?: boolean }>;
+    modelOptions?: Array<{ label: string; description?: string }>;
+  }) => (
     <div data-testid="composer-stub">
+      <div data-testid="provider-options">
+        {(providerOptions ?? []).map((option, index) => (
+          <div key={`${option.label}-${option.description ?? "none"}-${index}`}>
+            <span>{option.label}</span>
+            {option.description ? <span>{option.description}</span> : null}
+            {option.disabled ? <span>disabled</span> : null}
+          </div>
+        ))}
+      </div>
+      <div data-testid="model-options">
       {(modelOptions ?? []).map((option, index) => (
         <div key={`${option.label}-${option.description ?? "none"}-${index}`}>
           <span>{option.label}</span>
           {option.description ? <span>{option.description}</span> : null}
         </div>
       ))}
+      </div>
     </div>
   ),
 }));
@@ -271,10 +288,107 @@ describe("GuardianChat catalog-backed model options", () => {
     );
 
     expect((await screen.findAllByText("Qwen 3 4B")).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Namespace library2")).toBeInTheDocument();
-    expect(screen.getByText("Namespace archive")).toBeInTheDocument();
+    expect(
+      screen.getByText("Namespace library2 · Text-only chat")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Namespace archive · Text-only chat")
+    ).toBeInTheDocument();
     expect(screen.queryByText("library2/qwen3:4b")).not.toBeInTheDocument();
     expect(screen.queryByText("archive/qwen3:4b")).not.toBeInTheDocument();
+  });
+
+  it("filters utility models while labeling vision-capable and text-only chat models", async () => {
+    (api.get as any).mockImplementation(async (url: string) => {
+      if (url === "/llm/catalog") {
+        return {
+          data: {
+            providers: [
+              {
+                id: "local",
+                displayName: "Local",
+                enabled: true,
+                authorized: true,
+                available: true,
+                source: {
+                  kind: "local",
+                  baseUrl: "http://127.0.0.1:11434/v1",
+                  label: "127.0.0.1:11434",
+                },
+                models: [
+                  {
+                    id: "text-chat",
+                    canonical_id: "text-chat",
+                    display_label: "Text Chat",
+                    supports_chat: true,
+                    supports_vision: false,
+                    supports_text_input: true,
+                    model_kind: "chat",
+                  },
+                  {
+                    id: "vision-chat",
+                    canonical_id: "vision-chat",
+                    display_label: "Vision Chat",
+                    supports_chat: true,
+                    supports_vision: true,
+                    supports_text_input: true,
+                    model_kind: "vision_chat",
+                  },
+                  {
+                    id: "text-embedding-3-small",
+                    canonical_id: "text-embedding-3-small",
+                    display_label: "Embedding",
+                    supports_chat: false,
+                    supports_vision: false,
+                    supports_text_input: true,
+                    model_kind: "utility",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      if (url === "/health/llm") {
+        return {
+          data: {
+            ok: true,
+            status: "online",
+            provider: "local",
+            model: "text-chat",
+            error: null,
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "draft", title: "Draft" } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "Tab 1",
+            providerId: "local",
+            modelId: "text-chat",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    expect(await screen.findByText("Text Chat")).toBeInTheDocument();
+    expect(screen.getByText("Text-only chat")).toBeInTheDocument();
+    expect(screen.getByText("Vision-capable chat")).toBeInTheDocument();
+    expect(screen.queryByText("Embedding")).not.toBeInTheDocument();
+    expect(screen.getByText("2 chat models · Source 127.0.0.1:11434")).toBeInTheDocument();
   });
 
   it("fetches catalog, health, and profile data once on mount", async () => {
