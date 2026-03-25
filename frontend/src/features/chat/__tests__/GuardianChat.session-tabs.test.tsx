@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import GuardianChat, {
   flattenChatEventPayload,
 } from "@/features/chat/GuardianChat";
-import { CHAT_LANE_MAX_WIDTH, CHAT_STAGE_MAX_WIDTH } from "@/features/chat/chatLane";
+import {
+  CHAT_LANE_MAX_WIDTH,
+  CHAT_STAGE_MAX_WIDTH,
+  GUARDIAN_SHELL_MAX_WIDTH,
+} from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
 
@@ -52,7 +56,11 @@ vi.mock("@/features/chat/ChatView", () => ({
 }));
 
 vi.mock("@/components/surface/FrameCard", () => ({
-  default: ({ children }: any) => <div>{children}</div>,
+  default: ({ children, className, style, "data-testid": dataTestId }: any) => (
+    <div className={className} style={style} data-testid={dataTestId}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock("@/features/chat/useChat", () => ({
@@ -192,6 +200,9 @@ describe("GuardianChat session-tab binding", () => {
         activeSessionTabId={"tab-2" as any}
       />
     );
+
+    const shell = screen.getByTestId("guardian-shell");
+    expect(shell).toHaveStyle({ maxWidth: `${GUARDIAN_SHELL_MAX_WIDTH}px` });
 
     const lane = screen.getByTestId("composer-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });

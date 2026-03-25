@@ -57,6 +57,10 @@ import {
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
 import {
+  CHAT_LANE_MAX_WIDTH,
+  CHAT_STAGE_MAX_WIDTH,
+  GUARDIAN_SHELL_MAX_WIDTH,
+  GUARDIAN_SHELL_MAX_WIDTH_CLASS,
   CHAT_COMPOSER_SHELL_MARGIN_CLASS,
   CHAT_COMPOSER_SHELL_PAD_CLASS,
   CHAT_LANE_GUTTER_CLASS,
@@ -2753,7 +2757,13 @@ export function GuardianChat({
       <>
         {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
         <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
-          {body}
+          <div
+            data-testid="guardian-shell"
+            className={`relative mx-auto flex h-full w-full min-h-0 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+            style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
+          >
+            {body}
+          </div>
         </div>
         <RAGTracePanel
           open={ragTraceOpen}
@@ -2767,7 +2777,9 @@ export function GuardianChat({
   return (
     <>
       <FrameCard
-        className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
+        data-testid="guardian-shell"
+        className={`mx-auto flex h-full min-h-0 min-w-0 w-full flex-1 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+        style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
         hoverPop
       >
         <div className="relative flex flex-col w-full h-full">
