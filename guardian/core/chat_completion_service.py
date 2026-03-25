@@ -223,16 +223,45 @@ def _build_document_context_message(
     if not isinstance(docs, dict):
         return None, 0
 
-    sources = []
-    for scope in ("thread", "project"):
-        items = docs.get(scope)
-        if isinstance(items, list):
-            sources.extend(
-                [(scope, item) for item in items if isinstance(item, dict)]
-            )
+    thread_docs = docs.get("thread")
+    project_docs = docs.get("project")
+    thread_items = (
+        [item for item in thread_docs if isinstance(item, dict)]
+        if isinstance(thread_docs, list)
+        else []
+    )
+    project_items = (
+        [item for item in project_docs if isinstance(item, dict)]
+        if isinstance(project_docs, list)
+        else []
+    )
 
+    sources: list[tuple[str, dict[str, Any]]] = [
+        ("thread", item) for item in thread_items
+    ] + [("project", item) for item in project_items]
     if not sources:
         return None, 0
+
+    thread_only = bool(thread_items) and not project_items
+    project_only = bool(project_items) and not thread_items
+    if thread_only:
+        message_prefix = (
+            "Thread-linked document excerpts are available for this "
+            "conversation. Use them when they help answer the user's "
+            "request.\n\nThread documents:\n"
+        )
+    elif project_only:
+        message_prefix = (
+            "Project-linked document excerpts are available for this "
+            "conversation. Use them when they help answer the user's "
+            "request.\n\nProject documents:\n"
+        )
+    else:
+        message_prefix = (
+            "Linked document excerpts are available for this conversation. "
+            "Use them when they help answer the user's request.\n\n"
+            "Documents:\n"
+        )
 
     lines: list[str] = []
     for scope, item in sources:
@@ -243,8 +272,11 @@ def _build_document_context_message(
         if isinstance(provenance, dict):
             relation = str(provenance.get("relation") or "").strip().lower()
         relation_prefix = f"[{relation}] " if relation else ""
-        scope_prefix = "[thread] " if scope == "thread" else "[project] "
-        prefix = scope_prefix + relation_prefix
+        if thread_only or project_only:
+            prefix = relation_prefix
+        else:
+            scope_prefix = "[thread] " if scope == "thread" else "[project] "
+            prefix = scope_prefix + relation_prefix
         if excerpt:
             lines.append(f"- {prefix}{title}: {excerpt}")
         else:
@@ -253,12 +285,7 @@ def _build_document_context_message(
     if not lines:
         return None, 0
 
-    return (
-        "Linked document excerpts are available for this conversation. "
-        "Use them when they help answer the user's request.\n\n"
-        "Documents:\n" + "\n".join(lines),
-        len(sources),
-    )
+    return (message_prefix + "\n".join(lines), len(sources))
 
 
 async def build_messages_for_llm(
