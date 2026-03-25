@@ -50,7 +50,7 @@ Source anchors:
 | `ALLOW_CLOUD_PROVIDERS` | Default `false`; used with egress policy to gate cloud providers | `guardian/core/config.py`, `guardian/core/egress.py` |
 | `CODEXIFY_LOCAL_ONLY_MODE` | Default `true`; keeps the system local-first unless explicitly relaxed | `guardian/core/config.py`, `guardian/core/egress.py` |
 | `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted | `guardian/core/config.py`, `guardian/core/egress.py` |
-| `LOCAL_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_EMBED_MODEL` | Local provider connectivity and model selection | `guardian/core/config.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |
+| `LOCAL_BASE_URL`, `LOCAL_DOCKER_FALLBACK_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_EMBED_MODEL` | Local provider connectivity and model selection; backend attempts `LOCAL_BASE_URL` first, then Docker host bridge fallback when loopback is configured | `guardian/core/config.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `GROQ_API_KEY`, `GROQ_BASE_URL` | Groq execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL` | Minimax execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |

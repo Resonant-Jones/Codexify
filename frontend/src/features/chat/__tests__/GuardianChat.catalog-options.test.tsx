@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat from "@/features/chat/GuardianChat";
 import api from "@/lib/api";
+
+function countGetCalls(url: string): number {
+  return (api.get as any).mock.calls.filter((call: [string]) => call[0] === url).length;
+}
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -82,6 +86,7 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
+    refreshSnapshot: vi.fn(),
   }),
 }));
 
@@ -270,5 +275,88 @@ describe("GuardianChat catalog-backed model options", () => {
     expect(screen.getByText("Namespace archive")).toBeInTheDocument();
     expect(screen.queryByText("library2/qwen3:4b")).not.toBeInTheDocument();
     expect(screen.queryByText("archive/qwen3:4b")).not.toBeInTheDocument();
+  });
+
+  it("fetches catalog, health, and profile data once on mount", async () => {
+    (api.get as any).mockImplementation(async (url: string) => {
+      if (url === "/llm/catalog") {
+        return {
+          data: {
+            providers: [
+              {
+                id: "local",
+                displayName: "Local",
+                enabled: true,
+                authorized: true,
+                available: true,
+                source: {
+                  kind: "local",
+                  baseUrl: "http://127.0.0.1:11434/v1",
+                  label: "127.0.0.1:11434",
+                },
+                models: [{ id: "library2/qwen3:4b", displayName: "Qwen 3 4B · library2" }],
+              },
+            ],
+          },
+        };
+      }
+      if (url === "/health/llm") {
+        return {
+          data: {
+            ok: true,
+            status: "online",
+            provider: "local",
+            model: "library2/qwen3:4b",
+            error: null,
+          },
+        };
+      }
+      if (url === "/chat/123/profile") {
+        return {
+          data: {
+            profile: {
+              id: "default",
+              name: "Default",
+              mode: "cloud",
+            },
+            profiles: [
+              {
+                id: "default",
+                name: "Default",
+                mode: "cloud",
+              },
+            ],
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "123", title: "Persisted" } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "Tab 1",
+            providerId: "local",
+            modelId: "library2/qwen3:4b",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/chat/123/profile"));
+
+    expect(countGetCalls("/llm/catalog")).toBe(1);
+    expect(countGetCalls("/health/llm")).toBe(1);
+    expect(countGetCalls("/chat/123/profile")).toBe(1);
   });
 });

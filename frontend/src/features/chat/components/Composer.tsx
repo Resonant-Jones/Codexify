@@ -4,7 +4,7 @@
  * Renders the chat composer input and controls, including turn-based gating
  * to prevent overlapping user sends while an assistant reply is in flight.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, X, FileText } from "lucide-react";
@@ -33,6 +33,42 @@ const ACCEPTED_ATTACHMENTS =
     ".txt",
   ].join(",");
 const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
+const MIN_COMPOSER_ROWS = 2;
+const MAX_COMPOSER_ROWS = 6;
+const FALLBACK_LINE_HEIGHT_PX = 24;
+
+const parsePx = (value?: string | null) => {
+  const parsed = Number.parseFloat(value ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const measureComposerHeights = (el: HTMLTextAreaElement) => {
+  const style = window.getComputedStyle(el);
+  const lineHeight = (() => {
+    const fromStyle = parsePx(style.lineHeight);
+    if (fromStyle) return fromStyle;
+    const fontSize = parsePx(style.fontSize);
+    return fontSize ? fontSize * 1.5 : FALLBACK_LINE_HEIGHT_PX;
+  })();
+
+  const paddingBlock = parsePx(style.paddingTop) + parsePx(style.paddingBottom);
+  const borderBlock = parsePx(style.borderTopWidth) + parsePx(style.borderBottomWidth);
+
+  return {
+    minHeight: lineHeight * MIN_COMPOSER_ROWS + paddingBlock + borderBlock,
+    maxHeight: lineHeight * MAX_COMPOSER_ROWS + paddingBlock + borderBlock,
+  } as const;
+};
+
+const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
+  const { minHeight, maxHeight } = measureComposerHeights(el);
+  el.style.minHeight = `${minHeight}px`;
+  el.style.maxHeight = `${maxHeight}px`;
+  el.style.height = "auto";
+  const nextHeight = Math.min(el.scrollHeight, maxHeight);
+  el.style.height = `${nextHeight}px`;
+  el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+};
 
 export type ComposerSendOptions = {
   threadIdOverride?: number;
@@ -192,6 +228,11 @@ export function Composer({
     clearTimeout(draftCommitTimerRef.current);
     draftCommitTimerRef.current = null;
   };
+
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    autosizeComposerTextarea(ref.current);
+  }, [value]);
 
   const commitDraftNow = (nextValue = valueRef.current) => {
     if (!onDraftValueChange) return;
@@ -569,6 +610,7 @@ export function Composer({
           <div className="flex-1 flex flex-col px-[12px] pt-[8px] pb-[6px]">
             <Textarea
               ref={ref}
+              rows={MIN_COMPOSER_ROWS}
               value={value}
               onChange={(e) => {
                 const next = e.target.value;
@@ -585,8 +627,8 @@ export function Composer({
                   handleAttemptSend();
                 }
               }}
-              className="w-full min-h-[96px] resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
-              style={{ color: "var(--text)" }}
+              className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
+              style={{ color: "var(--text)", overflow: "hidden" }}
             />
           </div>
 

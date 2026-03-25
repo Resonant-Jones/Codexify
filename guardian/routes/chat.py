@@ -2405,6 +2405,7 @@ def get_latest_rag_trace(
     Returns empty arrays if no trace is available.
     """
     trace: Dict[str, Any] | None = None
+    payload_summary: Dict[str, Any] | None = None
     profile_debug: Dict[str, Any] = {
         "active_profile_id": None,
         "provider_override": None,
@@ -2423,6 +2424,11 @@ def get_latest_rag_trace(
             if isinstance(payload_trace, dict):
                 trace = dict(payload_trace)
                 _rag_traces[thread_id] = trace  # Cache it
+            if isinstance(completed_payload.get("payload_summary"), dict):
+                payload_summary = dict(completed_payload.get("payload_summary"))
+                if trace is not None:
+                    trace["payload_summary"] = payload_summary
+                    _rag_traces[thread_id] = trace
             for key in (
                 "active_profile_id",
                 "provider_override",
@@ -2444,6 +2450,9 @@ def get_latest_rag_trace(
     else:
         trace.setdefault("documents", [])
         trace.setdefault("graph", [])
+
+    if payload_summary is not None:
+        trace["payload_summary"] = payload_summary
 
     if resolve_thread_system_profile and (
         profile_debug["active_profile_id"] is None
