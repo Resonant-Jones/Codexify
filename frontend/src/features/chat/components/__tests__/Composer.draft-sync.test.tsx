@@ -153,6 +153,68 @@ describe("Composer draft sync", () => {
     expect(onSend.mock.calls[0][1]).toEqual({ threadIdOverride: 123 });
   });
 
+  it("shows a vision capability notice when image attachments are staged", async () => {
+    const createObjectURLMock = vi.fn(() => "blob:preview");
+    const revokeObjectURLMock = vi.fn();
+    if (typeof window.URL.createObjectURL !== "function") {
+      Object.defineProperty(window.URL, "createObjectURL", {
+        configurable: true,
+        value: createObjectURLMock,
+      });
+    } else {
+      vi.spyOn(window.URL, "createObjectURL").mockImplementation(createObjectURLMock);
+    }
+    if (typeof window.URL.revokeObjectURL !== "function") {
+      Object.defineProperty(window.URL, "revokeObjectURL", {
+        configurable: true,
+        value: revokeObjectURLMock,
+      });
+    } else {
+      vi.spyOn(window.URL, "revokeObjectURL").mockImplementation(revokeObjectURLMock);
+    }
+
+    const { container } = render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue=""
+        activeModelId="vision-chat"
+        modelOptions={[
+          {
+            value: "text-chat",
+            label: "Text Chat",
+            supportsChat: true,
+            supportsVision: false,
+            modelKind: "chat",
+          },
+          {
+            value: "vision-chat",
+            label: "Vision Chat",
+            supportsChat: true,
+            supportsVision: true,
+            modelKind: "vision_chat",
+          },
+        ]}
+      />
+    );
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const file = new File(["image"], "photo.png", {
+      type: "image/png",
+    });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(
+      screen.getByText(
+        "Image attached. Vision-capable chat models can inspect it; text-only chat models will not see it natively."
+      )
+    ).toBeInTheDocument();
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+  });
+
   it("flushes previous tab draft and loads next tab initial draft on scope switch", () => {
     vi.useFakeTimers();
     const onDraftValueChange = vi.fn();

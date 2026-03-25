@@ -20,8 +20,14 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
-
+import {
+  CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS,
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+  CHAT_COMPOSER_CONTROLS_PAD_CLASS,
+  CHAT_COMPOSER_INNER_PAD_CLASS,
+  CHAT_COMPOSER_SEND_PAD_CLASS,
+  CHAT_COMPOSER_TEXTAREA_PAD_CLASS,
+} from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -591,6 +597,18 @@ export function Composer({
     modelOptions.find((option) => option.value === activeModelId)?.label ??
     modelOptions[0]?.label ??
     "Model";
+  const hasImageAttachments = draftAttachments.some((att) => att.kind === "image");
+  const hasVisionCapableModel = modelOptions.some((option) => {
+    if (option.supportsChat === false || option.modelKind === "utility") {
+      return false;
+    }
+    return option.supportsVision === true;
+  });
+  const imageCapabilityMessage = hasImageAttachments
+    ? hasVisionCapableModel
+      ? "Image attached. Vision-capable chat models can inspect it; text-only chat models will not see it natively."
+      : "Image attached, but no vision-capable chat models are available for this provider."
+    : null;
   const inferenceModeLabel =
     inferenceModeOptions.find((option) => option.value === activeInferenceMode)
       ?.label ??
@@ -605,10 +623,16 @@ export function Composer({
 
   return (
     <>
-      <div className="flex flex-col flex-1 w-full p-[4px]" onDrop={handleDrop} onDragOver={handleDragOver}>
-        <div className="flex flex-col flex-1 w-full rounded-[var(--tile-radius)] p-[4px]">
+      <div
+        className={`flex flex-col flex-1 w-full ${CHAT_COMPOSER_INNER_PAD_CLASS}`}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <div
+          className={`flex flex-col flex-1 w-full rounded-[var(--tile-radius)] ${CHAT_COMPOSER_INNER_PAD_CLASS}`}
+        >
           {/* Content Rectangle - Textarea area */}
-          <div className="flex-1 flex flex-col px-[12px] pt-[8px] pb-[6px]">
+          <div className={`flex-1 flex flex-col ${CHAT_COMPOSER_TEXTAREA_PAD_CLASS}`}>
             <Textarea
               ref={ref}
               rows={MIN_COMPOSER_ROWS}
@@ -634,7 +658,7 @@ export function Composer({
           </div>
 
           {draftAttachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-[12px] pb-[6px]">
+            <div className={`flex flex-wrap gap-2 ${CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS}`}>
               {draftAttachments.map((att) => (
                 <div
                   key={att.id}
@@ -745,7 +769,7 @@ export function Composer({
               />
             </div>
 
-            <div className="shrink-0 pr-[14px]">
+            <div className={`shrink-0 ${CHAT_COMPOSER_SEND_PAD_CLASS}`}>
               <Button
                 type="button"
                 onClick={handleAttemptSend}
@@ -777,6 +801,11 @@ export function Composer({
               </Button>
             </div>
           </div>
+          {imageCapabilityMessage ? (
+            <div className="px-[12px] pb-[6px] text-[11px] leading-snug" style={{ color: "var(--muted)" }}>
+              {imageCapabilityMessage}
+            </div>
+          ) : null}
         </div>
       </div>
       <ImageGenModal
