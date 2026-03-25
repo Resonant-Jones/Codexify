@@ -105,8 +105,9 @@ describe("ProviderSelect catalog routing", () => {
     render(<ProviderSelect value="default" onChange={onChange} openSignal={1} />);
 
     await waitFor(() =>
-      expect(api.get).toHaveBeenCalledWith("/llm/catalog")
+      expect(api.get).toHaveBeenCalledTimes(1)
     );
+    expect(api.get).toHaveBeenCalledWith("/llm/catalog");
     expect(screen.getByText("Select Provider")).toBeInTheDocument();
     expect(screen.getByText("tailscale-server:11434")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Groq" })).toBeInTheDocument();
@@ -182,7 +183,7 @@ describe("ProviderSelect catalog routing", () => {
     rerender(<ProviderSelect value="default" onChange={vi.fn()} openSignal={2} />);
 
     await waitFor(() =>
-      expect((api.get as any).mock.calls.length).toBeGreaterThanOrEqual(2)
+      expect((api.get as any).mock.calls.length).toBe(2)
     );
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Groq" })).not.toBeInTheDocument();
