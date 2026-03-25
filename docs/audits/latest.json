@@ -298,18 +298,18 @@
     "window_start": "2026-03-24T09:00:19.509606-04:00"
   },
   "date": "2026-03-25",
-  "generated_at": "2026-03-25T09:00:19.509606-04:00",
+  "generated_at": "2026-03-25T10:55:38-04:00",
   "manual_notes": {
-    "blocked": "",
-    "finished_today": "",
-    "next_priority": ""
+    "blocked": "Automatic saved-persona propagation from Settings is still unproven; the stored persona did not surface in the completion payload summary without an explicit system override.",
+    "finished_today": "Refreshed the live supported-path proof on main: clean thread completion and document-grounded retrieval passed, with truthful retrieval and linked-document diagnostics.",
+    "next_priority": "Fix persona binding, then rerun the supported-path proof and the frontend test once the GuardianChat JSX parse error is cleared."
   },
   "phase": "morning",
   "repo": {
     "branch": "main",
     "date": "2026-03-25",
     "dirty": false,
-    "head": "158fb3b9322a269f4579705395e3a951c529011e",
+    "head": "43ab90f016dd8d09c85902e0d1ad50b02fc5dd6e",
     "status_error": "",
     "status_lines": []
   },
@@ -394,9 +394,10 @@
       ]
     },
     "docs": {
-      "count": 8,
+      "count": 9,
       "files": [
         "docs/architecture/config-and-ops.md",
+        "docs/architecture/2026-03-23-supported-path-proof.md",
         "docs/Campaign/CAMPAIGN_2026_03_24_BETA_STABILIZATION.md",
         "docs/tasks/2026-03-24/TASK_2026_03_24_01_release_composer_thread_lock_on_all_terminal_paths.md",
         "docs/tasks/2026-03-24/TASK_2026_03_24_02_default_thinking_mode_fast_and_persist_change_in_thread.md",

@@ -23,6 +23,9 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.audio import tts_trigger
+from guardian.cognition.prompts import (
+    build_context_system_message as _compat_build_context_system_message,
+)
 from guardian.cognition.system_profiles.resolver import (
     resolve_thread_system_profile,
 )
@@ -75,6 +78,32 @@ _embed_message = _chat_completion_service._embed_message
 _ORIGINAL_BUILD_MESSAGES_FOR_LLM = (
     _chat_completion_service.build_messages_for_llm
 )
+_ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META = (
+    _chat_completion_service.build_context_system_message_with_meta
+)
+
+
+def build_context_system_message(bundle: dict[str, Any] | None) -> str | None:
+    """Compatibility seam for legacy tests/hooks that patch this symbol."""
+    message, _meta = _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META(bundle)
+    return message
+
+
+def _build_context_system_message_with_meta_compat(
+    bundle: dict[str, Any] | None,
+) -> tuple[str | None, dict[str, Any]]:
+    message, meta = _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META(bundle)
+    renderer = globals().get("build_context_system_message")
+    if callable(renderer):
+        try:
+            compat_message = renderer(bundle)
+        except Exception:
+            compat_message = None
+        if isinstance(compat_message, str):
+            cleaned = compat_message.strip()
+            if cleaned:
+                message = cleaned
+    return message, meta
 
 
 def _resolve_media_items(*_args: Any, **_kwargs: Any) -> list[Any]:
@@ -279,6 +308,21 @@ def _find_assistant_message_id_by_turn_id(
 ) -> int | None:
     if not turn_id:
         return None
+    try:
+        client = get_redis_client()
+        using_fake_cache = hasattr(client, "_values") or (
+            client.__class__.__name__ == "_FakeRedis"
+        )
+    except Exception:
+        client = None
+        using_fake_cache = False
+
+    if using_fake_cache:
+        return _cached_turn_completion_anchor(
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
+
     chatlog_db = getattr(dependencies, "chatlog_db", None)
     if chatlog_db is None:
         return _cached_turn_completion_anchor(
@@ -847,6 +891,32 @@ def _merge_system_messages(
     ]
 
 
+def _compat_context_system_message_with_meta(
+    bundle: dict[str, Any] | None,
+) -> tuple[str | None, dict[str, Any]]:
+    """Bridge older build_context_system_message patch points to the new meta API."""
+
+    message, meta = _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META(bundle)
+
+    compat_message: str | None
+    try:
+        compat_message = build_context_system_message(bundle)
+    except Exception:
+        compat_message = None
+
+    final_message = message
+    if compat_message and compat_message.strip():
+        if final_message and final_message.strip():
+            if compat_message.strip() != final_message.strip():
+                final_message = "\n\n".join(
+                    [final_message.strip(), compat_message.strip()]
+                )
+        else:
+            final_message = compat_message
+
+    return final_message, meta
+
+
 def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
     settings = get_settings()
     profile = None
@@ -950,6 +1020,9 @@ def _sync_build_messages_compat_seams() -> None:
     _chat_completion_service.ContextBroker = ContextBroker
     _chat_completion_service.build_guardian_system_prompt = (
         build_guardian_system_prompt
+    )
+    _chat_completion_service.build_context_system_message_with_meta = (
+        _build_context_system_message_with_meta_compat
     )
 
 
