@@ -43,7 +43,11 @@ import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 import { logOnce } from "@/lib/logging/logOnce";
-import { useLlmCatalog } from "@/features/chat/hooks/useLlmCatalog";
+import {
+  describeModelCapability,
+  isChatSelectableModel,
+  useLlmCatalog,
+} from "@/features/chat/hooks/useLlmCatalog";
 import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequestState";
 import {
   createIdleInferenceRequestState,
@@ -567,10 +571,14 @@ export function GuardianChat({
 
   const selectedProvider = useMemo(() => {
     const explicitProvider = getProviderById(activeProviderId);
-    if (explicitProvider) return explicitProvider;
+    if (explicitProvider && explicitProvider.models.some(isChatSelectableModel)) {
+      return explicitProvider;
+    }
     const providerFromModel = findProviderForModel(activeModelId);
     if (providerFromModel) return providerFromModel;
-    return catalogProviders[0] ?? null;
+    return catalogProviders.find((provider) =>
+      provider.models.some(isChatSelectableModel)
+    ) ?? null;
   }, [
     activeModelId,
     activeProviderId,
@@ -580,14 +588,16 @@ export function GuardianChat({
   ]);
 
   const selectedModel = useMemo(() => {
-    if (selectedProvider?.models?.length) {
+    const chatModels = selectedProvider?.models.filter(isChatSelectableModel) ?? [];
+    if (chatModels.length > 0) {
       return (
-        selectedProvider.models.find((model) => model.id === activeModelId) ??
-        selectedProvider.models[0] ??
+        chatModels.find((model) => model.id === activeModelId) ??
+        chatModels[0] ??
         null
       );
     }
-    return getModelById(activeModelId);
+    const catalogModel = getModelById(activeModelId);
+    return isChatSelectableModel(catalogModel) ? catalogModel : null;
   }, [activeModelId, getModelById, selectedProvider]);
 
   const providerOptions = useMemo(
@@ -595,24 +605,31 @@ export function GuardianChat({
       catalogProviders.map((provider) => ({
         value: provider.id,
         label: provider.displayName,
-        description: provider.available
-          ? [
-              `${provider.models.length} models`,
-              describeProviderSource(provider.source)
-                ? `Source ${describeProviderSource(provider.source)}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          : provider.disabledReason || "Unavailable",
-        disabled: !provider.available,
+        description: (() => {
+          const chatModels = provider.models.filter(isChatSelectableModel);
+          if (!provider.available) {
+            return provider.disabledReason || "Unavailable";
+          }
+          if (chatModels.length === 0) {
+            return "No chat-capable models";
+          }
+          return [
+            `${chatModels.length} chat model${chatModels.length === 1 ? "" : "s"}`,
+            describeProviderSource(provider.source)
+              ? `Source ${describeProviderSource(provider.source)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        })(),
+        disabled: !provider.available || !provider.models.some(isChatSelectableModel),
       })),
     [catalogProviders]
   );
 
   const modelOptions = useMemo(
     () => {
-      const models = selectedProvider?.models ?? [];
+      const models = selectedProvider?.models.filter(isChatSelectableModel) ?? [];
       const providerSourceLabel = describeProviderSource(selectedProvider?.source);
       const modelsByLabel = new Map<string, typeof models>();
 
@@ -629,10 +646,16 @@ export function GuardianChat({
       return models.map((model) => {
         const label = getModelMenuLabel(model);
         const siblingModels = modelsByLabel.get(getModelLabelKey(model)) ?? [model];
+        const capabilityLabel = describeModelCapability(model);
         const description =
           siblingModels.length > 1
-            ? getModelDifferentiator(model, siblingModels, providerSourceLabel)
-            : undefined;
+            ? [
+                getModelDifferentiator(model, siblingModels, providerSourceLabel),
+                capabilityLabel,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : capabilityLabel;
 
         return {
           value: model.id,
@@ -642,6 +665,10 @@ export function GuardianChat({
             typeof model.contextWindow === "number"
               ? `${Math.round(model.contextWindow / 1000)}k`
               : null,
+          supportsChat: model.supportsChat,
+          supportsVision: model.supportsVision,
+          supportsTextInput: model.supportsTextInput,
+          modelKind: model.modelKind,
         };
       });
     },
@@ -2535,12 +2562,15 @@ export function GuardianChat({
 
                   onSessionProviderChange?.(providerId);
 
-                  const nextModelId = nextProvider?.models?.[0]?.id ?? null;
+                  const nextModelId =
+                    nextProvider?.models.find(isChatSelectableModel)?.id ?? null;
 
                   if (
                     nextProvider &&
                     (!selectedModel ||
-                      !nextProvider.models.some((m) => m.id === selectedModel.id)) &&
+                      !nextProvider.models.some(
+                        (m) => isChatSelectableModel(m) && m.id === selectedModel.id
+                      )) &&
                     nextModelId
                   ) {
                     onSessionModelChange?.(nextModelId);
