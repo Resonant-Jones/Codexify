@@ -604,6 +604,7 @@ export default function AppShell({
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
   });
+  const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
   const [projectScopeMode, setProjectScopeMode] = useState<"thread" | "project">(
     () => (readRouteThreadId() != null ? "thread" : "project")
@@ -654,11 +655,22 @@ export default function AppShell({
         cancelled = true;
       };
     }
+    if (generalProjectId != null) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (hasFetchedGeneralProjectRef.current) {
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!checkAuthGate(auth, "projects list load")) {
       return () => {
         cancelled = true;
       };
     }
+    hasFetchedGeneralProjectRef.current = true;
     (async () => {
       try {
         const response = await api.get("/api/projects");
@@ -681,7 +693,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [auth, startupLocked]);
+  }, [auth, generalProjectId, startupLocked]);
   useEffect(() => {
     let cancelled = false;
     if (startupLocked) {
