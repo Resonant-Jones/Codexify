@@ -318,6 +318,20 @@ vi.mock("@/features/chat/hooks/useInferenceRequestState", () => ({
 }));
 
 vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
+  isChatSelectableModel: (model: {
+    supportsChat?: boolean;
+    modelKind?: string;
+  } | null | undefined) => Boolean(model && model.supportsChat !== false && model.modelKind !== "utility"),
+  describeModelCapability: (model: {
+    supportsVision?: boolean;
+    supportsChat?: boolean;
+    modelKind?: string;
+  } | null | undefined) =>
+    !model || model.supportsChat === false || model.modelKind === "utility"
+      ? "Utility model"
+      : model.supportsVision
+        ? "Vision-capable chat"
+        : "Text-only chat",
   useLlmCatalog: () => {
     const providers = [
       {
@@ -346,7 +360,9 @@ vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
         null,
       findProviderForModel: (modelId: string | null | undefined) =>
         providers.find((provider) =>
-          provider.models.some((model) => model.id === modelId)
+          provider.models.some(
+            (model) => model.id === modelId && model.modelKind !== "utility"
+          )
         ) ?? null,
     };
   },

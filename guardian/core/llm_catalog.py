@@ -51,6 +51,13 @@ _MEANINGFUL_VARIANT_LABELS = {
     "thinking": "Thinking",
     "vl": "VL",
 }
+_LOCAL_VISION_HINTS = (
+    "image",
+    "vision",
+    "llava",
+    "vl",
+    "multimodal",
+)
 _QUANTIZATION_MARKER_RE = re.compile(
     r"^(?:q\d+(?:_[a-z0-9]+)*|bf16|f16|fp16|fp32|fp8|int4|int8)$",
     re.IGNORECASE,
@@ -82,6 +89,11 @@ def _base_model_entry(
     display_name: str | None = None,
     context_window: int | None = None,
     capabilities: dict[str, bool] | None = None,
+    *,
+    supports_chat: bool | None = None,
+    supports_vision: bool | None = None,
+    supports_text_input: bool | None = None,
+    model_kind: str | None = None,
 ) -> dict[str, Any]:
     clean_id = str(model_id or "").strip()
     clean_name = str(display_name or clean_id).strip() or clean_id
@@ -102,7 +114,29 @@ def _base_model_entry(
             for key, value in capabilities.items()
             if isinstance(value, bool)
         }
+    if isinstance(supports_chat, bool):
+        entry["supports_chat"] = supports_chat
+    if isinstance(supports_vision, bool):
+        entry["supports_vision"] = supports_vision
+    if isinstance(supports_text_input, bool):
+        entry["supports_text_input"] = supports_text_input
+    normalized_kind = str(model_kind or "").strip().lower()
+    if normalized_kind in {"chat", "vision_chat", "utility"}:
+        entry["model_kind"] = normalized_kind
     return entry
+
+
+def _local_model_capabilities(
+    model_id: str, display_name: str
+) -> dict[str, Any]:
+    haystack = f"{model_id} {display_name}".lower()
+    supports_vision = any(hint in haystack for hint in _LOCAL_VISION_HINTS)
+    return {
+        "supports_chat": True,
+        "supports_vision": supports_vision,
+        "supports_text_input": True,
+        "model_kind": "vision_chat" if supports_vision else "chat",
+    }
 
 
 def _split_local_model_id(model_id: str) -> tuple[str | None, str, str | None]:
@@ -381,7 +415,20 @@ def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
         display_label = str(
             identity.get("alias") or identity.get("display_label") or name
         ).strip()
-        entry = _base_model_entry(name, display_name=display_label)
+        local_capabilities = _local_model_capabilities(name, display_label)
+        entry = _base_model_entry(
+            name,
+            display_name=display_label,
+            supports_chat=bool(local_capabilities["supports_chat"]),
+            supports_vision=bool(local_capabilities["supports_vision"]),
+            supports_text_input=bool(local_capabilities["supports_text_input"]),
+            model_kind=str(local_capabilities["model_kind"]),
+        )
+        entry["capabilities"] = {
+            "chat": bool(local_capabilities["supports_chat"]),
+            "vision": bool(local_capabilities["supports_vision"]),
+            "text_input": bool(local_capabilities["supports_text_input"]),
+        }
         entry["canonical_id"] = str(
             identity.get("canonical_id") or name
         ).strip()
@@ -409,6 +456,35 @@ def _cloud_models(
         model_id = str(item.get("id") or "").strip()
         if not model_id:
             continue
+        capabilities = (
+            item.get("capabilities")
+            if isinstance(item.get("capabilities"), dict)
+            else {}
+        )
+        supports_chat = (
+            item.get("supports_chat")
+            if isinstance(item.get("supports_chat"), bool)
+            else bool(capabilities.get("chat"))
+        )
+        supports_vision = (
+            item.get("supports_vision")
+            if isinstance(item.get("supports_vision"), bool)
+            else bool(capabilities.get("vision"))
+        )
+        supports_text_input = (
+            item.get("supports_text_input")
+            if isinstance(item.get("supports_text_input"), bool)
+            else bool(capabilities.get("text_input"))
+        )
+        model_kind = str(item.get("model_kind") or "").strip().lower()
+        if not model_kind:
+            model_kind = (
+                "vision_chat"
+                if supports_chat and supports_vision
+                else "chat"
+                if supports_chat
+                else "utility"
+            )
         entries.append(
             _base_model_entry(
                 model_id=model_id,
@@ -418,11 +494,11 @@ def _cloud_models(
                     if isinstance(item.get("contextWindow"), int)
                     else None
                 ),
-                capabilities=(
-                    item.get("capabilities")
-                    if isinstance(item.get("capabilities"), dict)
-                    else None
-                ),
+                capabilities=capabilities if capabilities else None,
+                supports_chat=bool(supports_chat),
+                supports_vision=bool(supports_vision),
+                supports_text_input=bool(supports_text_input),
+                model_kind=model_kind,
             )
         )
     return entries
