@@ -7,10 +7,12 @@ fork context assembly, prompt construction, provider routing, or persistence.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
 
+from guardian.cognition.prompts import build_context_system_message_with_meta
 from guardian.context.broker import ContextBroker
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import chat_with_ai, stream_local
@@ -46,6 +48,149 @@ def _estimate_tokens(text: str | None) -> int:
     return max(1, length // 4)
 
 
+def build_sanitized_payload_summary(
+    messages: list[dict[str, str]] | None,
+    bundle: dict[str, Any] | None,
+    *,
+    provider: str | None,
+    model: str | None,
+) -> dict[str, Any]:
+    """Build a minimal, non-sensitive summary of the outbound provider payload.
+
+    The summary is intentionally counts/flags-only to avoid persisting raw prompt
+    content while still enabling diagnostics of the assembled payload that
+    reaches the provider.
+    """
+
+    safe_messages = messages or []
+    message_count = len(safe_messages)
+
+    try:
+        payload_char_count = len(
+            json.dumps(safe_messages, ensure_ascii=False, separators=(",", ":"))
+        )
+    except Exception:
+        payload_char_count = sum(
+            len(str(m.get("role") or "")) + len(str(m.get("content") or ""))
+            for m in safe_messages
+            if isinstance(m, dict)
+        )
+
+    payload_estimated_tokens = (
+        max(1, payload_char_count // 4) if payload_char_count else 0
+    )
+
+    system_messages = [
+        str(m.get("content") or "")
+        for m in safe_messages
+        if str(m.get("role") or "").strip().lower() == "system"
+    ]
+    joined_system_text = "\n".join(system_messages).lower()
+    persona_or_imprint_present = any(
+        marker in joined_system_text
+        for marker in (
+            "=== imprint_zero",
+            "=== persona",
+            "persona:",
+            "imprint",
+            "user-provided persona instructions",
+        )
+    )
+
+    prompt_meta = None
+    if isinstance(bundle, dict):
+        prompt_meta = bundle.get("_prompt_meta")
+    if isinstance(prompt_meta, dict):
+        persona_or_imprint_present = persona_or_imprint_present or bool(
+            prompt_meta.get("persona_has_body")
+        )
+        persona_or_imprint_present = persona_or_imprint_present or (
+            str(prompt_meta.get("resolved_imprint_source") or "").strip()
+            not in {"", "system_default"}
+        )
+
+    docs = (bundle or {}).get("docs") if isinstance(bundle, dict) else None
+    linked_document_count = 0
+    if isinstance(docs, dict):
+        for key in ("thread", "project", "library"):
+            value = docs.get(key)
+            if isinstance(value, list):
+                linked_document_count += len(value)
+        if not linked_document_count:
+            linked_document_count = sum(
+                len(v) for v in docs.values() if isinstance(v, list)
+            )
+    elif isinstance(docs, list):
+        linked_document_count = len(docs)
+
+    retrieval_meta = {}
+    docs_meta = {}
+    if isinstance(prompt_meta, dict):
+        retrieval_meta = prompt_meta.get("context") or {}
+        docs_meta = prompt_meta.get("docs") or {}
+
+    summary = {
+        "version": 1,
+        "has_system_prompt": bool(system_messages),
+        "payload_char_count": int(payload_char_count),
+        "payload_estimated_tokens": int(payload_estimated_tokens),
+        "message_count": message_count,
+        "persona_or_imprint_present": bool(persona_or_imprint_present),
+        "semantic_count": (
+            len((bundle or {}).get("semantic") or [])
+            if isinstance(bundle, dict)
+            else 0
+        ),
+        "memory_count": (
+            len((bundle or {}).get("memory") or [])
+            if isinstance(bundle, dict)
+            else 0
+        ),
+        "graph_count": (
+            len((bundle or {}).get("graph") or [])
+            if isinstance(bundle, dict)
+            else 0
+        ),
+        "linked_document_count": linked_document_count,
+        "has_user_system_override": bool(
+            (bundle or {}).get("user_system_override")
+            if isinstance(bundle, dict)
+            else False
+        ),
+        "resolved_provider": (provider or "").strip() or None,
+        "resolved_model": (model or "").strip() or None,
+        "semantic_injected": bool(
+            (retrieval_meta.get("semantic") or {}).get("injected")
+        ),
+        "memory_injected": bool(
+            (retrieval_meta.get("memory") or {}).get("injected")
+        ),
+        "graph_injected": bool(
+            (retrieval_meta.get("graph") or {}).get("injected")
+        ),
+        "federated_injected": bool(
+            (retrieval_meta.get("federated") or {}).get("injected")
+        ),
+        "linked_document_injected": bool(docs_meta.get("injected")),
+    }
+
+    summary["retrieval_injected"] = any(
+        summary[key]
+        for key in (
+            "semantic_injected",
+            "memory_injected",
+            "graph_injected",
+            "federated_injected",
+            "linked_document_injected",
+        )
+    )
+
+    # For callers that later update to reflect a fallback provider/model.
+    summary.setdefault("final_provider", summary["resolved_provider"])
+    summary.setdefault("final_model", summary["resolved_model"])
+    return summary
+
+
 def _embed_message(
     thread_id: int, role: str, content: str, message_id: int
 ) -> None:
@@ -68,24 +213,29 @@ def _embed_message(
         )
 
 
-def _build_thread_document_context_message(
+def _build_document_context_message(
     bundle: dict[str, Any] | None,
-) -> str | None:
+) -> tuple[str | None, int]:
     if not isinstance(bundle, dict):
-        return None
+        return None, 0
 
     docs = bundle.get("docs")
     if not isinstance(docs, dict):
-        return None
+        return None, 0
 
-    thread_docs = docs.get("thread")
-    if not isinstance(thread_docs, list) or not thread_docs:
-        return None
+    sources = []
+    for scope in ("thread", "project"):
+        items = docs.get(scope)
+        if isinstance(items, list):
+            sources.extend(
+                [(scope, item) for item in items if isinstance(item, dict)]
+            )
+
+    if not sources:
+        return None, 0
 
     lines: list[str] = []
-    for item in thread_docs:
-        if not isinstance(item, dict):
-            continue
+    for scope, item in sources:
         title = str(item.get("title") or item.get("id") or "document").strip()
         excerpt = str(item.get("excerpt") or "").strip()
         provenance = item.get("provenance")
@@ -93,18 +243,21 @@ def _build_thread_document_context_message(
         if isinstance(provenance, dict):
             relation = str(provenance.get("relation") or "").strip().lower()
         relation_prefix = f"[{relation}] " if relation else ""
+        scope_prefix = "[thread] " if scope == "thread" else "[project] "
+        prefix = scope_prefix + relation_prefix
         if excerpt:
-            lines.append(f"- {relation_prefix}{title}: {excerpt}")
+            lines.append(f"- {prefix}{title}: {excerpt}")
         else:
-            lines.append(f"- {relation_prefix}{title}")
+            lines.append(f"- {prefix}{title}")
 
     if not lines:
-        return None
+        return None, 0
 
     return (
-        "Thread-linked document excerpts are available for this conversation. "
+        "Linked document excerpts are available for this conversation. "
         "Use them when they help answer the user's request.\n\n"
-        "Thread documents:\n" + "\n".join(lines)
+        "Documents:\n" + "\n".join(lines),
+        len(sources),
     )
 
 
@@ -207,6 +360,7 @@ async def build_messages_for_llm(
         bundle = {}
 
     messages_for_llm: list[dict[str, str]] = []
+    prompt_meta: dict[str, Any] = {}
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -251,12 +405,31 @@ async def build_messages_for_llm(
             "Answer concisely, avoid speculation, and clearly mark any uncertainty."
         )
 
+    if isinstance(bundle, dict):
+        try:
+            existing_meta = bundle.get("_prompt_meta") or {}
+            merged_meta = dict(existing_meta)
+            merged_meta.update(prompt_meta or {})
+            bundle["_prompt_meta"] = merged_meta
+        except Exception:
+            bundle["_prompt_meta"] = dict(prompt_meta or {})
+
     messages_for_llm.append({"role": "system", "content": system_content})
-    thread_doc_context = _build_thread_document_context_message(bundle)
-    if thread_doc_context:
-        messages_for_llm.append(
-            {"role": "system", "content": thread_doc_context}
-        )
+
+    doc_message, doc_count = _build_document_context_message(bundle)
+    if doc_message:
+        messages_for_llm.append({"role": "system", "content": doc_message})
+
+    context_message, context_meta = build_context_system_message_with_meta(
+        bundle
+    )
+    if context_message:
+        messages_for_llm.append({"role": "system", "content": context_message})
+    prompt_meta["context"] = context_meta
+    prompt_meta.setdefault("docs", {})
+    prompt_meta["docs"].update(
+        {"count": doc_count, "injected": bool(doc_message)}
+    )
     messages_for_llm.extend(context)
 
     model = task.model
@@ -283,6 +456,13 @@ def run_chat_completion_task(
     """Execute one completion with shared context assembly/provider routing."""
     messages_for_llm, provider, model, bundle, trace = asyncio.run(
         build_messages_for_llm(task)
+    )
+
+    payload_summary = build_sanitized_payload_summary(
+        messages_for_llm,
+        bundle,
+        provider=provider,
+        model=model,
     )
 
     assistant_text = ""
@@ -342,6 +522,7 @@ def run_chat_completion_task(
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
+        "payload_summary": payload_summary,
     }
 
     if not persist_assistant_message:

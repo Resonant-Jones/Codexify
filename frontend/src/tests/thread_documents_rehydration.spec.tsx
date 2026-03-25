@@ -21,6 +21,13 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = vi.fn();
 }
 
+vi.mock("@/lib/session", () => ({
+  async getSessionState() {
+    // Return empty object so SessionSpine initializes cleanly
+    return {};
+  },
+}));
+
 describe("Thread document rehydration", () => {
   beforeEach(() => {
     localStorage.clear();

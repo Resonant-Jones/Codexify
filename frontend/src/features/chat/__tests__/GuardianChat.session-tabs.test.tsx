@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import GuardianChat from "@/features/chat/GuardianChat";
+import GuardianChat, {
+  flattenChatEventPayload,
+} from "@/features/chat/GuardianChat";
+import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
 
@@ -15,6 +18,7 @@ vi.mock("@/lib/api", () => ({
   buildLlmCatalogPath: () => "/llm/catalog",
   buildChatCompletePath: () => "/chat/complete",
   clearInFlightCompletionTurnId: vi.fn(),
+  getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
 
@@ -53,10 +57,27 @@ vi.mock("@/components/surface/FrameCard", () => ({
 
 vi.mock("@/features/chat/useChat", () => ({
   default: () => ({
-    completionState: { isCompleting: false, activeThreadId: null },
+    messages: [],
+    loading: false,
+    error: null,
+    hasMore: false,
+    activateThread: vi.fn(),
+    refreshSnapshot: vi.fn().mockResolvedValue([]),
+    loadOlderMessages: vi.fn().mockResolvedValue([]),
+    completionState: {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    },
     startCompletion: vi.fn(),
     endCompletion: vi.fn(),
     updateCompletionTaskId: vi.fn(),
+    startCompletionSession: vi.fn(),
+    reassociateCompletionSession: vi.fn(() => true),
+    updateCompletionSessionTurnId: vi.fn(() => true),
+    finalizeCompletionSession: vi.fn(() => true),
+    handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
     refreshSnapshot: vi.fn(),
@@ -146,5 +167,51 @@ describe("GuardianChat session-tab binding", () => {
     expect(
       await screen.findByText("New thread ready. Start typing below.")
     ).toBeInTheDocument();
+  });
+
+  it("keeps the composer rail on the shared conversation lane", async () => {
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "2", title: "Thread 2", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Thread 2",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-2" as any}
+      />
+    );
+
+    const lane = screen.getByTestId("composer-conversation-lane");
+    expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
+    expect(lane.className).toContain("md:max-w-[880px]");
+    expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
+  });
+});
+
+describe("GuardianChat task event payload handling", () => {
+  it("keeps the outer task_id while exposing nested turn data", () => {
+    const payload = flattenChatEventPayload({
+      task_id: "task-outer",
+      data: {
+        turn_id: "turn-1",
+        thread_id: 42,
+      },
+    });
+
+    expect(payload.task_id).toBe("task-outer");
+    expect(payload.turn_id).toBe("turn-1");
+    expect(payload.thread_id).toBe(42);
   });
 });

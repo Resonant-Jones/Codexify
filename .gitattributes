@@ -1,6 +1,7 @@
 *.json filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
 frontend/src/package.json filter=lfs diff=lfs merge=lfs -text
+src-tauri/tauri.conf.json -filter -diff -merge text
 
 # Codex Runner JSON schemas must stay as normal text (not LFS)
 codex_runner/schemas/*.json -filter -diff -merge text

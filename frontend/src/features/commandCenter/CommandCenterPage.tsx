@@ -19,9 +19,85 @@ type CommandCenterPageProps = {
   enabled: boolean;
 };
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
 function formatTimestamp(value: number | null): string {
   if (!value) return "Not yet";
   return new Date(value).toLocaleString();
+}
+
+function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
+  const payload = asRecord(run.lastEvent.json);
+  const thread = asRecord(payload?.thread);
+  const task = asRecord(payload?.task);
+  const nestedRun = asRecord(payload?.run);
+  const context = asRecord(payload?.context);
+  const nestedPayload = asRecord(payload?.payload);
+
+  return firstNumber(
+    run.threadId,
+    payload?.thread_id,
+    payload?.threadId,
+    thread?.id,
+    thread?.thread_id,
+    thread?.threadId,
+    nestedRun?.thread_id,
+    nestedRun?.threadId,
+    task?.thread_id,
+    task?.threadId,
+    context?.thread_id,
+    context?.threadId,
+    nestedPayload?.thread_id,
+    nestedPayload?.threadId
+  );
+}
+
+function resolveSelectedRunTraceUrl(run: CommandCenterRun): string | null {
+  const payload = asRecord(run.lastEvent.json);
+  const nestedRun = asRecord(payload?.run);
+  const response = asRecord(payload?.response);
+  const result = asRecord(payload?.result);
+
+  return firstString(
+    run.traceUrl,
+    payload?.trace_url,
+    payload?.traceUrl,
+    nestedRun?.trace_url,
+    nestedRun?.traceUrl,
+    response?.trace_url,
+    response?.traceUrl,
+    result?.trace_url,
+    result?.traceUrl
+  );
 }
 
 function connectionStyle(state: CommandCenterConnectionState): React.CSSProperties {
@@ -178,7 +254,15 @@ export default function CommandCenterPage({
   const [selectedRunKey, setSelectedRunKey] = React.useState<string | null>(null);
 
   const selectedRun = React.useMemo<CommandCenterRun | null>(
-    () => runs.find((run) => run.key === selectedRunKey) ?? null,
+    () => {
+      const run = runs.find((candidate) => candidate.key === selectedRunKey) ?? null;
+      if (!run) return null;
+      return {
+        ...run,
+        threadId: resolveSelectedRunThreadId(run),
+        traceUrl: resolveSelectedRunTraceUrl(run),
+      };
+    },
     [runs, selectedRunKey]
   );
 

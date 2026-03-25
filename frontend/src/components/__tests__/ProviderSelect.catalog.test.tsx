@@ -87,6 +87,14 @@ describe("ProviderSelect catalog routing", () => {
                 displayName: "Llama 3.1 70B",
                 contextWindow: 128000,
               },
+              {
+                id: "moonshotai/kimi-k2-instruct-0905",
+                displayName: "Kimi K2 Instruct",
+              },
+              {
+                id: "qwen/qwen3-32b",
+                displayName: "Qwen3 32B",
+              },
             ],
           },
         ],
@@ -106,6 +114,8 @@ describe("ProviderSelect catalog routing", () => {
 
     fireEvent.click(providerButton("Groq"));
     expect(await screen.findByText("Llama 3.1 70B")).toBeInTheDocument();
+    expect(screen.getByText("Kimi K2 Instruct")).toBeInTheDocument();
+    expect(screen.getByText("Qwen3 32B")).toBeInTheDocument();
 
     fireEvent.click(providerButton("Llama 3.1 70B"));
     expect(onChange).toHaveBeenCalledWith("llama-3.1-70b-versatile");

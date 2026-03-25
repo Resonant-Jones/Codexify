@@ -188,16 +188,40 @@ def _format_memory_anchor(item: Dict[str, Any]) -> str | None:
     )
 
 
-def build_context_system_message(
+def build_context_system_message_with_meta(
     bundle: Optional[Dict[str, Any]],
-) -> Optional[str]:
+) -> tuple[Optional[str], dict[str, Any]]:
     """
-    Build a system message with concrete context from the ContextBroker bundle.
+    Build a system message with concrete context from the ContextBroker bundle
+    and return injection metadata for retrieval families.
     """
     if not bundle:
-        return None
+        return None, {
+            "semantic": {"count": 0, "injected": False},
+            "memory": {"count": 0, "injected": False},
+            "graph": {"count": 0, "injected": False},
+            "federated": {"count": 0, "injected": False},
+        }
 
     context_parts = []
+    meta: dict[str, Any] = {
+        "semantic": {
+            "count": len(bundle.get("semantic", []) or []),
+            "injected": False,
+        },
+        "memory": {
+            "count": len(bundle.get("memory", []) or []),
+            "injected": False,
+        },
+        "graph": {
+            "count": len(bundle.get("graph", []) or []),
+            "injected": False,
+        },
+        "federated": {
+            "count": len(bundle.get("federated", []) or []),
+            "injected": False,
+        },
+    }
 
     if bundle.get("semantic"):
         sem_parts = []
@@ -214,6 +238,7 @@ def build_context_system_message(
             context_parts.append(
                 "**Semantic Context:**\n" + "\n".join(sem_parts)
             )
+            meta["semantic"]["injected"] = True
 
     if bundle.get("memory"):
         mem_parts = []
@@ -223,6 +248,7 @@ def build_context_system_message(
                 mem_parts.append(anchor_line)
         if mem_parts:
             context_parts.append("**Memory Context:**\n" + "\n".join(mem_parts))
+            meta["memory"]["injected"] = True
 
     if bundle.get("graph"):
         graph_parts = []
@@ -234,6 +260,7 @@ def build_context_system_message(
             context_parts.append(
                 "**Graph Context:**\n" + "\n".join(graph_parts)
             )
+            meta["graph"]["injected"] = True
 
     if bundle.get("federated"):
         federated_parts = []
@@ -250,6 +277,7 @@ def build_context_system_message(
             context_parts.append(
                 "**Federated Context:**\n" + "\n".join(federated_parts)
             )
+            meta["federated"]["injected"] = True
 
     if bundle.get("sensors"):
         sensor_info = []
@@ -262,11 +290,24 @@ def build_context_system_message(
             context_parts.append("**System State:**\n" + "\n".join(sensor_info))
 
     if not context_parts:
-        return None
+        return None, meta
 
-    return "You have access to the following context:\n\n" + "\n\n".join(
-        context_parts
+    return (
+        "You have access to the following context:\n\n"
+        + "\n\n".join(context_parts),
+        meta,
     )
+
+
+def build_context_system_message(
+    bundle: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    """
+    Compatibility wrapper returning only rendered message.
+    """
+
+    message, _meta = build_context_system_message_with_meta(bundle)
+    return message
 
 
 def get_guardian_system_prompt(
@@ -324,6 +365,7 @@ __all__ = [
     "_system_docs_block",
     "_depth_block",
     "_rag_hint_block",
+    "build_context_system_message_with_meta",
     "build_context_system_message",
     "get_guardian_system_prompt",
 ]

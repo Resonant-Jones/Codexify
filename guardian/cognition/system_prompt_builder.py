@@ -190,12 +190,17 @@ def build_guardian_system_prompt(
         "active_profile_id": (
             profile.active_profile_id
             if isinstance(profile, ResolvedSystemProfile)
-            else (profile or {}).get("active_profile_id")
-            if isinstance(profile, dict)
-            else None
+            else (
+                (profile or {}).get("active_profile_id")
+                if isinstance(profile, dict)
+                else None
+            )
         ),
         "resolved_persona_source": resolved_persona.source,
         "resolved_imprint_source": resolved_imprint.source,
+        "resolved_persona_source": resolved_persona.source,
+        "resolved_persona_id": resolved_persona.persona_id,
+        "persona_has_body": bool(persona_body),
     }
     meta["docs_estimated_tokens"] = estimate_token_cost_for_docs(docs)
     return system_prompt, meta

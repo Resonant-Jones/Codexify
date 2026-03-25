@@ -1,4 +1,7 @@
 # Codexify System Architecture
+> Legacy notice
+> This document is retained for historical context and does not describe Codexify's current runtime architecture, supported install path, or present product identity.
+> Before using any documentation for architecture or diagram work, read `/docs/architecture/kb-validity-matrix.md`. For current runtime truth, start with `/docs/architecture/README.md` and `/docs/architecture/00-current-state.md`.
 
 ## 🏗️ System Overview
 
@@ -309,6 +312,19 @@ graph TB
     Apply --> System[System Config]
     Apply --> Component[Component Config]
 ```
+
+## Provider Governance Policy
+
+Provider governance is an implementation contract, not a router-local convention. The configured provider selects which execution surface the runtime will call. Discovered inventory is separate and only applies to providers whose governance category expects live discovery.
+
+The registry is the canonical provider-governance source of truth. Router behavior should derive from registry policy rather than from provider-specific hardcoded lists, and catalog, health, and runtime behavior should stay aligned with that same contract.
+
+| Governance category | Providers | Operational meaning | Live discovery expected | Routing validates against discovered inventory | Configured defaults allowed during degraded discovery | Local-only / unavailable |
+|---|---|---|---|---|---|---|
+| `discovery_backed` | `alibaba`, `minimax` | Routed provider with registry-managed live inventory discovery. | Yes | Yes | Yes | No |
+| `static_authorized` | `openai`, `groq` | Routed provider authorized by config and credentials with static model descriptors. | No | No | No | No |
+| `local_only` | `local` | Intentionally local execution path with no live cloud inventory contract. | No | No | No | Yes, intentionally local-only |
+| `disabled` | `anthropic`, `gemini` | Explicitly known to the registry but unavailable for routed execution in the current implementation. | No | No | No | Yes, unavailable |
 
 ## 📝 Documentation Structure
 

@@ -6,10 +6,37 @@ from dataclasses import dataclass
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Module-level logger for config coherence reporting
+logger = logging.getLogger(__name__)
+
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
-logger = logging.getLogger(__name__)
+SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
+    "local",
+    "openai",
+    "groq",
+    "alibaba",
+    "minimax",
+)
+SUPPORTED_ROUTED_CLOUD_LLM_PROVIDERS: tuple[str, ...] = tuple(
+    provider
+    for provider in SUPPORTED_ROUTED_LLM_PROVIDERS
+    if provider != "local"
+)
+ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
+    "local",
+    "groq",
+    "openai",
+    "alibaba",
+    "minimax",
+)
+_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT = ", ".join(ROUTER_SUPPORTED_LLM_PROVIDERS)
+CLOUD_LLM_PROVIDERS = frozenset(
+    provider
+    for provider in ROUTER_SUPPORTED_LLM_PROVIDERS
+    if provider != "local"
+)
 
 
 def _normalize_model_setting(value: str | None) -> str:
@@ -32,7 +59,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(
         default="local",
         description=(
-            "The LLM provider to use ('local', 'groq', 'openai', 'alibaba', 'minimax')."
+            "The LLM provider to use. Runtime-supported values: "
+            f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT}."
         ),
     )
     CODEXIFY_CONFIG_SOURCE: str = Field(
@@ -115,6 +143,13 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:11434/v1",
         description="Base URL for the local OpenAI-compatible API (e.g., Ollama ).",
     )
+    LOCAL_DOCKER_FALLBACK_BASE_URL: str = Field(
+        default="http://host.docker.internal:11434",
+        description=(
+            "Optional Docker-host bridge fallback for local Ollama when "
+            "LOCAL_BASE_URL points to localhost/loopback inside containers."
+        ),
+    )
     LOCAL_API_KEY: str = Field(
         default="local",
         description="API key placeholder for the local OpenAI-compatible API (often ignored by Ollama).",
@@ -167,6 +202,19 @@ class Settings(BaseSettings):
             "Timeout for Alibaba Cloud DashScope chat completion requests (seconds)."
         ),
     )
+    ALIBABA_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for Alibaba's live model index endpoint. "
+            "Defaults to deriving /models from ALIBABA_API_BASE."
+        ),
+    )
+    ALIBABA_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for Alibaba live model index discovery requests (seconds)."
+        ),
+    )
     MINIMAX_API_KEY: str | None = Field(
         default=None, description="API key for MiniMax."
     )
@@ -194,6 +242,19 @@ class Settings(BaseSettings):
     MINIMAX_TIMEOUT_SECONDS: float = Field(
         default=60.0,
         description="Timeout for MiniMax chat completion requests (seconds).",
+    )
+    MINIMAX_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for MiniMax's live model index endpoint. "
+            "Defaults to deriving /models from MINIMAX_API_BASE."
+        ),
+    )
+    MINIMAX_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for MiniMax live model index discovery requests (seconds)."
+        ),
     )
     GUARDIAN_API_KEY: str | None = Field(
         default=None,
@@ -427,7 +488,11 @@ class Settings(BaseSettings):
 # Create a singleton instance that can be imported across the application
 settings = Settings()
 
-CLOUD_LLM_PROVIDERS = {"openai", "groq", "alibaba", "minimax"}
+CLOUD_LLM_PROVIDERS = frozenset(
+    provider
+    for provider in ROUTER_SUPPORTED_LLM_PROVIDERS
+    if provider != "local"
+)
 _VALID_CONFIG_SOURCES = {"strict", "core", "legacy"}
 _SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _LOGGED_COHERENCE_SOURCES: set[str] = set()
@@ -798,7 +863,9 @@ def validate_llm_config(
         return
 
     raise LLMConfigError(
-        f"Unsupported LLM_PROVIDER: {provider or '<empty>'} (expected one of: local, groq, openai, alibaba, minimax)"
+        "Unsupported LLM_PROVIDER: "
+        f"{provider or '<empty>'} (expected one of: "
+        f"{_ROUTER_SUPPORTED_LLM_PROVIDER_TEXT})"
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from collections import Counter
@@ -10,17 +11,20 @@ from urllib.parse import urlparse
 
 import requests
 
-from guardian.core.ai_router import _resolve_local_base, describe_local_runtime
+from guardian.core.ai_router import (
+    _resolve_local_base,
+    _resolve_local_base_candidates,
+    describe_local_runtime,
+)
 from guardian.core.config import Settings, get_settings
 from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
 from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
 from guardian.core.provider_registry import PROVIDER_ORDER as _PROVIDER_ORDER
 from guardian.core.provider_registry import (
-    default_model_for_provider,
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
-    provider_status,
+    resolve_provider_capability,
 )
 from guardian.core.provider_registry import (
     resolve_provider_for_model as resolve_provider_for_model_registry,
@@ -52,6 +56,7 @@ _QUANTIZATION_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _SIZE_TOKEN_RE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)b\b")
+logger = logging.getLogger(__name__)
 
 
 def _catalog_timeout_seconds() -> float:
@@ -61,6 +66,15 @@ def _catalog_timeout_seconds() -> float:
     except ValueError:
         value = 1.5
     return max(0.2, value)
+
+
+def _summarize_catalog_attempt_failures(failures: list[str]) -> str:
+    if not failures:
+        return "none"
+    limit = 6
+    if len(failures) <= limit:
+        return "; ".join(failures)
+    return f"{'; '.join(failures[:limit])}; ... ({len(failures) - limit} more)"
 
 
 def _base_model_entry(
@@ -282,32 +296,57 @@ def _parse_local_models_payload(payload: Any) -> list[str]:
 def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
     timeout = _catalog_timeout_seconds()
     names: list[str] = []
+    discovery_failures: list[str] = []
+    discovered_base: str | None = None
 
     try:
-        local_base_v1 = _resolve_local_base(settings)
-        local_base = (
-            local_base_v1[:-3]
-            if local_base_v1.endswith("/v1")
-            else local_base_v1
-        )
-        for url in (f"{local_base}/api/tags", f"{local_base_v1}/models"):
-            try:
-                response = requests.get(url, timeout=timeout)
-            except Exception:
-                continue
-            if not (200 <= response.status_code < 300):
-                continue
-            try:
-                payload = response.json()
-            except Exception:
-                continue
-            names.extend(_parse_local_models_payload(payload))
+        local_bases = _resolve_local_base_candidates(settings)
+        for candidate in local_bases:
+            local_base_v1 = (
+                candidate if candidate.endswith("/v1") else f"{candidate}/v1"
+            )
+            local_base = (
+                local_base_v1[:-3]
+                if local_base_v1.endswith("/v1")
+                else local_base_v1
+            )
+            for url in (f"{local_base}/api/tags", f"{local_base_v1}/models"):
+                try:
+                    response = requests.get(url, timeout=timeout)
+                except Exception as exc:
+                    discovery_failures.append(
+                        f"{url} ({type(exc).__name__}: {exc})"
+                    )
+                    continue
+                if not (200 <= response.status_code < 300):
+                    discovery_failures.append(
+                        f"{url} (HTTP {response.status_code})"
+                    )
+                    continue
+                try:
+                    payload = response.json()
+                except Exception as exc:
+                    discovery_failures.append(
+                        f"{url} (invalid JSON: {type(exc).__name__}: {exc})"
+                    )
+                    continue
+                names.extend(_parse_local_models_payload(payload))
+                if names:
+                    discovered_base = candidate
+                    break
             if names:
                 break
-    except Exception:
-        pass
+    except Exception as exc:
+        discovery_failures.append(
+            f"base resolution failed ({type(exc).__name__}: {exc})"
+        )
 
     if not names:
+        if discovery_failures:
+            logger.warning(
+                "Local model discovery failed; falling back to configured model names. attempts=%s",
+                _summarize_catalog_attempt_failures(discovery_failures),
+            )
         fallback = (
             str(settings.LOCAL_LLM_MODEL or "").strip()
             or str(settings.DEFAULT_LOCAL_MODEL or "").strip()
@@ -324,10 +363,13 @@ def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         deduped.append(key)
-    try:
-        source_label = _source_label(_resolve_local_base(settings))
-    except Exception:
-        source_label = None
+    source_base = discovered_base
+    if not source_base:
+        try:
+            source_base = _resolve_local_base(settings)
+        except Exception:
+            source_base = None
+    source_label = _source_label(source_base) if source_base else None
     identities = _apply_local_display_disambiguation(
         [
             _local_model_identity(name, source_label=source_label)
@@ -358,7 +400,10 @@ def _fetch_local_models(settings: Settings) -> list[dict[str, Any]]:
     return entries
 
 
-def _cloud_models(provider_id: str, settings: Settings) -> list[dict[str, Any]]:
+def _cloud_models(
+    provider_id: str,
+    settings: Settings,
+) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for item in get_provider_model_descriptors(provider_id, settings):
         model_id = str(item.get("id") or "").strip()
@@ -384,7 +429,8 @@ def _cloud_models(provider_id: str, settings: Settings) -> list[dict[str, Any]]:
 
 
 def _provider_models(
-    provider_id: str, settings: Settings
+    provider_id: str,
+    settings: Settings,
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
         return _fetch_local_models(settings)
@@ -423,35 +469,20 @@ def _provider_source(
     return source
 
 
-def _provider_availability(
-    provider_id: str,
-    settings: Settings,
-    authorized: bool,
-) -> tuple[bool, str | None]:
-    status = provider_status(provider_id, settings)
-    return bool(status["available"]), status["disabled_reason"]
-
-
 def _provider_entry(
     provider_id: str,
     settings: Settings,
     include_all: bool,
 ) -> dict[str, Any] | None:
-    status = provider_status(provider_id, settings)
-    authorized = bool(status["authorized"])
+    capability = resolve_provider_capability(provider_id, settings)
+    authorized = bool(capability["authorized"])
     if not include_all and provider_id != "local" and not authorized:
         return None
 
-    available = bool(status["available"])
-    disabled_reason = status["disabled_reason"]
-    enabled = bool(status["enabled"])
+    available = bool(capability["available"])
+    disabled_reason = capability["disabled_reason"]
+    enabled = bool(capability["enabled"])
     models = _provider_models(provider_id, settings)
-    if provider_id != "local" and not models:
-        available = False
-        enabled = False
-        disabled_reason = disabled_reason or "No models configured for provider"
-        if not include_all:
-            return None
 
     entry: dict[str, Any] = {
         "id": provider_id,
@@ -462,6 +493,7 @@ def _provider_entry(
         "authorized": authorized,
         "available": available,
         "models": models,
+        "model_index": dict(capability["model_index"]),
     }
     source = _provider_source(provider_id, settings)
     if source is not None:
