@@ -24,7 +24,10 @@ import {
   isActiveInferencePhase,
   type InferenceRequestState,
 } from "@/types/inference";
-import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import {
+  CHAT_LANE_INLINE_PADDING,
+  CHAT_LANE_MAX_WIDTH,
+} from "@/features/chat/chatLane";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
 type BubblePlayState =
@@ -399,8 +402,11 @@ export function ChatView({
         }}
         data-testid="chat-container"
         data-debug-scroll
-        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-4"
-        style={scrollStyle}
+        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain"
+        style={{
+          ...scrollStyle,
+          paddingInline: CHAT_LANE_INLINE_PADDING,
+        }}
       >
         <div
           data-testid="chat-conversation-lane"
