@@ -2516,7 +2516,7 @@ export function GuardianChat({
           <div className="flex h-full min-h-0 flex-col">
             <div
               data-testid="composer-conversation-lane"
-              className="mx-auto flex h-full min-h-0 w-full max-w-full flex-col"
+              className="mx-auto flex h-full min-h-0 w-full max-w-full flex-col md:max-w-[888px]"
               style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
             >
               <GuardianThreadApprovalRail

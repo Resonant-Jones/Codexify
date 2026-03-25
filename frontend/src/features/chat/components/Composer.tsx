@@ -28,7 +28,6 @@ import {
   CHAT_COMPOSER_SEND_PAD_CLASS,
   CHAT_COMPOSER_TEXTAREA_PAD_CLASS,
 } from "@/features/chat/chatLane";
-
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
