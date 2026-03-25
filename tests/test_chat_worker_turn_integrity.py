@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from guardian.tasks.types import ChatCompletionTask
@@ -26,16 +27,17 @@ def _isolate_turn_anchor(monkeypatch) -> None:
 def _build_task(
     *,
     task_id: str = "task-1",
-    turn_id: str = "11111111-1111-4111-8111-111111111111",
+    turn_id: str | None = None,
 ) -> ChatCompletionTask:
+    resolved_turn_id = turn_id or str(uuid.uuid4())
     task = ChatCompletionTask(
         task_id=task_id,
         thread_id=7,
         provider="local",
         model="test-model",
-        origin=f"api:chat.complete|turn_id={turn_id}",
+        origin=f"api:chat.complete|turn_id={resolved_turn_id}",
     )
-    task.turn_id = turn_id
+    task.turn_id = resolved_turn_id
     task.turn_lock_owner = task_id
     return task
 
@@ -48,6 +50,14 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(
+        chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_id_by_turn_id",
+        lambda **_kwargs: None,
+    )
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
@@ -230,6 +240,14 @@ def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(
+        chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_id_by_turn_id",
+        lambda **_kwargs: None,
+    )
 
     def _fake_run_chat_completion(task, *_args, **_kwargs):
         persisted_meta.append({"payload_summary": sample_summary})

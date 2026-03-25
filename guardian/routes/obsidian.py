@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel

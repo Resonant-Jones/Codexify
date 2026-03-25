@@ -20,6 +20,13 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
+import {
+  CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS,
+  CHAT_COMPOSER_CONTROLS_PAD_CLASS,
+  CHAT_COMPOSER_INNER_PAD_CLASS,
+  CHAT_COMPOSER_SEND_PAD_CLASS,
+  CHAT_COMPOSER_TEXTAREA_PAD_CLASS,
+} from "@/features/chat/chatLane";
 
 const ACCEPTED_ATTACHMENTS =
   [
@@ -616,10 +623,16 @@ export function Composer({
 
   return (
     <>
-      <div className="flex flex-col flex-1 w-full p-[4px]" onDrop={handleDrop} onDragOver={handleDragOver}>
-        <div className="flex flex-col flex-1 w-full rounded-[var(--tile-radius)] p-[4px]">
+      <div
+        className={`flex flex-col flex-1 w-full ${CHAT_COMPOSER_INNER_PAD_CLASS}`}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <div
+          className={`flex flex-col flex-1 w-full rounded-[var(--tile-radius)] ${CHAT_COMPOSER_INNER_PAD_CLASS}`}
+        >
           {/* Content Rectangle - Textarea area */}
-          <div className="flex-1 flex flex-col px-[12px] pt-[8px] pb-[6px]">
+          <div className={`flex-1 flex flex-col ${CHAT_COMPOSER_TEXTAREA_PAD_CLASS}`}>
             <Textarea
               ref={ref}
               rows={MIN_COMPOSER_ROWS}
@@ -645,7 +658,7 @@ export function Composer({
           </div>
 
           {draftAttachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-[12px] pb-[6px]">
+            <div className={`flex flex-wrap gap-2 ${CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS}`}>
               {draftAttachments.map((att) => (
                 <div
                   key={att.id}
@@ -691,7 +704,7 @@ export function Composer({
             }}
           />
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[4px]">
+          <div className={`flex flex-wrap items-center justify-between gap-3 ${CHAT_COMPOSER_CONTROLS_PAD_CLASS}`}>
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
@@ -750,7 +763,7 @@ export function Composer({
               />
             </div>
 
-            <div className="shrink-0 pr-[14px]">
+            <div className={`shrink-0 ${CHAT_COMPOSER_SEND_PAD_CLASS}`}>
               <Button
                 type="button"
                 onClick={handleAttemptSend}

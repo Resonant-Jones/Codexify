@@ -25,8 +25,9 @@ import {
   type InferenceRequestState,
 } from "@/types/inference";
 import {
-  CHAT_LANE_INLINE_PADDING,
+  CHAT_LANE_GUTTER_CLASS,
   CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
 } from "@/features/chat/chatLane";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -396,23 +397,26 @@ export function ChatView({
   return (
     <div className={cn("flex flex-col h-full min-h-0", className)}>
       <div
-        ref={containerRef}
-        onScroll={() => {
-          void onScroll();
-        }}
-        data-testid="chat-container"
-        data-debug-scroll
-        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain"
-        style={{
-          ...scrollStyle,
-          paddingInline: CHAT_LANE_INLINE_PADDING,
-        }}
-      >
-        <div
-          data-testid="chat-conversation-lane"
-          className="mx-auto w-full max-w-full md:max-w-[880px] space-y-4"
-          style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
-        >
+  ref={containerRef}
+  onScroll={() => {
+    void onScroll();
+  }}
+  data-testid="chat-container"
+  data-debug-scroll
+  className={cn(
+    "flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain",
+    CHAT_LANE_GUTTER_CLASS
+  )}
+  style={scrollStyle}
+>
+  <div
+    data-testid="chat-conversation-lane"
+    className={cn(
+      "mx-auto w-full max-w-full space-y-4",
+      CHAT_LANE_MAX_WIDTH_CLASS
+    )}
+    style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+  >
           {messages.map((message, index) => {
             const messageId = Number(message.id);
             const canPlay = message.role !== "user" && Number.isFinite(messageId);

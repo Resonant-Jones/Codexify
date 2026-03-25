@@ -277,6 +277,36 @@ def _delete_namespace_vectors(vector_store: Any) -> int:
         return len(ids)
 
 
+def _scan_obsidian_vault(
+    vault_root: str | Path,
+    allowed_paths: Sequence[str | Path] | None = None,
+    allowed_tags: Sequence[str] | None = None,
+) -> tuple[list[str], int, list[dict[str, str]]]:
+    root = _resolve_vault_root(vault_root)
+    resolved_allowlist = _resolve_allowed_paths(root, allowed_paths)
+    allowed_tag_list = _normalize_tags(allowed_tags)
+
+    markdown_files = _collect_markdown_files(root, resolved_allowlist)
+    scanned = len(markdown_files)
+    matched: list[str] = []
+    failures: list[dict[str, str]] = []
+
+    for md in markdown_files:
+        try:
+            raw_text = md.read_text(encoding="utf-8", errors="ignore")
+            parsed = _parse_frontmatter(raw_text, path=str(md))
+            tags = _normalize_tags(parsed["frontmatter"].get("tags"))
+            if not _tags_match(tags, allowed_tag_list):
+                continue
+            matched.append(str(md.resolve()))
+        except Exception as exc:
+            failures.append({"path": str(md), "error": str(exc)})
+
+    # Deterministic ordering
+    matched = sorted(dict.fromkeys(matched))
+    return matched, scanned, failures
+
+
 def index_obsidian_vault(
     vault_root: str | Path,
     allowed_paths: Sequence[str | Path] | None = None,
@@ -350,6 +380,7 @@ def _scan_obsidian_vault(
 __all__ = [
     "OBSIDIAN_NAMESPACE",
     "index_obsidian_vault",
+    "_scan_obsidian_vault",
     "_build_obsidian_items",
     "_parse_frontmatter",
     "_yield_md_files",
