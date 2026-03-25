@@ -21,8 +21,14 @@ export type LlmCatalogModel = {
   namespace?: string;
   source?: string;
   contextWindow?: number;
+  supportsChat?: boolean;
+  supportsVision?: boolean;
+  supportsTextInput?: boolean;
+  modelKind?: "chat" | "vision_chat" | "utility";
   capabilities?: {
+    chat?: boolean;
     vision?: boolean;
+    textInput?: boolean;
     tools?: boolean;
     streaming?: boolean;
   };
@@ -62,6 +68,42 @@ function normalizeReasoningMode(value: unknown): ComposerInferenceMode | null {
   return null;
 }
 
+function normalizeBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function normalizeModelKind(value: unknown): "chat" | "vision_chat" | "utility" | undefined {
+  const normalized = normalizeString(value);
+  if (
+    normalized === "chat" ||
+    normalized === "vision_chat" ||
+    normalized === "utility"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function isChatSelectableModel(model: {
+  supportsChat?: boolean;
+  modelKind?: "chat" | "vision_chat" | "utility";
+} | null | undefined): boolean {
+  if (!model) return false;
+  if (model.supportsChat === false) return false;
+  return model.modelKind !== "utility";
+}
+
+export function describeModelCapability(model: {
+  supportsVision?: boolean;
+  supportsChat?: boolean;
+  modelKind?: "chat" | "vision_chat" | "utility";
+} | null | undefined): string {
+  if (!model || model.supportsChat === false || model.modelKind === "utility") {
+    return "Utility model";
+  }
+  return model.supportsVision ? "Vision-capable chat" : "Text-only chat";
+}
+
 function normalizeModel(
   providerId: string,
   raw: unknown
@@ -89,6 +131,29 @@ function normalizeModel(
     runtime && typeof runtime === "object"
       ? (runtime as Record<string, unknown>).reasoning
       : null;
+  const capabilities =
+    model.capabilities && typeof model.capabilities === "object"
+      ? (model.capabilities as Record<string, unknown>)
+      : null;
+  const supportsChat =
+    normalizeBoolean(model.supports_chat) ??
+    normalizeBoolean(model.supportsChat) ??
+    normalizeBoolean(capabilities?.chat) ??
+    (normalizeModelKind(model.model_kind ?? model.modelKind) !== "utility");
+  const supportsVision =
+    normalizeBoolean(model.supports_vision) ??
+    normalizeBoolean(model.supportsVision) ??
+    normalizeBoolean(capabilities?.vision) ??
+    false;
+  const supportsTextInput =
+    normalizeBoolean(model.supports_text_input) ??
+    normalizeBoolean(model.supportsTextInput) ??
+    normalizeBoolean(capabilities?.textInput) ??
+    normalizeBoolean(capabilities?.text_input) ??
+    supportsChat;
+  const modelKind =
+    normalizeModelKind(model.model_kind ?? model.modelKind) ??
+    (supportsChat ? (supportsVision ? "vision_chat" : "chat") : "utility");
 
   return {
     id: canonicalId,
@@ -104,14 +169,18 @@ function normalizeModel(
       typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
         ? model.contextWindow
         : undefined,
+    supportsChat,
+    supportsVision,
+    supportsTextInput,
+    modelKind,
     capabilities:
-      model.capabilities && typeof model.capabilities === "object"
+      capabilities
         ? {
-            vision: Boolean((model.capabilities as Record<string, unknown>).vision),
-            tools: Boolean((model.capabilities as Record<string, unknown>).tools),
-            streaming: Boolean(
-              (model.capabilities as Record<string, unknown>).streaming
-            ),
+            chat: supportsChat,
+            vision: supportsVision,
+            textInput: supportsTextInput,
+            tools: Boolean(capabilities.tools),
+            streaming: Boolean(capabilities.streaming),
           }
         : undefined,
     runtime:
@@ -252,7 +321,9 @@ export function useLlmCatalog() {
       if (!modelId) return null;
       return (
         providers.find((provider) =>
-          provider.models.some((model) => model.id === modelId)
+          provider.models.some(
+            (model) => isChatSelectableModel(model) && model.id === modelId
+          )
         ) ?? null
       );
     },

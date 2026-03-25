@@ -15,6 +15,10 @@ export type ComposerSelectOption = {
   description?: string;
   meta?: string | null;
   disabled?: boolean;
+  supportsChat?: boolean;
+  supportsVision?: boolean;
+  supportsTextInput?: boolean;
+  modelKind?: "chat" | "vision_chat" | "utility";
 };
 
 type ComposerSelectMenuProps = {
