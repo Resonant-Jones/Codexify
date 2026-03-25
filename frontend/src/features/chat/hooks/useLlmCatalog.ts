@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import api, { buildLlmCatalogPath } from "@/lib/api";
 import { logOnce } from "@/lib/logging/logOnce";
-import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import type { ComposerInferenceMode } from "@/types/inference";
 
 type CatalogReasoningRuntime = {
@@ -48,8 +47,6 @@ export type LlmCatalogProvider = {
   };
   models: LlmCatalogModel[];
 };
-
-const CATALOG_POLL_MS = 15_000;
 
 function normalizeString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -185,6 +182,7 @@ export function useLlmCatalog() {
   const [providers, setProviders] = useState<LlmCatalogProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasFetchedRef = useRef(false);
 
   const loadCatalog = useCallback(
     async (options: { silent?: boolean; throwOnError?: boolean } = {}) => {
@@ -223,19 +221,10 @@ export function useLlmCatalog() {
   );
 
   useEffect(() => {
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
     void loadCatalog();
   }, [loadCatalog]);
-
-  usePollWithBackoff(
-    () => loadCatalog({ silent: true, throwOnError: true }),
-    {
-      intervalMs: CATALOG_POLL_MS,
-      maxBackoffMs: 60_000,
-      enabled: true,
-      onErrorKey: "poll:guardian-llm-catalog",
-      logTtlMs: 10_000,
-    }
-  );
 
   const models = useMemo(
     () => providers.flatMap((provider) => provider.models),

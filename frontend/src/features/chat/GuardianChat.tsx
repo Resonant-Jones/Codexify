@@ -41,7 +41,6 @@ import { getWrappedSessionTabId } from "@/state/session/hooks";
 import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
-import { usePollWithBackoff } from "@/lib/polling/usePollWithBackoff";
 import { logOnce } from "@/lib/logging/logOnce";
 import { useLlmCatalog } from "@/features/chat/hooks/useLlmCatalog";
 import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequestState";
@@ -57,8 +56,7 @@ import { setPreferredProviderSelection } from "@/lib/providerPref";
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
   "Keep typing. Send unlocks when the current reply finishes.";
-const LLM_HEALTH_POLL_MS = 15000;
-const THREAD_PROFILE_POLL_MS = 15000;
+const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 
 /**
@@ -502,6 +500,7 @@ export function GuardianChat({
   const [promptCostPopoverOpen, setPromptCostPopoverOpen] = useState(false);
   const [providerMenuOpenSignal, setProviderMenuOpenSignal] = useState(0);
   const promptCostPopoverRef = useRef<HTMLDivElement | null>(null);
+  const profileThreadRef = useRef<number | null>(null);
   const showToast = useCallback((message: string) => {
     try {
       window.dispatchEvent(
@@ -762,13 +761,15 @@ export function GuardianChat({
       }
     }
   }, []);
-  usePollWithBackoff(() => refreshLlmHealth({ throwOnError: true }), {
-    intervalMs: LLM_HEALTH_POLL_MS,
-    maxBackoffMs: 60_000,
-    enabled: true,
-    onErrorKey: "poll:health-llm",
-    logTtlMs: 10_000,
-  });
+  useEffect(() => {
+    void refreshLlmHealth();
+    const timer = window.setInterval(() => {
+      void refreshLlmHealth();
+    }, LLM_HEALTH_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refreshLlmHealth]);
   const llmBackendUnavailable =
     llmHealth.status === "offline" || llmHealth.status === "misconfigured";
   const cloudProvidersDisabled = /ALLOW_CLOUD_PROVIDERS\s*=\s*false/i.test(
@@ -1241,25 +1242,14 @@ export function GuardianChat({
 
   useEffect(() => {
     if (effectiveThreadId == null) {
+      profileThreadRef.current = null;
       applyProfileFallback();
       return;
     }
+    if (profileThreadRef.current === effectiveThreadId) return;
+    profileThreadRef.current = effectiveThreadId;
     void refreshThreadProfile(effectiveThreadId);
   }, [applyProfileFallback, effectiveThreadId, refreshThreadProfile]);
-
-  usePollWithBackoff(
-    async () => {
-      if (effectiveThreadId == null) return;
-      await refreshThreadProfile(effectiveThreadId, { throwOnError: true });
-    },
-    {
-      intervalMs: THREAD_PROFILE_POLL_MS,
-      maxBackoffMs: 60_000,
-      enabled: effectiveThreadId != null,
-      onErrorKey: "poll:chat-profile",
-      logTtlMs: 10_000,
-    }
-  );
 
   useEffect(() => {
     setPromptCostPopoverOpen(false);
