@@ -6,7 +6,7 @@ import logging
 import os
 import socket
 import time
-from typing import Iterable, List
+from typing import Iterable
 from urllib.parse import urlparse
 
 import requests
@@ -90,6 +90,10 @@ def _is_embedding_model(model: str) -> bool:
             )
         return True
     return False
+
+
+def _is_startup_warmup(task: WarmupTask) -> bool:
+    return str(getattr(task, "origin", "") or "").strip().lower() == "startup"
 
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
@@ -285,6 +289,14 @@ def _log_vaultnode_failure(
     )
 
 
+def _log_startup_warmup_failure(task: WarmupTask, detail: str) -> None:
+    logger.warning(
+        "[warmup] startup warmup best-effort failed task=%s detail=%s",
+        task.task_id,
+        detail,
+    )
+
+
 def _warm_model(task: WarmupTask, model: str) -> bool:
     if _is_embedding_model(model):
         logger.info(
@@ -293,6 +305,7 @@ def _warm_model(task: WarmupTask, model: str) -> bool:
             task.task_id,
         )
         return True
+    startup_best_effort = _is_startup_warmup(task)
     attempt = 0
     delay = BACKOFF_BASE_SECONDS
     while True:
@@ -322,6 +335,8 @@ def _warm_model(task: WarmupTask, model: str) -> bool:
             return True
         except Exception as exc:
             attempt += 1
+            if startup_best_effort:
+                return False
             logger.warning(
                 "[warmup] failed task=%s model=%s attempt=%s err=%s",
                 task.task_id,
@@ -342,6 +357,7 @@ def _run_task(
     health_base: str,
     endpoints: list[str],
 ) -> None:
+    startup_best_effort = _is_startup_warmup(task)
     _safe_publish(
         task.task_id,
         "task.running",
@@ -358,24 +374,34 @@ def _run_task(
         endpoints,
     )
     if not ready:
-        _log_vaultnode_failure(base_url, health_base, endpoints, last_exc)
+        if startup_best_effort:
+            _log_startup_warmup_failure(
+                task,
+                f"readiness={type(last_exc).__name__ if last_exc else 'unknown'}",
+            )
+        else:
+            _log_vaultnode_failure(base_url, health_base, endpoints, last_exc)
         _safe_publish(
             task.task_id,
             "task.failed",
             {"type": task.type, "origin": task.origin, "error": str(last_exc)},
         )
-        logger.warning(
-            "[task] failed type=%s id=%s origin=%s",
-            task.type,
-            task.task_id,
-            task.origin,
-        )
+        if not startup_best_effort:
+            logger.warning(
+                "[task] failed type=%s id=%s origin=%s",
+                task.type,
+                task.task_id,
+                task.origin,
+            )
         return
     models = [m for m in task.models if isinstance(m, str) and m.strip()]
     all_ok = True
+    failed_models: list[str] = []
     for model in models:
         if not _warm_model(task, model.strip()):
             all_ok = False
+            if startup_best_effort:
+                failed_models.append(model.strip())
     if all_ok:
         _safe_publish(
             task.task_id,
@@ -389,16 +415,23 @@ def _run_task(
             task.origin,
         )
     else:
+        if startup_best_effort:
+            _log_startup_warmup_failure(
+                task,
+                "models="
+                + (",".join(failed_models) if failed_models else "<unknown>"),
+            )
+        else:
+            logger.warning(
+                "[task] failed type=%s id=%s origin=%s",
+                task.type,
+                task.task_id,
+                task.origin,
+            )
         _safe_publish(
             task.task_id,
             "task.failed",
             {"type": task.type, "origin": task.origin},
-        )
-        logger.warning(
-            "[task] failed type=%s id=%s origin=%s",
-            task.type,
-            task.task_id,
-            task.origin,
         )
 
 

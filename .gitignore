@@ -169,6 +169,7 @@ chatgpt-conversation.json
 
 # Local/vendor checkouts
 MiniMax-MCP-main/
+compound-mcp-server-main/
 
 # Local exports / data dumps
 conversations.json

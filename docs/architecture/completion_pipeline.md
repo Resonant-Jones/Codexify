@@ -2,201 +2,176 @@
 
 ## Goal and Non-Goals
 
-- Goal: explain the runtime flow for one user message -> one assistant completion as it exists today.
-- Non-goals: product marketing, speculative/future architecture, or re-design proposals.
+- Goal: describe the queue-backed chat completion path as it exists on `main`.
+- Non-goals: aspirational architecture, UI guarantees the backend cannot prove, or a line-by-line code walkthrough.
 
 ## Actors and Responsibilities
 
-- API entrypoints (thread message + completion enqueue): `guardian/routes/chat.py` (`chat_post_message`, `chat_complete`)
-- Task queue + task events: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`
-- Completion worker + message assembly: `guardian/workers/chat_worker.py` (`_build_messages_for_llm`, `_run_chat_task`)
-- Context assembly: `guardian/context/broker.py` (`ContextBroker.assemble`)
-- System prompt builder: `guardian/cognition/system_prompt_builder.py` + `guardian/cognition/prompts.py`
-- Provider routing (local/cloud): `guardian/core/ai_router.py` (local/groq/openai)
-- Legacy Groq helper (non-worker path): `guardian/core/dependencies.py::_groq_complete`
-- Persistence sinks:
-  - Chat DB + audit log: `guardian/core/chat_db.py` (via `chatlog_db` in routes/worker)
-  - Embeddings: `guardian/vector/store.py` (auto-embed on message write)
-  - Event outbox (optional): `guardian/core/event_bus.py` (enabled via `ENABLE_OUTBOX`)
-  - Graph logging (optional, user messages): `guardian/routes/chat.py` + `guardian/workers/graph_backfill_worker.py`
+- API routes: `guardian/routes/chat.py`
+  - persist user messages
+  - resolve depth/provider inputs
+  - acquire per-thread turn locks
+  - enqueue completion tasks
+  - emit best-effort `task.created` breadcrumbs
+- Shared completion service: `guardian/core/chat_completion_service.py`
+  - load thread messages
+  - assemble retrieval context
+  - build provider-ready message lists
+- Queue and coordination layer: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`
+  - chat queue transport
+  - task-event streams
+  - cancellation set
+  - turn locks
+- Chat worker: `guardian/workers/chat_worker.py`
+  - dequeue and execute tasks
+  - publish progress and terminal task events
+  - persist assistant messages
+  - release turn locks in `finally`
+- Provider routing: `guardian/core/ai_router.py`
+  - local inference path
+  - cloud-provider execution
+  - transport and provider failure classification
 
-## High-Level Flow (Diagram)
+## Runtime Shape
 
-```
+```text
 UI
   -> POST /api/chat/{thread_id}/messages
-     -> chatlog_db + event_bus + vector_store (+ optional Neo4j)
+     -> Postgres message row
+     -> best-effort domain event + chat-embed enqueue
   -> POST /api/chat/{thread_id}/complete
-     -> Redis queue (ChatCompletionTask)
-     -> chat_worker
-        -> ContextBroker.assemble()
-        -> build_guardian_system_prompt()
-        -> assemble messages[]
-        -> ai_router call (local/groq/openai)
-        -> persist assistant message + embed + task.completed
+     -> Redis turn lock
+     -> Redis chat queue
+     -> best-effort task.created breadcrumb
+     -> worker dequeues
+        -> shared completion service builds messages/context
+        -> provider execution
+        -> optional cloud-to-local rescue
+        -> Postgres assistant row
+        -> task.completed / task.failed / task.cancelled
+        -> turn lock release
 ```
 
-## Step-by-Step Request Flow (Atomic)
+## Step-by-Step Flow
 
-1) UI posts the user message  
-   - `POST /api/chat/{thread_id}/messages` -> `guardian/routes/chat.py::chat_post_message`  
-   - Persists to chat DB (`chatlog_db.create_message`) and audit log.  
-   - Emits `event_bus.emit_event("message.created", ...)`.  
-   - Auto-embeds into vector store with metadata (`thread_id`, `role`, `message_id`, `timestamp`, `source="chat"`).  
-   - Optional Neo4j graph logging if `GUARDIAN_ENABLE_GRAPH_LOGGING=true` and graph deps are available.
+1. User message is persisted.
+   - `POST /api/chat/{thread_id}/messages` writes the user message to Postgres and emits best-effort side effects such as domain events and chat-embed enqueue.
+   - The user message is durable before completion is requested.
 
-2) UI requests a completion  
-   - `POST /api/chat/{thread_id}/complete` -> `guardian/routes/chat.py::chat_complete`  
-   - Validates thread + context; enqueues `ChatCompletionTask` to Redis via `guardian/queue/redis_queue.py::enqueue`.  
-   - Emits `task.created` to task events stream (`guardian/queue/task_events.py`).  
-   - Failure points: thread not found (404), queue unavailable (503).  
-   - Response contract (async-by-default):  
-     ```json
-     {
-       "ok": true,
-       "task_id": "task-123",
-       "thread_id": 42,
-       "depth_mode": "normal",
-       "messages_url": "/api/chat/42/messages",
-       "trace_url": "/api/chat/debug/rag-trace/42/latest"
-     }
-     ```  
-     - UI uses `task_id` to show completion progress (spinner/lock).  
-     - UI refreshes chat history via `messages_url` (or existing polling helpers).  
-     - UI fetches the latest RAG trace **after** the assistant message lands by calling `trace_url`.  
-     - No synchronous `context` blob is returned; the worker is responsible for emitting `task.completed` with trace data that the debug endpoint surfaces.
+2. Completion route validates and acquires turn ownership.
+   - `POST /api/chat/{thread_id}/complete` validates the thread and resolves effective depth mode.
+   - The route acquires a Redis turn lock whose owner is the new `task_id`.
+   - If Redis lock access fails, the route returns `503 completion_service_unavailable`.
+   - If another turn is still in flight and cannot be safely recovered, the route returns `429 turn_in_flight`.
 
-3) Worker dequeues task  
-   - `guardian/workers/chat_worker.py::run_forever` -> `_run_chat_task`  
-   - If task cancelled, emits `task.cancelled` and exits.
+3. Stale-lock recovery is evidence-based, not lease-age-only.
+   - Recovery only runs when the existing lock is stale by TTL.
+   - The route then inspects two evidence sources:
+     - task-event stream terminal evidence via `guardian/queue/task_events.py::describe_terminal_state`
+     - worker-heartbeat evidence via `guardian/routes/chat.py::_chat_worker_heartbeat_evidence`
+   - Recovery is allowed only when:
+     - the old task has a terminal task event, or
+     - the old task is nonterminal and the worker heartbeat is `stale`, `dead`, or `missing`
+   - Recovery does not run when either evidence source is `unknown`.
+   - This is fail-closed behavior: uncertainty blocks recovery rather than pretending confidence.
 
-4) Worker loads recent messages  
-   - `_build_messages_for_llm` calls `chatlog_db.list_messages(...)` (default `max_context=50`).  
-   - Uses latest user message as the RAG query.  
-   - Failure points: missing thread, empty context.
+4. Route acceptance is queue acceptance, not completion success.
+   - After the lock is held, the route enqueues a `ChatCompletionTask` onto `codexify:queue:chat`.
+   - If enqueue fails, the route releases the lock and returns `503 queue_unavailable`.
+   - If enqueue succeeds, the route returns success with `task_id`, `turn_id`, and discovery URLs.
+   - What this proves:
+     - the task was accepted into the Redis-backed execution lane
+     - the thread lock was acquired for this task
+   - What this does not prove:
+     - the worker has already dequeued the task
+     - the UI will receive progress events
+     - the task will complete successfully
 
-5) Context assembly  
-   - `ContextBroker.assemble(thread_id, query, depth_mode, user_id)` in `guardian/context/broker.py`.  
-   - Errors are soft: failures are logged and the bundle defaults to empty lists.
+5. `task.created` is an important breadcrumb, but best-effort.
+   - The route attempts to publish `task.created` after enqueue.
+   - This breadcrumb is useful because it gives operators and clients evidence that lifecycle publication started.
+   - It is not authoritative acceptance proof by itself because enqueue success is the stronger signal; the `task.created` publish can fail without causing the route to fail.
 
-6) System prompt construction  
-   - `build_guardian_system_prompt(...)` in `guardian/cognition/system_prompt_builder.py`.  
-   - Assembles base + depth + imprint + persona + system docs + RAG hint blocks.  
-   - Truncates only system docs first when over budget; hard-truncates the tail if still over.
+6. Worker execution starts with explicit running state.
+   - The chat worker dequeues from `codexify:queue:chat`.
+   - It publishes `task.running` and then calls the shared completion service path to build messages, retrieval context, and prompt state.
 
-7) Provider payload assembly  
-   - `_build_messages_for_llm` builds the final message array:  
-     - system prompt (required)  
-     - optional context system message (from `build_context_system_message`)  
-     - recent verbatim turns from the thread  
+7. Provider execution can rescue from cloud failure to local.
+   - When the resolved execution provider is non-local, the worker first tries that provider/model pair.
+   - If that cloud attempt fails, the worker may rescue once to local inference when:
+     - the selection was not explicit, or
+     - explicit local fallback is enabled and the provider was not pinned
+   - The worker records:
+     - attempted provider/model
+     - final provider/model
+     - `fallback_reason="cloud_failure_local_rescue"` when rescue occurs
+   - This is execution degradation, not silent success. The terminal payload carries the fallback evidence.
 
-8) Provider call + timeouts  
-   - `guardian/core/ai_router.py::chat_with_ai` routes to:
-     - `call_local` -> 30s timeout (OpenAI-compatible local server)
-     - `call_groq` -> 30s timeout
-     - `call_openai` -> 30s timeout
-     - `stream_local` uses `LLM_REQUEST_TIMEOUT_SECONDS` (default 60s)
-   - Failure points: provider config errors, request timeouts, upstream errors.  
-   - Retry behavior: no retry in the worker path. The legacy `_groq_complete` path (used by `/chat`) retries once with a fallback model if configured.
+8. Progress visibility and terminal visibility are different.
+   - `task.progress` is progress-only visibility. Losing it degrades operator/UI insight but does not prove task failure.
+   - `task.completed`, `task.failed`, and `task.cancelled` are terminal visibility signals.
+   - The worker now classifies publish failures:
+     - progress-event publish failure logs a warning-level visibility degradation
+     - terminal-event publish failure logs an error-level visibility degradation
+   - Execution continues either way; task-event publication is not a hard stop.
 
-9) Response guard + persistence  
-   - Response is sanitized by `guardian/core/message_guard.py`.  
-   - Assistant message is persisted (`chatlog_db.create_message`), audit log updated.  
-   - Emits `event_bus.emit_event("message.created", ...)`.  
-   - Auto-embeds assistant message in vector store.  
-   - Publishes `task.completed` with `{provider, model, trace}` in task events stream.
+9. Assistant persistence is the worker’s authoritative success boundary.
+   - On success, the worker persists the assistant message to Postgres, writes metadata such as attempted/final provider data, and publishes `task.completed`.
+   - If generation succeeds but assistant persistence fails, the worker treats that as non-authoritative success and emits `task.failed` instead of pretending the turn completed.
 
-## What Exactly Is in the Context Bundle
+10. Turn lock release happens in `finally`.
+   - The worker releases the turn lock owned by the task regardless of terminal outcome.
+   - This reduces lock leakage, but stale-lock recovery still exists because process death, Redis faults, or missing terminal visibility can leave ambiguous state behind.
 
-Source: `guardian/context/broker.py::ContextBroker.assemble`
+## Acceptance Semantics
 
-Keys produced today:
-- `messages`: recent thread messages (always present)
-- `semantic`: vector-store search results (empty list for `shallow`)
-- `graph`: graph-derived snippets (empty list unless enabled)
-- `memory`: memory search results (deep/diagnostic only)
-- `sensors`: sensor snapshot (diagnostic only)
-- `federated`: federated search results (only when `federated=True`)
+- `accepted`
+  - The route acquired the turn lock and enqueued the task successfully.
+  - This is the normal acceptance case.
+- `accepted_degraded`
+  - Use this term for the current degraded acceptance class where execution was accepted but lifecycle visibility is weaker than normal, for example when the route cannot publish `task.created` after a successful enqueue.
+  - The current code does not return a literal `accepted_degraded` string in the route payload, but the runtime now distinguishes this operational case from a cleanly observed acceptance.
+  - In other words: acceptance can be real while observability is degraded.
 
-Depth modes (current behavior):
-- `shallow`: `messages`, `semantic` (empty), `graph` (empty unless enabled)
-- `normal`: `messages`, `semantic`, `graph` (optional)
-- `deep`: `messages`, `semantic`, `graph`, `memory`
-- `diagnostic`: `messages`, `semantic`, `graph`, `memory`, `sensors`
+## What Redis Is Doing In This Path
 
-Notes:
-- The broker returns raw chat messages and retrieved snippets as-is; it does not rewrite or summarize them.
-- `graph` is gated by `GUARDIAN_ENABLE_GRAPH_CONTEXT` (see `guardian/core/config.py`).
-- The chat worker additionally attaches `user_system_override` to the bundle if provided, but it is not currently used in prompt assembly.
-- `rag_trace` is returned separately and includes only semantic + graph summaries (snippets truncated to ~100 chars).
+- chat task queue: `codexify:queue:chat`
+- turn locks: `turn_lock:{thread_id}`
+- task-event streams: `codexify:task:{task_id}:events`
+- cancellation set: checked by the worker before and during execution
+- worker heartbeat: `codexify:worker:chat:heartbeat`
+- turn-completion anchor cache: short-lived correlation from `(thread_id, turn_id)` to assistant `message_id`
+- chat-embed queue for message embeddings written adjacent to the chat loop
 
-## What Exactly Is in the System Prompt
+## What The Main Surfaces Prove
 
-Source: `guardian/cognition/system_prompt_builder.py`, `guardian/cognition/prompts.py`
+- Route `200` response:
+  - proves lock + enqueue
+  - does not prove dequeue or eventual success
+- `task.created`:
+  - proves a lifecycle breadcrumb was published when present
+  - absence does not invalidate successful enqueue
+- `task.running`:
+  - proves the worker started observable execution when present
+- `task.completed`:
+  - strongest normal success signal for the async lane
+  - still does not prove the UI rendered or received it
+- `task.failed` / `task.cancelled`:
+  - strongest terminal failure/cancel signals when publish succeeds
 
-Blocks (in order):
-1) Immutable base rules (`_base_codexify_system_prompt`)
-2) Depth mode block (`_depth_block`)
-3) Imprint style block (`_imprint_zero_style_block`) via `guardian/cognition/imprints/store.py`
-4) User persona block (`_user_persona_block`) via `guardian/cognition/personas/store.py`
-5) System docs block (`_system_docs_block`) via `guardian/cognition/system_docs/store.py`
-6) RAG hint block (`_rag_hint_block`) (light hints only, no snippets)
+## Failure Modes To Keep In Mind
 
-Truncation rules and token cap:
-- Heuristic token estimate: `len(text) // 4`.
-- Default cap: 2000 tokens (can be overridden by caller).
-- If over cap: system docs are truncated first, preserving base/depth/imprint/persona.
-- If still over cap: hard truncate the tail and append `[TRUNCATED DUE TO TOKEN BUDGET]`.
+- Redis unavailable: route cannot trust lock or queue operations, so acceptance fails fast.
+- Worker missing/stale: route may still enqueue, but completion health is degraded or unhealthy.
+- Queue backlog not progressing: `/health/chat` can flag risk, but queue progression is a heuristic based on sampled depth change, not dequeue proof.
+- Task-event publish failure: execution may continue while operator/UI visibility degrades.
+- Provider failure with rescue: completion may succeed on local after a cloud attempt fails; the terminal payload carries that downgrade.
 
-## Provider Payload Shape (Conceptual)
+## Debugging Anchors
 
-Source: `guardian/workers/chat_worker.py::_build_messages_for_llm`, `guardian/core/ai_router.py`
-
-```pseudo
-messages = [
-  {"role": "system", "content": system_prompt},
-  {"role": "system", "content": context_snippets},  # optional
-  {"role": "user", "content": "..."},
-  {"role": "assistant", "content": "..."},
-  {"role": "user", "content": "..."},
-]
-
-payload = {
-  "model": resolved_model,
-  "messages": messages,
-  "temperature": 0.7,
-}
-```
-
-Not included:
-- Full thread history beyond `max_context`
-- Raw embedding vectors or store internals
-- Untruncated system docs beyond the token cap
-- Federated context (not enabled in the chat worker path)
-
-## Persistence After Completion
-
-- Assistant message persisted to chat DB: `guardian/workers/chat_worker.py` -> `chatlog_db.create_message`
-- Audit log entry: `chatlog_db.write_audit_log`
-- Embedding write (assistant message): `guardian/vector/store.py::VectorStore.add_texts`
-  - Metadata: `thread_id`, `role`, `message_id`, `timestamp`, `source="chat"`
-- Task events stream update: `task.completed` with provider/model/trace in `guardian/queue/task_events.py`
-- Event outbox (optional): `guardian/core/event_bus.py` when `ENABLE_OUTBOX=true`
-- Graph logging:
-  - User messages are logged directly in `guardian/routes/chat.py` when enabled.
-  - Assistant messages are not written in the worker; graph backfill (`guardian/workers/graph_backfill_worker.py`) can ingest from DB if configured.
-
-## Debugging Checklist
-
-- Logs
-  - API: `guardian/routes/chat.py` ([chat] logger)
-  - Worker: `guardian/workers/chat_worker.py` ([chat-worker], [task])
-  - Context: `guardian/context/broker.py` ([ContextBroker])
-- Confirm provider/model
-  - Read `task.completed` from `codexify:task:{task_id}:events` (via `guardian/queue/task_events.py`)
-  - Worker logs include provider/model in task completion data
-- Verify assembled context
-  - `GET /api/chat/debug/rag-trace/{thread_id}/latest` (`guardian/routes/chat.py`)
-  - Note: rag_trace exposes semantic + graph only; memory hits are logged but not surfaced in the trace payload.
-- Confirm prompt truncation
-  - Look for `[chat-worker] large system prompt` warnings (token estimate > 2048)
+- Route and lock behavior: `guardian/routes/chat.py`
+- Shared completion assembly: `guardian/core/chat_completion_service.py`
+- Worker execution and rescue logic: `guardian/workers/chat_worker.py`
+- Queue transport: `guardian/queue/redis_queue.py`
+- Task-event visibility: `guardian/queue/task_events.py`
+- Completion health truth surface: `guardian/routes/health.py`

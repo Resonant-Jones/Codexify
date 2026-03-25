@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import GuardianChat from "@/features/chat/GuardianChat";
+import GuardianChat, {
+  flattenChatEventPayload,
+} from "@/features/chat/GuardianChat";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
 
@@ -15,6 +17,7 @@ vi.mock("@/lib/api", () => ({
   buildLlmCatalogPath: () => "/llm/catalog",
   buildChatCompletePath: () => "/chat/complete",
   clearInFlightCompletionTurnId: vi.fn(),
+  getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
 }));
 
@@ -53,10 +56,27 @@ vi.mock("@/components/surface/FrameCard", () => ({
 
 vi.mock("@/features/chat/useChat", () => ({
   default: () => ({
-    completionState: { isCompleting: false, activeThreadId: null },
+    messages: [],
+    loading: false,
+    error: null,
+    hasMore: false,
+    activateThread: vi.fn(),
+    refreshSnapshot: vi.fn().mockResolvedValue([]),
+    loadOlderMessages: vi.fn().mockResolvedValue([]),
+    completionState: {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    },
     startCompletion: vi.fn(),
     endCompletion: vi.fn(),
     updateCompletionTaskId: vi.fn(),
+    startCompletionSession: vi.fn(),
+    reassociateCompletionSession: vi.fn(() => true),
+    updateCompletionSessionTurnId: vi.fn(() => true),
+    finalizeCompletionSession: vi.fn(() => true),
+    handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
     refreshSnapshot: vi.fn(),
@@ -146,5 +166,21 @@ describe("GuardianChat session-tab binding", () => {
     expect(
       await screen.findByText("New thread ready. Start typing below.")
     ).toBeInTheDocument();
+  });
+});
+
+describe("GuardianChat task event payload handling", () => {
+  it("keeps the outer task_id while exposing nested turn data", () => {
+    const payload = flattenChatEventPayload({
+      task_id: "task-outer",
+      data: {
+        turn_id: "turn-1",
+        thread_id: 42,
+      },
+    });
+
+    expect(payload.task_id).toBe("task-outer");
+    expect(payload.turn_id).toBe("turn-1");
+    expect(payload.thread_id).toBe(42);
   });
 });

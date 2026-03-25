@@ -41,6 +41,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
+from sqlalchemy import exc as sa_exc
 
 # Configure logging early
 logging.basicConfig(level=logging.INFO)
@@ -150,6 +151,46 @@ OUTBOX_BATCH_SIZE = parse_outbox_batch_size(
 OUTBOX_TENANT_ID = normalize_outbox_tenant_id(
     os.getenv("OUTBOX_TENANT_ID", "default")
 )
+
+_RETRYABLE_OUTBOX_SQLSTATE_CODES = {"57P01", "57P02", "57P03"}
+
+
+def _db_error_sqlstate(exc: BaseException | None) -> Optional[str]:
+    if exc is None:
+        return None
+    for attr in ("sqlstate", "pgcode"):
+        sqlstate = getattr(exc, attr, None)
+        if isinstance(sqlstate, str) and sqlstate:
+            return sqlstate
+    orig = getattr(exc, "orig", None)
+    if isinstance(orig, BaseException) and orig is not exc:
+        return _db_error_sqlstate(orig)
+    return None
+
+
+def _is_retryable_outbox_poll_error(exc: BaseException) -> bool:
+    if isinstance(exc, sa_exc.DisconnectionError):
+        return True
+    if isinstance(exc, sa_exc.DBAPIError) and getattr(
+        exc, "connection_invalidated", False
+    ):
+        return True
+
+    sqlstate = _db_error_sqlstate(exc)
+    if sqlstate is None:
+        return False
+    return (
+        sqlstate.startswith("08")
+        or sqlstate in _RETRYABLE_OUTBOX_SQLSTATE_CODES
+    )
+
+
+def _summarize_outbox_poll_error(exc: BaseException) -> str:
+    sqlstate = _db_error_sqlstate(exc)
+    if sqlstate is not None:
+        return f"{type(exc).__name__} sqlstate={sqlstate}"
+    return type(exc).__name__
+
 
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
@@ -990,11 +1031,23 @@ async def stream_events(
             if await request.is_disconnected():
                 break
 
-            events = event_bus.fetch_events_after(
-                last_id,
-                limit=OUTBOX_BATCH_SIZE,
-                tenant_id=OUTBOX_TENANT_ID,
-            )
+            try:
+                events = event_bus.fetch_events_after(
+                    last_id,
+                    limit=OUTBOX_BATCH_SIZE,
+                    tenant_id=OUTBOX_TENANT_ID,
+                )
+            except Exception as exc:
+                if _is_retryable_outbox_poll_error(exc):
+                    logger.warning(
+                        "[outbox] poll retry after id=%s (%s)",
+                        last_id,
+                        _summarize_outbox_poll_error(exc),
+                    )
+                    await asyncio.sleep(OUTBOX_POLL_INTERVAL)
+                    continue
+                raise
+
             max_id_seen = last_id
 
             if events:
@@ -1234,6 +1287,16 @@ def serve_signed_media(
         raise HTTPException(status_code=404, detail="Media not found")
 
     return FileResponse(candidate)
+
+
+@app.get("/api/health/embedder", tags=["Health"])
+def health_embedder():
+    """Expose lightweight embedder preflight status."""
+    embedder_status = dependencies.get_embedder_preflight_status()
+    return {
+        "status": "ok",
+        "embedder": embedder_status,
+    }
 
 
 # =========================

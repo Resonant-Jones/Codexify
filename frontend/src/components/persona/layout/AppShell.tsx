@@ -40,9 +40,15 @@ import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWit
 import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import {
+  RUNTIME_HEALTH_FAILURE_KINDS,
+  RUNTIME_HEALTH_STATUSES,
+} from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
+import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
@@ -214,6 +220,63 @@ function readRouteThreadId(): number | null {
   return routeThreadIdFromPath(window.location.pathname);
 }
 
+function normalizeInterceptPath(url: unknown): string {
+  if (typeof url !== "string" || !url.trim()) return "";
+  try {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    return new URL(url, base).pathname;
+  } catch {
+    return url;
+  }
+}
+
+function parseRequestPayload(data: unknown): Record<string, unknown> {
+  if (!data) return {};
+  if (typeof data === "string") {
+    try {
+      const parsed = JSON.parse(data);
+      return parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof data === "object") {
+    return data as Record<string, unknown>;
+  }
+  return {};
+}
+
+function normalizeShellToken(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function extractCompletionThreadId(pathname: string): string | null {
+  const match = pathname.match(/\/chat\/([^/]+)\/complete$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function extractMessageThreadId(pathname: string): string | null {
+  const match = pathname.match(/\/chat\/([^/]+)\/messages$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function extractCancelTaskId(pathname: string): string | null {
+  const match = pathname.match(/\/tasks\/([^/]+)\/cancel$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function isCreateMessagePath(pathname: string): boolean {
+  return pathname.endsWith("/chat/messages");
+}
+
 function normalizeProjectName(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -336,6 +399,135 @@ export default function AppShell({
 }: AppShellProps) {
   const auth = useAuthState();
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
+  const { lastEvent } = useLiveEvents();
+  const runtimeHealth = useRuntimeHealth();
+  const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
+  const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
+    () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
+  );
+  const lastCanceledCompletionIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    return SessionSpine.subscribeActiveSpine((spine) => {
+      const activeCompletion = spine?.getActiveCompletion() ?? null;
+      setSessionComposerBlocked(spine?.isComposerBlocked() ?? false);
+      if (
+        activeCompletion?.status === "canceled" &&
+        activeCompletion.completionId !== lastCanceledCompletionIdRef.current
+      ) {
+        lastCanceledCompletionIdRef.current = activeCompletion.completionId;
+        setGuardianSurfaceEpoch((previous) => previous + 1);
+      }
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!lastEvent) return;
+    SessionSpine.getRegisteredSpine()?.consumeAcceptedLiveEvent(lastEvent);
+  }, [lastEvent]);
+
+  React.useEffect(() => {
+    const requestInterceptorId = api.interceptors.request.use((config) => {
+      const spine = SessionSpine.getRegisteredSpine();
+      if (!spine) return config;
+
+      const method = String(config?.method ?? "get").toLowerCase();
+      if (method !== "post") return config;
+
+      const pathname = normalizeInterceptPath(config?.url);
+      const payload = parseRequestPayload(config?.data);
+      const messageThreadId = extractMessageThreadId(pathname);
+
+      if (isCreateMessagePath(pathname) || messageThreadId) {
+        const submittedDraft = normalizeShellToken(payload.content);
+        if (submittedDraft) {
+          const draftTabId =
+            normalizeShellToken(payload.draft_tab_id ?? payload.draftTabId) ??
+            spine.findTabIdForThread(messageThreadId) ??
+            spine.getActiveTabId();
+          spine.rememberSubmittedDraft(submittedDraft, {
+            tabId: draftTabId ?? undefined,
+            threadId: messageThreadId,
+          });
+        }
+      }
+
+      const completionThreadId = extractCompletionThreadId(pathname);
+      if (completionThreadId) {
+        const tabId =
+          spine.findTabIdForThread(completionThreadId) ?? spine.getActiveTabId();
+        const turnId = normalizeShellToken(
+          payload.turn_id ?? payload.turnId ?? (config as any)?.__cfyCompletionTurnId
+        );
+        spine.startCompletion({
+          tabId: tabId ?? undefined,
+          threadId: completionThreadId,
+          turnId,
+        });
+      }
+
+      const cancelTaskId = extractCancelTaskId(pathname);
+      if (cancelTaskId) {
+        spine.cancelActiveCompletion({ taskId: cancelTaskId });
+      }
+
+      return config;
+    });
+
+    const responseInterceptorId = api.interceptors.response.use(
+      (response) => {
+        const spine = SessionSpine.getRegisteredSpine();
+        if (!spine) return response;
+
+        const pathname = normalizeInterceptPath(response?.config?.url);
+        const completionThreadId = extractCompletionThreadId(pathname);
+        if (completionThreadId) {
+          spine.attachCompletionIdentity({
+            threadId: completionThreadId,
+            taskId: normalizeShellToken(response?.data?.task_id ?? response?.data?.taskId),
+            turnId: normalizeShellToken(
+              response?.data?.turn_id ??
+                response?.data?.turnId ??
+                (response?.config as any)?.__cfyCompletionTurnId
+            ),
+          });
+        }
+
+        return response;
+      },
+      (error) => {
+        const spine = SessionSpine.getRegisteredSpine();
+        if (spine) {
+          const pathname = normalizeInterceptPath(error?.config?.url);
+          const completionThreadId = extractCompletionThreadId(pathname);
+          if (completionThreadId) {
+            spine.failActiveCompletion({
+              threadId: completionThreadId,
+              taskId: normalizeShellToken(
+                error?.response?.data?.task_id ?? error?.response?.data?.taskId
+              ),
+              turnId: normalizeShellToken(
+                error?.response?.data?.turn_id ??
+                  error?.response?.data?.turnId ??
+                  (error?.config as any)?.__cfyCompletionTurnId
+              ),
+              errorText: normalizeShellToken(
+                error?.response?.data?.detail ??
+                  error?.response?.data?.message ??
+                  error?.message
+              ),
+            });
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      api.interceptors.request.eject(requestInterceptorId);
+      api.interceptors.response.eject(responseInterceptorId);
+    };
+  }, []);
 
   React.useEffect(() => {
     const node = shellContentRef.current as (HTMLDivElement & { inert?: boolean }) | null;
@@ -1425,6 +1617,40 @@ export default function AppShell({
     return { flex: "1 1 0%", maxWidth: "18rem" };
   }, [bp]);
 
+  const galleryGridStyle = useMemo(
+    () =>
+      ({
+        "--image-grid-cols": bp === "sm" || bp === "md" ? "2" : "4",
+        "--image-grid-gap": "calc(var(--shell-gap) / 2)",
+        display: "grid",
+        width: "100%",
+        minWidth: 0,
+        minHeight: 0,
+        boxSizing: "border-box",
+        gap: "var(--image-grid-gap)",
+        gridTemplateColumns: "repeat(var(--image-grid-cols), minmax(0, 1fr))",
+        gridAutoRows: "max-content",
+        gridAutoFlow: "row",
+        alignItems: "start",
+        alignContent: "start",
+        justifyContent: "stretch",
+        flex: "1 1 0%",
+        overflow: "auto",
+        paddingRight: "1px",
+      }) as React.CSSProperties,
+    [bp],
+  );
+
+  const runtimeDegraded =
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
+  const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const showRuntimeBanner =
+    runtimeDegraded &&
+    runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
+  const runtimeLastHealthy = runtimeHealth.lastSuccessAt
+    ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
+    : "never";
+
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
      When no wallpaper is set, we dramatically adjust background depth/fade
@@ -1457,6 +1683,8 @@ export default function AppShell({
         minHeight: "548px",
         padding: "6px",
         alignItems: "center",
+        color: "var(--text)",
+        colorScheme: resolved,
 
         /* ✨ glossy‑glass overrides */
         "--tile-blur": "22px",                       // stronger backdrop blur
@@ -1504,6 +1732,8 @@ export default function AppShell({
           paddingLeft: "6px",
           paddingRight: "6px",
           boxSizing: "border-box",
+          color: "var(--text)",
+          colorScheme: resolved,
         }}
       >
       <div id="cfy-portal-root" />
@@ -1623,6 +1853,28 @@ export default function AppShell({
           </div>
         )}
       </div>
+
+      {showRuntimeBanner && (
+        <div className="relative z-10 w-full mt-3">
+          <div
+            className="flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <span className="font-semibold tracking-wide">
+              Runtime degraded
+            </span>
+            <span className="opacity-80">failure: {runtimeFailureKind}</span>
+            <span className="opacity-70">
+              last healthy: {runtimeLastHealthy}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
@@ -1766,22 +2018,25 @@ export default function AppShell({
                 <div className="flex h-full min-h-0 flex-col p-[var(--card-pad)]">
                   <div className="text-sm opacity-80 mb-2" style={{ color: "var(--muted)" }}>Gallery</div>
                   <div
-                    className="grid auto-rows-[minmax(140px,1fr)] grid-cols-2 gap-[var(--gutter)] md:grid-cols-3 xl:grid-cols-4 flex-1 min-h-0 overflow-auto"
+                    className="min-h-0"
+                    style={galleryGridStyle}
                     onDrop={galleryUploader.onDrop}
                     onDragOver={galleryUploader.onDragOver}
                   >
                     {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => (
                       <div
                         key={g.src || i}
-                        className="relative aspect-square rounded-[var(--radius)] overflow-hidden border"
+                        className="relative w-full min-w-0 overflow-hidden rounded-[var(--radius)] border"
                         style={{
+                          aspectRatio: "1 / 1",
+                          boxSizing: "border-box",
                           background: "var(--panel-bg)",
                           borderColor: "var(--panel-border)",
                           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
                         }}
                         onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
                       >
-                        <img src={g.src} alt={g.prompt} className="w-full h-full object-cover" />
+                        <img src={g.src} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
                         {visionBusySrc === g.src && (
                           <div className="absolute inset-0 grid place-items-center bg-black/40">
                             <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
@@ -1819,21 +2074,28 @@ export default function AppShell({
               <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
           )}
-          {!startupLocked && view === "guardian" && (
+          {!startupLocked && (
             <div
               className="flex-1 h-full w-full min-h-0 isolate flex flex-col"
+              aria-hidden={view !== "guardian"}
+              aria-busy={view === "guardian" ? sessionComposerBlocked : undefined}
+              data-composer-blocked={
+                view === "guardian" && sessionComposerBlocked ? "true" : "false"
+              }
+              hidden={view !== "guardian"}
               style={{
                 "--frame": "1px",
                 "--bezel": "var(--bezel, 6px)",
                 "--rim": "1px",
                 height: "100%",
                 width: "100%",
-                display: "flex",
+                display: view === "guardian" ? "flex" : "none",
                 flexDirection: "column",
               } as React.CSSProperties}
             >
               <ErrorBoundary>
                 <GuardianChatWithSidebar
+                  key={`guardian-surface-${guardianSurfaceEpoch}`}
                   guardianName={guardianName}
                   userName={userName}
                   prefill={prefill}

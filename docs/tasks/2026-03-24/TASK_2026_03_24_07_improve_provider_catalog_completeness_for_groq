@@ -1,0 +1,145 @@
+
+
+Task 7: Improve provider catalog completeness for Groq
+
+Context
+
+You’re operating on the local Codexify repo.
+Each task must be self-contained, testable, and committed individually.
+
+Instructions
+
+Fix Groq catalog enumeration so Codexify surfaces the full active model set returned by the provider, instead of only a narrow subset such as Kimi and Llama 3 70B.
+
+Perform the described edit only in the specified files.
+
+This change belongs in:
+ • backend provider adapter/catalog normalization for Groq
+ • frontend catalog rendering/filtering only if the backend already returns the models correctly
+ • tests covering catalog enumeration and filtering
+
+Required behavior
+ 1. Verify provider adapter reads the full provider catalog response.
+ 2. Ensure normalization does not discard valid models unintentionally.
+ 3. Ensure frontend does not hide valid Groq models due to stale filtering or hard-coded allowlists.
+ 4. Preserve safety/availability filtering only if intentionally specified in code and documented.
+ 5. Keep output deterministic and deduplicated.
+
+Files to modify
+
+List all files before changes. Likely candidates include:
+ • backend provider catalog files
+ • frontend catalog rendering/filter files
+ • provider catalog tests
+
+Tests
+
+Run based on scope:
+
+pytest -v
+pnpm test
+
+Add or update tests for:
+ • multiple Groq models returned by adapter
+ • normalization preserves valid entries
+ • frontend renders returned models without unwanted filtering
+
+Git commands
+
+If checks pass:
+
+git add <modified files>
+git commit -m "Expand Groq catalog visibility"
+
+Output must include
+ • Summary of changes
+ • files modified
+ • provider/catalog logic touched
+ • Test results
+ • Git commit hash
+
+⸻
+
+# TASK_2026_03_24_07_improve_provider_catalog_completeness_for_groq
+
+## Context
+
+You’re operating on the local Codexify repo.  
+Each task must be self-contained, testable, and committed individually.
+
+## Instructions
+
+Perform the described edit only in the specified files.
+
+Fix Groq catalog enumeration so Codexify surfaces the full active model set returned by the provider, instead of only a narrow subset such as Kimi and Llama 3 70B.
+
+This change belongs in:
+
+- backend provider adapter/catalog normalization for Groq
+- frontend catalog rendering/filtering only if the backend already returns the models correctly
+- tests covering catalog enumeration and filtering
+
+## Goal
+
+Groq provider catalog must reflect the true available model set without unintended filtering or loss during normalization.
+
+## Required Behavior
+
+1. Verify provider adapter reads the full provider catalog response.
+
+2. Ensure normalization does not discard valid models unintentionally:
+   - avoid hard-coded allowlists unless explicitly justified
+   - preserve provider-returned models unless explicitly filtered
+
+3. Ensure frontend does not hide valid Groq models due to stale filtering or UI constraints.
+
+4. Preserve safety/availability filtering only if:
+   - intentionally specified in code
+   - clearly documented
+
+5. Ensure output is:
+   - deterministic
+   - deduplicated
+   - stable across refreshes
+
+## Files to Modify
+
+List all files before changes. Likely candidates include:
+
+- backend provider catalog files
+- frontend catalog rendering/filter files
+- provider catalog tests
+
+## Run Tests
+
+Run based on scope:
+
+### Backend + Frontend
+
+```bash
+pytest -v
+pnpm test
+```
+
+Add or update tests for:
+
+- multiple Groq models returned by adapter
+- normalization preserves valid entries
+- frontend renders returned models without unwanted filtering
+
+## Git Commands
+
+If checks pass:
+
+```bash
+git add <modified files>
+git commit -m "Expand Groq catalog visibility"
+```
+
+## Output Must Include
+
+- Summary of changes
+- Files modified
+- Provider/catalog logic touched
+- Test results
+- Git commit hash

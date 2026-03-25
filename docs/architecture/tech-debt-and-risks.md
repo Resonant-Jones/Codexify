@@ -1,5 +1,5 @@
 Purpose: Maintain an actionable, evidence-backed risk register so planning can prioritize the most consequential architecture debt instead of rediscovering it during incidents.
-Last updated: 2026-03-11
+Last updated: 2026-03-20
 Source anchors:
 - guardian/guardian_api.py
 - guardian/core/
@@ -14,10 +14,62 @@ Source anchors:
 
 # Tech Debt and Risks
 
-- Risk statement: Chat completion availability is tightly coupled to Redis queue health and worker presence, so API uptime alone does not mean assistant uptime. | Subsystem tag: `chat/queue` | Severity: high | Evidence: `guardian/routes/chat.py`, `guardian/queue/redis_queue.py`, `guardian/workers/chat_worker.py` | Suggested mitigation: expose queue/worker readiness more prominently and add degraded-mode behavior or clearer operator alarms.
+## Beta Release Classification (Current Lens: 2026-03-17)
+
+- `blocker`: beta should hold until the issue is fixed or freshly disproven in the current audit window
+- `caution`: does not block beta by itself, but must stay green in the evidence pack
+- `acceptable beta limitation`: not ideal, but shippable for beta if documented accurately and not overstated
+- `operator burden`: the system may still work, but release signoff requires manual multi-surface validation
+
+Current beta-relevant risk classes:
+- `chat/queue`: `caution`
+- `providers`: `caution`
+- `providers/release-gating`: `blocker`
+- `observability/operator-surface`: `operator burden`
+- `retrieval/observability`: `acceptable beta limitation`
+- `ops/inspectability`: `operator burden`
+
+## Redis Chat Reliability Pass: What Improved vs What Still Holds
+
+Improved in the current branch:
+
+- `/health/chat` no longer treats API uptime or Redis reachability alone as enough truth.
+  - It now requires Redis reachability, a bounded queue round-trip, and a fresh worker heartbeat for `healthy`.
+- Queue pressure is more visible.
+  - `/health/chat` exposes queue depth and a sampled `progressing` / `stalled` / `unknown` classification.
+  - That classification is explicitly heuristic, not dequeue proof.
+- Stale-turn-lock recovery no longer relies on lease age alone.
+  - Recovery now depends on terminal task-stream evidence or on a nonterminal task stream plus stale/dead/missing worker-heartbeat evidence.
+  - Unknown evidence blocks recovery.
+- Task-event publication failures are no longer effectively silent.
+  - The worker now logs explicit `task_event_visibility_degraded` signals and distinguishes progress-event visibility loss from terminal-event visibility loss.
+- Route acceptance truth is stronger.
+  - The route only reports success after lock acquisition plus enqueue.
+  - Failed lock or enqueue paths now fail fast instead of looking accepted.
+
+Remaining reliability limits after that pass:
+
+- Queue progression is still a heuristic.
+  - Sampled queue depth can suggest backlog drain or stall, but it does not prove end-to-end dequeue of a particular task.
+- Task-event publication success still does not prove downstream UI receipt.
+  - It proves stream publication only.
+- Accepted work still is not guaranteed to complete successfully.
+  - Route success means accepted into the Redis-backed lane, not eventual success.
+- Redis remains a coordination concentration point.
+  - Queueing, locks, cancellation, task events, heartbeat, and turn anchors still converge there.
+- No synchronous degraded execution lane exists in the route.
+  - There is worker-side cloud-to-local rescue, but not a route-side “run inline when queue health is degraded” path.
+- No general stuck-task watchdog has been implemented in the scanned runtime.
+  - `/health/chat` can expose risk signals, but there is no broad watchdog that sweeps and repairs every stalled task automatically.
+
+- Risk statement: Chat completion availability is still tightly coupled to Redis queue health and worker presence, but `/health/chat` is now materially more honest about that coupling. Healthy status requires Redis reachability, queue round-trip success, and a fresh worker heartbeat; degraded and unhealthy states now expose more of the real failure surface. | Subsystem tag: `chat/queue` | Severity: high | Beta release class: `caution` | Evidence: `guardian/routes/chat.py`, `guardian/routes/health.py`, `guardian/queue/redis_queue.py`, `guardian/workers/chat_worker.py` | Suggested mitigation: keep operator docs explicit that queue-depth progression is heuristic and add a stronger dequeue/watchdog signal if this path remains beta-critical.
 - Risk statement: Config is split across canonical and legacy settings modules, which can block startup or create operator confusion during env changes. | Subsystem tag: `config` | Severity: high | Evidence: `guardian/core/config.py`, `guardian/config/core.py`, `tests/core/test_config_coherence.py` | Suggested mitigation: converge on one settings path and keep compatibility shims temporary and test-backed.
 - Risk statement: Completion assembly, provider execution, persistence, and event emission still converge in a small high-coupling area. | Subsystem tag: `chat/core-loop` | Severity: high | Evidence: `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` | Suggested mitigation: split the completion pipeline into typed stages with focused contract tests.
-- Risk statement: Provider catalog output can imply support that the runtime execution path does not fully deliver. | Subsystem tag: `providers` | Severity: medium | Evidence: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py` | Suggested mitigation: derive catalog visibility from the same capability map the runtime uses.
+- Risk statement: Provider catalog output can imply support that the runtime execution path does not fully deliver. | Subsystem tag: `providers` | Severity: medium | Beta release class: `caution` | Evidence: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py` | Suggested mitigation: derive catalog visibility from the same capability map the runtime uses.
+- Risk statement: Provider governance is now explicit in the canonical provider registry, but beta release confidence still depends on registry decisions, supported-profile posture, catalog output, and live health staying aligned in the actual runtime. A green provider or queue check can coexist with an unsupported release posture if the mounted route surface or active provider contract is drifting. | Subsystem tag: `providers/release-gating` | Severity: high | Beta release class: `blocker` | Evidence: `guardian/core/provider_registry.py`, `guardian/core/llm_catalog.py`, `guardian/routes/health.py`, `guardian/core/supported_profile.py`, `config/supported_profiles/v1-local-core-web-mcp.yaml` | Suggested mitigation: treat supported-profile state plus catalog/health evidence as one release gate; do not let a single green endpoint stand in for runtime truth.
+- Risk statement: Queue-depth and task-event truth are better surfaced than before, but operator diagnosis still requires reading multiple surfaces together: `/health`, `/health/chat`, `/api/health/llm`, task events, logs, and metrics. No single surface proves end-to-end runtime truth. | Subsystem tag: `observability/operator-surface` | Severity: high | Beta release class: `operator burden` | Evidence: `guardian/routes/health.py`, `guardian/routes/chat.py`, `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py` | Suggested mitigation: keep the release runbook explicit about what each surface proves and what remains inference.
+- Risk statement: Current retrieval diagnostics are useful for live debugging but not durable enough for release-grade operator forensics; the RAG trace debug path is dev-only, backed by task-event reads plus in-memory cache, and clears on restart. | Subsystem tag: `retrieval/observability` | Severity: medium | Beta release class: `acceptable beta limitation` | Evidence: `guardian/routes/chat.py`, `frontend/src/components/diagnostics/RagTracePanel.tsx` | Suggested mitigation: use RAG trace as a transient debugging aid and pair it with persisted task events, logs, and health evidence when validating beta behavior.
+- Risk statement: Task-event publication failures are now surfaced more explicitly, but visibility degradation still leaves an operator gap between “the worker continued” and “the UI or observer definitely saw it.” | Subsystem tag: `ops/inspectability` | Severity: medium | Beta release class: `operator burden` | Evidence: `guardian/queue/task_events.py`, `guardian/workers/chat_worker.py`, `tests/routes/test_event_graph_emission.py` | Suggested mitigation: keep terminal visibility and downstream receipt separate in docs; add stronger end-to-end receipt telemetry if the UI path becomes a release gate.
 - Risk statement: Legacy `/tools` behavior and command bus behavior coexist, increasing contract drift risk. | Subsystem tag: `tools/command-bus` | Severity: high | Evidence: `guardian/routes/tools.py`, `guardian/routes/command_bus.py`, `guardian/command_bus/invoke.py` | Suggested mitigation: make the command bus the only durable execution path and shrink the shim surface over time.
 - Risk statement: Some tool-job visibility still relies on process-local state, so restarts can erase operator context. | Subsystem tag: `tools` | Severity: medium | Evidence: `guardian/routes/tools.py` | Suggested mitigation: route all job state through `CommandBusStore` or another durable backing store.
 - Risk statement: Document parsing happens inline in the API process, which mixes upload latency with ingestion orchestration. | Subsystem tag: `ingestion` | Severity: medium | Evidence: `guardian/routes/media.py`, `guardian/services/document_parsers/` | Suggested mitigation: move heavier parsing work behind an explicit async job boundary when ingestion volume grows.
@@ -29,4 +81,5 @@ Source anchors:
 - Risk statement: Browser-side state is spread across manual pathname logic, local/session storage, and custom events, increasing UI regression risk. | Subsystem tag: `frontend/shell` | Severity: medium | Evidence: `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/state/session/SessionSpine.ts` | Suggested mitigation: centralize route/session orchestration behind fewer explicit state boundaries.
 - Risk statement: Backend auth and exposure behavior are heavily env-driven, so deployment mistakes can change trust boundaries quickly. | Subsystem tag: `auth/exposure` | Severity: high | Evidence: `guardian/core/dependencies.py`, `guardian/core/public_exposure.py`, `guardian/guardian_api.py` | Suggested mitigation: keep deployment checklists explicit and add startup-time summaries of effective auth/exposure mode.
 - Risk statement: Raw chat and document text are persisted broadly, but encryption-at-rest guarantees are not encoded in app logic. | Subsystem tag: `data-security` | Severity: high | Evidence: `guardian/db/models.py`, `guardian/routes/media.py` | Suggested mitigation: document infra-level encryption requirements and treat them as non-optional operational controls.
-- Risk statement: Redis in Compose is configured without durable persistence, so queued work and transient events can be lost across restarts. | Subsystem tag: `ops/redis` | Severity: medium | Evidence: `docker-compose.yml` | Suggested mitigation: keep the non-durable setup explicitly dev-only and document stronger production expectations.
+- Risk statement: Redis in Compose is configured without durable persistence, so queued work and transient task-event visibility can still be lost across restarts even though current health and lock semantics are more honest. | Subsystem tag: `ops/redis` | Severity: medium | Evidence: `docker-compose.yml`, `guardian/queue/task_events.py`, `guardian/routes/health.py` | Suggested mitigation: keep the non-durable setup explicitly dev-only, document stronger production expectations, and do not equate current observability improvements with durable replay guarantees.
+- Risk statement: Redis remains a coordination concentration point for chat: queue transport, turn locks, cancellation, task-event streams, heartbeat, turn anchors, and health probes all depend on it. That concentration is now more visible, not removed. | Subsystem tag: `ops/redis` | Severity: medium | Evidence: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/routes/health.py`, `guardian/workers/chat_worker.py` | Suggested mitigation: keep docs honest about the coupling and defer larger decoupling decisions until stronger queue/dequeue truth exists.

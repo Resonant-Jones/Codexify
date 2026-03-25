@@ -13,6 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.core import dependencies, event_bus
@@ -332,6 +333,12 @@ def run_forever() -> None:
             try:
                 payload = dequeue(QUEUE_NAME, block=True, timeout=5)
             except RedisTimeoutError:
+                continue
+            except RedisConnectionError as exc:
+                logger.warning(
+                    "[voice-worker] dequeue error; continuing: %s", exc
+                )
+                time.sleep(1.0)
                 continue
 
             if not payload:

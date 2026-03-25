@@ -188,11 +188,8 @@ export function useProjectsCache({
     try {
       const res = await api.get("/api/projects");
       const list = normalizeProjectsResponse(res);
-      if (Array.isArray(list) && list.length) {
-        setProjectList((prev) => {
-          const merged = mergeProjects(prev, list);
-          return equalProjectLists(prev, merged) ? prev : merged;
-        });
+      if (Array.isArray(list)) {
+        setProjectList((prev) => (equalProjectLists(prev, list) ? prev : list));
       }
     } catch (err) {
       logOnce("poll:projects", 10_000, () => {
@@ -225,11 +222,16 @@ export function useProjectsCache({
         void refreshProjectsFromServer();
       }
     };
+    const onProjectsRefresh = () => {
+      void refreshProjectsFromServer();
+    };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("cfy:projects:refresh", onProjectsRefresh as EventListener);
     return () => {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("cfy:projects:refresh", onProjectsRefresh as EventListener);
     };
   }, [refreshProjectsFromServer]);
 
