@@ -79,6 +79,7 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
+    refreshSnapshot: vi.fn(),
   }),
 }));
 
