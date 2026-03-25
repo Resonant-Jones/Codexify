@@ -1461,23 +1461,6 @@ export function useChat(options: UseChatOptions = {}) {
     };
   }, []);
 
-  const refreshSnapshot = useCallback(
-    async (threadId: number, reason?: string) => {
-      if (!Number.isFinite(threadId)) return;
-      try {
-        await loadMessages(threadId, 50, 0, false);
-        if (process.env.NODE_ENV === "development") {
-          console.debug(
-            `[useChat] refreshSnapshot(${threadId})`,
-            reason ?? "no-reason"
-          );
-        }
-      } catch (err) {
-        console.warn("[useChat] refreshSnapshot failed", err);
-      }
-    },
-    [loadMessages]
-  );
 
   const noopRefreshSnapshot = (threadId?: number, reason?: string) => {
     console.warn("[useChat] refreshSnapshot fallback invoked", {
@@ -1499,7 +1482,6 @@ export function useChat(options: UseChatOptions = {}) {
     error,
     hasMore,
     activateThread,
-    refreshSnapshot,
     loadOlderMessages,
     loadMessages,
     appendMessage,
