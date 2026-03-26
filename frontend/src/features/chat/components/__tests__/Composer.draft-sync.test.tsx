@@ -45,6 +45,28 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("hel");
   });
 
+  it("focuses the textarea when prefill is applied", async () => {
+    vi.useFakeTimers();
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue=""
+        prefill="seed focus"
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    expect(textarea).not.toHaveFocus();
+
+    vi.runOnlyPendingTimers();
+
+    await waitFor(() => {
+      expect(textarea).toHaveFocus();
+    });
+  });
+
   it("flushes draft immediately on blur", () => {
     vi.useFakeTimers();
     const onDraftValueChange = vi.fn();
@@ -94,6 +116,13 @@ describe("Composer draft sync", () => {
     });
     expect(onDraftValueChange).toHaveBeenNthCalledWith(1, "hello world");
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("renders the textarea directly under the composer root without a nested face", () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    expect(textarea.parentElement).toHaveAttribute("data-composer-root");
   });
 
   it("stages attachments locally and uploads them only after send", async () => {

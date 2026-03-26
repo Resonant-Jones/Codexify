@@ -211,6 +211,16 @@ describe("GuardianChat session-tab binding", () => {
       maxWidth: `${CHAT_STAGE_MAX_WIDTH}px`,
     });
     expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
+
+    const composerShell = screen.getByTestId("composer-shell");
+    const nestedRoundedFaces = Array.from(
+      composerShell.querySelectorAll("div")
+    ).filter(
+      (node) =>
+        typeof node.className === "string" &&
+        node.className.includes("rounded-[var(--tile-radius)]")
+    );
+    expect(nestedRoundedFaces).toHaveLength(0);
   });
 });
 
