@@ -121,12 +121,27 @@ If you want cloud models instead of local:
 ALLOW_CLOUD_PROVIDERS=true
 CODEXIFY_LOCAL_ONLY_MODE=false
 CODEXIFY_EGRESS_ALLOWLIST=openai,groq,minimax
-LLM_PROVIDER=openai   # single value only: openai, groq, minimax, or local
+LLM_PROVIDER=minimax  # single value only: openai, groq, minimax, or local
 OPENAI_API_KEY=...
 # GROQ_API_KEY=...
-# MINIMAX_API_KEY=...
-# MINIMAX_API_BASE=https://api.minimax.chat/v1
+# MiniMax direct chat defaults to the Anthropic-compatible surface.
+MINIMAX_API_KEY=...
+MINIMAX_API_BASE=https://api.minimax.io/anthropic
+MINIMAX_API_FLAVOR=anthropic
+MINIMAX_MODEL=MiniMax-M2.1
+# Optional live inventory override if you want the catalog to probe a
+# documented MiniMax model endpoint explicitly.
+# MINIMAX_MODEL_DISCOVERY_URL=...
 ```
+
+MiniMax is the recommended direct cloud provider here when you want:
+
+- Anthropic-compatible chat/tool use by default
+- Prompt caching for stable system/tool prefixes
+- Thinking blocks preserved through the Anthropic-compatible response shape
+
+OpenAI-compatible MiniMax remains available only as an explicit fallback by
+setting `MINIMAX_API_FLAVOR=openai`.
 
 ### 2) Start the stack
 

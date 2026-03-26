@@ -14,6 +14,7 @@ import {
 type RuntimeHealthMock = {
   status: RuntimeHealthStatusToken;
   failureKind: RuntimeHealthFailureKindToken | "unknown" | null;
+  llmDetail: string | null;
   lastSuccessAt: number | null;
   backendReachable: boolean | null;
   chatHealthy: boolean | null;
@@ -26,6 +27,7 @@ type RuntimeHealthMock = {
 const runtimeHealthState: RuntimeHealthMock = {
   status: RUNTIME_HEALTH_STATUSES.HEALTHY,
   failureKind: null,
+  llmDetail: null,
   lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
   backendReachable: true,
   chatHealthy: true,
@@ -178,6 +180,7 @@ describe("AppShell runtime health banner", () => {
   beforeEach(() => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
     runtimeHealthState.failureKind = null;
+    runtimeHealthState.llmDetail = null;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T12:00:00Z");
     if (!window.matchMedia) {
       window.matchMedia = ((query: string) => ({
@@ -228,6 +231,8 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
     runtimeHealthState.failureKind =
       RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
+    runtimeHealthState.llmDetail =
+      "MiniMax live discovery unavailable using documented model list";
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
 
     render(<AppShell />);
@@ -235,6 +240,9 @@ describe("AppShell runtime health banner", () => {
     expect(screen.getByText(/Runtime degraded/i)).toBeInTheDocument();
     expect(
       screen.getByText(/failure:\s*llm_unhealthy/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/MiniMax live discovery unavailable/i)
     ).toBeInTheDocument();
   });
 });

@@ -23,9 +23,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.audio import tts_trigger
-from guardian.cognition.prompts import (
-    build_context_system_message as _compat_build_context_system_message,
-)
 from guardian.cognition.system_profiles.resolver import (
     resolve_thread_system_profile,
 )
@@ -1232,6 +1229,11 @@ def _run_chat_completion_task_compat(
                         model=execution_model,
                         provider=execution_provider,
                         reasoning_mode=getattr(task, "reasoning_mode", None),
+                        prompt_meta=(
+                            dict(bundle.get("_prompt_meta") or {})
+                            if isinstance(bundle, dict)
+                            else None
+                        ),
                     )
                 )
                 if token_callback and (not streamed_any) and assistant_output:
@@ -1246,6 +1248,11 @@ def _run_chat_completion_task_compat(
                 model=execution_model,
                 provider=execution_provider,
                 reasoning_mode=getattr(task, "reasoning_mode", None),
+                prompt_meta=(
+                    dict(bundle.get("_prompt_meta") or {})
+                    if isinstance(bundle, dict)
+                    else None
+                ),
             )
         )
         if token_callback:
@@ -1253,7 +1260,6 @@ def _run_chat_completion_task_compat(
         return assistant_output
 
     fallback_reason: str | None = None
-    fallback_attempted = False
     failure_meta: dict[str, Any] = {}
     final_provider = provider
     final_model = model
@@ -1290,9 +1296,8 @@ def _run_chat_completion_task_compat(
             if isinstance(detail, dict):
                 detail.update(failure_meta)
             else:
-                setattr(exc, "metadata", failure_meta)
+                exc.metadata = failure_meta
             raise
-        fallback_attempted = True
         completion_truth["fallback_attempted"] = True
         rescued = False
         fallback_errors: list[str] = []
@@ -1329,7 +1334,7 @@ def _run_chat_completion_task_compat(
             if isinstance(detail, dict):
                 detail.update(failure_meta)
             else:
-                setattr(exc, "metadata", failure_meta)
+                exc.metadata = failure_meta
             raise
         payload_summary["final_provider"] = final_provider
         payload_summary["final_model"] = final_model

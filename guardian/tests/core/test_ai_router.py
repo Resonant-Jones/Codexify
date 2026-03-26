@@ -54,11 +54,12 @@ def _fake_settings(provider: str) -> Settings:
         CODEXIFY_LOCAL_ONLY_MODE=False,
         CODEXIFY_EGRESS_ALLOWLIST="openai,groq,minimax",
         GROQ_API_KEY="groq-key",
+        GROQ_MODEL="moonshotai/kimi-k2-instruct-0905",
         OPENAI_API_KEY="openai-key",
         MINIMAX_API_KEY="minimax-key",
-        MINIMAX_API_BASE="https://api.minimax.local/v1",
-        MINIMAX_API_FLAVOR="openai",
-        MINIMAX_MODEL="minimax-chat",
+        MINIMAX_API_BASE="https://api.minimax.local/anthropic",
+        MINIMAX_API_FLAVOR="anthropic",
+        MINIMAX_MODEL="MiniMax-M2.5",
         LLM_MODEL="moonshotai/kimi-k2-instruct-0905",
         DEFAULT_GROQ_MODEL="moonshotai/kimi-k2-instruct-0905",
         DEFAULT_OPENAI_MODEL="gpt-4o",
@@ -139,22 +140,21 @@ def test_chat_with_ai_minimax_default(monkeypatch):
         calls["json"] = json
         calls["headers"] = headers
         calls["timeout"] = timeout
-        return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+        return _FakeResponse({"content": [{"type": "text", "text": "ok"}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        _mock_minimax_model_index,
-    )
 
     settings = _fake_settings("minimax")
     reply = chat_with_ai([{"role": "user", "content": "hi"}], settings=settings)
 
-    assert "api.minimax.local/v1/chat/completions" in calls["url"]
-    assert calls["json"]["model"] == "minimax-chat"
-    assert calls["headers"]["Authorization"] == "Bearer minimax-key"
+    assert "api.minimax.local/anthropic/v1/messages" in calls["url"]
+    assert calls["json"]["model"] == "MiniMax-M2.5"
+    assert calls["headers"]["x-api-key"] == "minimax-key"
+    assert calls["headers"]["anthropic-version"] == "2023-06-01"
     assert calls["timeout"] == 60.0
     assert reply == "ok"
+    assert getattr(reply, "provider", None) == "minimax"
+    assert getattr(reply, "raw_payload", {}).get("content")
 
 
 def test_chat_with_ai_minimax_anthropic_surface(monkeypatch):
@@ -165,19 +165,18 @@ def test_chat_with_ai_minimax_anthropic_surface(monkeypatch):
         calls["json"] = json
         calls["headers"] = headers
         calls["timeout"] = timeout
-        return _FakeResponse({"content": [{"type": "text", "text": "ok-a"}]})
+        return _FakeResponse({"choices": [{"message": {"content": "ok-a"}}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
 
     settings = _fake_settings("minimax")
-    settings.MINIMAX_API_FLAVOR = "anthropic"
-    settings.MINIMAX_API_BASE = "https://api.minimax.local/anthropic"
-    settings.MINIMAX_MODEL = "MiniMax-M2.5"
-    settings.MINIMAX_ANTHROPIC_VERSION = "2023-06-01"
+    settings.MINIMAX_API_FLAVOR = "openai"
+    settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+    settings.MINIMAX_MODEL = "minimax-chat"
     monkeypatch.setattr(
         "guardian.core.provider_registry.requests.get",
         lambda url, headers, timeout: _MockDiscoveryResponse(
-            {"data": [{"id": "MiniMax-M2.5"}]}
+            {"data": [{"id": "minimax-chat"}]}
         ),
     )
 
@@ -189,14 +188,13 @@ def test_chat_with_ai_minimax_anthropic_surface(monkeypatch):
         settings=settings,
     )
 
-    assert "api.minimax.local/anthropic/v1/messages" in calls["url"]
-    assert calls["json"]["model"] == "MiniMax-M2.5"
-    assert calls["json"]["system"] == "Be precise."
+    assert "api.minimax.local/v1/chat/completions" in calls["url"]
+    assert calls["json"]["model"] == "minimax-chat"
     assert calls["json"]["messages"] == [
-        {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+        {"role": "system", "content": "Be precise."},
+        {"role": "user", "content": "hi"},
     ]
-    assert calls["headers"]["x-api-key"] == "minimax-key"
-    assert calls["headers"]["anthropic-version"] == "2023-06-01"
+    assert calls["headers"]["Authorization"] == "Bearer minimax-key"
     assert calls["timeout"] == 60.0
     assert reply == "ok-a"
 
@@ -235,13 +233,19 @@ def test_chat_with_ai_groq_override_not_openai(monkeypatch):
         return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: _MockDiscoveryResponse(
+            {"data": [{"id": "moonshotai/kimi-k2-instruct-0905"}]}
+        ),
+    )
 
     settings = _fake_settings("groq")
     chat_with_ai(
         [{"role": "user", "content": "hi"}],
         settings=settings,
         provider="groq",
-        model="custom-model",
+        model="moonshotai/kimi-k2-instruct-0905",
     )
 
     assert any(

@@ -125,6 +125,7 @@ def test_minimax_adapter_uses_openai_compatible_client(monkeypatch):
         base_url="https://api.minimax.local/v1",
         default_model="minimax-chat",
         timeout=45,
+        api_flavor="openai",
     )
     reply = adapter.generate(
         "ignored prompt",
