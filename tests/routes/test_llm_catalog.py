@@ -119,6 +119,7 @@ def _clear_extra_cloud_keys(monkeypatch) -> None:
     monkeypatch.delenv("ALIBABA_API_KEY", raising=False)
     monkeypatch.delenv("ALIBABA_API_BASE", raising=False)
     monkeypatch.delenv("ALIBABA_MODEL", raising=False)
+    monkeypatch.delenv("MINIMAX_API_FLAVOR", raising=False)
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
     monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
     monkeypatch.delenv("MINIMAX_MODEL", raising=False)
@@ -250,6 +251,10 @@ def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
         assert openai["enabled"] is True
         assert openai["available"] is True
         assert openai["authorized"] is True
+        assert openai["models"][0]["supports_chat"] is True
+        assert openai["models"][0]["supports_vision"] is True
+        assert openai["models"][0]["supports_text_input"] is True
+        assert openai["models"][0]["model_kind"] == "vision_chat"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -349,6 +354,8 @@ def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
         assert groq["authorized"] is True
         assert groq["model_index"]["state"] == "available"
         assert groq["model_index"]["model_count"] == 2
+        assert groq["model_index"]["utility_model_count"] == 1
+        assert groq["model_index"]["total_model_count"] == 3
         assert [model["id"] for model in groq["models"]] == [
             "llama-3.3-70b-versatile",
             "moonshotai/kimi-k2-instruct-0905",
@@ -357,6 +364,10 @@ def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
             "Llama 3.3 70B",
             "Kimi K2 Instruct",
         ]
+        assert groq["models"][0]["supports_chat"] is True
+        assert groq["models"][0]["supports_vision"] is False
+        assert groq["models"][0]["supports_text_input"] is True
+        assert groq["models"][0]["model_kind"] == "chat"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -473,6 +484,7 @@ def test_llm_catalog_minimax_discovery_transport_failure_reports_failure_kind(
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_API_FLAVOR": settings.MINIMAX_API_FLAVOR,
         "MINIMAX_MODEL": settings.MINIMAX_MODEL,
     }
     try:
@@ -481,19 +493,20 @@ def test_llm_catalog_minimax_discovery_transport_failure_reports_failure_kind(
         settings.CODEXIFY_EGRESS_ALLOWLIST = "minimax"
         settings.MINIMAX_API_KEY = "test-minimax-key"
         settings.MINIMAX_API_BASE = "https://api.minimax.chat/v1"
+        settings.MINIMAX_API_FLAVOR = "openai"
         settings.MINIMAX_MODEL = None
 
         client = TestClient(app)
         payload = client.get("/api/llm/catalog").json()
         minimax = _provider_by_id(payload, "minimax")
-        assert minimax["available"] is False
-        assert minimax["enabled"] is False
+        assert minimax["available"] is True
+        assert minimax["enabled"] is True
+        assert minimax["models"]
+        assert minimax["models"][0]["id"] == "MiniMax-M2.7"
         assert minimax["model_index"]["state"] == "degraded"
+        assert minimax["model_index"]["source"] == "fallback"
         assert minimax["model_index"]["failure_kind"] == "transport_error"
-        assert (
-            minimax["disabled_reason"]
-            == "Provider model index request failed: ConnectionError"
-        )
+        assert minimax.get("disabled_reason") is None
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -517,6 +530,7 @@ def test_llm_catalog_minimax_empty_catalog_reports_failure_kind(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_API_FLAVOR": settings.MINIMAX_API_FLAVOR,
         "MINIMAX_MODEL": settings.MINIMAX_MODEL,
     }
     try:
@@ -525,20 +539,20 @@ def test_llm_catalog_minimax_empty_catalog_reports_failure_kind(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "minimax"
         settings.MINIMAX_API_KEY = "test-minimax-key"
         settings.MINIMAX_API_BASE = "https://api.minimax.chat/v1"
+        settings.MINIMAX_API_FLAVOR = "openai"
         settings.MINIMAX_MODEL = None
 
         client = TestClient(app)
         payload = client.get("/api/llm/catalog").json()
         minimax = _provider_by_id(payload, "minimax")
-        assert minimax["available"] is False
-        assert minimax["enabled"] is False
+        assert minimax["available"] is True
+        assert minimax["enabled"] is True
+        assert minimax["models"]
+        assert minimax["models"][0]["id"] == "MiniMax-M2.7"
         assert minimax["model_index"]["state"] == "degraded"
         assert minimax["model_index"]["failure_kind"] == "empty_model_result"
-        assert minimax["model_index"]["model_count"] == 0
-        assert (
-            minimax["disabled_reason"]
-            == "Provider model index returned no chat-capable models"
-        )
+        assert minimax["model_index"]["source"] == "fallback"
+        assert minimax.get("disabled_reason") is None
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

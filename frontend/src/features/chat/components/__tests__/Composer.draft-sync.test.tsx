@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
+import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
 import api from "@/lib/api";
+import composerSource from "@/features/chat/components/Composer.tsx?raw";
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -14,6 +16,7 @@ describe("Composer draft sync", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
 
   it("keeps typing local and commits draft only after debounce", async () => {
@@ -40,6 +43,28 @@ describe("Composer draft sync", () => {
     vi.advanceTimersByTime(1);
     expect(onDraftValueChange).toHaveBeenCalledTimes(1);
     expect(onDraftValueChange).toHaveBeenLastCalledWith("hel");
+  });
+
+  it("focuses the textarea when prefill is applied", async () => {
+    vi.useFakeTimers();
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue=""
+        prefill="seed focus"
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    expect(textarea).not.toHaveFocus();
+
+    vi.runOnlyPendingTimers();
+
+    await waitFor(() => {
+      expect(textarea).toHaveFocus();
+    });
   });
 
   it("flushes draft immediately on blur", () => {
@@ -91,6 +116,26 @@ describe("Composer draft sync", () => {
     });
     expect(onDraftValueChange).toHaveBeenNthCalledWith(1, "hello world");
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("keeps the send control inset and the button circular", () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const sendSlot = screen.getByTestId("composer-send-slot");
+    expect(sendSlot).toHaveClass("flex", "shrink-0", "items-center", "pr-[3px]");
+
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton.parentElement).toBe(sendSlot);
+    expect(sendButton).toHaveClass(
+      "!h-8",
+      "!w-8",
+      "!min-w-0",
+      "!rounded-full",
+      "!px-0"
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    expect(textarea.parentElement).toHaveAttribute("data-composer-root");
   });
 
   it("stages attachments locally and uploads them only after send", async () => {
@@ -149,6 +194,94 @@ describe("Composer draft sync", () => {
     expect(onSend.mock.calls[0][0]).toContain("cfy-media-name:notes.txt");
     expect(onSend.mock.calls[0][0]).toContain("hello attachments");
     expect(onSend.mock.calls[0][1]).toEqual({ threadIdOverride: 123 });
+  });
+
+  it("omits invalid project_id values when uploading attachments", async () => {
+    window.localStorage.setItem("cfy.projectId", "0");
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        id: "doc-2",
+        src_url: "/media/documents/notes.txt",
+        filename: "notes.txt",
+      },
+    } as any);
+
+    const { container } = render(
+      <Composer
+        onSend={onSend}
+        threadId={123}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "hello attachments" } });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const file = new File(["hello world"], "notes.txt", {
+      type: "text/plain",
+    });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledTimes(1);
+    });
+
+    const form = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(form.get("project_id")).toBeNull();
+    expect(form.get("thread_id")).toBe("123");
+  });
+
+  it("sanitizes raw backend upload errors before showing a toast", async () => {
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.post).mockRejectedValue({
+      response: {
+        data: {
+          detail:
+            "psycopg.errors.ForeignKeyViolation: insert into media_assets (project_id) values (0)",
+        },
+      },
+    });
+
+    const { container } = render(
+      <Composer
+        onSend={onSend}
+        threadId={123}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "hello attachments" } });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const file = new File(["hello world"], "notes.txt", {
+      type: "text/plain",
+    });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "cfy:toast",
+          detail: expect.objectContaining({
+            message: "Upload failed. Please try again.",
+          }),
+        })
+      );
+    });
   });
 
   it("flushes previous tab draft and loads next tab initial draft on scope switch", () => {
@@ -268,5 +401,23 @@ describe("Composer draft sync", () => {
 
     fireEvent.click(voiceTurnButton);
     expect(onVoiceTurn).not.toHaveBeenCalled();
+  });
+
+  it("pins controls row using the shared bottom-gap contract", () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const controlsRow = screen.getByTestId("composer-controls-row");
+    expect(controlsRow.className).toContain("mt-auto");
+    expect(controlsRow.className).toContain(
+      CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
+    );
+
+    expect(composerSource).not.toContain('pb-[2px]');
   });
 });

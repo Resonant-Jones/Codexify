@@ -24,6 +24,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
 from fastapi.responses import FileResponse, StreamingResponse
@@ -38,9 +39,12 @@ from guardian.core.dependencies import verify_api_key
 from guardian.core.media_signing import extract_media_path, sign_media_url
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import (
+    ChatThread,
     GeneratedDocument,
     GeneratedImage,
     MediaAsset,
+    Project,
+    ProjectDocumentLink,
     ThreadDocument,
     TTSOutput,
     UploadedDocument,
@@ -69,6 +73,7 @@ from guardian.services.media_identity import source_label_from_filename, utcnow
 
 logger = logging.getLogger(__name__)
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
+_GENERIC_UPLOAD_ERROR = "Upload failed. Please try again."
 
 
 def _is_pytest() -> bool:
@@ -121,6 +126,7 @@ class ImageUploadResponse(BaseModel):
     filename: str
     filesize: int
     mime_type: str
+    media_kind: str = Field(default="image")
     source_tag: Optional[str] = None
     created_at: str
 
@@ -287,18 +293,126 @@ def _coerce_optional_positive_int(value: int | None) -> int | None:
     return parsed if parsed > 0 else None
 
 
-def _resolve_document_project_id(db, incoming_project_id: int | None) -> int:
+def _upload_error_detail(code: str, message: str) -> dict[str, str]:
+    return {"error": code, "message": message}
+
+
+def _request_id_from_request(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    request_id = getattr(request.state, "request_id", None)
+    if request_id:
+        return str(request_id)
+    header_id = request.headers.get("X-Request-ID")
+    if header_id:
+        return str(header_id)
+    return None
+
+
+def _extract_constraint_name(exc: BaseException) -> str | None:
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    if constraint_name:
+        return str(constraint_name)
+    return None
+
+
+def _log_upload_failure(
+    *,
+    route: str,
+    request: Request | None,
+    exc: BaseException,
+    project_id: int | None,
+    thread_id: int | None,
+) -> None:
+    logger.exception(
+        "[media] upload_failed route=%s request_id=%s thread_id=%s project_id=%s constraint=%s error_class=%s",
+        route,
+        _request_id_from_request(request),
+        thread_id,
+        project_id,
+        _extract_constraint_name(exc),
+        exc.__class__.__name__,
+    )
+
+
+def _resolve_upload_context(
+    db, incoming_project_id: int | None, thread_id: int | None = None
+) -> tuple[int, int | None]:
     explicit_project_id = _coerce_optional_positive_int(incoming_project_id)
-    if explicit_project_id is not None:
-        return explicit_project_id
+    normalized_thread_id = _coerce_optional_positive_int(thread_id)
+
+    thread = None
+    try:
+        with db.get_session() as session:
+            if normalized_thread_id is not None:
+                thread = (
+                    session.query(ChatThread)
+                    .filter(ChatThread.id == normalized_thread_id)
+                    .first()
+                )
+                if thread is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=_upload_error_detail(
+                            "invalid_thread_id",
+                            "Invalid thread reference.",
+                        ),
+                    )
+
+            if explicit_project_id is not None:
+                project = (
+                    session.query(Project)
+                    .filter(Project.id == explicit_project_id)
+                    .first()
+                )
+                if project is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=_upload_error_detail(
+                            "invalid_project_id",
+                            "Invalid project reference.",
+                        ),
+                    )
+                return explicit_project_id, normalized_thread_id
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.debug(
+            "[media] Failed to resolve upload context for thread=%s project=%s: %s",
+            normalized_thread_id,
+            explicit_project_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=_upload_error_detail("upload_failed", _GENERIC_UPLOAD_ERROR),
+        ) from exc
+
+    thread_project_id = _coerce_optional_positive_int(
+        getattr(thread, "project_id", None)
+    )
+    if thread_project_id is not None:
+        return thread_project_id, normalized_thread_id
 
     fallback_project_id = canonicalize_default_project(db, logger=logger)
+    fallback_project_id = _coerce_optional_positive_int(fallback_project_id)
     if fallback_project_id is None:
         raise HTTPException(
             status_code=500,
-            detail="Unable to resolve default project for document upload",
+            detail=_upload_error_detail("upload_failed", _GENERIC_UPLOAD_ERROR),
         )
-    return int(fallback_project_id)
+    return fallback_project_id, normalized_thread_id
+
+
+def _resolve_document_project_id(
+    db, incoming_project_id: int | None, thread_id: int | None = None
+) -> int:
+    resolved_project_id, _resolved_thread_id = _resolve_upload_context(
+        db, incoming_project_id, thread_id
+    )
+    return resolved_project_id
 
 
 def _create_media_asset(
@@ -401,6 +515,58 @@ def _ensure_thread_document_link(
     return True
 
 
+def _ensure_project_document_link(
+    session,
+    *,
+    project_id: int | None,
+    document_id: str,
+    document_type: str = "uploaded",
+    attached_by: str | None = None,
+) -> bool:
+    normalized_project_id = _coerce_optional_positive_int(project_id)
+    normalized_document_id = str(document_id or "").strip()
+    normalized_document_type = str(document_type or "uploaded").strip().lower()
+    if normalized_document_type.startswith("gen"):
+        normalized_document_type = "generated"
+    else:
+        normalized_document_type = "uploaded"
+
+    if normalized_project_id is None or not normalized_document_id:
+        return False
+
+    existing_link = (
+        session.query(ProjectDocumentLink)
+        .filter_by(
+            project_id=normalized_project_id,
+            document_id=normalized_document_id,
+            document_type=normalized_document_type,
+        )
+        .first()
+    )
+    if existing_link is not None:
+        updated = False
+        if existing_link.is_enabled is False:
+            existing_link.is_enabled = True
+            updated = True
+        if (
+            attached_by
+            and getattr(existing_link, "attached_by", None) != attached_by
+        ):
+            existing_link.attached_by = attached_by
+            updated = True
+        return updated
+
+    session.add(
+        ProjectDocumentLink(
+            project_id=normalized_project_id,
+            document_id=normalized_document_id,
+            document_type=normalized_document_type,
+            attached_by=attached_by,
+        )
+    )
+    return True
+
+
 def _document_upload_response_from_row(
     document: UploadedDocument,
     *,
@@ -464,9 +630,10 @@ def _find_generated_image_for_asset(
     "/upload/image", response_model=ImageUploadResponse, tags=["media"]
 )
 async def upload_image(
+    request: Request,
     file: UploadFile = File(...),
-    project_id: int = Body(...),
-    thread_id: int = Body(...),
+    project_id: Optional[int] = Body(default=None),
+    thread_id: Optional[int] = Body(default=None),
     user_id: str = Body(default="default"),
     tag: Optional[str] = Body(default=None),
     source_tag: Optional[str] = Body(default=None),
@@ -493,12 +660,15 @@ async def upload_image(
             filename, fallback="uploaded-image"
         )
         db = _get_db()
+        resolved_project_id, resolved_thread_id = _resolve_upload_context(
+            db, project_id, thread_id
+        )
 
         # First pass: dedupe before any storage write.
         with db.get_session() as session:
             identity, existing_asset = _compute_identity_with_existing_asset(
                 session=session,
-                project_id=project_id,
+                project_id=resolved_project_id,
                 media_kind="image",
                 provenance="uploaded",
                 file_data=file_data,
@@ -538,8 +708,8 @@ async def upload_image(
                 linked_image = UploadedImage(
                     id=str(uuid.uuid4()),
                     asset_id=existing_asset.id,
-                    project_id=project_id,
-                    thread_id=thread_id,
+                    project_id=resolved_project_id,
+                    thread_id=resolved_thread_id,
                     user_id=user_id,
                     src_url=existing_asset.src_url,
                     filename=filename,
@@ -582,7 +752,7 @@ async def upload_image(
                     existing_asset,
                 ) = _compute_identity_with_existing_asset(
                     session=session,
-                    project_id=project_id,
+                    project_id=resolved_project_id,
                     media_kind="image",
                     provenance="uploaded",
                     file_data=file_data,
@@ -620,8 +790,8 @@ async def upload_image(
                     linked_image = UploadedImage(
                         id=image_id,
                         asset_id=existing_asset.id,
-                        project_id=project_id,
-                        thread_id=thread_id,
+                        project_id=resolved_project_id,
+                        thread_id=resolved_thread_id,
                         user_id=user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
@@ -649,8 +819,8 @@ async def upload_image(
 
                 asset = _create_media_asset(
                     session=session,
-                    project_id=project_id,
-                    thread_id=thread_id,
+                    project_id=resolved_project_id,
+                    thread_id=resolved_thread_id,
                     user_id=user_id,
                     media_kind="image",
                     provenance="uploaded",
@@ -669,8 +839,8 @@ async def upload_image(
                 uploaded_image = UploadedImage(
                     id=image_id,
                     asset_id=asset.id,
-                    project_id=project_id,
-                    thread_id=thread_id,
+                    project_id=resolved_project_id,
+                    thread_id=resolved_thread_id,
                     user_id=user_id,
                     src_url=src_url,
                     filename=filename,
@@ -687,7 +857,7 @@ async def upload_image(
                     existing_asset,
                 ) = _compute_identity_with_existing_asset(
                     session=session,
-                    project_id=project_id,
+                    project_id=resolved_project_id,
                     media_kind="image",
                     provenance="uploaded",
                     file_data=file_data,
@@ -723,8 +893,8 @@ async def upload_image(
                     linked_image = UploadedImage(
                         id=str(uuid.uuid4()),
                         asset_id=existing_asset.id,
-                        project_id=project_id,
-                        thread_id=thread_id,
+                        project_id=resolved_project_id,
+                        thread_id=resolved_thread_id,
                         user_id=user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
@@ -752,7 +922,12 @@ async def upload_image(
                 raise
 
         logger.info(
-            f"Image uploaded: {filename} ({filesize} bytes) by user {user_id}"
+            "Image uploaded: %s (%s bytes) by user %s project_id=%s thread_id=%s",
+            filename,
+            filesize,
+            user_id,
+            resolved_project_id,
+            resolved_thread_id,
         )
 
         return ImageUploadResponse(
@@ -765,9 +940,20 @@ async def upload_image(
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
-    except Exception as e:
-        logger.error(f"Image upload failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log_upload_failure(
+            route="/api/media/upload/image",
+            request=request,
+            exc=exc,
+            project_id=_coerce_optional_positive_int(project_id),
+            thread_id=_coerce_optional_positive_int(thread_id),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=_upload_error_detail("upload_failed", _GENERIC_UPLOAD_ERROR),
+        ) from exc
 
 
 @router.get("/images/{image_id}", tags=["media"])
@@ -826,6 +1012,7 @@ async def delete_image(image_id: str):
     "/upload/document", response_model=DocumentUploadResponse, tags=["media"]
 )
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     project_id: Optional[int] = Body(default=None),
     thread_id: Optional[int] = Body(default=None),
@@ -866,8 +1053,9 @@ async def upload_document(
         )
 
         db = _get_db()
-        resolved_project_id = _resolve_document_project_id(db, project_id)
-        resolved_thread_id = _coerce_optional_positive_int(thread_id)
+        resolved_project_id, resolved_thread_id = _resolve_upload_context(
+            db, project_id, thread_id
+        )
 
         # First pass: dedupe before storage write.
         with db.get_session() as session:
@@ -899,6 +1087,13 @@ async def upload_document(
                         thread_id=resolved_thread_id,
                         document_id=existing.id,
                         relation="attached",
+                    )
+                    _ensure_project_document_link(
+                        session,
+                        project_id=resolved_project_id,
+                        document_id=existing.id,
+                        document_type="uploaded",
+                        attached_by=user_id,
                     )
                     session.commit()
                     return _document_upload_response_from_row(
@@ -997,12 +1192,19 @@ async def upload_document(
                             document_id=existing.id,
                             relation="attached",
                         )
-                        session.commit()
-                        return _document_upload_response_from_row(
-                            existing,
-                            fallback_project_id=resolved_project_id,
-                            requested_thread_id=resolved_thread_id,
-                        )
+                    _ensure_project_document_link(
+                        session,
+                        project_id=resolved_project_id,
+                        document_id=existing.id,
+                        document_type="uploaded",
+                        attached_by=user_id,
+                    )
+                    session.commit()
+                    return _document_upload_response_from_row(
+                        existing,
+                        fallback_project_id=resolved_project_id,
+                        requested_thread_id=resolved_thread_id,
+                    )
                     linked_doc = UploadedDocument(
                         id=doc_id,
                         asset_id=existing_asset.id,
@@ -1028,6 +1230,13 @@ async def upload_document(
                         thread_id=resolved_thread_id,
                         document_id=linked_doc.id,
                         relation="attached",
+                    )
+                    _ensure_project_document_link(
+                        session,
+                        project_id=resolved_project_id,
+                        document_id=linked_doc.id,
+                        document_type="uploaded",
+                        attached_by=user_id,
                     )
                     session.commit()
                     src_url = linked_doc.src_url
@@ -1086,6 +1295,13 @@ async def upload_document(
                         document_id=uploaded_doc.id,
                         relation="attached",
                     )
+                    _ensure_project_document_link(
+                        session,
+                        project_id=resolved_project_id,
+                        document_id=uploaded_doc.id,
+                        document_type="uploaded",
+                        attached_by=user_id,
+                    )
                     session.commit()
                     asset_metadata = {
                         "asset_id": asset.id,
@@ -1129,12 +1345,19 @@ async def upload_document(
                             document_id=existing.id,
                             relation="attached",
                         )
-                        session.commit()
-                        return _document_upload_response_from_row(
-                            existing,
-                            fallback_project_id=resolved_project_id,
-                            requested_thread_id=resolved_thread_id,
-                        )
+                    _ensure_project_document_link(
+                        session,
+                        project_id=resolved_project_id,
+                        document_id=existing.id,
+                        document_type="uploaded",
+                        attached_by=user_id,
+                    )
+                    session.commit()
+                    return _document_upload_response_from_row(
+                        existing,
+                        fallback_project_id=resolved_project_id,
+                        requested_thread_id=resolved_thread_id,
+                    )
                     linked_doc = UploadedDocument(
                         id=doc_id,
                         asset_id=existing_asset.id,
@@ -1160,6 +1383,13 @@ async def upload_document(
                         thread_id=resolved_thread_id,
                         document_id=linked_doc.id,
                         relation="attached",
+                    )
+                    _ensure_project_document_link(
+                        session,
+                        project_id=resolved_project_id,
+                        document_id=linked_doc.id,
+                        document_type="uploaded",
+                        attached_by=user_id,
                     )
                     session.commit()
                     src_url = linked_doc.src_url
@@ -1245,9 +1475,20 @@ async def upload_document(
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
-    except Exception as e:
-        logger.error(f"Document upload failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log_upload_failure(
+            route="/api/media/upload/document",
+            request=request,
+            exc=exc,
+            project_id=_coerce_optional_positive_int(project_id),
+            thread_id=_coerce_optional_positive_int(thread_id),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=_upload_error_detail("upload_failed", _GENERIC_UPLOAD_ERROR),
+        ) from exc
 
 
 # =========================

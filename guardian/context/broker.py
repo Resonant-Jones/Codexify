@@ -555,8 +555,8 @@ class ContextBroker:
             "global": [],
         }
 
-        session_factory = getattr(self.chatlog, "get_session", None)
-        if not callable(session_factory):
+        session_provider = self._resolve_session_provider()
+        if session_provider is None:
             return docs
 
         try:
@@ -575,7 +575,7 @@ class ContextBroker:
 
         session = None
         try:
-            session = session_factory()
+            session = session_provider()
             if hasattr(session, "__enter__") and hasattr(session, "__exit__"):
                 with session as managed_session:
                     docs["project"] = self._query_project_docs(
@@ -885,6 +885,25 @@ class ContextBroker:
             return "generated"
         if normalized.startswith("up"):
             return "uploaded"
+        return None
+
+    def _resolve_session_provider(self) -> Optional[Any]:
+        """Find a callable that yields a SQLAlchemy session."""
+        if self.chatlog is None:
+            return None
+
+        explicit = getattr(self.chatlog, "get_session", None)
+        if callable(explicit):
+            return explicit
+
+        sa_session = getattr(self.chatlog, "_sa_session", None)
+        if callable(sa_session):
+            return sa_session
+
+        session_local = getattr(self.chatlog, "_SessionLocal", None)
+        if session_local is not None:
+            return lambda: session_local()
+
         return None
 
     async def _snapshot_sensors(self) -> Dict[str, Any]:

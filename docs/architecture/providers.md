@@ -56,35 +56,43 @@ Set:
 
 - `LLM_PROVIDER=minimax`
 - `MINIMAX_API_KEY=<your_minimax_api_key>`
-- `MINIMAX_API_BASE=<openai_compatible_base_url>`
+- `MINIMAX_API_BASE=https://api.minimax.io/anthropic`
+- `MINIMAX_API_FLAVOR=anthropic`
 - `ALLOW_CLOUD_PROVIDERS=true`
 - `CODEXIFY_LOCAL_ONLY_MODE=false`
 - `CODEXIFY_EGRESS_ALLOWLIST=...` including `minimax`
 
 Optional:
 
-- `MINIMAX_API_FLAVOR=<openai|anthropic>` (default: `openai`)
+- `MINIMAX_MODEL_DISCOVERY_URL=<explicit_model_catalog_url>` when you want to
+  probe a documented MiniMax inventory endpoint directly
 - `MINIMAX_ANTHROPIC_VERSION=<anthropic_api_version>` (used when flavor is `anthropic`)
-- `MINIMAX_MODEL=<default_model_id>`
+- `MINIMAX_MODEL=<default_model_id>` (recommended direct-chat default: `MiniMax-M2.1`)
 - `MINIMAX_TIMEOUT_SECONDS=<request_timeout_seconds>`
 
 Base URL examples:
 
-- OpenAI flavor (`MINIMAX_API_FLAVOR=openai`): `https://api.minimax.io/v1`
 - Anthropic flavor (`MINIMAX_API_FLAVOR=anthropic`): `https://api.minimax.io/anthropic`
+- OpenAI fallback (`MINIMAX_API_FLAVOR=openai`): `https://api.minimax.io/v1`
 
 When `LLM_PROVIDER=minimax`, backend config validation fails fast with a clear
-message if `MINIMAX_API_KEY` or `MINIMAX_API_BASE` is missing.
+message if `MINIMAX_API_KEY` or `MINIMAX_API_BASE` is missing. The default
+runtime flavor is Anthropic-compatible, and OpenAI-compatible MiniMax is only
+used when explicitly selected.
 
 ### Routing behavior
 
-- Runtime chat routing uses MiniMax only when explicitly selected.
+- Runtime chat routing uses the Anthropic-compatible MiniMax surface by default.
 - Explicit request selection (`provider`/`model`) takes precedence over profile
   overrides in the chat worker.
 - Provider registry loads MiniMax only when both `MINIMAX_API_KEY` and
   `MINIMAX_API_BASE` are present.
-- Catalog entry is deterministic and includes one default model:
-  `MINIMAX_MODEL` or `minimax-default`.
+- Catalog entry prefers live discovery when configured, but falls back to the
+  documented MiniMax chat model list instead of hiding the provider when live
+  discovery is unavailable.
+- Prompt caching is most effective when the static system/tool prefix stays
+  stable; Anthropic-compatible requests mark the stable system blocks with
+  explicit cache metadata.
 - Existing fallback order is unchanged. MiniMax is used only when selected.
 
 ### Security

@@ -23,6 +23,7 @@ from guardian.core.provider_registry import (
     normalize_provider,
     resolve_provider_capability,
 )
+from guardian.core.provider_truth import build_provider_truth
 
 logger = logging.getLogger(__name__)
 _LLM_HEALTH_PROBE_CACHE: dict | None = None
@@ -61,33 +62,66 @@ def _resolve_llm_health_endpoints() -> list[str]:
     return normalized
 
 
-def _probe_local_llm(base_url_v1: str, timeout_seconds: float) -> dict:
-    health_base = (
-        base_url_v1[:-3] if base_url_v1.endswith("/v1") else base_url_v1
+def _probe_local_llm(settings, timeout_seconds: float) -> dict:
+    from guardian.core.ai_router import (
+        _resolve_local_endpoint_candidates,
+        describe_local_endpoint_resolution,
     )
-    endpoints = _resolve_llm_health_endpoints()
-    last_error = "unreachable"
 
-    for endpoint in endpoints:
-        url = f"{health_base}{endpoint}"
-        try:
-            resp = requests.get(url, timeout=timeout_seconds)
-            if 200 <= resp.status_code < 300:
-                return {
-                    "ok": True,
-                    "status": "online",
-                    "checked_endpoint": endpoint,
-                    "http_status": resp.status_code,
-                }
-            last_error = f"HTTP {resp.status_code} from {endpoint}"
-        except Exception as exc:
-            last_error = f"{type(exc).__name__}: {exc}"
+    endpoints = _resolve_llm_health_endpoints()
+    attempted_base_urls: list[str] = []
+    last_error = "unreachable"
+    failure_kind: str | None = None
+
+    for candidate in _resolve_local_endpoint_candidates(settings):
+        attempted_base_urls.append(candidate.base_url)
+        health_base = (
+            candidate.base_url[:-3]
+            if candidate.base_url.endswith("/v1")
+            else candidate.base_url
+        )
+        for endpoint in endpoints:
+            url = f"{health_base}{endpoint}"
+            try:
+                resp = requests.get(url, timeout=timeout_seconds)
+                if 200 <= resp.status_code < 300:
+                    return {
+                        "ok": True,
+                        "status": "online",
+                        "checked_endpoint": endpoint,
+                        "http_status": resp.status_code,
+                        "endpoint_resolution": describe_local_endpoint_resolution(
+                            settings,
+                            selected_base_url=candidate.base_url,
+                            attempted_base_urls=attempted_base_urls,
+                            state="available",
+                        ),
+                    }
+                last_error = f"HTTP {resp.status_code} from {endpoint}"
+                failure_kind = "provider_http_error"
+            except requests.exceptions.RequestException as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                failure_kind = (
+                    "provider_timeout"
+                    if isinstance(exc, requests.exceptions.Timeout)
+                    else "transport_error"
+                )
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                failure_kind = "request_error"
 
     return {
         "ok": False,
         "status": "offline",
         "checked_endpoints": endpoints,
         "error": last_error,
+        "endpoint_resolution": describe_local_endpoint_resolution(
+            settings,
+            attempted_base_urls=attempted_base_urls,
+            state="degraded" if attempted_base_urls else "unavailable",
+            failure_kind=failure_kind,
+            reason=last_error,
+        ),
     }
 
 
@@ -352,6 +386,13 @@ def health_llm():
         payload.update(
             {"ok": False, "status": "misconfigured", "error": str(exc)}
         )
+        payload["provider_truth"] = build_provider_truth(
+            provider,
+            settings,
+            capability=provider_runtime,
+            discoverable=False,
+            selectable=False,
+        )
         return payload
 
     if provider == "local":
@@ -388,12 +429,19 @@ def health_llm():
             _LLM_HEALTH_PROBE_INFLIGHT_LOCK.release()
             return payload
         try:
-            probe_payload = _probe_local_llm(local_base, timeout)
+            probe_payload = _probe_local_llm(settings, timeout)
             _store_probe(probe_payload)
             payload.update(probe_payload)
             payload["cache"] = "miss"
         finally:
             _LLM_HEALTH_PROBE_INFLIGHT_LOCK.release()
+        payload["provider_truth"] = build_provider_truth(
+            provider,
+            settings,
+            capability=provider_runtime,
+            discoverable=bool(payload.get("ok")),
+            selectable=bool(payload.get("ok")),
+        )
         return payload
 
     if not provider_runtime.get("enabled"):
@@ -404,6 +452,16 @@ def health_llm():
                 "error": provider_runtime.get("disabled_reason")
                 or "Provider unavailable",
             }
+        )
+        payload["provider_truth"] = build_provider_truth(
+            provider,
+            settings,
+            capability=provider_runtime,
+            discoverable=str(
+                (provider_runtime.get("model_index") or {}).get("state") or ""
+            ).strip()
+            == "available",
+            selectable=False,
         )
         return payload
 
@@ -418,6 +476,16 @@ def health_llm():
             ),
         }
     )
+    payload["provider_truth"] = build_provider_truth(
+        provider,
+        settings,
+        capability=provider_runtime,
+        discoverable=str(
+            (provider_runtime.get("model_index") or {}).get("state") or ""
+        ).strip()
+        == "available",
+        selectable=bool(provider_runtime.get("enabled")),
+    )
     return payload
 
 
@@ -431,10 +499,14 @@ def llm_catalog(include: str | None = Query(default=None)):
 def health_chat():
     """Get health status of chat subsystem."""
     # Import from core dependencies module
+    from guardian.core.config import get_settings
     from guardian.core.dependencies import DB_BACKEND, chatlog_db
 
     completion_service = _collect_completion_service_health()
     queue_health = _collect_chat_queue_health()
+    settings = get_settings()
+    provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
+    provider_runtime = resolve_provider_capability(provider, settings)
 
     try:
         threads = chatlog_db.count_chat_threads()
@@ -546,6 +618,20 @@ def health_chat():
         "messages": messages,
         "backend": DB_BACKEND,
         "completion_service": completion_service,
+        "provider": provider,
+        "provider_runtime": provider_runtime,
+        "provider_truth": build_provider_truth(
+            provider,
+            settings,
+            capability=provider_runtime,
+            discoverable=str(
+                (provider_runtime.get("model_index") or {}).get("state") or ""
+            ).strip()
+            == "available"
+            if provider != "local"
+            else bool(provider_runtime.get("enabled")),
+            selectable=bool(provider_runtime.get("enabled")),
+        ),
     }
 
 

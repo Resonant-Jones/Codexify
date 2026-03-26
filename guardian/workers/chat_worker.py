@@ -49,6 +49,7 @@ from guardian.core.provider_registry import (
     normalize_provider,
     validate_provider_model_selection,
 )
+from guardian.core.provider_truth import build_provider_truth
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     clear_cancelled,
@@ -305,6 +306,21 @@ def _find_assistant_message_id_by_turn_id(
 ) -> int | None:
     if not turn_id:
         return None
+    try:
+        client = get_redis_client()
+        using_fake_cache = hasattr(client, "_values") or (
+            client.__class__.__name__ == "_FakeRedis"
+        )
+    except Exception:
+        client = None
+        using_fake_cache = False
+
+    if using_fake_cache:
+        return _cached_turn_completion_anchor(
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
+
     chatlog_db = getattr(dependencies, "chatlog_db", None)
     if chatlog_db is None:
         return _cached_turn_completion_anchor(
@@ -476,6 +492,89 @@ def _classify_runtime_status(detail: str) -> str | None:
     if "failed to resolve" in lowered or "name resolution" in lowered:
         return "dns_error"
     return None
+
+
+def _completion_truth(
+    *,
+    accepted: bool,
+    attempted: bool,
+    fallback_attempted: bool,
+    executed: bool,
+    completed: bool,
+) -> dict[str, bool]:
+    return {
+        "accepted": bool(accepted),
+        "attempted": bool(attempted),
+        "fallback_attempted": bool(fallback_attempted),
+        "executed": bool(executed),
+        "completed": bool(completed),
+    }
+
+
+def _should_attempt_provider_fallback(exc: Exception) -> bool:
+    if isinstance(exc, ChatTaskCancelled):
+        return False
+    if isinstance(exc, LLMConfigError):
+        return True
+    if isinstance(exc, HTTPException):
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, dict):
+            failure_kind = str(detail.get("failure_kind") or "").strip().lower()
+            if failure_kind in {
+                "provider_timeout",
+                "transport_error",
+                "provider_unavailable",
+                "provider_http_error",
+                "http_error",
+                "request_error",
+                "auth_config_error",
+            }:
+                return True
+        return exc.status_code >= 500
+    return True
+
+
+def _fallback_provider_candidates(
+    *,
+    attempted_provider: str | None,
+    settings: Settings,
+) -> list[tuple[str, str]]:
+    current = normalize_provider(attempted_provider)
+    requested_order = list(getattr(settings, "LLM_FALLBACK_ORDER", []) or [])
+    normalized_order: list[str] = []
+    seen: set[str] = set()
+    preferred_candidates = [current]
+    if current != "local":
+        preferred_candidates.append("local")
+    preferred_candidates.extend(requested_order)
+    for raw in preferred_candidates:
+        provider = normalize_provider(raw)
+        if not provider or provider in seen:
+            continue
+        seen.add(provider)
+        normalized_order.append(provider)
+    candidates: list[tuple[str, str]] = []
+    for provider in normalized_order:
+        if provider == current:
+            continue
+        model = _normalize_model_override(
+            first_model_for_provider(provider, settings=settings)
+            or default_model_for_provider(provider, settings)
+        )
+        if not model:
+            continue
+        if provider == "local":
+            candidates.append((provider, model))
+            continue
+        valid, _reason = validate_provider_model_selection(
+            provider_id=provider,
+            model_id=model,
+            settings=settings,
+        )
+        if not valid:
+            continue
+        candidates.append((provider, model))
+    return candidates
 
 
 def _assistant_message_audio_autogenerate_effective_enabled() -> bool:
@@ -873,6 +972,32 @@ def _merge_system_messages(
     ]
 
 
+def _compat_context_system_message_with_meta(
+    bundle: dict[str, Any] | None,
+) -> tuple[str | None, dict[str, Any]]:
+    """Bridge older build_context_system_message patch points to the new meta API."""
+
+    message, meta = _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META(bundle)
+
+    compat_message: str | None
+    try:
+        compat_message = build_context_system_message(bundle)
+    except Exception:
+        compat_message = None
+
+    final_message = message
+    if compat_message and compat_message.strip():
+        if final_message and final_message.strip():
+            if compat_message.strip() != final_message.strip():
+                final_message = "\n\n".join(
+                    [final_message.strip(), compat_message.strip()]
+                )
+        else:
+            final_message = compat_message
+
+    return final_message, meta
+
+
 def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
     settings = get_settings()
     profile = None
@@ -890,6 +1015,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
         str(getattr(task, "selection_source", "") or "").strip() or None
     )
     provider_pinned = bool(getattr(task, "provider_pinned", False))
+    model_resolved_provider: str | None = None
 
     provider = requested_provider
     model = requested_model
@@ -897,6 +1023,9 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
     if model:
         resolved_provider = resolve_provider_for_model(model, settings=settings)
         if resolved_provider:
+            model_resolved_provider = _normalize_provider_override(
+                resolved_provider
+            )
             if provider and provider != resolved_provider:
                 valid, reason = validate_provider_model_selection(
                     provider_id=provider,
@@ -946,15 +1075,22 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
         )
 
     if provider and isinstance(settings, Settings):
-        valid, reason = validate_provider_model_selection(
-            provider_id=provider,
-            model_id=model,
-            settings=settings,
+        explicit_model_bound_provider = bool(
+            requested_model
+            and model_resolved_provider
+            and provider == model_resolved_provider
+            and requested_provider is None
         )
-        if not valid:
-            raise LLMConfigError(
-                reason or "Provider/model selection is invalid"
+        if not explicit_model_bound_provider:
+            valid, reason = validate_provider_model_selection(
+                provider_id=provider,
+                model_id=model,
+                settings=settings,
             )
+            if not valid:
+                raise LLMConfigError(
+                    reason or "Provider/model selection is invalid"
+                )
 
     return replace(
         task,
@@ -1054,6 +1190,13 @@ def _run_chat_completion_task_compat(
         else "default"
     )
     provider_pinned = bool(getattr(task, "provider_pinned", False))
+    completion_truth = _completion_truth(
+        accepted=True,
+        attempted=False,
+        fallback_attempted=False,
+        executed=False,
+        completed=False,
+    )
 
     def _execute_completion(
         execution_provider: str,
@@ -1086,6 +1229,11 @@ def _run_chat_completion_task_compat(
                         model=execution_model,
                         provider=execution_provider,
                         reasoning_mode=getattr(task, "reasoning_mode", None),
+                        prompt_meta=(
+                            dict(bundle.get("_prompt_meta") or {})
+                            if isinstance(bundle, dict)
+                            else None
+                        ),
                     )
                 )
                 if token_callback and (not streamed_any) and assistant_output:
@@ -1100,6 +1248,11 @@ def _run_chat_completion_task_compat(
                 model=execution_model,
                 provider=execution_provider,
                 reasoning_mode=getattr(task, "reasoning_mode", None),
+                prompt_meta=(
+                    dict(bundle.get("_prompt_meta") or {})
+                    if isinstance(bundle, dict)
+                    else None
+                ),
             )
         )
         if token_callback:
@@ -1111,42 +1264,107 @@ def _run_chat_completion_task_compat(
     final_provider = provider
     final_model = model
     try:
+        completion_truth["attempted"] = True
         assistant_text = _execute_completion(provider, model)
+        completion_truth["executed"] = True
     except Exception as exc:
         failure_meta = _task_error_metadata(exc)
-        explicit_fallback_enabled = str(
-            os.getenv("CODEXIFY_CHAT_EXPLICIT_LOCAL_FALLBACK_ENABLED", "")
-        ).strip().lower() in {"1", "true", "yes", "on"}
         should_rescue = bool(
-            provider != "local"
-            and (
-                selection_source != "explicit"
-                or (explicit_fallback_enabled and not provider_pinned)
-            )
+            selection_source != "explicit"
+            and not provider_pinned
+            and _should_attempt_provider_fallback(exc)
         )
-        fallback_model = _normalize_model_override(
-            first_model_for_provider("local", settings=settings)
-            or default_model_for_provider("local", settings)
+        fallback_candidates = _fallback_provider_candidates(
+            attempted_provider=provider,
+            settings=settings,
         )
-        if not should_rescue or not fallback_model:
+        failure_meta.update(
+            {
+                "provider": provider,
+                "model": model,
+                "attempted_provider": attempted_provider,
+                "attempted_model": attempted_model,
+                "resolved_provider": provider,
+                "resolved_model": model,
+                "selection_source": selection_source,
+                "fallback_reason": fallback_reason,
+                "completion_truth": completion_truth,
+            }
+        )
+        if not should_rescue or not fallback_candidates:
+            detail = getattr(exc, "detail", None)
+            if isinstance(detail, dict):
+                detail.update(failure_meta)
+            else:
+                exc.metadata = failure_meta
             raise
-        logger.warning(
-            "[chat-worker] provider_rescue_start attempted_provider=%s attempted_model=%s selection_source=%s provider_pinned=%s fallback_provider=local fallback_model=%s",
-            provider,
-            model,
-            selection_source,
-            provider_pinned,
-            fallback_model,
-        )
-        assistant_text = _execute_completion("local", fallback_model)
-        fallback_reason = "cloud_failure_local_rescue"
-        final_provider = "local"
-        final_model = fallback_model
+        completion_truth["fallback_attempted"] = True
+        rescued = False
+        fallback_errors: list[str] = []
+        for fallback_provider, fallback_model in fallback_candidates:
+            logger.warning(
+                "[chat-worker] provider_rescue_start attempted_provider=%s attempted_model=%s selection_source=%s provider_pinned=%s fallback_provider=%s fallback_model=%s",
+                provider,
+                model,
+                selection_source,
+                provider_pinned,
+                fallback_provider,
+                fallback_model,
+            )
+            try:
+                assistant_text = _execute_completion(
+                    fallback_provider, fallback_model
+                )
+                fallback_reason = (
+                    "cloud_failure_local_rescue"
+                    if fallback_provider == "local" and provider != "local"
+                    else f"{provider}_failure_{fallback_provider}_rescue"
+                )
+                final_provider = fallback_provider
+                final_model = fallback_model
+                completion_truth["executed"] = True
+                rescued = True
+                break
+            except Exception as fallback_exc:
+                fallback_errors.append(_describe_task_error(fallback_exc))
+        if not rescued:
+            if fallback_errors:
+                failure_meta["fallback_errors"] = fallback_errors
+            detail = getattr(exc, "detail", None)
+            if isinstance(detail, dict):
+                detail.update(failure_meta)
+            else:
+                exc.metadata = failure_meta
+            raise
         payload_summary["final_provider"] = final_provider
         payload_summary["final_model"] = final_model
 
     if not assistant_text.strip():
         assistant_text = "No assistant response was generated."
+
+    attempted_provider_truth = build_provider_truth(
+        attempted_provider,
+        settings,
+        attempted=True,
+        executed=bool(
+            completion_truth["executed"]
+            and attempted_provider == final_provider
+        ),
+        completed=bool(
+            completion_truth["executed"]
+            and attempted_provider == final_provider
+        ),
+    )
+    final_provider_truth = build_provider_truth(
+        final_provider,
+        settings,
+        attempted=bool(
+            completion_truth["fallback_attempted"]
+            or attempted_provider == final_provider
+        ),
+        executed=completion_truth["executed"],
+        completed=False,
+    )
 
     payload_summary.update(
         {
@@ -1157,6 +1375,9 @@ def _run_chat_completion_task_compat(
             "final_provider": final_provider,
             "final_model": final_model,
             "fallback_reason": fallback_reason,
+            "completion_truth": completion_truth,
+            "attempted_provider_truth": attempted_provider_truth,
+            "final_provider_truth": final_provider_truth,
         }
     )
 
@@ -1177,6 +1398,9 @@ def _run_chat_completion_task_compat(
         ),
         "provider_failure_kind": failure_meta.get("failure_kind"),
         "provider_failure_message": failure_meta.get("message"),
+        "completion_truth": completion_truth,
+        "attempted_provider_truth": attempted_provider_truth,
+        "final_provider_truth": final_provider_truth,
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
@@ -1206,6 +1430,9 @@ def _run_chat_completion_task_compat(
             "fallback_reason": fallback_reason,
             "assistant_text_chars": len(assistant_text),
             "persistence_outcome": "failed",
+            "completion_truth": completion_truth,
+            "attempted_provider_truth": attempted_provider_truth,
+            "final_provider_truth": final_provider_truth,
         }
         logger.error(
             "[chat-worker] assistant_message_persist_failed thread_id=%s attempted_provider=%s attempted_model=%s final_provider=%s final_model=%s chars=%s",
@@ -1223,6 +1450,8 @@ def _run_chat_completion_task_compat(
         ) from exc
     result["message_id"] = message_id
     result["persistence_outcome"] = "persisted"
+    completion_truth["completed"] = True
+    final_provider_truth["completed"] = True
 
     with suppress(Exception):
         _persist_message_extra_meta(
@@ -1238,6 +1467,9 @@ def _run_chat_completion_task_compat(
                 "selection_source": selection_source,
                 "fallback_reason": fallback_reason,
                 "payload_summary": payload_summary,
+                "completion_truth": completion_truth,
+                "attempted_provider_truth": attempted_provider_truth,
+                "final_provider_truth": final_provider_truth,
             },
         )
 
@@ -1533,6 +1765,11 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "provider_failure_message": result.get(
                     "provider_failure_message"
                 ),
+                "completion_truth": result.get("completion_truth"),
+                "attempted_provider_truth": result.get(
+                    "attempted_provider_truth"
+                ),
+                "final_provider_truth": result.get("final_provider_truth"),
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
@@ -1595,6 +1832,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "failure_kind",
             "message",
             "persistence_outcome",
+            "completion_truth",
+            "attempted_provider_truth",
+            "final_provider_truth",
         ):
             value = error_metadata.get(key)
             if value is not None:

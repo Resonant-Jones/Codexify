@@ -197,9 +197,35 @@ _MODEL_INDEX_NON_CHAT_HINTS = (
     "music",
     "rerank",
     "speech",
+    "text-to-speech",
     "transcription",
     "tts",
     "video",
+)
+_MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS = (
+    "audio",
+    "asr",
+    "embedding",
+    "embeddings",
+    "moderation",
+    "rerank",
+    "speech",
+    "text-to-speech",
+    "transcription",
+    "tts",
+)
+_MODEL_INDEX_VISION_HINTS = (
+    "image",
+    "vision",
+    "vl",
+    "multimodal",
+)
+_MODEL_INDEX_TEXT_INPUT_HINTS = (
+    "embedding",
+    "embeddings",
+    "moderation",
+    "rerank",
+    "tts",
 )
 _DEFAULT_GROQ_MODEL_INDEX_BASE = "https://api.groq.com/openai/v1"
 
@@ -210,12 +236,20 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
             "displayName": "GPT-4o",
             "contextWindow": 128000,
             "capabilities": {"vision": True, "tools": True, "streaming": True},
+            "supports_chat": True,
+            "supports_vision": True,
+            "supports_text_input": True,
+            "model_kind": "vision_chat",
         },
         {
             "id": "gpt-4.1-mini",
             "displayName": "GPT-4.1 Mini",
             "contextWindow": 128000,
             "capabilities": {"vision": True, "tools": True, "streaming": True},
+            "supports_chat": True,
+            "supports_vision": True,
+            "supports_text_input": True,
+            "model_kind": "vision_chat",
         },
     ),
     "anthropic": (
@@ -224,12 +258,20 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
             "displayName": "Claude 3.5 Sonnet",
             "contextWindow": 200000,
             "capabilities": {"vision": True, "tools": True, "streaming": True},
+            "supports_chat": True,
+            "supports_vision": True,
+            "supports_text_input": True,
+            "model_kind": "vision_chat",
         },
         {
             "id": "claude-3-5-haiku-latest",
             "displayName": "Claude 3.5 Haiku",
             "contextWindow": 200000,
             "capabilities": {"vision": True, "tools": True, "streaming": True},
+            "supports_chat": True,
+            "supports_vision": True,
+            "supports_text_input": True,
+            "model_kind": "vision_chat",
         },
     ),
     "gemini": (
@@ -238,12 +280,20 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
             "displayName": "Gemini 1.5 Pro",
             "contextWindow": 1048576,
             "capabilities": {"vision": True, "tools": True, "streaming": True},
+            "supports_chat": True,
+            "supports_vision": True,
+            "supports_text_input": True,
+            "model_kind": "vision_chat",
         },
         {
             "id": "gemini-1.5-flash",
             "displayName": "Gemini 1.5 Flash",
             "contextWindow": 1048576,
             "capabilities": {"vision": True, "tools": True, "streaming": True},
+            "supports_chat": True,
+            "supports_vision": True,
+            "supports_text_input": True,
+            "model_kind": "vision_chat",
         },
     ),
     "groq": (
@@ -253,6 +303,20 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
             "contextWindow": 128000,
             "capabilities": {
                 "vision": False,
+                "tools": False,
+                "streaming": True,
+            },
+            "supports_chat": True,
+            "supports_vision": False,
+            "supports_text_input": True,
+            "model_kind": "chat",
+        },
+        {
+            "id": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "displayName": "Llama 4 Scout 17B",
+            "contextWindow": 128000,
+            "capabilities": {
+                "vision": True,
                 "tools": False,
                 "streaming": True,
             },
@@ -266,9 +330,86 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
                 "tools": False,
                 "streaming": True,
             },
+            "supports_chat": True,
+            "supports_vision": False,
+            "supports_text_input": True,
+            "model_kind": "chat",
         },
     ),
 }
+
+_MINIMAX_DOCUMENTED_MODELS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "MiniMax-M2.7",
+        "displayName": "MiniMax M2.7",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.7-highspeed",
+        "displayName": "MiniMax M2.7 Highspeed",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.5",
+        "displayName": "MiniMax M2.5",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.5-highspeed",
+        "displayName": "MiniMax M2.5 Highspeed",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.1",
+        "displayName": "MiniMax M2.1",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.1-highspeed",
+        "displayName": "MiniMax M2.1 Highspeed",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2",
+        "displayName": "MiniMax M2",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+)
 
 
 def normalize_provider(provider: str | None) -> str:
@@ -422,6 +563,16 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
         override = str(
             getattr(settings, "MINIMAX_MODEL_DISCOVERY_URL", "") or ""
         ).strip()
+        api_flavor = (
+            str(getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or "")
+            .strip()
+            .lower()
+            or "anthropic"
+        )
+        if override:
+            return override.rstrip("/")
+        if api_flavor == "anthropic":
+            return ""
         base_url = str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
 
     if override:
@@ -455,10 +606,10 @@ def _provider_model_index_headers(
     if provider == "minimax":
         api_key = str(getattr(settings, "MINIMAX_API_KEY", "") or "").strip()
         api_flavor = (
-            str(getattr(settings, "MINIMAX_API_FLAVOR", "openai") or "")
+            str(getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or "")
             .strip()
             .lower()
-            or "openai"
+            or "anthropic"
         )
         if api_flavor == "anthropic":
             headers["x-api-key"] = api_key
@@ -480,6 +631,8 @@ def _model_index_metadata(
     endpoint: str | None = None,
     reason: str | None = None,
     model_count: int | None = None,
+    utility_model_count: int | None = None,
+    total_model_count: int | None = None,
     failure_kind: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -492,6 +645,10 @@ def _model_index_metadata(
         payload["reason"] = reason
     if model_count is not None:
         payload["model_count"] = int(model_count)
+    if utility_model_count is not None:
+        payload["utility_model_count"] = int(utility_model_count)
+    if total_model_count is not None:
+        payload["total_model_count"] = int(total_model_count)
     if failure_kind:
         payload["failure_kind"] = failure_kind
     return payload
@@ -593,11 +750,127 @@ def _model_index_hint_text(item: dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
+def _model_identifier_hint_text(item: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("id", "model", "name", "displayName", "display_label"):
+        value = item.get(key)
+        if isinstance(value, str):
+            clean = value.strip()
+            if clean:
+                parts.append(clean)
+    return " ".join(parts).lower()
+
+
 def _is_chat_model_index_item(item: dict[str, Any]) -> bool:
+    raw_chat = item.get("supports_chat")
+    if isinstance(raw_chat, bool):
+        return raw_chat
+    raw_chat = item.get("supportsChat")
+    if isinstance(raw_chat, bool):
+        return raw_chat
     hint_text = _model_index_hint_text(item)
     if not hint_text:
+        identifier_hint_text = _model_identifier_hint_text(item)
+        if not identifier_hint_text:
+            return True
+        return not any(
+            hint in identifier_hint_text
+            for hint in _MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS
+        )
+    if any(hint in hint_text for hint in _MODEL_INDEX_NON_CHAT_HINTS):
+        return False
+    identifier_hint_text = _model_identifier_hint_text(item)
+    return not any(
+        hint in identifier_hint_text
+        for hint in _MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS
+    )
+
+
+def _is_vision_model_index_item(item: dict[str, Any]) -> bool:
+    raw_vision = item.get("supports_vision")
+    if isinstance(raw_vision, bool):
+        return raw_vision
+    raw_vision = item.get("supportsVision")
+    if isinstance(raw_vision, bool):
+        return raw_vision
+    raw_caps = item.get("capabilities")
+    if isinstance(raw_caps, dict):
+        for key in ("vision", "supports_vision", "supportsVision"):
+            value = raw_caps.get(key)
+            if isinstance(value, bool):
+                return value
+    hint_text = _model_index_hint_text(item)
+    return any(hint in hint_text for hint in _MODEL_INDEX_VISION_HINTS)
+
+
+def _supports_text_input_model(
+    item: dict[str, Any],
+    *,
+    supports_chat: bool,
+) -> bool:
+    raw_text_input = item.get("supports_text_input")
+    if isinstance(raw_text_input, bool):
+        return raw_text_input
+    raw_text_input = item.get("supportsTextInput")
+    if isinstance(raw_text_input, bool):
+        return raw_text_input
+    raw_caps = item.get("capabilities")
+    if isinstance(raw_caps, dict):
+        for key in ("text_input", "supports_text_input", "supportsTextInput"):
+            value = raw_caps.get(key)
+            if isinstance(value, bool):
+                return value
+    if supports_chat:
         return True
-    return not any(hint in hint_text for hint in _MODEL_INDEX_NON_CHAT_HINTS)
+    hint_text = _model_index_hint_text(item)
+    return any(hint in hint_text for hint in _MODEL_INDEX_TEXT_INPUT_HINTS)
+
+
+def _normalize_model_kind(
+    item: dict[str, Any],
+    *,
+    supports_chat: bool,
+    supports_vision: bool,
+) -> str:
+    raw_kind = (
+        str(item.get("model_kind") or item.get("modelKind") or "")
+        .strip()
+        .lower()
+    )
+    if raw_kind in {"chat", "vision_chat", "utility"}:
+        return raw_kind
+    if not supports_chat:
+        return "utility"
+    if supports_vision:
+        return "vision_chat"
+    return "chat"
+
+
+def _normalize_model_descriptor(item: dict[str, Any]) -> dict[str, Any]:
+    descriptor = dict(item)
+    supports_chat = _is_chat_model_index_item(descriptor)
+    supports_vision = _is_vision_model_index_item(descriptor)
+    supports_text_input = _supports_text_input_model(
+        descriptor,
+        supports_chat=supports_chat,
+    )
+    model_kind = _normalize_model_kind(
+        descriptor,
+        supports_chat=supports_chat,
+        supports_vision=supports_vision,
+    )
+
+    descriptor["supports_chat"] = supports_chat
+    descriptor["supports_vision"] = supports_vision
+    descriptor["supports_text_input"] = supports_text_input
+    descriptor["model_kind"] = model_kind
+
+    capabilities = dict(descriptor.get("capabilities") or {})
+    capabilities["chat"] = supports_chat
+    capabilities["vision"] = supports_vision
+    capabilities["text_input"] = supports_text_input
+    descriptor["capabilities"] = capabilities
+    return descriptor
 
 
 def _extract_context_window(item: dict[str, Any]) -> int | None:
@@ -639,44 +912,47 @@ def _extract_capabilities(item: dict[str, Any]) -> dict[str, bool] | None:
 
 def _parse_dynamic_model_descriptors(
     payload: Any,
-) -> tuple[list[dict[str, Any]], bool]:
+) -> tuple[list[dict[str, Any]], bool, int, int]:
     collections = _extract_model_index_collections(payload)
     if not collections:
-        return [], False
+        return [], False, 0, 0
 
     models: list[dict[str, Any]] = []
     seen: set[str] = set()
+    chat_model_count = 0
+    utility_model_count = 0
 
     for collection in collections:
         for item in collection:
             model_id = _model_id_from_index_item(item)
             if not model_id or model_id in seen:
                 continue
-            if isinstance(item, dict) and not _is_chat_model_index_item(item):
-                continue
 
-            descriptor: dict[str, Any] = {
-                "id": model_id,
-                "displayName": (
-                    str(
-                        item.get("displayName") or item.get("name") or model_id
-                    ).strip()
-                    if isinstance(item, dict)
-                    else model_id
-                ),
-            }
             if isinstance(item, dict):
+                descriptor = dict(item)
+                descriptor["id"] = model_id
+                descriptor["displayName"] = str(
+                    item.get("displayName") or item.get("name") or model_id
+                ).strip()
                 context_window = _extract_context_window(item)
                 if context_window is not None:
                     descriptor["contextWindow"] = context_window
                 capabilities = _extract_capabilities(item)
                 if capabilities:
                     descriptor["capabilities"] = capabilities
+            else:
+                descriptor = {"id": model_id, "displayName": model_id}
+            descriptor = _normalize_model_descriptor(descriptor)
+
+            if bool(descriptor.get("supports_chat")):
+                chat_model_count += 1
+            else:
+                utility_model_count += 1
 
             seen.add(model_id)
             models.append(descriptor)
 
-    return models, True
+    return models, True, chat_model_count, utility_model_count
 
 
 def _discover_dynamic_provider_models(
@@ -748,7 +1024,12 @@ def _discover_dynamic_provider_models(
             failure_kind="provider_payload_error",
         )
 
-    models, recognized_payload = _parse_dynamic_model_descriptors(payload)
+    (
+        models,
+        recognized_payload,
+        chat_model_count,
+        utility_model_count,
+    ) = _parse_dynamic_model_descriptors(payload)
     if not recognized_payload:
         return [], _model_index_metadata(
             "degraded",
@@ -756,18 +1037,22 @@ def _discover_dynamic_provider_models(
             reason="Provider model index payload was invalid",
             failure_kind="provider_payload_error",
         )
-    if not models:
+    if chat_model_count <= 0:
         return [], _model_index_metadata(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index returned no chat-capable models",
             model_count=0,
+            utility_model_count=utility_model_count,
+            total_model_count=len(models),
             failure_kind="empty_model_result",
         )
     return models, _model_index_metadata(
         "available",
         endpoint=endpoint,
-        model_count=len(models),
+        model_count=chat_model_count,
+        utility_model_count=utility_model_count,
+        total_model_count=len(models),
     )
 
 
@@ -872,7 +1157,8 @@ def _static_provider_models(
 ) -> list[dict[str, Any]]:
     provider = normalize_provider(provider_id)
     static_models = [
-        dict(item) for item in _STATIC_PROVIDER_MODELS.get(provider, ())
+        _normalize_model_descriptor(dict(item))
+        for item in _STATIC_PROVIDER_MODELS.get(provider, ())
     ]
     default_model = default_model_for_provider(provider, settings)
     existing_ids = {
@@ -883,9 +1169,46 @@ def _static_provider_models(
     if default_model and default_model not in existing_ids:
         static_models.insert(
             0,
-            {"id": default_model, "displayName": default_model},
+            _normalize_model_descriptor(
+                {
+                    "id": default_model,
+                    "displayName": default_model,
+                    "supports_chat": True,
+                    "supports_vision": False,
+                    "supports_text_input": True,
+                    "model_kind": "chat",
+                }
+            ),
         )
     return static_models
+
+
+def _minimax_documented_models(settings: Settings) -> list[dict[str, Any]]:
+    models = [
+        _normalize_model_descriptor(dict(item))
+        for item in _MINIMAX_DOCUMENTED_MODELS
+    ]
+    default_model = default_model_for_provider("minimax", settings)
+    existing_ids = {
+        str(item.get("id") or "").strip()
+        for item in models
+        if str(item.get("id") or "").strip()
+    }
+    if default_model and default_model not in existing_ids:
+        models.insert(
+            0,
+            _normalize_model_descriptor(
+                {
+                    "id": default_model,
+                    "displayName": default_model,
+                    "supports_chat": True,
+                    "supports_vision": False,
+                    "supports_text_input": True,
+                    "model_kind": "chat",
+                }
+            ),
+        )
+    return models
 
 
 def resolve_provider_capability(
@@ -907,6 +1230,9 @@ def resolve_provider_capability(
         model_index = {
             "source": "local",
             "state": "available",
+            "model_count": 0,
+            "utility_model_count": 0,
+            "total_model_count": 0,
         }
     elif governance and governance.live_discovery_expected:
         models, model_index = _discover_dynamic_provider_models(
@@ -915,7 +1241,40 @@ def resolve_provider_capability(
             available=available,
             disabled_reason=disabled_reason,
         )
-        if model_index["state"] != "available" and (
+        if (
+            provider == "minimax"
+            and available
+            and model_index["state"] != "available"
+        ):
+            fallback_models = _minimax_documented_models(settings)
+            if fallback_models:
+                models = fallback_models
+                chat_model_count = sum(
+                    1 for model in models if bool(model.get("supports_chat"))
+                )
+                utility_model_count = sum(
+                    1
+                    for model in models
+                    if not bool(model.get("supports_chat"))
+                )
+                model_index = {
+                    **model_index,
+                    "source": "fallback",
+                    "state": "degraded",
+                    "reason": (
+                        f"{str(model_index.get('reason') or 'MiniMax live discovery unavailable').strip()} "
+                        "using documented model list"
+                    ),
+                    "failure_kind": str(
+                        model_index.get("failure_kind")
+                        or "discovery_unavailable"
+                    ).strip()
+                    or "discovery_unavailable",
+                    "model_count": chat_model_count,
+                    "utility_model_count": utility_model_count,
+                    "total_model_count": len(models),
+                }
+        elif model_index["state"] != "available" and (
             not default_model
             or not provider_allows_default_during_degraded_discovery(provider)
         ):
@@ -933,8 +1292,32 @@ def resolve_provider_capability(
         model_index = {
             "source": "static",
             "state": "available",
-            "model_count": len(models),
+            "model_count": sum(
+                1 for model in models if bool(model.get("supports_chat"))
+            ),
+            "utility_model_count": sum(
+                1 for model in models if not bool(model.get("supports_chat"))
+            ),
+            "total_model_count": len(models),
         }
+
+    chat_model_count = sum(
+        1 for model in models if bool(model.get("supports_chat"))
+    )
+    if chat_model_count <= 0 and model_index.get("state") == "available":
+        model_index = {
+            **model_index,
+            "state": "degraded",
+            "model_count": 0,
+            "utility_model_count": sum(
+                1 for model in models if not bool(model.get("supports_chat"))
+            ),
+            "total_model_count": len(models),
+            "failure_kind": "empty_model_result",
+            "reason": "Provider model index returned no chat-capable models",
+        }
+        available = False
+        disabled_reason = "Provider model index returned no chat-capable models"
 
     enabled = bool(available) and (
         bool(governance and governance.local_only) or bool(authorized)
@@ -974,8 +1357,40 @@ def get_provider_model_descriptors(
         and default_model
         and model_index_state != "available"
     ):
-        return [{"id": default_model, "displayName": default_model}]
+        return [
+            _normalize_model_descriptor(
+                {
+                    "id": default_model,
+                    "displayName": default_model,
+                    "supports_chat": True,
+                    "supports_vision": False,
+                    "supports_text_input": True,
+                    "model_kind": "chat",
+                }
+            )
+        ]
     return []
+
+
+def model_supports_capability(
+    provider_id: str,
+    model_id: str | None,
+    capability_key: str,
+    settings: Settings,
+) -> bool:
+    provider = normalize_provider(provider_id)
+    target = normalize_model_id(model_id)
+    if not target:
+        return False
+    for item in get_provider_model_descriptors(provider, settings):
+        if normalize_model_id(item.get("id")) != target:
+            continue
+        capabilities = item.get("capabilities")
+        if not isinstance(capabilities, dict):
+            return False
+        value = capabilities.get(capability_key)
+        return bool(value) if isinstance(value, bool) else False
+    return False
 
 
 def resolve_provider_for_model(
@@ -1004,6 +1419,8 @@ def resolve_provider_for_model(
         if enabled_only and not capability["enabled"]:
             continue
         for model in get_provider_model_descriptors(provider_id, settings):
+            if not bool(model.get("supports_chat")):
+                continue
             if normalize_model_id(model.get("id")) == candidate:
                 return provider_id
     return None
@@ -1038,7 +1455,9 @@ def validate_provider_model_selection(
         return True, None
 
     provider_model_ids = {
-        normalize_model_id(item.get("id")) for item in capability["models"]
+        normalize_model_id(item.get("id"))
+        for item in capability["models"]
+        if bool(item.get("supports_chat"))
     }
     if model not in provider_model_ids:
         model_index = capability["model_index"]

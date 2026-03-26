@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
+_DEFAULT_MINIMAX_ANTHROPIC_API_BASE = "https://api.minimax.io/anthropic"
 SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
     "openai",
@@ -150,6 +151,31 @@ class Settings(BaseSettings):
             "LOCAL_BASE_URL points to localhost/loopback inside containers."
         ),
     )
+    CODEXIFY_LOCAL_ENDPOINT_CHAIN: str | None = Field(
+        default=None,
+        description=(
+            "Optional comma-separated ordered local endpoint chain used for "
+            "local discovery and execution. When unset, the documented local "
+            "Docker Compose path remains the supported default posture."
+        ),
+    )
+    LOCAL_COMPAT_FIRST: bool = Field(
+        default=False,
+        description=(
+            "When true, prefer the OpenAI-compatible /v1 surface before "
+            "Ollama-native endpoints for local execution."
+        ),
+    )
+    LOCAL_PREFER_OPENAI_COMPAT: bool = Field(
+        default=False,
+        description=("Backward-compatible alias for LOCAL_COMPAT_FIRST."),
+    )
+    LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: bool = Field(
+        default=False,
+        description=(
+            "Allow /api/generate as a last-resort local execution fallback."
+        ),
+    )
     LOCAL_API_KEY: str = Field(
         default="local",
         description="API key placeholder for the local OpenAI-compatible API (often ignored by Ollama).",
@@ -174,6 +200,19 @@ class Settings(BaseSettings):
     GROQ_BASE_URL: str | None = Field(
         default=None,
         description="Optional override for the Groq-compatible OpenAI base URL.",
+    )
+    GROQ_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for Groq's live model index endpoint. "
+            "Defaults to deriving /models from GROQ_BASE_URL."
+        ),
+    )
+    GROQ_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for Groq live model index discovery requests (seconds)."
+        ),
     )
     OPENAI_API_KEY: str | None = Field(
         default=None, description="API key for OpenAI."
@@ -219,11 +258,14 @@ class Settings(BaseSettings):
         default=None, description="API key for MiniMax."
     )
     MINIMAX_API_BASE: str | None = Field(
-        default=None,
-        description="Base URL for MiniMax's OpenAI-compatible API endpoint.",
+        default=_DEFAULT_MINIMAX_ANTHROPIC_API_BASE,
+        description=(
+            "Base URL for MiniMax's direct API endpoint. Defaults to the "
+            "Anthropic-compatible MiniMax surface."
+        ),
     )
     MINIMAX_API_FLAVOR: str = Field(
-        default="openai",
+        default="anthropic",
         description=(
             "MiniMax API surface to use: 'openai' for /chat/completions or "
             "'anthropic' for /v1/messages."
@@ -236,8 +278,11 @@ class Settings(BaseSettings):
         ),
     )
     MINIMAX_MODEL: str | None = Field(
-        default=None,
-        description="Optional default chat model for MiniMax.",
+        default="MiniMax-M2.7",
+        description=(
+            "Optional default chat model for MiniMax. Defaults to the "
+            "Anthropic-compatible M2.7 model."
+        ),
     )
     MINIMAX_TIMEOUT_SECONDS: float = Field(
         default=60.0,
@@ -852,9 +897,9 @@ def validate_llm_config(
                 f"{missing_text}. Set {missing_text} in your backend environment."
             )
         api_flavor = str(
-            getattr(settings, "MINIMAX_API_FLAVOR", "openai") or ""
+            getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or ""
         )
-        api_flavor = api_flavor.strip().lower() or "openai"
+        api_flavor = api_flavor.strip().lower() or "anthropic"
         if api_flavor not in {"openai", "anthropic"}:
             raise LLMConfigError(
                 "MINIMAX_API_FLAVOR must be one of: openai, anthropic."
