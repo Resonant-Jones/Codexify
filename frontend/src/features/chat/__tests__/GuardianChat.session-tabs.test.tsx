@@ -6,7 +6,7 @@ import GuardianChat, {
 } from "@/features/chat/GuardianChat";
 import {
   CHAT_LANE_MAX_WIDTH,
-  CHAT_STAGE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
   GUARDIAN_SHELL_MAX_WIDTH,
 } from "@/features/chat/chatLane";
 
@@ -206,10 +206,14 @@ describe("GuardianChat session-tab binding", () => {
 
     const lane = screen.getByTestId("composer-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
+    expect(lane.className).toContain(CHAT_LANE_MAX_WIDTH_CLASS);
     expect(lane.className).toContain("md:max-w-[888px]");
     expect(screen.getByTestId("composer-shell")).toHaveStyle({
-      maxWidth: `${CHAT_STAGE_MAX_WIDTH}px`,
+      maxWidth: `${CHAT_LANE_MAX_WIDTH}px`,
     });
+    expect(screen.getByTestId("composer-shell").className).toContain(
+      CHAT_LANE_MAX_WIDTH_CLASS
+    );
     expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
 
     const composerShell = screen.getByTestId("composer-shell");
