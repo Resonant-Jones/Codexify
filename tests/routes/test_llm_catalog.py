@@ -250,6 +250,10 @@ def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
         assert openai["enabled"] is True
         assert openai["available"] is True
         assert openai["authorized"] is True
+        assert openai["models"][0]["supports_chat"] is True
+        assert openai["models"][0]["supports_vision"] is True
+        assert openai["models"][0]["supports_text_input"] is True
+        assert openai["models"][0]["model_kind"] == "vision_chat"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -349,14 +353,24 @@ def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
         assert groq["authorized"] is True
         assert groq["model_index"]["state"] == "available"
         assert groq["model_index"]["model_count"] == 2
+        assert groq["model_index"]["utility_model_count"] == 1
+        assert groq["model_index"]["total_model_count"] == 3
         assert [model["id"] for model in groq["models"]] == [
             "llama-3.3-70b-versatile",
             "moonshotai/kimi-k2-instruct-0905",
+            "text-embedding-3-small",
         ]
         assert [model["displayName"] for model in groq["models"]] == [
             "Llama 3.3 70B",
             "Kimi K2 Instruct",
+            "Embeddings",
         ]
+        assert groq["models"][0]["supports_chat"] is True
+        assert groq["models"][0]["supports_vision"] is False
+        assert groq["models"][0]["supports_text_input"] is True
+        assert groq["models"][0]["model_kind"] == "chat"
+        assert groq["models"][2]["supports_chat"] is False
+        assert groq["models"][2]["model_kind"] == "utility"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -535,6 +549,8 @@ def test_llm_catalog_minimax_empty_catalog_reports_failure_kind(monkeypatch):
         assert minimax["model_index"]["state"] == "degraded"
         assert minimax["model_index"]["failure_kind"] == "empty_model_result"
         assert minimax["model_index"]["model_count"] == 0
+        assert minimax["model_index"]["utility_model_count"] == 1
+        assert minimax["model_index"]["total_model_count"] == 1
         assert (
             minimax["disabled_reason"]
             == "Provider model index returned no chat-capable models"

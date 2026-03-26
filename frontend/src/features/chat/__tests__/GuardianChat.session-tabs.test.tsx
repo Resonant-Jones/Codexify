@@ -55,7 +55,11 @@ vi.mock("@/features/chat/ChatView", () => ({
 }));
 
 vi.mock("@/components/surface/FrameCard", () => ({
-  default: ({ children }: any) => <div>{children}</div>,
+  default: ({ children, className, style, "data-testid": dataTestId }: any) => (
+    <div className={className} style={style} data-testid={dataTestId}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock("@/features/chat/useChat", () => ({
@@ -196,9 +200,13 @@ describe("GuardianChat session-tab binding", () => {
       />
     );
 
+    const shell = screen.getByTestId("guardian-shell");
+    expect(shell).toHaveStyle({ maxWidth: `${GUARDIAN_SHELL_MAX_WIDTH}px` });
+
     const lane = screen.getByTestId("composer-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
     expect(lane.className).toContain(CHAT_LANE_MAX_WIDTH_CLASS);
+    expect(lane.className).toContain("md:max-w-[888px]");
     expect(screen.getByTestId("composer-shell")).toHaveStyle({
       maxWidth: `${CHAT_LANE_MAX_WIDTH}px`,
     });
