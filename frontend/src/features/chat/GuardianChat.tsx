@@ -56,7 +56,11 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
-import { CHAT_LANE_MAX_WIDTH, CHAT_STAGE_MAX_WIDTH } from "@/features/chat/chatLane";
+import {
+  CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
+  CHAT_STAGE_MAX_WIDTH,
+} from "@/features/chat/chatLane";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -2509,7 +2513,7 @@ export function GuardianChat({
           <div className="flex flex-col p-4">
             <div
               data-testid="composer-conversation-lane"
-              className="mx-auto w-full max-w-full md:max-w-[880px]"
+              className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
               style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
             >
               <GuardianThreadApprovalRail
