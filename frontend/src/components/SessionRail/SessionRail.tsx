@@ -107,10 +107,10 @@ export function SessionRail({
       ) : (
         <div className="flex-1" />
       )}
-      <div className="session-rail__tools shrink-0 flex items-center gap-0.5">
+      <div className="session-rail__tools shrink-0 flex items-center gap-2">
         <button
           type="button"
-          className="icon-inline session-rail__tool-btn"
+          className="icon-inline session-rail__tool-btn p-2 rounded-md hover:bg-white/10 transition"
           aria-label="New tab"
           title="New tab"
           onClick={onOpenTab}
