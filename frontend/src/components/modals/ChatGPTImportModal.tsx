@@ -33,6 +33,15 @@ export interface MigrationStats {
   embedding_coverage_degraded: ChatGptImportStats["embedding_coverage_degraded"];
 }
 
+const LARGE_IMPORT_BYTES = 50 * 1024 * 1024;
+
+const formatFileSize = (size: number) => {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.ceil(size / 1024)} KB`;
+};
+
 export function ChatGPTImportModal({
   open,
   onOpenChange,
@@ -40,6 +49,7 @@ export function ChatGPTImportModal({
   onImported,
 }: ChatGPTImportModalProps) {
   const [file, setFile] = useState<File | null>(null);
+  const isLargeImport = Boolean(file && file.size >= LARGE_IMPORT_BYTES);
   const [isDragOver, setIsDragOver] = useState(false);
   const [status, setStatus] = useState<
     "idle" | "uploading" | "success" | "error"
@@ -220,9 +230,28 @@ export function ChatGPTImportModal({
               </Button>
             </div>
             <div className="mt-2 text-xs opacity-70 truncate">
-              {file ? `${file.name} (${Math.ceil(file.size / 1024)} KB)` : "No file selected"}
+              {file ? `${file.name} (${formatFileSize(file.size)})` : "No file selected"}
             </div>
           </div>
+
+          {isLargeImport && (
+            <div
+              className="rounded-xl border p-3 text-xs"
+              style={{
+                borderColor: "var(--panel-border)",
+                background:
+                  "color-mix(in oklab, var(--panel-sheet) 92%, transparent)",
+                color: "var(--text)",
+              }}
+            >
+              <div className="font-semibold">Large export detected</div>
+              <div className="mt-1 opacity-80">
+                Large ChatGPT exports are accepted. Processing may take longer,
+                runs in the background, and can resume across sessions or after
+                restarts.
+              </div>
+            </div>
+          )}
 
           {status === "uploading" && (
             <div className="text-sm text-center opacity-70 animate-pulse py-3">
