@@ -193,6 +193,42 @@ def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
     assert "host.docker.internal:11434" in detail
 
 
+def test_chat_with_ai_local_uses_configured_endpoint_chain_order(monkeypatch):
+    calls: list[str] = []
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (json, headers, timeout)
+        calls.append(url)
+        if "primary.local:11434" in url:
+            raise requests.exceptions.ConnectionError("connection refused")
+        return _MockRawResponse({"message": {"content": "Local chain reply"}})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        LOCAL_BASE_URL="http://host.docker.internal:11434/v1",
+        CODEXIFY_LOCAL_ENDPOINT_CHAIN=(
+            "http://primary.local:11434,http://secondary.local:11434"
+        ),
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+    )
+
+    result = chat_with_ai(
+        [{"role": "user", "content": "hello"}],
+        provider="local",
+        model="library2/ministral-3:8b",
+        settings=settings,
+    )
+
+    assert result == "Local chain reply"
+    assert calls[0].startswith("http://primary.local:11434")
+    assert any(
+        "secondary.local:11434" in attempted_url for attempted_url in calls
+    )
+
+
 def test_call_alibaba_missing_key_surfaces_auth_config_failure():
     settings = Settings(
         ALLOW_CLOUD_PROVIDERS=True,

@@ -91,6 +91,9 @@ def test_health_llm_reports_local_online(monkeypatch):
         assert payload.get("ok") is True
         assert payload.get("status") == "online"
         assert payload.get("provider") == "local"
+        assert payload["provider_truth"]["configured"] is True
+        assert payload["provider_truth"]["discoverable"] is True
+        assert payload["provider_truth"]["selectable"] is True
     finally:
         settings.LLM_PROVIDER = prev_provider
         settings.LOCAL_BASE_URL = prev_local_base
@@ -138,6 +141,9 @@ def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
         assert payload["mode"] == "runtime_unprobed"
         assert payload["provider_runtime"]["enabled"] is True
         assert payload["completion_service"]["status_reason"] == "ok"
+        assert payload["provider_truth"]["configured"] is True
+        assert payload["provider_truth"]["authorized"] is True
+        assert payload["provider_truth"]["selectable"] is True
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -225,6 +231,18 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
         )
         assert (
             health_payload["provider_runtime"]["enabled"] == minimax["enabled"]
+        )
+        assert (
+            health_payload["provider_truth"]["configured"]
+            == minimax["truth"]["configured"]
+        )
+        assert (
+            health_payload["provider_truth"]["authorized"]
+            == minimax["truth"]["authorized"]
+        )
+        assert (
+            health_payload["provider_truth"]["selectable"]
+            == minimax["truth"]["selectable"]
         )
         assert minimax["model_index"]["state"] == "degraded"
         assert "timed out" in minimax["model_index"]["reason"].lower()
@@ -413,6 +431,7 @@ def test_health_chat_classifies_worker_freshness(
         else "unhealthy"
     )
     assert payload["worker"]["status"] == expected_worker_status
+    assert payload["provider_truth"]["configured"] is True
     if completion_service["worker_heartbeat_detected"]:
         assert (
             payload["worker"]["heartbeat_age_seconds"]

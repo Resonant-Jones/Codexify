@@ -328,6 +328,15 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
     assert result["attempted_provider"] == "groq"
     assert result["upstream_status"] == 404
     assert result["fallback_reason"] == "cloud_failure_local_rescue"
+    assert result["completion_truth"] == {
+        "accepted": True,
+        "attempted": True,
+        "fallback_attempted": True,
+        "executed": True,
+        "completed": True,
+    }
+    assert result["attempted_provider_truth"]["attempted"] is True
+    assert result["final_provider_truth"]["completed"] is True
     assert mock_db.create_message.call_args[0][2] == "rescued locally"
 
 
@@ -439,6 +448,8 @@ def test_generation_success_but_persistence_failure_is_non_authoritative(
         assert exc.metadata["error"] == "assistant_message_persist_failed"
         assert exc.metadata["final_provider"] == "local"
         assert exc.metadata["persistence_outcome"] == "failed"
+        assert exc.metadata["completion_truth"]["executed"] is True
+        assert exc.metadata["completion_truth"]["completed"] is False
 
 
 def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
