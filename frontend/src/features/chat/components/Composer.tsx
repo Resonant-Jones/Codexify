@@ -20,7 +20,14 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
-
+import {
+  CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS,
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+  CHAT_COMPOSER_CONTROLS_PAD_CLASS,
+  CHAT_COMPOSER_INNER_PAD_CLASS,
+  CHAT_COMPOSER_SEND_PAD_CLASS,
+  CHAT_COMPOSER_TEXTAREA_PAD_CLASS,
+} from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -36,6 +43,7 @@ const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 const MIN_COMPOSER_ROWS = 2;
 const MAX_COMPOSER_ROWS = 6;
 const FALLBACK_LINE_HEIGHT_PX = 24;
+const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 
 const parsePx = (value?: string | null) => {
   const parsed = Number.parseFloat(value ?? "");
@@ -83,14 +91,19 @@ type DraftAttachment = {
   previewUrl?: string;
 };
 
-function inferProjectIdFromLocation(fallback = 1): number {
+function normalizeOptionalPositiveProjectId(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed > 0 ? parsed : null;
+}
+
+function inferProjectIdFromLocation(fallback: number | null = null): number | null {
   if (typeof window === "undefined") return fallback;
   const path = window.location.pathname || "";
   // Common shapes: /projects/:id, /project/:id, /p/:id
   const match = path.match(/\/(?:projects?|p)\/(\d+)/i);
   if (!match) return fallback;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return normalizeOptionalPositiveProjectId(match[1]) ?? fallback;
 }
 
 function inferProjectIdFromStorage(): number | null {
@@ -105,11 +118,37 @@ function inferProjectIdFromStorage(): number | null {
     ];
     for (const key of keys) {
       const raw = window.localStorage.getItem(key);
-      const parsed = Number(raw);
-      if (Number.isFinite(parsed)) return parsed;
+      const parsed = normalizeOptionalPositiveProjectId(raw);
+      if (parsed !== null) return parsed;
     }
   } catch {}
   return null;
+}
+
+function sanitizeUploadError(err: unknown): string {
+  const detail = (err as any)?.response?.data?.detail;
+  const rawMessage =
+    typeof detail === "string"
+      ? detail
+      : typeof detail?.message === "string"
+        ? detail.message
+        : typeof (err as any)?.message === "string"
+          ? (err as any).message
+          : "";
+
+  if (!rawMessage.trim()) {
+    return GENERIC_UPLOAD_ERROR_MESSAGE;
+  }
+
+  if (
+    /(foreignkey|psycopg|sqlalchemy|traceback|stack trace|insert into|constraint)/i.test(
+      rawMessage
+    )
+  ) {
+    return GENERIC_UPLOAD_ERROR_MESSAGE;
+  }
+
+  return rawMessage;
 }
 
 export function Composer({
@@ -342,7 +381,7 @@ export function Composer({
     // Prefer explicit storage values to reduce reliance on URL shape.
     const fromStorage = inferProjectIdFromStorage();
     if (fromStorage !== null) return fromStorage;
-    return inferProjectIdFromLocation(1);
+    return inferProjectIdFromLocation(null);
   };
 
   function stageFiles(files: FileList | File[]) {
@@ -398,7 +437,10 @@ export function Composer({
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
-    form.append("project_id", String(resolveProjectId()));
+    const resolvedProjectId = resolveProjectId();
+    if (resolvedProjectId !== null) {
+      form.append("project_id", String(resolvedProjectId));
+    }
     form.append("thread_id", String(uploadThreadId));
     form.append("file", file);
     form.append("tag", "uploaded");
@@ -420,11 +462,7 @@ export function Composer({
         filename: data?.filename || file.name,
       };
     } catch (err: any) {
-      const message =
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Failed to upload attachment.";
-      showToast(message);
+      showToast(sanitizeUploadError(err));
       return null;
     }
   }
@@ -616,10 +654,16 @@ export function Composer({
 
   return (
     <>
-      <div className="flex flex-col flex-1 w-full p-[4px]" onDrop={handleDrop} onDragOver={handleDragOver}>
-        <div className="flex flex-col flex-1 w-full rounded-[var(--tile-radius)] p-[4px]">
+      <div
+        className={`flex flex-col flex-1 w-full ${CHAT_COMPOSER_INNER_PAD_CLASS}`}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <div
+          className={`flex flex-col flex-1 w-full rounded-[var(--tile-radius)] ${CHAT_COMPOSER_INNER_PAD_CLASS}`}
+        >
           {/* Content Rectangle - Textarea area */}
-          <div className="flex-1 flex flex-col px-[12px] pt-[8px] pb-[6px]">
+          <div className={`flex-1 flex flex-col ${CHAT_COMPOSER_TEXTAREA_PAD_CLASS}`}>
             <Textarea
               ref={ref}
               rows={MIN_COMPOSER_ROWS}
@@ -645,7 +689,7 @@ export function Composer({
           </div>
 
           {draftAttachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-[12px] pb-[6px]">
+            <div className={`flex flex-wrap gap-2 ${CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS}`}>
               {draftAttachments.map((att) => (
                 <div
                   key={att.id}
@@ -691,8 +735,14 @@ export function Composer({
             }}
           />
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[4px]">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div
+            data-testid="composer-controls-row"
+            className={cn(
+              "mt-auto flex items-center justify-between gap-3 px-[8px]",
+              CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
+            )}
+          >
+            <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 depthMode={depthMode}
@@ -750,7 +800,7 @@ export function Composer({
               />
             </div>
 
-            <div className="shrink-0 pr-[14px]">
+            <div className={`shrink-0 ${CHAT_COMPOSER_SEND_PAD_CLASS}`}>
               <Button
                 type="button"
                 onClick={handleAttemptSend}

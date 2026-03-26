@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import GuardianChat, {
   flattenChatEventPayload,
 } from "@/features/chat/GuardianChat";
-import { CHAT_LANE_MAX_WIDTH, CHAT_STAGE_MAX_WIDTH } from "@/features/chat/chatLane";
+import {
+  CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
+} from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
 
@@ -52,7 +55,11 @@ vi.mock("@/features/chat/ChatView", () => ({
 }));
 
 vi.mock("@/components/surface/FrameCard", () => ({
-  default: ({ children }: any) => <div>{children}</div>,
+  default: ({ children, className, style, "data-testid": dataTestId }: any) => (
+    <div className={className} style={style} data-testid={dataTestId}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock("@/features/chat/useChat", () => ({
@@ -193,12 +200,19 @@ describe("GuardianChat session-tab binding", () => {
       />
     );
 
+    const shell = screen.getByTestId("guardian-shell");
+    expect(shell).toHaveStyle({ maxWidth: `${GUARDIAN_SHELL_MAX_WIDTH}px` });
+
     const lane = screen.getByTestId("composer-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
-    expect(lane.className).toContain("md:max-w-[880px]");
+    expect(lane.className).toContain(CHAT_LANE_MAX_WIDTH_CLASS);
+    expect(lane.className).toContain("md:max-w-[888px]");
     expect(screen.getByTestId("composer-shell")).toHaveStyle({
-      maxWidth: `${CHAT_STAGE_MAX_WIDTH}px`,
+      maxWidth: `${CHAT_LANE_MAX_WIDTH}px`,
     });
+    expect(screen.getByTestId("composer-shell").className).toContain(
+      CHAT_LANE_MAX_WIDTH_CLASS
+    );
     expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
   });
 });

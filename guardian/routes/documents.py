@@ -102,6 +102,53 @@ def _normalize_optional_text(value: str | None) -> str | None:
     return trimmed or None
 
 
+def _ensure_project_document_link(
+    session: Session,
+    *,
+    project_id: int | None,
+    document_id: str,
+    document_type: str,
+    attached_by: str | None = None,
+) -> None:
+    """Guarantee a project-document link exists (or is re-enabled)."""
+    if not project_id or not document_id:
+        return
+
+    normalized_type = str(document_type or "uploaded").strip().lower()
+    if normalized_type.startswith("gen"):
+        normalized_type = "generated"
+    else:
+        normalized_type = "uploaded"
+
+    existing = (
+        session.query(models.ProjectDocumentLink)
+        .filter_by(
+            project_id=project_id,
+            document_id=document_id,
+            document_type=normalized_type,
+        )
+        .first()
+    )
+    if existing:
+        if existing.is_enabled is False:
+            existing.is_enabled = True
+        if (
+            attached_by
+            and getattr(existing, "attached_by", None) != attached_by
+        ):
+            existing.attached_by = attached_by
+        return
+
+    session.add(
+        models.ProjectDocumentLink(
+            project_id=project_id,
+            document_id=document_id,
+            document_type=normalized_type,
+            attached_by=attached_by,
+        )
+    )
+
+
 @router.post("/api/documents/autosave", response_model=AutosaveResponse)
 async def autosave_document(
     request: AutosaveRequest,
@@ -224,6 +271,13 @@ async def autosave_document(
                 )
                 session.add(link)
 
+            _ensure_project_document_link(
+                session,
+                project_id=getattr(thread, "project_id", None),
+                document_id=document_id,
+                document_type="generated",
+                attached_by=getattr(thread, "user_id", None),
+            )
             session.commit()
 
         # Emit event (don't let event failures break the response)
@@ -370,6 +424,13 @@ async def generate_document(
                 relation="attached",
             )
             session.add(link)
+            _ensure_project_document_link(
+                session,
+                project_id=getattr(thread, "project_id", None),
+                document_id=document_id,
+                document_type="generated",
+                attached_by=request.user_id or getattr(thread, "user_id", None),
+            )
             session.commit()
     except HTTPException:
         raise
