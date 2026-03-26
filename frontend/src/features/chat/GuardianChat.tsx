@@ -57,6 +57,7 @@ import {
   CHAT_LANE_MAX_WIDTH_CLASS,
 } from "@/features/chat/chatLane";
 
+const DEBUG_LAYOUT = true;
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
@@ -2091,7 +2092,7 @@ export function GuardianChat({
   };
 
   const headerActions = (
-    <div className="flex items-center gap-1">
+    <>
       <div
         ref={promptCostPopoverRef}
         className="relative"
@@ -2332,7 +2333,7 @@ export function GuardianChat({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </>
   );
 
   const body = (
@@ -2384,8 +2385,29 @@ export function GuardianChat({
             />
           </div>
 
-          <div className="flex items-center gap-1 justify-end shrink-0">
+          <div
+            className="absolute top-3 right-6 flex items-center gap-2"
+            style={{
+              ...(DEBUG_LAYOUT && {
+                outline: "2px solid yellow",
+                background: "rgba(255,255,0,0.1)",
+              }),
+            }}
+          >
             {headerActions}
+            {DEBUG_LAYOUT && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  right: 0,
+                  width: "100%",
+                  height: "100%",
+                  pointerEvents: "none",
+                  borderRight: "2px dashed orange",
+                }}
+              />
+            )}
           </div>
         </div>
       </header>
@@ -2473,6 +2495,9 @@ export function GuardianChat({
           data-testid="composer-shell"
           className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
+            ...(DEBUG_LAYOUT && {
+              outline: "2px solid green",
+            }),
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
@@ -2486,7 +2511,12 @@ export function GuardianChat({
             <div
               data-testid="composer-conversation-lane"
               className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
-              style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+              style={{
+                ...(DEBUG_LAYOUT && {
+                  outline: "2px solid blue",
+                }),
+                maxWidth: CHAT_LANE_MAX_WIDTH,
+              }}
             >
               <GuardianThreadApprovalRail
                 className="mb-3"
@@ -2639,7 +2669,14 @@ export function GuardianChat({
     return (
       <>
         {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
-        <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
+        <div
+          className="relative flex flex-col flex-1 min-h-0 overflow-y-auto"
+          style={{
+            ...(DEBUG_LAYOUT && {
+              outline: "2px solid red",
+            }),
+          }}
+        >
           {body}
         </div>
         <RAGTracePanel
@@ -2656,6 +2693,11 @@ export function GuardianChat({
       <FrameCard
         className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
         hoverPop
+        style={{
+          ...(DEBUG_LAYOUT && {
+            outline: "2px solid red",
+          }),
+        }}
       >
         <div className="relative flex flex-col w-full h-full">
           {body}
