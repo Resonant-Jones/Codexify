@@ -64,7 +64,6 @@ import {
   CHAT_COMPOSER_SHELL_MARGIN_CLASS,
   CHAT_COMPOSER_SHELL_PAD_CLASS,
   CHAT_LANE_GUTTER_CLASS,
-  CHAT_LANE_MAX_WIDTH,
   CHAT_LANE_MAX_WIDTH_CLASS,
   CHAT_LANE_STAGE_GUTTER_CLASS,
 } from "@/features/chat/chatLane";
@@ -2503,10 +2502,10 @@ export function GuardianChat({
         )}
       </div>
 
-      <div className="shrink-0 z-20 mt-2 flex justify-center w-full">
+      <div className="shrink-0 z-20 mt-2 flex w-full justify-center">
         <div
           data-testid="composer-shell"
-          className="w-full rounded-[24px] border shadow-2xl backdrop-blur-xl flex min-h-0 flex-col overflow-hidden transition-all duration-200"
+          className="flex w-full min-h-0 flex-col overflow-hidden rounded-[24px] border shadow-2xl backdrop-blur-xl transition-all duration-200"
           style={{
             maxWidth: CHAT_STAGE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
@@ -2568,111 +2567,35 @@ export function GuardianChat({
                     });
                   }
 
-            const nextProvider =
-              catalogProviders.find((p) => p.id === providerId) ?? null;
+                  const nextProvider =
+                    catalogProviders.find((p) => p.id === providerId) ?? null;
 
-            onSessionProviderChange?.(providerId);
+                  onSessionProviderChange?.(providerId);
 
-            const nextModelId =
-              nextProvider?.models.find(isChatSelectableModel)?.id ?? null;
+                  const nextModelId =
+                    nextProvider?.models.find(isChatSelectableModel)?.id ?? null;
 
-            const nextSelectedModel =
-              selectedModel != null
-                ? nextProvider?.models.find(
-                    (model) => model.id === selectedModel.id
-                  ) ?? null
-                : null;
+                  const nextSelectedModel =
+                    selectedModel != null
+                      ? nextProvider?.models.find(
+                          (model) => model.id === selectedModel.id
+                        ) ?? null
+                      : null;
 
-            if (
-              !nextSelectedModel ||
-              !isChatSelectableModel(nextSelectedModel)
-            ) {
-              onSessionModelChange?.(nextModelId);
-            }
-          }}
-          activeModelId={selectedModel?.id ?? activeModelId}
-          modelOptions={modelOptions}
-          onModelChange={(modelId) => onSessionModelChange?.(modelId)}
-          activeInferenceMode={effectiveInferenceMode}
-          inferenceModeOptions={inferenceModeOptions}
-          onInferenceModeChange={(mode) =>
-            onSessionInferenceModeChange?.(mode)
-          }
-          depthMode={depth}
-          depthOptions={depthOptions}
-          onDepthModeChange={setDepth}
-          onVoiceTurn={
-            voiceTurnBasedEnabled
-              ? () => {
-                  if (effectiveThreadId == null) {
-                    alert("Create or open a thread before starting a voice turn.");
-                    return;
+                  if (
+                    !nextSelectedModel ||
+                    !isChatSelectableModel(nextSelectedModel)
+                  ) {
+                    onSessionModelChange?.(nextModelId);
                   }
-                  voiceFileInputRef.current?.click();
-                }
-              : undefined
-          }
-          voiceTurnLabel={
-            voiceUploading ? "Processing voice…" : "Upload voice turn"
-          }
-        />
-      </div>
-      {voiceTurnBasedEnabled ? (
-        <input
-          ref={voiceFileInputRef}
-          type="file"
-          accept={voiceUploadAccept}
-          className="hidden"
-          onChange={async (event) => {
-            const file = event.target.files?.[0];
-            event.currentTarget.value = "";
-            if (!file) return;
-            if (effectiveThreadId == null) {
-              alert("Create or open a thread before starting a voice turn.");
-              return;
-            }
-            const normalizedMime = String(file.type || "")
-              .trim()
-              .toLowerCase();
-            if (
-              normalizedMime &&
-              supportedVoiceInputMime.length > 0 &&
-              !supportedVoiceInputMime.includes(normalizedMime)
-            ) {
-              alert(`Unsupported audio type: ${normalizedMime}`);
-              return;
-            }
-            if (
-              voiceUploadLimitBytes != null &&
-              file.size > voiceUploadLimitBytes
-            ) {
-              const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
-              alert(`Audio file too large. Max ${limitMb} MB.`);
-              return;
-            }
-            setVoiceUploading(true);
-            try {
-              const form = new FormData();
-              form.append("thread_id", String(effectiveThreadId));
-              form.append("audio_file", file);
-              form.append("tts_enabled", "true");
-              await api.post("/voice/turn", form, {
-                headers: { "Content-Type": "multipart/form-data" },
-                timeout: 180000,
-              });
-              triggerReload();
-            } catch (error) {
-              console.warn("[guardian] voice turn failed", error);
-              alert("Voice turn failed. Check backend voice configuration.");
-            } finally {
-              setVoiceUploading(false);
-            }
-          }}
-        />
-      ) : null}
-    </div>
-  </div>
-
+                }}
+                activeModelId={selectedModel?.id ?? activeModelId}
+                modelOptions={modelOptions}
+                onModelChange={(modelId) => onSessionModelChange?.(modelId)}
+                activeInferenceMode={effectiveInferenceMode}
+                inferenceModeOptions={inferenceModeOptions}
+                onInferenceModeChange={(mode) =>
+                  onSessionInferenceModeChange?.(mode)
                 }
                 depthMode={depth}
                 depthOptions={depthOptions}
@@ -2690,7 +2613,9 @@ export function GuardianChat({
                       }
                     : undefined
                 }
-                voiceTurnLabel={voiceUploading ? "Processing voice…" : "Upload voice turn"}
+                voiceTurnLabel={
+                  voiceUploading ? "Processing voice…" : "Upload voice turn"
+                }
               />
               {voiceTurnBasedEnabled ? (
                 <input
@@ -2706,9 +2631,11 @@ export function GuardianChat({
                       alert("Create or open a thread before starting a voice turn.");
                       return;
                     }
+
                     const normalizedMime = String(file.type || "")
                       .trim()
                       .toLowerCase();
+
                     if (
                       normalizedMime &&
                       supportedVoiceInputMime.length > 0 &&
@@ -2717,14 +2644,19 @@ export function GuardianChat({
                       alert(`Unsupported audio type: ${normalizedMime}`);
                       return;
                     }
+
                     if (
                       voiceUploadLimitBytes != null &&
                       file.size > voiceUploadLimitBytes
                     ) {
-                      const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+                      const limitMb = (
+                        voiceUploadLimitBytes /
+                        (1024 * 1024)
+                      ).toFixed(1);
                       alert(`Audio file too large. Max ${limitMb} MB.`);
                       return;
                     }
+
                     setVoiceUploading(true);
                     try {
                       const form = new FormData();
@@ -2738,7 +2670,9 @@ export function GuardianChat({
                       triggerReload();
                     } catch (error) {
                       console.warn("[guardian] voice turn failed", error);
-                      alert("Voice turn failed. Check backend voice configuration.");
+                      alert(
+                        "Voice turn failed. Check backend voice configuration."
+                      );
                     } finally {
                       setVoiceUploading(false);
                     }

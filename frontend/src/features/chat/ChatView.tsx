@@ -25,6 +25,7 @@ import {
   type InferenceRequestState,
 } from "@/types/inference";
 import {
+  CHAT_LANE_INLINE_PADDING,
   CHAT_LANE_GUTTER_CLASS,
   CHAT_LANE_MAX_WIDTH,
   CHAT_LANE_MAX_WIDTH_CLASS,
