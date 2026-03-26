@@ -1825,7 +1825,7 @@ export default function AppShell({
           <button
             type="button"
             className="pill-tab brand-tab"
-            style={{ color: "var(--text)" }}
+            style={{ color: "var(--text-on-accent)" }}
             title={
               layoutMode === "zen"
                 ? "Zen layout — click to switch to Focus"
