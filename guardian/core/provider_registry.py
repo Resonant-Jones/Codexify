@@ -338,6 +338,79 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     ),
 }
 
+_MINIMAX_DOCUMENTED_MODELS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "MiniMax-M2.7",
+        "displayName": "MiniMax M2.7",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.7-highspeed",
+        "displayName": "MiniMax M2.7 Highspeed",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.5",
+        "displayName": "MiniMax M2.5",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.5-highspeed",
+        "displayName": "MiniMax M2.5 Highspeed",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.1",
+        "displayName": "MiniMax M2.1",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2.1-highspeed",
+        "displayName": "MiniMax M2.1 Highspeed",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+    {
+        "id": "MiniMax-M2",
+        "displayName": "MiniMax M2",
+        "contextWindow": 204800,
+        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "supports_chat": True,
+        "supports_vision": False,
+        "supports_text_input": True,
+        "model_kind": "chat",
+    },
+)
+
 
 def normalize_provider(provider: str | None) -> str:
     normalized = (provider or "").strip().lower()
@@ -490,6 +563,16 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
         override = str(
             getattr(settings, "MINIMAX_MODEL_DISCOVERY_URL", "") or ""
         ).strip()
+        api_flavor = (
+            str(getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or "")
+            .strip()
+            .lower()
+            or "anthropic"
+        )
+        if override:
+            return override.rstrip("/")
+        if api_flavor == "anthropic":
+            return ""
         base_url = str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
 
     if override:
@@ -523,10 +606,10 @@ def _provider_model_index_headers(
     if provider == "minimax":
         api_key = str(getattr(settings, "MINIMAX_API_KEY", "") or "").strip()
         api_flavor = (
-            str(getattr(settings, "MINIMAX_API_FLAVOR", "openai") or "")
+            str(getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or "")
             .strip()
             .lower()
-            or "openai"
+            or "anthropic"
         )
         if api_flavor == "anthropic":
             headers["x-api-key"] = api_key
@@ -1100,6 +1183,34 @@ def _static_provider_models(
     return static_models
 
 
+def _minimax_documented_models(settings: Settings) -> list[dict[str, Any]]:
+    models = [
+        _normalize_model_descriptor(dict(item))
+        for item in _MINIMAX_DOCUMENTED_MODELS
+    ]
+    default_model = default_model_for_provider("minimax", settings)
+    existing_ids = {
+        str(item.get("id") or "").strip()
+        for item in models
+        if str(item.get("id") or "").strip()
+    }
+    if default_model and default_model not in existing_ids:
+        models.insert(
+            0,
+            _normalize_model_descriptor(
+                {
+                    "id": default_model,
+                    "displayName": default_model,
+                    "supports_chat": True,
+                    "supports_vision": False,
+                    "supports_text_input": True,
+                    "model_kind": "chat",
+                }
+            ),
+        )
+    return models
+
+
 def resolve_provider_capability(
     provider_id: str,
     settings: Settings,
@@ -1130,7 +1241,40 @@ def resolve_provider_capability(
             available=available,
             disabled_reason=disabled_reason,
         )
-        if model_index["state"] != "available" and (
+        if (
+            provider == "minimax"
+            and available
+            and model_index["state"] != "available"
+        ):
+            fallback_models = _minimax_documented_models(settings)
+            if fallback_models:
+                models = fallback_models
+                chat_model_count = sum(
+                    1 for model in models if bool(model.get("supports_chat"))
+                )
+                utility_model_count = sum(
+                    1
+                    for model in models
+                    if not bool(model.get("supports_chat"))
+                )
+                model_index = {
+                    **model_index,
+                    "source": "fallback",
+                    "state": "degraded",
+                    "reason": (
+                        f"{str(model_index.get('reason') or 'MiniMax live discovery unavailable').strip()} "
+                        "using documented model list"
+                    ),
+                    "failure_kind": str(
+                        model_index.get("failure_kind")
+                        or "discovery_unavailable"
+                    ).strip()
+                    or "discovery_unavailable",
+                    "model_count": chat_model_count,
+                    "utility_model_count": utility_model_count,
+                    "total_model_count": len(models),
+                }
+        elif model_index["state"] != "available" and (
             not default_model
             or not provider_allows_default_during_degraded_discovery(provider)
         ):

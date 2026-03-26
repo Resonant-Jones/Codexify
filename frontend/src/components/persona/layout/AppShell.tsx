@@ -1695,6 +1695,13 @@ export default function AppShell({
   const runtimeDegraded =
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const runtimeDetail =
+    typeof process !== "undefined" &&
+    process.env &&
+    process.env.NODE_ENV !== "production" &&
+    runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
+      ? runtimeHealth.llmDetail
+      : null;
   const showRuntimeBanner =
     runtimeDegraded &&
     runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
@@ -1908,7 +1915,7 @@ export default function AppShell({
       {showRuntimeBanner && (
         <div className="relative z-10 w-full mt-3">
           <div
-            className="flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
             style={{
               borderColor: "var(--panel-border)",
               background:
@@ -1916,13 +1923,20 @@ export default function AppShell({
               color: "var(--text)",
             }}
           >
-            <span className="font-semibold tracking-wide">
-              Runtime degraded
-            </span>
-            <span className="opacity-80">failure: {runtimeFailureKind}</span>
-            <span className="opacity-70">
-              last healthy: {runtimeLastHealthy}
-            </span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold tracking-wide">
+                Runtime degraded
+              </span>
+              <span className="opacity-80">failure: {runtimeFailureKind}</span>
+              <span className="opacity-70">
+                last healthy: {runtimeLastHealthy}
+              </span>
+            </div>
+            {runtimeDetail ? (
+              <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
+                detail: {runtimeDetail}
+              </div>
+            ) : null}
           </div>
         </div>
       )}

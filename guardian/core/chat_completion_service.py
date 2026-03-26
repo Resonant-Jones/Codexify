@@ -792,6 +792,11 @@ def run_chat_completion_task(
                     model=model,
                     provider=provider,
                     reasoning_mode=getattr(task, "reasoning_mode", None),
+                    prompt_meta=(
+                        dict(bundle.get("_prompt_meta") or {})
+                        if isinstance(bundle, dict)
+                        else None
+                    ),
                 )
             )
             # Only emit via callback when nothing was streamed.
@@ -806,6 +811,11 @@ def run_chat_completion_task(
                 model=model,
                 provider=provider,
                 reasoning_mode=getattr(task, "reasoning_mode", None),
+                prompt_meta=(
+                    dict(bundle.get("_prompt_meta") or {})
+                    if isinstance(bundle, dict)
+                    else None
+                ),
             )
         )
         if token_callback:

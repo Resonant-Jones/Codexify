@@ -58,6 +58,7 @@ import {
 import { setPreferredProviderSelection } from "@/lib/providerPref";
 import {
   CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_INLINE_PADDING,
   CHAT_STAGE_MAX_WIDTH,
   GUARDIAN_SHELL_MAX_WIDTH,
   GUARDIAN_SHELL_MAX_WIDTH_CLASS,
@@ -2371,12 +2372,9 @@ export function GuardianChat({
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
       {/* Single header rail */}
       <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
-        <div
-          className="relative flex items-center gap-2 px-1 py-2 flex-nowrap"
-          style={{
-            color: "var(--text)",
-          }}
-        >
+      <div
+          className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full"
+          >
           <div className="flex items-center gap-2 shrink-0">
             {onSidebarToggle && (
               <button
