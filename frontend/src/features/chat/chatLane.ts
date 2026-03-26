@@ -1,7 +1,6 @@
 // Canonical chat lane width used by message stack, approval rail, and composer.
 export const CHAT_LANE_MAX_WIDTH = 888;
-export const CHAT_LANE_MAX_WIDTH_CLASS = "max-w-[888px]";
-
+export const CHAT_LANE_MAX_WIDTH_CLASS = "md:max-w-[888px]";
 // Inline gutter applied around the lane when deriving shell widths. Mirrors
 // the default `--shell-gap` token to keep layout token-driven.
 export const CHAT_LANE_INLINE_GUTTER = 16;
