@@ -2416,7 +2416,7 @@ export function GuardianChat({
           </div>
 
           <div
-            className="absolute top-3 right-6 flex items-center gap-2"
+            className="flex items-center gap-2 shrink-0"
             style={{
               ...(DEBUG_LAYOUT && {
                 outline: "2px solid yellow",
@@ -2425,19 +2425,6 @@ export function GuardianChat({
             }}
           >
             {headerActions}
-            {DEBUG_LAYOUT && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  right: 0,
-                  width: "100%",
-                  height: "100%",
-                  pointerEvents: "none",
-                  borderRight: "2px dashed orange",
-                }}
-              />
-            )}
           </div>
         </div>
       </header>
@@ -2731,7 +2718,6 @@ export function GuardianChat({
   >
     {body}
   </div>
-</div>
         </div>
         <RAGTracePanel
           open={ragTraceOpen}
