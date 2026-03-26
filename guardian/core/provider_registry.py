@@ -197,9 +197,22 @@ _MODEL_INDEX_NON_CHAT_HINTS = (
     "music",
     "rerank",
     "speech",
+    "text-to-speech",
     "transcription",
     "tts",
     "video",
+)
+_MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS = (
+    "audio",
+    "asr",
+    "embedding",
+    "embeddings",
+    "moderation",
+    "rerank",
+    "speech",
+    "text-to-speech",
+    "transcription",
+    "tts",
 )
 _MODEL_INDEX_VISION_HINTS = (
     "image",
@@ -654,6 +667,17 @@ def _model_index_hint_text(item: dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
+def _model_identifier_hint_text(item: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("id", "model", "name", "displayName", "display_label"):
+        value = item.get(key)
+        if isinstance(value, str):
+            clean = value.strip()
+            if clean:
+                parts.append(clean)
+    return " ".join(parts).lower()
+
+
 def _is_chat_model_index_item(item: dict[str, Any]) -> bool:
     raw_chat = item.get("supports_chat")
     if isinstance(raw_chat, bool):
@@ -663,8 +687,20 @@ def _is_chat_model_index_item(item: dict[str, Any]) -> bool:
         return raw_chat
     hint_text = _model_index_hint_text(item)
     if not hint_text:
-        return True
-    return not any(hint in hint_text for hint in _MODEL_INDEX_NON_CHAT_HINTS)
+        identifier_hint_text = _model_identifier_hint_text(item)
+        if not identifier_hint_text:
+            return True
+        return not any(
+            hint in identifier_hint_text
+            for hint in _MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS
+        )
+    if any(hint in hint_text for hint in _MODEL_INDEX_NON_CHAT_HINTS):
+        return False
+    identifier_hint_text = _model_identifier_hint_text(item)
+    return not any(
+        hint in identifier_hint_text
+        for hint in _MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS
+    )
 
 
 def _is_vision_model_index_item(item: dict[str, Any]) -> bool:

@@ -129,6 +129,9 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
         assert local["source"]["kind"] == "local"
         assert local["source"]["baseUrl"] == "http://127.0.0.1:11434/v1"
         assert local["source"]["label"] == "127.0.0.1:11434"
+        assert local["truth"]["configured"] is True
+        assert local["truth"]["discoverable"] is True
+        assert local["truth"]["selectable"] is True
         assert [m["id"] for m in local["models"]] == [
             "llama3.1:8b",
             "qwen2.5:7b",
@@ -178,6 +181,8 @@ def test_llm_catalog_includes_authorized_provider(monkeypatch):
         assert groq["authorized"] is True
         assert groq["available"] is True
         assert groq["enabled"] is True
+        assert groq["truth"]["configured"] is True
+        assert groq["truth"]["authorized"] is True
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -225,6 +230,51 @@ def test_llm_catalog_marks_qwen3_local_models_as_no_think_by_default(
         )
         assert qwen_3_5["runtime"]["reasoning"]["mode"] == "no_think"
         assert qwen_3_5["runtime"]["reasoning"]["instruction"] == "/no_think"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_reports_local_endpoint_resolution_chain(monkeypatch):
+    calls: list[str] = []
+
+    def _mock_chain(url: str, *args, **kwargs) -> _MockResponse:
+        _ = (args, kwargs)
+        calls.append(url)
+        if "primary.local:11434" in url:
+            raise requests.exceptions.ConnectionError("connection refused")
+        if "secondary.local:11434" in url and url.endswith("/api/tags"):
+            return _MockResponse({"models": [{"name": "llama3.2:3b"}]})
+        return _MockResponse({"data": []}, status_code=404)
+
+    monkeypatch.setattr("guardian.core.llm_catalog.requests.get", _mock_chain)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "CODEXIFY_LOCAL_ENDPOINT_CHAIN": settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+        settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN = (
+            "http://primary.local:11434,http://secondary.local:11434"
+        )
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+        local = _provider_by_id(payload, "local")
+        resolution = local["endpoint_resolution"]
+        assert resolution["attempted_sequence"] == [
+            "http://primary.local:11434",
+            "http://secondary.local:11434",
+        ]
+        assert (
+            resolution["selected_endpoint"]["base_url"]
+            == "http://secondary.local:11434"
+        )
+        assert local["truth"]["discoverable"] is True
+        assert any("primary.local:11434" in url for url in calls)
+        assert any("secondary.local:11434" in url for url in calls)
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

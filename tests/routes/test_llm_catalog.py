@@ -358,19 +358,15 @@ def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
         assert [model["id"] for model in groq["models"]] == [
             "llama-3.3-70b-versatile",
             "moonshotai/kimi-k2-instruct-0905",
-            "text-embedding-3-small",
         ]
         assert [model["displayName"] for model in groq["models"]] == [
             "Llama 3.3 70B",
             "Kimi K2 Instruct",
-            "Embeddings",
         ]
         assert groq["models"][0]["supports_chat"] is True
         assert groq["models"][0]["supports_vision"] is False
         assert groq["models"][0]["supports_text_input"] is True
         assert groq["models"][0]["model_kind"] == "chat"
-        assert groq["models"][2]["supports_chat"] is False
-        assert groq["models"][2]["model_kind"] == "utility"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

@@ -150,6 +150,31 @@ class Settings(BaseSettings):
             "LOCAL_BASE_URL points to localhost/loopback inside containers."
         ),
     )
+    CODEXIFY_LOCAL_ENDPOINT_CHAIN: str | None = Field(
+        default=None,
+        description=(
+            "Optional comma-separated ordered local endpoint chain used for "
+            "local discovery and execution. When unset, the documented local "
+            "Docker Compose path remains the supported default posture."
+        ),
+    )
+    LOCAL_COMPAT_FIRST: bool = Field(
+        default=False,
+        description=(
+            "When true, prefer the OpenAI-compatible /v1 surface before "
+            "Ollama-native endpoints for local execution."
+        ),
+    )
+    LOCAL_PREFER_OPENAI_COMPAT: bool = Field(
+        default=False,
+        description=("Backward-compatible alias for LOCAL_COMPAT_FIRST."),
+    )
+    LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: bool = Field(
+        default=False,
+        description=(
+            "Allow /api/generate as a last-resort local execution fallback."
+        ),
+    )
     LOCAL_API_KEY: str = Field(
         default="local",
         description="API key placeholder for the local OpenAI-compatible API (often ignored by Ollama).",
@@ -174,6 +199,19 @@ class Settings(BaseSettings):
     GROQ_BASE_URL: str | None = Field(
         default=None,
         description="Optional override for the Groq-compatible OpenAI base URL.",
+    )
+    GROQ_MODEL_DISCOVERY_URL: str | None = Field(
+        default=None,
+        description=(
+            "Optional override for Groq's live model index endpoint. "
+            "Defaults to deriving /models from GROQ_BASE_URL."
+        ),
+    )
+    GROQ_MODEL_DISCOVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description=(
+            "Timeout for Groq live model index discovery requests (seconds)."
+        ),
     )
     OPENAI_API_KEY: str | None = Field(
         default=None, description="API key for OpenAI."
