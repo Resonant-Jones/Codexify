@@ -57,13 +57,9 @@ import {
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
 import {
-  CHAT_STAGE_MAX_WIDTH,
-  CHAT_COMPOSER_SHELL_MARGIN_CLASS,
-  CHAT_COMPOSER_SHELL_PAD_CLASS,
-  CHAT_LANE_GUTTER_CLASS,
   CHAT_LANE_MAX_WIDTH,
   CHAT_LANE_MAX_WIDTH_CLASS,
-  CHAT_LANE_STAGE_GUTTER_CLASS,
+  CHAT_STAGE_MAX_WIDTH,
 } from "@/features/chat/chatLane";
 
 

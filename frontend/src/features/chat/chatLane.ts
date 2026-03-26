@@ -1,5 +1,6 @@
 // Canonical chat lane width used by message stack, approval rail, and composer.
-export const CHAT_LANE_MAX_WIDTH = 888;
+export const CHAT_LANE_MAX_WIDTH = 880;
+export const CHAT_LANE_MAX_WIDTH_CLASS = "md:max-w-[880px]";
 
 // Shared Tailwind class for lane-bound surfaces that match the canonical width.
 export const CHAT_LANE_MAX_WIDTH_CLASS = "md:max-w-[888px]";
