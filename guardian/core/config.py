@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
+_DEFAULT_MINIMAX_ANTHROPIC_API_BASE = "https://api.minimax.io/anthropic"
 SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
     "openai",
@@ -257,11 +258,14 @@ class Settings(BaseSettings):
         default=None, description="API key for MiniMax."
     )
     MINIMAX_API_BASE: str | None = Field(
-        default=None,
-        description="Base URL for MiniMax's OpenAI-compatible API endpoint.",
+        default=_DEFAULT_MINIMAX_ANTHROPIC_API_BASE,
+        description=(
+            "Base URL for MiniMax's direct API endpoint. Defaults to the "
+            "Anthropic-compatible MiniMax surface."
+        ),
     )
     MINIMAX_API_FLAVOR: str = Field(
-        default="openai",
+        default="anthropic",
         description=(
             "MiniMax API surface to use: 'openai' for /chat/completions or "
             "'anthropic' for /v1/messages."
@@ -274,8 +278,11 @@ class Settings(BaseSettings):
         ),
     )
     MINIMAX_MODEL: str | None = Field(
-        default=None,
-        description="Optional default chat model for MiniMax.",
+        default="MiniMax-M2.7",
+        description=(
+            "Optional default chat model for MiniMax. Defaults to the "
+            "Anthropic-compatible M2.7 model."
+        ),
     )
     MINIMAX_TIMEOUT_SECONDS: float = Field(
         default=60.0,
@@ -890,9 +897,9 @@ def validate_llm_config(
                 f"{missing_text}. Set {missing_text} in your backend environment."
             )
         api_flavor = str(
-            getattr(settings, "MINIMAX_API_FLAVOR", "openai") or ""
+            getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or ""
         )
-        api_flavor = api_flavor.strip().lower() or "openai"
+        api_flavor = api_flavor.strip().lower() or "anthropic"
         if api_flavor not in {"openai", "anthropic"}:
             raise LLMConfigError(
                 "MINIMAX_API_FLAVOR must be one of: openai, anthropic."

@@ -190,7 +190,7 @@ class MiniMaxAdapter(ChatProvider):
         ).strip()
         self.timeout = float(os.getenv("MINIMAX_TIMEOUT_SECONDS", timeout))
         self.api_flavor = (
-            (api_flavor or os.getenv("MINIMAX_API_FLAVOR") or "openai")
+            (api_flavor or os.getenv("MINIMAX_API_FLAVOR") or "anthropic")
             .strip()
             .lower()
         )

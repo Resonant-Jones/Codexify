@@ -43,6 +43,9 @@ def test_build_system_prompt_returns_single_string_and_fixed_order() -> None:
         "system_docs",
         "scratchpad",
     ]
+    assert segments[0]["text"] == "Base rules"
+    assert segments[0]["cacheable"] is True
+    assert segments[-1]["cacheable"] is False
     assert meta["estimated_tokens_total"] == sum(
         segment["estimated_tokens"] for segment in segments
     )

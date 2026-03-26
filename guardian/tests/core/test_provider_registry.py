@@ -250,9 +250,12 @@ def test_minimax_discovery_failure_degrades_without_fabricating_models(
     assert capability["authorized"] is True
     assert capability["available"] is True
     assert capability["enabled"] is True
-    assert capability["models"] == []
+    assert capability["models"]
+    assert capability["models"][0]["id"] == "minimax-chat"
     assert capability["default_model"] == "minimax-chat"
     assert capability["model_index"]["state"] == "degraded"
+    assert capability["model_index"]["source"] == "fallback"
+    assert capability["model_index"]["failure_kind"] == "provider_timeout"
     assert "timed out" in capability["model_index"]["reason"].lower()
 
     valid, reason = validate_provider_model_selection(
