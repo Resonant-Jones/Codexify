@@ -20,9 +20,7 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
-import {
-  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-} from "@/features/chat/chatLane";
+import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -796,7 +794,7 @@ export function Composer({
             />
           </div>
 
-          <div className="shrink-0 pr-2">
+          <div data-testid="composer-send-slot" className="flex shrink-0 items-center pr-[3px]">
             <Button
               type="button"
               onClick={handleAttemptSend}
@@ -809,9 +807,9 @@ export function Composer({
                   ? "Finish the current reply before sending."
                   : undefined
               }
-              size="sm"
+              size="icon"
               className={cn(
-                "h-8 w-8 rounded-md px-0 transition-opacity",
+                "!h-8 !w-8 !min-w-0 !rounded-full !px-0 transition-opacity",
                 sendTransportDisabled
                   ? "cursor-not-allowed opacity-50"
                   : sendBlockedByTurnLock
