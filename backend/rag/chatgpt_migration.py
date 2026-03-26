@@ -1116,11 +1116,6 @@ def ingest_chatgpt_export(
     """
     Ingest a ChatGPT export (JSON bytes) into the database and vector store.
     """
-    # Defense-in-depth: enforce size limit at service entry
-    MAX_IMPORT_SIZE = 50 * 1024 * 1024  # 50MB
-    if len(content) > MAX_IMPORT_SIZE:
-        raise ValueError("Export file exceeds 50MB limit")
-
     if not user_id:
         raise ValueError(
             "ingest_chatgpt_export requires a valid user_id (got None or empty)"
