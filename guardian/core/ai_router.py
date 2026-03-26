@@ -10,6 +10,7 @@ from requests import exceptions as req_exc
 
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+from guardian.core.event_contracts import _coerce_text
 from guardian.core.provider_registry import default_model_for_provider
 from guardian.core.provider_registry import (
     normalize_provider as normalize_registry_provider,
@@ -75,6 +76,24 @@ class LocalReasoningDirective:
         if self.profile_reason:
             payload["profile_reason"] = self.profile_reason
         return payload
+
+
+class ProviderResponse(str):
+    """String-compatible provider result that preserves raw upstream data."""
+
+    def __new__(
+        cls,
+        text: str,
+        *,
+        raw_payload: Any | None = None,
+        content_blocks: Any | None = None,
+        provider: str | None = None,
+    ):
+        obj = super().__new__(cls, text or "")
+        obj.raw_payload = raw_payload  # type: ignore[attr-defined]
+        obj.content_blocks = content_blocks  # type: ignore[attr-defined]
+        obj.provider = provider  # type: ignore[attr-defined]
+        return obj
 
 
 @dataclass(frozen=True)
@@ -555,6 +574,7 @@ def chat_with_ai(
     model: Optional[str] = None,
     provider: Optional[str] = None,
     reasoning_mode: Optional[str] = None,
+    prompt_meta: Optional[dict[str, Any]] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
@@ -600,7 +620,13 @@ def chat_with_ai(
     if provider_name == "alibaba":
         return call_alibaba(messages, target_model, settings=settings)
     if provider_name == "minimax":
-        return call_minimax(messages, target_model, settings=settings)
+        return call_minimax(
+            messages,
+            target_model,
+            reasoning_mode=reasoning_mode,
+            prompt_meta=prompt_meta,
+            settings=settings,
+        )
 
     logger.warning("Unsupported LLM provider: %s", provider_name)
     raise HTTPException(
@@ -1626,9 +1652,74 @@ def _extract_provider_error_message(
     return _sanitize_provider_error(text, secret=secret)
 
 
+def _anthropic_text_block(
+    text: str,
+    *,
+    cacheable: bool = False,
+) -> dict[str, Any]:
+    block: dict[str, Any] = {
+        "type": "text",
+        "text": str(text or "").strip(),
+    }
+    if cacheable:
+        block["cache_control"] = {"type": "ephemeral"}
+    return block
+
+
+def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
+    if isinstance(content, list):
+        blocks: list[dict[str, Any]] = []
+        for item in content:
+            if isinstance(item, dict):
+                block = dict(item)
+                block_type = str(block.get("type") or "").strip().lower()
+                if block_type:
+                    if block_type == "text":
+                        text = str(block.get("text") or "").strip()
+                        if not text:
+                            continue
+                        block["text"] = text
+                        blocks.append(block)
+                        continue
+                    if block_type in {"thinking", "tool_use", "tool_result"}:
+                        blocks.append(block)
+                        continue
+                text = _coerce_text(item).strip()
+                if text:
+                    blocks.append(_anthropic_text_block(text))
+                continue
+            text = str(item or "").strip()
+            if text:
+                blocks.append(_anthropic_text_block(text))
+        return blocks
+
+    if isinstance(content, dict):
+        block = dict(content)
+        block_type = str(block.get("type") or "").strip().lower()
+        if block_type:
+            if block_type == "text":
+                text = str(block.get("text") or "").strip()
+                if text:
+                    block["text"] = text
+                    return [block]
+                return []
+            if block_type in {"thinking", "tool_use", "tool_result"}:
+                return [block]
+
+    text = str(content or "").strip()
+    return [_anthropic_text_block(text)] if text else []
+
+
 def _normalize_messages_for_anthropic(
     messages: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], str | None]:
+) -> tuple[list[dict[str, Any]], str | list[dict[str, Any]] | None]:
+    return _normalize_messages_for_anthropic_with_meta(messages, None)
+
+
+def _normalize_messages_for_anthropic_with_meta(
+    messages: list[dict[str, Any]],
+    prompt_meta: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], str | list[dict[str, Any]] | None]:
     system_parts: list[str] = []
     normalized: list[dict[str, Any]] = []
 
@@ -1636,22 +1727,47 @@ def _normalize_messages_for_anthropic(
         if not isinstance(raw, dict):
             continue
         role = str(raw.get("role") or "user").strip().lower() or "user"
-        text = str(raw.get("content") or "").strip()
-        if not text:
-            continue
+        content = raw.get("content")
         if role == "system":
+            text = str(_coerce_text(content) or "").strip()
+            if not text:
+                continue
             system_parts.append(text)
+            continue
+
+        content_blocks = _coerce_anthropic_content_blocks(content)
+        if not content_blocks:
             continue
         if role not in {"user", "assistant"}:
             role = "user"
-        normalized.append(
-            {"role": role, "content": [{"type": "text", "text": text}]}
-        )
+        normalized.append({"role": role, "content": content_blocks})
 
     if not normalized:
         normalized = [
             {"role": "user", "content": [{"type": "text", "text": ""}]}
         ]
+
+    if prompt_meta:
+        segments = prompt_meta.get("segments")
+        if isinstance(segments, list):
+            system_blocks: list[dict[str, Any]] = []
+            cacheable_indexes: list[int] = []
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                text = str(segment.get("text") or "").strip()
+                if not text:
+                    continue
+                cacheable = bool(segment.get("cacheable"))
+                if cacheable:
+                    cacheable_indexes.append(len(system_blocks))
+                system_blocks.append(_anthropic_text_block(text))
+            if system_blocks:
+                if cacheable_indexes:
+                    system_blocks[cacheable_indexes[-1]]["cache_control"] = {
+                        "type": "ephemeral"
+                    }
+                return normalized, system_blocks
 
     system_text = "\n\n".join(part for part in system_parts if part).strip()
     return normalized, (system_text or None)
@@ -1673,7 +1789,14 @@ def _extract_anthropic_text(payload: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
+def call_minimax(
+    messages,
+    model: str,
+    *,
+    reasoning_mode: Optional[str] = None,
+    prompt_meta: Optional[dict[str, Any]] = None,
+    settings: Optional[Settings] = None,
+):
     """Call MiniMax via OpenAI- or Anthropic-compatible endpoints."""
     settings = _resolve_settings(settings)
 
@@ -1713,8 +1836,8 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             ),
         )
 
-    api_flavor = str(getattr(settings, "MINIMAX_API_FLAVOR", "openai") or "")
-    api_flavor = api_flavor.strip().lower() or "openai"
+    api_flavor = str(getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or "")
+    api_flavor = api_flavor.strip().lower() or "anthropic"
     if api_flavor not in {"openai", "anthropic"}:
         raise HTTPException(
             status_code=400,
@@ -1722,9 +1845,10 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
         )
 
     if api_flavor == "anthropic":
-        anthropic_messages, system_prompt = _normalize_messages_for_anthropic(
-            messages
-        )
+        (
+            anthropic_messages,
+            system_prompt,
+        ) = _normalize_messages_for_anthropic_with_meta(messages, prompt_meta)
         payload: Dict[str, Any] = {
             "model": model,
             "messages": anthropic_messages,
@@ -1743,6 +1867,11 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             ),
             "Content-Type": "application/json",
         }
+        if str(reasoning_mode or "").strip().lower() in {"think", "/think"}:
+            payload["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": 1024,
+            }
         if base_url.endswith("/v1"):
             url = f"{base_url}/messages"
         else:
@@ -1752,6 +1881,7 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             "model": model,
             "messages": messages,
             "temperature": 0.7,
+            "reasoning_split": True,
         }
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -1814,11 +1944,23 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
     try:
         data = response.json()
         if api_flavor == "anthropic":
-            text = _extract_anthropic_text(data)
-            if text:
-                return text
-            raise KeyError("content")
-        return data["choices"][0]["message"]["content"]
+            return ProviderResponse(
+                _extract_anthropic_text(data),
+                raw_payload=data,
+                content_blocks=data.get("content"),
+                provider="minimax",
+            )
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message")
+            if isinstance(message, dict):
+                return ProviderResponse(
+                    _coerce_text(message.get("content")),
+                    raw_payload=data,
+                    content_blocks=message.get("content"),
+                    provider="minimax",
+                )
+        raise KeyError("content")
     except Exception as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
         logger.exception(

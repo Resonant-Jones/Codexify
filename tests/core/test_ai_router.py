@@ -307,6 +307,7 @@ def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
         CODEXIFY_EGRESS_ALLOWLIST="minimax",
         MINIMAX_API_KEY="test-minimax-key",
         MINIMAX_API_BASE="https://api.minimax.chat/v1",
+        MINIMAX_API_FLAVOR="openai",
         MINIMAX_MODEL="abab6.5s-chat",
         MINIMAX_TIMEOUT_SECONDS=5.0,
     )
@@ -345,6 +346,7 @@ def test_call_minimax_http_error_surfaces_provider_error_payload(monkeypatch):
         CODEXIFY_EGRESS_ALLOWLIST="minimax",
         MINIMAX_API_KEY="test-minimax-key",
         MINIMAX_API_BASE="https://api.minimax.chat/v1",
+        MINIMAX_API_FLAVOR="openai",
         MINIMAX_MODEL="abab6.5s-chat",
     )
 

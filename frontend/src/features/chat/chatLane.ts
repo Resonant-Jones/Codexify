@@ -28,11 +28,11 @@ export const CHAT_COMPOSER_SEND_PAD_CLASS = "pr-2";
 // Outer Guardian surface ceiling for fullscreen layouts. Keeps the shell large
 // enough for future workspace activation without letting the empty side bands
 // dominate the scene on very wide displays.
-export const GUARDIAN_SHELL_MAX_WIDTH = 1360;
+export const GUARDIAN_SHELL_MAX_WIDTH = 1200;
 
 // Static class companion for shell consumers that need the canonical Tailwind
 // contract alongside the numeric token.
-export const GUARDIAN_SHELL_MAX_WIDTH_CLASS = "max-w-[1360px]";
+export const GUARDIAN_SHELL_MAX_WIDTH_CLASS = "max-w-[1200px]";
 
 // Token-friendly padding expression reused by chat surfaces so portrait and
 // fullscreen share the same baseline inset without bespoke numbers.

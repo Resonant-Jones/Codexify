@@ -573,6 +573,7 @@ def test_llm_catalog_minimax_enabled_with_key_base_and_egress(monkeypatch):
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_API_FLAVOR": settings.MINIMAX_API_FLAVOR,
         "MINIMAX_MODEL": settings.MINIMAX_MODEL,
     }
     try:
@@ -581,6 +582,7 @@ def test_llm_catalog_minimax_enabled_with_key_base_and_egress(monkeypatch):
         settings.CODEXIFY_EGRESS_ALLOWLIST = "minimax"
         settings.MINIMAX_API_KEY = "test-minimax-key"
         settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+        settings.MINIMAX_API_FLAVOR = "openai"
         settings.MINIMAX_MODEL = "minimax-chat"
 
         client = TestClient(app)
@@ -620,6 +622,7 @@ def test_llm_catalog_dynamic_discovery_failure_reports_degraded_metadata(
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_API_FLAVOR": settings.MINIMAX_API_FLAVOR,
         "MINIMAX_MODEL": settings.MINIMAX_MODEL,
     }
     try:
@@ -628,6 +631,7 @@ def test_llm_catalog_dynamic_discovery_failure_reports_degraded_metadata(
         settings.CODEXIFY_EGRESS_ALLOWLIST = "minimax"
         settings.MINIMAX_API_KEY = "test-minimax-key"
         settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+        settings.MINIMAX_API_FLAVOR = "openai"
         settings.MINIMAX_MODEL = "minimax-chat"
 
         client = TestClient(app)
@@ -639,8 +643,10 @@ def test_llm_catalog_dynamic_discovery_failure_reports_degraded_metadata(
         assert minimax["authorized"] is True
         assert minimax["available"] is True
         assert minimax["enabled"] is True
-        assert minimax["models"] == []
+        assert minimax["models"]
+        assert minimax["models"][0]["id"] == "minimax-chat"
         assert minimax["model_index"]["state"] == "degraded"
+        assert minimax["model_index"]["source"] == "fallback"
         assert "timed out" in minimax["model_index"]["reason"].lower()
     finally:
         for field, value in snapshot.items():

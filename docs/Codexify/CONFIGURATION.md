@@ -36,7 +36,10 @@ Notes:
 | `OPENAI_API_KEY` | unset | Required for OpenAI usage when enabled. |
 | `GROQ_API_KEY` | unset | Required for Groq usage when enabled. |
 | `MINIMAX_API_KEY` | unset | Required for MiniMax usage when enabled. |
-| `MINIMAX_API_BASE` | unset | Required OpenAI-compatible base URL for MiniMax (for example `https://api.minimax.chat/v1`). |
+| `MINIMAX_API_BASE` | `https://api.minimax.io/anthropic` | Required MiniMax base URL. Anthropic-compatible direct integration is the default. |
+| `MINIMAX_API_FLAVOR` | `anthropic` | MiniMax transport surface (`anthropic` or `openai`). OpenAI is explicit fallback only. |
+| `MINIMAX_MODEL_DISCOVERY_URL` | unset | Optional explicit inventory endpoint for catalog probing. |
+| `MINIMAX_MODEL` | `MiniMax-M2.7` | Default MiniMax chat model; keep aligned with the compatibility surface you selected. |
 | `ELEVENLABS_API_KEY` | unset | Required for ElevenLabs TTS when enabled. |
 
 Allowlist target names currently enforced in code:
@@ -50,11 +53,14 @@ Example (OpenAI/Groq/MiniMax enabled):
 ALLOW_CLOUD_PROVIDERS=true
 CODEXIFY_LOCAL_ONLY_MODE=false
 CODEXIFY_EGRESS_ALLOWLIST=openai,groq,minimax
-LLM_PROVIDER=openai
+LLM_PROVIDER=minimax
 OPENAI_API_KEY=...
 # GROQ_API_KEY=...
 # MINIMAX_API_KEY=...
-# MINIMAX_API_BASE=https://api.minimax.chat/v1
+# MINIMAX_API_BASE=https://api.minimax.io/anthropic
+# MINIMAX_API_FLAVOR=anthropic
+# MINIMAX_MODEL=MiniMax-M2.1
+# MINIMAX_MODEL_DISCOVERY_URL=...
 ```
 
 Without this full set, egress remains blocked by policy.
