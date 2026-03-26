@@ -153,9 +153,11 @@ def build_system_prompt(
         segment_meta.append(
             {
                 "name": name,
+                "text": text,
                 "chars": len(text),
                 "estimated_tokens": estimate_tokens(text),
                 "truncated": bool(truncated_flags[name]),
+                "cacheable": name != "scratchpad",
             }
         )
 

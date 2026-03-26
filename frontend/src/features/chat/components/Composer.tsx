@@ -20,7 +20,7 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
-
+import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -36,6 +36,9 @@ const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 const MIN_COMPOSER_ROWS = 2;
 const MAX_COMPOSER_ROWS = 6;
 const FALLBACK_LINE_HEIGHT_PX = 24;
+const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
+const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
+const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
 
 const parsePx = (value?: string | null) => {
   const parsed = Number.parseFloat(value ?? "");
@@ -83,14 +86,19 @@ type DraftAttachment = {
   previewUrl?: string;
 };
 
-function inferProjectIdFromLocation(fallback = 1): number {
+function normalizeOptionalPositiveProjectId(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed > 0 ? parsed : null;
+}
+
+function inferProjectIdFromLocation(fallback: number | null = null): number | null {
   if (typeof window === "undefined") return fallback;
   const path = window.location.pathname || "";
   // Common shapes: /projects/:id, /project/:id, /p/:id
   const match = path.match(/\/(?:projects?|p)\/(\d+)/i);
   if (!match) return fallback;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return normalizeOptionalPositiveProjectId(match[1]) ?? fallback;
 }
 
 function inferProjectIdFromStorage(): number | null {
@@ -105,11 +113,37 @@ function inferProjectIdFromStorage(): number | null {
     ];
     for (const key of keys) {
       const raw = window.localStorage.getItem(key);
-      const parsed = Number(raw);
-      if (Number.isFinite(parsed)) return parsed;
+      const parsed = normalizeOptionalPositiveProjectId(raw);
+      if (parsed !== null) return parsed;
     }
   } catch {}
   return null;
+}
+
+function sanitizeUploadError(err: unknown): string {
+  const detail = (err as any)?.response?.data?.detail;
+  const rawMessage =
+    typeof detail === "string"
+      ? detail
+      : typeof detail?.message === "string"
+        ? detail.message
+        : typeof (err as any)?.message === "string"
+          ? (err as any).message
+          : "";
+
+  if (!rawMessage.trim()) {
+    return GENERIC_UPLOAD_ERROR_MESSAGE;
+  }
+
+  if (
+    /(foreignkey|psycopg|sqlalchemy|traceback|stack trace|insert into|constraint)/i.test(
+      rawMessage
+    )
+  ) {
+    return GENERIC_UPLOAD_ERROR_MESSAGE;
+  }
+
+  return rawMessage;
 }
 
 export function Composer({
@@ -342,7 +376,7 @@ export function Composer({
     // Prefer explicit storage values to reduce reliance on URL shape.
     const fromStorage = inferProjectIdFromStorage();
     if (fromStorage !== null) return fromStorage;
-    return inferProjectIdFromLocation(1);
+    return inferProjectIdFromLocation(null);
   };
 
   function stageFiles(files: FileList | File[]) {
@@ -398,7 +432,10 @@ export function Composer({
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
-    form.append("project_id", String(resolveProjectId()));
+    const resolvedProjectId = resolveProjectId();
+    if (resolvedProjectId !== null) {
+      form.append("project_id", String(resolvedProjectId));
+    }
     form.append("thread_id", String(uploadThreadId));
     form.append("file", file);
     form.append("tag", "uploaded");
@@ -420,11 +457,7 @@ export function Composer({
         filename: data?.filename || file.name,
       };
     } catch (err: any) {
-      const message =
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Failed to upload attachment.";
-      showToast(message);
+      showToast(sanitizeUploadError(err));
       return null;
     }
   }
@@ -590,6 +623,18 @@ export function Composer({
     modelOptions.find((option) => option.value === activeModelId)?.label ??
     modelOptions[0]?.label ??
     "Model";
+  const hasImageAttachments = draftAttachments.some((att) => att.kind === "image");
+  const hasVisionCapableModel = modelOptions.some((option) => {
+    if (option.supportsChat === false || option.modelKind === "utility") {
+      return false;
+    }
+    return option.supportsVision === true;
+  });
+  const imageCapabilityMessage = hasImageAttachments
+    ? hasVisionCapableModel
+      ? "Image attached. Vision-capable chat models can inspect it; text-only chat models will not see it natively."
+      : "Image attached, but no vision-capable chat models are available for this provider."
+    : null;
   const inferenceModeLabel =
     inferenceModeOptions.find((option) => option.value === activeInferenceMode)
       ?.label ??
@@ -604,173 +649,188 @@ export function Composer({
 
   return (
     <>
-      <div className="flex flex-col flex-1 w-full p-[4px]" onDrop={handleDrop} onDragOver={handleDragOver}>
-        <div className="flex flex-col flex-1 w-full rounded-[var(--tile-radius)] p-[4px]">
-          {/* Content Rectangle - Textarea area */}
-          <div className="flex-1 flex flex-col px-[12px] pt-[8px] pb-[6px]">
-            <Textarea
-              ref={ref}
-              rows={MIN_COMPOSER_ROWS}
-              value={value}
-              onChange={(e) => {
-                const next = e.target.value;
-                setValue(next);
-                valueRef.current = next;
-                scheduleDraftCommit(next);
-              }}
-              onBlur={() => commitDraftNow(valueRef.current)}
-              placeholder="Write a message…"
-              onPaste={onPaste}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleAttemptSend();
+      <div
+        data-composer-root
+        className="flex flex-col flex-1 w-full gap-3 px-[var(--composer-pad-x,12px)] py-[var(--composer-pad-y,12px)]"
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <Textarea
+          ref={ref}
+          rows={MIN_COMPOSER_ROWS}
+          value={value}
+          onChange={(e) => {
+            const next = e.target.value;
+            setValue(next);
+            valueRef.current = next;
+            scheduleDraftCommit(next);
+          }}
+          onBlur={() => commitDraftNow(valueRef.current)}
+          placeholder="Write a message…"
+          onPaste={onPaste}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleAttemptSend();
+            }
+          }}
+          className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
+          style={{
+            color: "var(--text)",
+            overflow: "hidden",
+            padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
+          }}
+        />
+
+        {draftAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {draftAttachments.map((att) => (
+              <div
+                key={att.id}
+                className="relative overflow-hidden rounded-[var(--tile-radius)] border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5"
+                style={{ width: 88, height: 68 }}
+                title={att.file.name}
+              >
+                {att.kind === "image" ? (
+                  <img
+                    src={att.previewUrl}
+                    alt={att.file.name}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center">
+                    <FileText className="h-5 w-5 opacity-70" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  aria-label="Remove attachment"
+                  onClick={() => removeDraftAttachment(att.id)}
+                  className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/50 text-white"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ACCEPTED_ATTACHMENTS}
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const files = e.target.files;
+            e.currentTarget.value = "";
+            if (files && files.length) stageFiles(files);
+          }}
+        />
+
+        <div
+          data-testid="composer-controls-row"
+          className={cn(
+            "mt-auto flex w-full items-center justify-between gap-3",
+            CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
+          )}
+        >
+          <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
+            <ComposerActionMenu
+              disabled={draftControlsDisabled}
+              depthMode={depthMode}
+              depthOptions={depthOptions}
+              onAttach={() => {
+                if (draftControlsDisabled) {
+                  notifyTransportBusy();
+                  return;
                 }
+                fileInputRef.current?.click();
               }}
-              className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
-              style={{ color: "var(--text)", overflow: "hidden" }}
+              onGenerateImage={() => {
+                if (draftControlsDisabled) {
+                  notifyTransportBusy();
+                  return;
+                }
+                setShowImgGen(true);
+              }}
+              onDepthChange={(nextDepth) => {
+                onDepthModeChange?.(nextDepth);
+              }}
+              onVoiceTurn={onVoiceTurn}
+              voiceTurnDisabled={voiceTurnDisabled}
+              voiceTurnLabel={voiceTurnLabel}
+            />
+            <ComposerSelectMenu
+              ariaLabel="Select provider"
+              menuLabel="Provider"
+              valueLabel={providerLabel}
+              options={providerOptions}
+              selectedValue={activeProviderId}
+              openSignal={providerOpenSignal}
+              disabled={draftControlsDisabled || providerOptions.length === 0}
+              onSelect={onProviderChange ?? (() => {})}
+            />
+            <ComposerSelectMenu
+              ariaLabel="Select model"
+              menuLabel="Model"
+              valueLabel={modelLabel}
+              options={modelOptions}
+              selectedValue={activeModelId}
+              disabled={draftControlsDisabled || modelOptions.length === 0}
+              onSelect={onModelChange ?? (() => {})}
+            />
+            <ComposerSelectMenu
+              ariaLabel="Select inference mode"
+              menuLabel="Mode"
+              valueLabel={inferenceModeLabel}
+              options={inferenceModeOptions}
+              selectedValue={activeInferenceMode}
+              disabled={draftControlsDisabled || inferenceModeOptions.length === 0}
+              onSelect={(value) =>
+                onInferenceModeChange?.(value as ComposerInferenceMode)
+              }
             />
           </div>
 
-          {draftAttachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-[12px] pb-[6px]">
-              {draftAttachments.map((att) => (
-                <div
-                  key={att.id}
-                  className="relative overflow-hidden rounded-[var(--tile-radius)] border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5"
-                  style={{ width: 88, height: 68 }}
-                  title={att.file.name}
-                >
-                  {att.kind === "image" ? (
-                    <img
-                      src={att.previewUrl}
-                      alt={att.file.name}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center">
-                      <FileText className="h-5 w-5 opacity-70" />
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    aria-label="Remove attachment"
-                    onClick={() => removeDraftAttachment(att.id)}
-                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/50 text-white"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPTED_ATTACHMENTS}
-            multiple
-            style={{ display: "none" }}
-            onChange={(e) => {
-              const files = e.target.files;
-              e.currentTarget.value = "";
-              if (files && files.length) stageFiles(files);
-            }}
-          />
-
-          <div className="flex flex-wrap items-center justify-between gap-3 px-[8px] pb-[4px]">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <ComposerActionMenu
-                disabled={draftControlsDisabled}
-                depthMode={depthMode}
-                depthOptions={depthOptions}
-                onAttach={() => {
-                  if (draftControlsDisabled) {
-                    notifyTransportBusy();
-                    return;
-                  }
-                  fileInputRef.current?.click();
-                }}
-                onGenerateImage={() => {
-                  if (draftControlsDisabled) {
-                    notifyTransportBusy();
-                    return;
-                  }
-                  setShowImgGen(true);
-                }}
-                onDepthChange={(nextDepth) => {
-                  onDepthModeChange?.(nextDepth);
-                }}
-                onVoiceTurn={onVoiceTurn}
-                voiceTurnDisabled={voiceTurnDisabled}
-                voiceTurnLabel={voiceTurnLabel}
-              />
-              <ComposerSelectMenu
-                ariaLabel="Select provider"
-                menuLabel="Provider"
-                valueLabel={providerLabel}
-                options={providerOptions}
-                selectedValue={activeProviderId}
-                openSignal={providerOpenSignal}
-                disabled={draftControlsDisabled || providerOptions.length === 0}
-                onSelect={onProviderChange ?? (() => {})}
-              />
-              <ComposerSelectMenu
-                ariaLabel="Select model"
-                menuLabel="Model"
-                valueLabel={modelLabel}
-                options={modelOptions}
-                selectedValue={activeModelId}
-                disabled={draftControlsDisabled || modelOptions.length === 0}
-                onSelect={onModelChange ?? (() => {})}
-              />
-              <ComposerSelectMenu
-                ariaLabel="Select inference mode"
-                menuLabel="Mode"
-                valueLabel={inferenceModeLabel}
-                options={inferenceModeOptions}
-                selectedValue={activeInferenceMode}
-                disabled={draftControlsDisabled || inferenceModeOptions.length === 0}
-                onSelect={(value) =>
-                  onInferenceModeChange?.(value as ComposerInferenceMode)
-                }
-              />
-            </div>
-
-            <div className="shrink-0 pr-[14px]">
-              <Button
-                type="button"
-                onClick={handleAttemptSend}
-                disabled={sendTransportDisabled}
-                aria-label="Send"
-                aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
-                tabIndex={sendTransportDisabled ? -1 : 0}
-                title={
-                  sendBlockedByTurnLock
-                    ? "Finish the current reply before sending."
-                    : undefined
-                }
-                size="sm"
-                className={cn(
-                  "h-8 w-8 rounded-md px-0 transition-opacity",
-                  sendTransportDisabled
-                    ? "cursor-not-allowed opacity-50"
-                    : sendBlockedByTurnLock
-                      ? "opacity-75"
-                      : ""
-                )}
-                style={{
-                  background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
-                  color: "var(--text-on-accent, #111827)",
-                  boxShadow: "none",
-                }}
-              >
-                <Send className="h-3.5 w-3.5 shrink-0" />
-              </Button>
-            </div>
+          <div data-testid="composer-send-slot" className="flex shrink-0 items-center pr-[3px]">
+            <Button
+              type="button"
+              onClick={handleAttemptSend}
+              disabled={sendTransportDisabled}
+              aria-label="Send"
+              aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
+              tabIndex={sendTransportDisabled ? -1 : 0}
+              title={
+                sendBlockedByTurnLock
+                  ? "Finish the current reply before sending."
+                  : undefined
+              }
+              size="icon"
+              className={cn(
+                "!h-8 !w-8 !min-w-0 !rounded-full !px-0 transition-opacity",
+                sendTransportDisabled
+                  ? "cursor-not-allowed opacity-50"
+                  : sendBlockedByTurnLock
+                    ? "opacity-75"
+                    : ""
+              )}
+              style={{
+                background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+                color: "var(--text-on-accent, #111827)",
+                boxShadow: "none",
+              }}
+            >
+              <Send className="h-3.5 w-3.5 shrink-0" />
+            </Button>
           </div>
         </div>
+        {imageCapabilityMessage ? (
+          <div className="px-[12px] pb-[6px] text-[11px] leading-snug" style={{ color: "var(--muted)" }}>
+            {imageCapabilityMessage}
+          </div>
+        ) : null}
       </div>
       <ImageGenModal
         open={showImgGen}

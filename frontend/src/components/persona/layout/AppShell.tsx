@@ -55,6 +55,7 @@ import useUploader from "@/hooks/useUploader";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ShareButton } from "@/components/ShareButton";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -218,6 +219,29 @@ function routeThreadIdFromPath(pathname: string): number | null {
 function readRouteThreadId(): number | null {
   if (typeof window === "undefined") return null;
   return routeThreadIdFromPath(window.location.pathname);
+}
+
+function normalizeGallerySrc(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return normalizeMediaUrl(trimmed);
+}
+
+function normalizeGalleryItem(raw: any): GalleryItem | null {
+  const src = normalizeGallerySrc(
+    raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url
+  );
+  if (!src) return null;
+  const prompt =
+    typeof raw?.prompt === "string" && raw.prompt.trim()
+      ? raw.prompt.trim()
+      : "Untitled image";
+  return {
+    src,
+    prompt,
+    mock: Boolean(raw?.mock),
+  };
 }
 
 function normalizeInterceptPath(url: unknown): string {
@@ -1298,7 +1322,10 @@ export default function AppShell({
         return def;
       }
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : def;
+      if (!Array.isArray(parsed)) return def;
+      return parsed
+        .map((item) => normalizeGalleryItem(item))
+        .filter((item): item is GalleryItem => !!item);
     } catch { return def; }
   });
   useEffect(() => {
@@ -1360,7 +1387,11 @@ export default function AppShell({
     setDocuments((prev) => prev.filter(keepDoc));
   }, []);
   const deleteGalleryItem = useCallback((src: string) => {
-    setGallery((prev) => prev.filter((g) => g.src !== src));
+    const targetSrc = normalizeGallerySrc(src);
+    if (!targetSrc) return;
+    setGallery((prev) =>
+      prev.filter((g) => normalizeGallerySrc(g.src) !== targetSrc)
+    );
   }, []);
 
   // Provide delete undo for documents
@@ -1407,9 +1438,13 @@ export default function AppShell({
     const onAdd = (e: Event) => {
       const items = (e as CustomEvent).detail?.items || [];
       if (!Array.isArray(items) || items.length === 0) return;
+      const normalizedItems = items
+        .map((item: any) => normalizeGalleryItem(item))
+        .filter((item): item is GalleryItem => !!item);
+      if (normalizedItems.length === 0) return;
       setGallery((prev) => {
         const seen = new Set<string>();
-        const merged = [...items, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...prev].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
@@ -1429,8 +1464,12 @@ export default function AppShell({
     tag: "upload",
     onImages: (items) =>
       setGallery((prev) => {
+        const normalizedItems = items
+          .map((item: any) => normalizeGalleryItem(item))
+          .filter((item): item is GalleryItem => !!item);
+        if (normalizedItems.length === 0) return prev;
         const seen = new Set<string>();
-        const merged = [...items, ...prev].filter((g: any) => {
+        const merged = [...normalizedItems, ...prev].filter((g: any) => {
           const key = g?.src || g?.id;
           if (!key) return false;
           const sk = String(key);
@@ -1656,6 +1695,13 @@ export default function AppShell({
   const runtimeDegraded =
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const runtimeDetail =
+    typeof process !== "undefined" &&
+    process.env &&
+    process.env.NODE_ENV !== "production" &&
+    runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
+      ? runtimeHealth.llmDetail
+      : null;
   const showRuntimeBanner =
     runtimeDegraded &&
     runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
@@ -1869,7 +1915,7 @@ export default function AppShell({
       {showRuntimeBanner && (
         <div className="relative z-10 w-full mt-3">
           <div
-            className="flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
             style={{
               borderColor: "var(--panel-border)",
               background:
@@ -1877,13 +1923,20 @@ export default function AppShell({
               color: "var(--text)",
             }}
           >
-            <span className="font-semibold tracking-wide">
-              Runtime degraded
-            </span>
-            <span className="opacity-80">failure: {runtimeFailureKind}</span>
-            <span className="opacity-70">
-              last healthy: {runtimeLastHealthy}
-            </span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold tracking-wide">
+                Runtime degraded
+              </span>
+              <span className="opacity-80">failure: {runtimeFailureKind}</span>
+              <span className="opacity-70">
+                last healthy: {runtimeLastHealthy}
+              </span>
+            </div>
+            {runtimeDetail ? (
+              <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
+                detail: {runtimeDetail}
+              </div>
+            ) : null}
           </div>
         </div>
       )}
@@ -2035,7 +2088,9 @@ export default function AppShell({
                     onDrop={galleryUploader.onDrop}
                     onDragOver={galleryUploader.onDragOver}
                   >
-                    {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => (
+                    {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => {
+                      const resolvedSrc = normalizeGallerySrc(g.src) || g.src;
+                      return (
                       <div
                         key={g.src || i}
                         className="relative w-full min-w-0 overflow-hidden rounded-[var(--radius)] border"
@@ -2046,10 +2101,10 @@ export default function AppShell({
                           borderColor: "var(--panel-border)",
                           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -10px 24px rgba(0,0,0,0.18)",
                         }}
-                        onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: g.src }); }}
+                        onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: resolvedSrc }); }}
                       >
-                        <img src={g.src} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
-                        {visionBusySrc === g.src && (
+                        <img src={resolvedSrc} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
+                        {visionBusySrc === resolvedSrc && (
                           <div className="absolute inset-0 grid place-items-center bg-black/40">
                             <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
                           </div>
@@ -2068,7 +2123,8 @@ export default function AppShell({
                           </span>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <div className="flex items-center justify-between gap-2 pt-3 text-xs opacity-80">
                     <div>Drag & drop images or documents here, or</div>
@@ -2343,7 +2399,9 @@ export default function AppShell({
             ...(galleryMenu.src ? [{ label: "Generate Prompt", onClick: () => generatePromptForImage(galleryMenu.src!) }] : []),
             ...(galleryMenu.src ? [{ label: "Delete", onClick: () => {
               const src = galleryMenu.src!;
-              const removed = gallery.find((g) => g.src === src);
+              const removed = gallery.find(
+                (g) => normalizeGallerySrc(g.src) === normalizeGallerySrc(src)
+              );
               deleteGalleryItem(src);
               try {
                 window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Image deleted", actionLabel: "Undo", onAction: () => {

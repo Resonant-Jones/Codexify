@@ -18,6 +18,7 @@ export type RuntimeFailureKind = RuntimeHealthFailureKindToken;
 export type RuntimeHealthStatus = {
   status: RuntimeHealthStatusToken;
   failureKind: RuntimeFailureKind | null;
+  llmDetail: string | null;
   backendReachable: boolean | null;
   chatHealthy: boolean | null;
   llmHealthy: boolean | null;
@@ -32,6 +33,7 @@ type HealthSnapshot = {
   healthEndpointMissing: boolean | null;
   chatHealthy: boolean | null;
   llmHealthy: boolean | null;
+  llmDetail: string | null;
   lastSuccessAt: number | null;
   lastCheckedAt: number | null;
 };
@@ -41,6 +43,7 @@ const INITIAL_SNAPSHOT: HealthSnapshot = {
   healthEndpointMissing: null,
   chatHealthy: null,
   llmHealthy: null,
+  llmDetail: null,
   lastSuccessAt: null,
   lastCheckedAt: null,
 };
@@ -87,6 +90,42 @@ function parseHealthResult(
   return { reachable: false, ok: null, missing: false };
 }
 
+function normalizeDetail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function extractLlmDetail(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as Record<string, unknown>;
+  const providerRuntime = candidate.provider_runtime;
+  if (providerRuntime && typeof providerRuntime === "object") {
+    const modelIndex = (
+      providerRuntime as Record<string, unknown>
+    ).model_index;
+    if (modelIndex && typeof modelIndex === "object") {
+      const index = modelIndex as Record<string, unknown>;
+      return (
+        normalizeDetail(index.reason) ??
+        normalizeDetail(index.failure_kind) ??
+        normalizeDetail(index.state)
+      );
+    }
+    const runtimeReason = providerRuntime as Record<string, unknown>;
+    return (
+      normalizeDetail(runtimeReason.reason) ??
+      normalizeDetail(runtimeReason.failure_kind) ??
+      normalizeDetail(runtimeReason.status_reason)
+    );
+  }
+  return (
+    normalizeDetail(candidate.error) ??
+    normalizeDetail(candidate.status_reason) ??
+    null
+  );
+}
+
 export function useRuntimeHealth(): RuntimeHealthStatus {
   const liveEvents = useLiveEvents({ passive: true });
   const connectionStatus =
@@ -109,12 +148,15 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
           api.get("/api/health/llm"),
           api.get("/api/health/embedder"),
         ]);
+      const llmPayload =
+        llmResult.status === "fulfilled" ? llmResult.value?.data : null;
 
       const llmHealth = parseHealthResult(llmResult);
       const embedderHealth = parseHealthResult(embedderResult);
       const backendReachable = llmHealth.reachable || embedderHealth.reachable;
       const chatHealthy = embedderHealth.ok;
       const llmHealthy = llmHealth.ok;
+      const llmDetail = extractLlmDetail(llmPayload);
       const healthEndpointMissing =
         llmHealth.missing || embedderHealth.missing;
       const success =
@@ -125,6 +167,7 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
         healthEndpointMissing,
         chatHealthy,
         llmHealthy,
+        llmDetail,
         lastCheckedAt: startedAt,
         lastSuccessAt: success ? startedAt : prev.lastSuccessAt,
       }));
@@ -179,6 +222,7 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
     backendReachable: snapshot.backendReachable,
     chatHealthy: snapshot.chatHealthy,
     llmHealthy: snapshot.llmHealthy,
+    llmDetail: snapshot.llmDetail,
     liveEventsStatus: connectionStatus,
     lastSuccessAt,
     lastCheckedAt: snapshot.lastCheckedAt,

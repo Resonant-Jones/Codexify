@@ -84,6 +84,146 @@ const parseAttachments = (content: string) => {
   return { attachments, text };
 };
 
+type CodeBlockProps = {
+  code: string;
+  label: string;
+};
+
+const CodeBlock = ({ code, label }: CodeBlockProps) => {
+  const [copied, setCopied] = React.useState(false);
+  const timeoutRef = React.useRef<number | null>(null);
+
+  const copyWithFallback = async (text: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Continue to fallback copy method below.
+      }
+    }
+
+    if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        return document.execCommand("copy");
+      } catch {
+        return false;
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+
+    return false;
+  };
+
+  const handleCopy = async () => {
+    const ok = await copyWithFallback(code);
+    if (!ok) return;
+    setCopied(true);
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = window.setTimeout(() => {
+      setCopied(false);
+      timeoutRef.current = null;
+    }, 1000);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="codexifyCodeBlock">
+      <div className="codexifyCodeBlockHeader">
+        <div className="codexifyCodeBlockLabel">
+          <span className="codexifyCodeBlockAccent" aria-hidden="true" />
+          <span>{label}</span>
+        </div>
+        <button type="button" className="codexifyCodeBlockCopy" onClick={handleCopy}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <div className="codexifyCodeBlockBody">
+        <pre className="codexifyCodeBlockPre">
+          <code className="codexifyCodeBlockCode">{code}</code>
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+type ExtractedPreCode = {
+  code: string;
+  className?: string;
+};
+
+const extractPreCodeFromNode = (node: any): ExtractedPreCode | null => {
+  const codeNode = node?.children?.[0];
+  if (!codeNode || codeNode.tagName !== "code") return null;
+  const codeChildren = codeNode.children;
+  if (!Array.isArray(codeChildren)) return null;
+  let text = "";
+  for (const child of codeChildren) {
+    if (!child || child.type !== "text" || typeof child.value !== "string") return null;
+    text += child.value;
+  }
+  const classNameProp = codeNode.properties?.className;
+  const className =
+    Array.isArray(classNameProp) ? classNameProp.join(" ") :
+      typeof classNameProp === "string" ? classNameProp :
+        undefined;
+  return { code: text, className };
+};
+
+const extractPreCodeFromChildren = (children: React.ReactNode): ExtractedPreCode | null => {
+  const childArray = React.Children.toArray(children);
+  if (childArray.length === 0) return null;
+  const firstChild = childArray[0];
+  if (!React.isValidElement(firstChild) || firstChild.type !== "code") return null;
+  const codeChildren = (firstChild.props as { children?: React.ReactNode }).children;
+  if (typeof codeChildren === "string") {
+    return {
+      code: codeChildren,
+      className: (firstChild.props as { className?: string }).className,
+    };
+  }
+  if (Array.isArray(codeChildren) && codeChildren.every((node) => typeof node === "string" || typeof node === "number")) {
+    return {
+      code: codeChildren.join(""),
+      className: (firstChild.props as { className?: string }).className,
+    };
+  }
+  return null;
+};
+
+const extractPreCode = (node: any, children: React.ReactNode): ExtractedPreCode | null => {
+  return extractPreCodeFromNode(node) ?? extractPreCodeFromChildren(children);
+};
+
+const normalizeLanguageLabel = (className?: string) => {
+  const match = className?.match(/language-([a-z0-9]+)/i);
+  const raw = match?.[1]?.toLowerCase();
+  if (!raw) return "CODE";
+  if (raw === "ts") return "TS";
+  if (raw === "tsx") return "TSX";
+  if (raw === "python") return "PYTHON";
+  return raw.toUpperCase();
+};
+
 const AttachmentTiles = ({
   attachments,
   align,
@@ -262,11 +402,18 @@ export function ChatBubble({
         </code>
       );
     },
-    pre: ({ children }: any) => (
-      <pre className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
-        {children}
-      </pre>
-    ),
+    pre: ({ children, node }: any) => {
+      const extracted = extractPreCode(node, children);
+      if (!extracted) {
+        return (
+          <pre className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
+            {children}
+          </pre>
+        );
+      }
+      const label = normalizeLanguageLabel(extracted.className);
+      return <CodeBlock code={extracted.code} label={label} />;
+    },
     p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
     ul: ({ children }: any) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
     ol: ({ children }: any) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,

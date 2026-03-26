@@ -10,6 +10,7 @@ from requests import exceptions as req_exc
 
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+from guardian.core.event_contracts import _coerce_text
 from guardian.core.provider_registry import default_model_for_provider
 from guardian.core.provider_registry import (
     normalize_provider as normalize_registry_provider,
@@ -23,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
-_DEFAULT_ALIBABA_BASE = "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+_DEFAULT_MINIMAX_BASE = "https://api.minimax.io/v1"
+_DEFAULT_ALIBABA_BASE = "https://coding-intl.dashscope.aliyuncs.com/v1"
 _DEFAULT_LOCAL_DOCKER_FALLBACK_BASE = "http://host.docker.internal:11434"
 _LOCAL_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
@@ -74,6 +76,31 @@ class LocalReasoningDirective:
         if self.profile_reason:
             payload["profile_reason"] = self.profile_reason
         return payload
+
+
+class ProviderResponse(str):
+    """String-compatible provider result that preserves raw upstream data."""
+
+    def __new__(
+        cls,
+        text: str,
+        *,
+        raw_payload: Any | None = None,
+        content_blocks: Any | None = None,
+        provider: str | None = None,
+    ):
+        obj = super().__new__(cls, text or "")
+        obj.raw_payload = raw_payload  # type: ignore[attr-defined]
+        obj.content_blocks = content_blocks  # type: ignore[attr-defined]
+        obj.provider = provider  # type: ignore[attr-defined]
+        return obj
+
+
+@dataclass(frozen=True)
+class LocalEndpointCandidate:
+    base_url: str
+    label: str
+    source: str
 
 
 def _normalize_provider(provider: Optional[str]) -> str:
@@ -523,11 +550,31 @@ def _normalize_openai_model(model: str, settings: Settings) -> str:
     return model
 
 
+def build_openai_vision_content(
+    text: str | None,
+    image_urls: list[str] | None,
+) -> list[dict[str, Any]]:
+    """Build OpenAI-compatible multimodal content parts."""
+    parts: list[dict[str, Any]] = []
+    clean_text = str(text or "").strip()
+    if clean_text:
+        parts.append({"type": "text", "text": clean_text})
+    for raw_url in image_urls or []:
+        url = str(raw_url or "").strip()
+        if not url:
+            continue
+        parts.append({"type": "image_url", "image_url": {"url": url}})
+    if not parts:
+        parts.append({"type": "text", "text": ""})
+    return parts
+
+
 def chat_with_ai(
     messages,
     model: Optional[str] = None,
     provider: Optional[str] = None,
     reasoning_mode: Optional[str] = None,
+    prompt_meta: Optional[dict[str, Any]] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
@@ -573,7 +620,13 @@ def chat_with_ai(
     if provider_name == "alibaba":
         return call_alibaba(messages, target_model, settings=settings)
     if provider_name == "minimax":
-        return call_minimax(messages, target_model, settings=settings)
+        return call_minimax(
+            messages,
+            target_model,
+            reasoning_mode=reasoning_mode,
+            prompt_meta=prompt_meta,
+            settings=settings,
+        )
 
     logger.warning("Unsupported LLM provider: %s", provider_name)
     raise HTTPException(
@@ -608,9 +661,65 @@ def _resolve_local_base(settings: Settings) -> str:
     return normalized_base
 
 
-def _resolve_local_base_candidates(settings: Settings) -> list[str]:
+def _normalize_local_candidate_base(raw_base: str) -> str:
+    clean = str(raw_base or "").strip()
+    if not clean:
+        return ""
+    if "://" not in clean:
+        clean = f"http://{clean}"
+    return clean.rstrip("/")
+
+
+def _local_candidate_label(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    if parsed.netloc:
+        return parsed.netloc
+    if parsed.path:
+        return parsed.path.rstrip("/")
+    return base_url.rstrip("/")
+
+
+def _configured_local_endpoint_chain(
+    settings: Settings,
+) -> list[LocalEndpointCandidate]:
+    raw_chain = str(
+        getattr(settings, "CODEXIFY_LOCAL_ENDPOINT_CHAIN", "") or ""
+    ).strip()
+    if not raw_chain:
+        return []
+
+    chain: list[LocalEndpointCandidate] = []
+    seen: set[str] = set()
+    for raw_part in raw_chain.split(","):
+        base_url = _normalize_local_candidate_base(raw_part)
+        if not base_url or base_url in seen:
+            continue
+        seen.add(base_url)
+        chain.append(
+            LocalEndpointCandidate(
+                base_url=base_url,
+                label=_local_candidate_label(base_url),
+                source="configured_chain",
+            )
+        )
+    return chain
+
+
+def _resolve_local_endpoint_candidates(
+    settings: Settings,
+) -> list[LocalEndpointCandidate]:
+    configured_chain = _configured_local_endpoint_chain(settings)
+    if configured_chain:
+        return configured_chain
+
     primary_base = _resolve_local_base(settings)
-    candidates = [primary_base]
+    candidates = [
+        LocalEndpointCandidate(
+            base_url=primary_base,
+            label=_local_candidate_label(primary_base),
+            source="primary",
+        )
+    ]
 
     parsed = urlparse(primary_base)
     host = str(parsed.hostname or "").strip().lower()
@@ -620,18 +729,72 @@ def _resolve_local_base_candidates(settings: Settings) -> list[str]:
     fallback_raw = str(
         getattr(settings, "LOCAL_DOCKER_FALLBACK_BASE_URL", "") or ""
     ).strip()
-    fallback_base = fallback_raw or _DEFAULT_LOCAL_DOCKER_FALLBACK_BASE
-    if "://" not in fallback_base:
-        fallback_base = f"http://{fallback_base}"
-    fallback_base = fallback_base.rstrip("/")
+    fallback_base = _normalize_local_candidate_base(
+        fallback_raw or _DEFAULT_LOCAL_DOCKER_FALLBACK_BASE
+    )
     if not fallback_base:
         return candidates
 
     if primary_base.endswith("/v1") and not fallback_base.endswith("/v1"):
         fallback_base = f"{fallback_base}/v1"
-    if fallback_base not in candidates:
-        candidates.append(fallback_base)
+    if any(item.base_url == fallback_base for item in candidates):
+        return candidates
+    candidates.append(
+        LocalEndpointCandidate(
+            base_url=fallback_base,
+            label=_local_candidate_label(fallback_base),
+            source="docker_fallback",
+        )
+    )
     return candidates
+
+
+def describe_local_endpoint_resolution(
+    settings: Settings,
+    *,
+    selected_base_url: str | None = None,
+    attempted_base_urls: list[str] | None = None,
+    state: str | None = None,
+    failure_kind: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    candidates = _resolve_local_endpoint_candidates(settings)
+    attempted = list(dict.fromkeys(attempted_base_urls or []))
+    selected = str(selected_base_url or "").strip() or None
+    payload: dict[str, Any] = {
+        "state": state
+        or (
+            "available" if selected else "degraded" if attempted else "unknown"
+        ),
+        "attempted_sequence": attempted,
+        "attempts": [
+            {
+                "base_url": candidate.base_url,
+                "label": candidate.label,
+                "source": candidate.source,
+                "attempted": candidate.base_url in attempted,
+                "selected": bool(selected and candidate.base_url == selected),
+            }
+            for candidate in candidates
+        ],
+    }
+    if selected:
+        payload["selected_endpoint"] = {
+            "base_url": selected,
+            "label": _local_candidate_label(selected),
+        }
+    if failure_kind:
+        payload["failure_kind"] = failure_kind
+    if reason:
+        payload["reason"] = reason
+    return payload
+
+
+def _resolve_local_base_candidates(settings: Settings) -> list[str]:
+    return [
+        candidate.base_url
+        for candidate in _resolve_local_endpoint_candidates(settings)
+    ]
 
 
 def _local_attempt_urls(
@@ -676,6 +839,129 @@ def _summarize_local_attempt_failures(failures: list[str]) -> str:
         return "; ".join(failures)
     head = "; ".join(failures[:limit])
     return f"{head}; ... ({len(failures) - limit} more)"
+
+
+def _parse_local_catalog_payload(payload: Any) -> list[str]:
+    names: list[str] = []
+    if not isinstance(payload, dict):
+        return names
+    for key in ("models", "data"):
+        collection = payload.get(key)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if isinstance(item, str):
+                model_name = item.strip()
+            elif isinstance(item, dict):
+                model_name = str(
+                    item.get("name")
+                    or item.get("model")
+                    or item.get("id")
+                    or ""
+                ).strip()
+            else:
+                model_name = ""
+            if model_name:
+                names.append(model_name)
+    return names
+
+
+def discover_local_model_inventory(
+    settings: Settings,
+    *,
+    timeout_seconds: float,
+    request_get: Any = None,
+) -> tuple[list[str], dict[str, Any]]:
+    fetch = request_get or requests.get
+    names: list[str] = []
+    attempt_failures: list[str] = []
+    attempted_base_urls: list[str] = []
+    selected_base_url: str | None = None
+    failure_kind: str | None = None
+
+    for candidate in _resolve_local_endpoint_candidates(settings):
+        attempted_base_urls.append(candidate.base_url)
+        local_base_v1 = (
+            candidate.base_url
+            if candidate.base_url.endswith("/v1")
+            else f"{candidate.base_url}/v1"
+        )
+        local_base = (
+            local_base_v1[:-3]
+            if local_base_v1.endswith("/v1")
+            else local_base_v1
+        )
+        candidate_names: list[str] = []
+        for url in (f"{local_base}/api/tags", f"{local_base_v1}/models"):
+            try:
+                response = fetch(url, timeout=timeout_seconds)
+            except req_exc.RequestException as exc:
+                failure_kind = _classify_transport_error(exc)
+                attempt_failures.append(f"{url} ({failure_kind}: {exc})")
+                continue
+            except Exception as exc:
+                failure_kind = "request_error"
+                attempt_failures.append(f"{url} ({type(exc).__name__}: {exc})")
+                continue
+            if not (200 <= response.status_code < 300):
+                failure_kind = "provider_http_error"
+                attempt_failures.append(f"{url} (HTTP {response.status_code})")
+                continue
+            try:
+                payload = response.json()
+            except Exception as exc:
+                failure_kind = "provider_payload_error"
+                attempt_failures.append(
+                    f"{url} (invalid JSON: {type(exc).__name__}: {exc})"
+                )
+                continue
+            candidate_names.extend(_parse_local_catalog_payload(payload))
+            if candidate_names:
+                break
+        if candidate_names:
+            names.extend(candidate_names)
+            selected_base_url = candidate.base_url
+            failure_kind = None
+            break
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        clean = str(name or "").strip()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        deduped.append(clean)
+
+    if not deduped:
+        fallback = (
+            str(getattr(settings, "LOCAL_LLM_MODEL", "") or "").strip()
+            or str(getattr(settings, "DEFAULT_LOCAL_MODEL", "") or "").strip()
+            or str(getattr(settings, "LLM_MODEL", "") or "").strip()
+        )
+        if fallback:
+            deduped = [fallback]
+
+    resolution_state = (
+        "available"
+        if selected_base_url
+        else "degraded"
+        if deduped
+        else "unavailable"
+    )
+    if resolution_state == "degraded" and failure_kind is None:
+        failure_kind = "local_discovery_failed"
+    resolution = describe_local_endpoint_resolution(
+        settings,
+        selected_base_url=selected_base_url,
+        attempted_base_urls=attempted_base_urls,
+        state=resolution_state,
+        failure_kind=failure_kind,
+        reason=_summarize_local_attempt_failures(attempt_failures)
+        if attempt_failures
+        else None,
+    )
+    return deduped, resolution
 
 
 def call_local(
@@ -1366,9 +1652,74 @@ def _extract_provider_error_message(
     return _sanitize_provider_error(text, secret=secret)
 
 
+def _anthropic_text_block(
+    text: str,
+    *,
+    cacheable: bool = False,
+) -> dict[str, Any]:
+    block: dict[str, Any] = {
+        "type": "text",
+        "text": str(text or "").strip(),
+    }
+    if cacheable:
+        block["cache_control"] = {"type": "ephemeral"}
+    return block
+
+
+def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
+    if isinstance(content, list):
+        blocks: list[dict[str, Any]] = []
+        for item in content:
+            if isinstance(item, dict):
+                block = dict(item)
+                block_type = str(block.get("type") or "").strip().lower()
+                if block_type:
+                    if block_type == "text":
+                        text = str(block.get("text") or "").strip()
+                        if not text:
+                            continue
+                        block["text"] = text
+                        blocks.append(block)
+                        continue
+                    if block_type in {"thinking", "tool_use", "tool_result"}:
+                        blocks.append(block)
+                        continue
+                text = _coerce_text(item).strip()
+                if text:
+                    blocks.append(_anthropic_text_block(text))
+                continue
+            text = str(item or "").strip()
+            if text:
+                blocks.append(_anthropic_text_block(text))
+        return blocks
+
+    if isinstance(content, dict):
+        block = dict(content)
+        block_type = str(block.get("type") or "").strip().lower()
+        if block_type:
+            if block_type == "text":
+                text = str(block.get("text") or "").strip()
+                if text:
+                    block["text"] = text
+                    return [block]
+                return []
+            if block_type in {"thinking", "tool_use", "tool_result"}:
+                return [block]
+
+    text = str(content or "").strip()
+    return [_anthropic_text_block(text)] if text else []
+
+
 def _normalize_messages_for_anthropic(
     messages: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], str | None]:
+) -> tuple[list[dict[str, Any]], str | list[dict[str, Any]] | None]:
+    return _normalize_messages_for_anthropic_with_meta(messages, None)
+
+
+def _normalize_messages_for_anthropic_with_meta(
+    messages: list[dict[str, Any]],
+    prompt_meta: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], str | list[dict[str, Any]] | None]:
     system_parts: list[str] = []
     normalized: list[dict[str, Any]] = []
 
@@ -1376,22 +1727,47 @@ def _normalize_messages_for_anthropic(
         if not isinstance(raw, dict):
             continue
         role = str(raw.get("role") or "user").strip().lower() or "user"
-        text = str(raw.get("content") or "").strip()
-        if not text:
-            continue
+        content = raw.get("content")
         if role == "system":
+            text = str(_coerce_text(content) or "").strip()
+            if not text:
+                continue
             system_parts.append(text)
+            continue
+
+        content_blocks = _coerce_anthropic_content_blocks(content)
+        if not content_blocks:
             continue
         if role not in {"user", "assistant"}:
             role = "user"
-        normalized.append(
-            {"role": role, "content": [{"type": "text", "text": text}]}
-        )
+        normalized.append({"role": role, "content": content_blocks})
 
     if not normalized:
         normalized = [
             {"role": "user", "content": [{"type": "text", "text": ""}]}
         ]
+
+    if prompt_meta:
+        segments = prompt_meta.get("segments")
+        if isinstance(segments, list):
+            system_blocks: list[dict[str, Any]] = []
+            cacheable_indexes: list[int] = []
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                text = str(segment.get("text") or "").strip()
+                if not text:
+                    continue
+                cacheable = bool(segment.get("cacheable"))
+                if cacheable:
+                    cacheable_indexes.append(len(system_blocks))
+                system_blocks.append(_anthropic_text_block(text))
+            if system_blocks:
+                if cacheable_indexes:
+                    system_blocks[cacheable_indexes[-1]]["cache_control"] = {
+                        "type": "ephemeral"
+                    }
+                return normalized, system_blocks
 
     system_text = "\n\n".join(part for part in system_parts if part).strip()
     return normalized, (system_text or None)
@@ -1413,7 +1789,14 @@ def _extract_anthropic_text(payload: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
+def call_minimax(
+    messages,
+    model: str,
+    *,
+    reasoning_mode: Optional[str] = None,
+    prompt_meta: Optional[dict[str, Any]] = None,
+    settings: Optional[Settings] = None,
+):
     """Call MiniMax via OpenAI- or Anthropic-compatible endpoints."""
     settings = _resolve_settings(settings)
 
@@ -1453,8 +1836,8 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             ),
         )
 
-    api_flavor = str(getattr(settings, "MINIMAX_API_FLAVOR", "openai") or "")
-    api_flavor = api_flavor.strip().lower() or "openai"
+    api_flavor = str(getattr(settings, "MINIMAX_API_FLAVOR", "anthropic") or "")
+    api_flavor = api_flavor.strip().lower() or "anthropic"
     if api_flavor not in {"openai", "anthropic"}:
         raise HTTPException(
             status_code=400,
@@ -1462,9 +1845,10 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
         )
 
     if api_flavor == "anthropic":
-        anthropic_messages, system_prompt = _normalize_messages_for_anthropic(
-            messages
-        )
+        (
+            anthropic_messages,
+            system_prompt,
+        ) = _normalize_messages_for_anthropic_with_meta(messages, prompt_meta)
         payload: Dict[str, Any] = {
             "model": model,
             "messages": anthropic_messages,
@@ -1483,6 +1867,11 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             ),
             "Content-Type": "application/json",
         }
+        if str(reasoning_mode or "").strip().lower() in {"think", "/think"}:
+            payload["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": 1024,
+            }
         if base_url.endswith("/v1"):
             url = f"{base_url}/messages"
         else:
@@ -1492,6 +1881,7 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
             "model": model,
             "messages": messages,
             "temperature": 0.7,
+            "reasoning_split": True,
         }
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -1554,11 +1944,23 @@ def call_minimax(messages, model: str, *, settings: Optional[Settings] = None):
     try:
         data = response.json()
         if api_flavor == "anthropic":
-            text = _extract_anthropic_text(data)
-            if text:
-                return text
-            raise KeyError("content")
-        return data["choices"][0]["message"]["content"]
+            return ProviderResponse(
+                _extract_anthropic_text(data),
+                raw_payload=data,
+                content_blocks=data.get("content"),
+                provider="minimax",
+            )
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message")
+            if isinstance(message, dict):
+                return ProviderResponse(
+                    _coerce_text(message.get("content")),
+                    raw_payload=data,
+                    content_blocks=message.get("content"),
+                    provider="minimax",
+                )
+        raise KeyError("content")
     except Exception as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
         logger.exception(

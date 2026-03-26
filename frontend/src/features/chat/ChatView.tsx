@@ -26,7 +26,9 @@ import {
 } from "@/types/inference";
 import {
   CHAT_LANE_INLINE_PADDING,
+  CHAT_LANE_GUTTER_CLASS,
   CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
 } from "@/features/chat/chatLane";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -410,7 +412,7 @@ export function ChatView({
       >
         <div
           data-testid="chat-conversation-lane"
-          className="mx-auto w-full max-w-full md:max-w-[880px] space-y-4"
+          className="mx-auto w-full max-w-full md:max-w-[888px] space-y-4"
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
         >
           {messages.map((message, index) => {

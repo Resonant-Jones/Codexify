@@ -11,6 +11,7 @@ from guardian.core.provider_registry import (
     STATIC_AUTHORIZED_PROVIDERS,
     get_provider_model_descriptors,
     provider_allows_default_during_degraded_discovery,
+    provider_availability,
     provider_governance,
     provider_governance_contract,
     provider_routing_requires_discovered_inventory,
@@ -35,7 +36,8 @@ def _settings(**overrides) -> Settings:
 
 def test_every_known_provider_is_classified_exactly_once():
     known_providers = set(PROVIDER_ORDER)
-    assert set(PROVIDER_GOVERNANCE) == known_providers
+    contract = provider_governance_contract()
+    assert set(contract) == known_providers
 
     categories = (
         DISCOVERY_BACKED_PROVIDERS,
@@ -53,21 +55,24 @@ def test_every_known_provider_is_classified_exactly_once():
 
 def test_provider_governance_audit_matches_current_contract():
     assert DISCOVERY_BACKED_PROVIDERS == frozenset(
-        {"openai", "groq", "alibaba", "minimax"}
+        {"groq", "alibaba", "minimax"}
     )
-    assert STATIC_AUTHORIZED_PROVIDERS == frozenset()
+    assert STATIC_AUTHORIZED_PROVIDERS == frozenset({"openai"})
     assert LOCAL_ONLY_PROVIDERS == frozenset({"local"})
     assert DISABLED_PROVIDERS == frozenset({"anthropic", "gemini"})
 
 
 def test_local_only_provider_is_marked_explicitly():
-    contract = get_provider_governance("local")
+    contract = provider_governance("local")
     assert contract is not None
-    assert contract["classification"] == "local_only"
+    assert contract["governance_classification"] == "local_only"
     assert contract["local_only"] is True
-    assert contract["live_discovery_expected"] is True
-    assert contract["routing_requires_discovered_inventory"] is True
-    assert contract["configured_defaults_allowed_on_discovery_failure"] is True
+    assert contract["live_discovery_expected"] is False
+    assert contract["routing_validate_discovered_inventory"] is False
+    assert (
+        contract["configured_defaults_allowed_during_degraded_discovery"]
+        is False
+    )
 
 
 def test_static_authorized_providers_are_distinct_from_discovery_backed():
@@ -204,16 +209,22 @@ def test_resolve_provider_capability_discovers_alibaba_models_live(
     assert capability["authorized"] is True
     assert capability["available"] is True
     assert capability["enabled"] is True
-    assert capability["models"] == [
-        {
-            "id": "qwen-max",
-            "displayName": "qwen-max",
-            "contextWindow": 32768,
-            "capabilities": {"tools": True},
-        }
+    assert [model["id"] for model in capability["models"]] == [
+        "qwen-max",
+        "text-embedding-v3",
     ]
+    assert capability["models"][0]["supports_chat"] is True
+    assert capability["models"][0]["supports_vision"] is False
+    assert capability["models"][0]["supports_text_input"] is True
+    assert capability["models"][0]["model_kind"] == "chat"
+    assert capability["models"][1]["supports_chat"] is False
+    assert capability["models"][1]["supports_vision"] is False
+    assert capability["models"][1]["supports_text_input"] is True
+    assert capability["models"][1]["model_kind"] == "utility"
     assert capability["model_index"]["state"] == "available"
     assert capability["model_index"]["model_count"] == 1
+    assert capability["model_index"]["utility_model_count"] == 1
+    assert capability["model_index"]["total_model_count"] == 2
 
 
 def test_minimax_discovery_failure_degrades_without_fabricating_models(
@@ -239,9 +250,12 @@ def test_minimax_discovery_failure_degrades_without_fabricating_models(
     assert capability["authorized"] is True
     assert capability["available"] is True
     assert capability["enabled"] is True
-    assert capability["models"] == []
+    assert capability["models"]
+    assert capability["models"][0]["id"] == "minimax-chat"
     assert capability["default_model"] == "minimax-chat"
     assert capability["model_index"]["state"] == "degraded"
+    assert capability["model_index"]["source"] == "fallback"
+    assert capability["model_index"]["failure_kind"] == "provider_timeout"
     assert "timed out" in capability["model_index"]["reason"].lower()
 
     valid, reason = validate_provider_model_selection(
@@ -298,14 +312,66 @@ def test_resolve_provider_for_model_only_matches_discovered_dynamic_models(
     )
 
     assert get_provider_model_descriptors("minimax", settings) == [
-        {"id": "minimax-chat", "displayName": "minimax-chat"},
-        {"id": "abab7.5-chat", "displayName": "abab7.5-chat"},
+        {
+            "id": "minimax-chat",
+            "displayName": "minimax-chat",
+            "supports_chat": True,
+            "supports_vision": False,
+            "supports_text_input": True,
+            "model_kind": "chat",
+            "capabilities": {
+                "chat": True,
+                "vision": False,
+                "text_input": True,
+            },
+        },
+        {
+            "id": "abab7.5-chat",
+            "displayName": "abab7.5-chat",
+            "supports_chat": True,
+            "supports_vision": False,
+            "supports_text_input": True,
+            "model_kind": "chat",
+            "capabilities": {
+                "chat": True,
+                "vision": False,
+                "text_input": True,
+            },
+        },
     ]
     assert (
         resolve_provider_for_model("minimax-chat", settings=settings)
         == "minimax"
     )
     assert resolve_provider_for_model("not-real", settings=settings) is None
+
+
+def test_validate_provider_model_selection_rejects_non_chat_models(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda *args, **kwargs: _MockResponse(
+            {
+                "data": [
+                    {"id": "qwen-max", "capabilities": {"tools": True}},
+                    {"id": "text-embedding-v3", "task": "embedding"},
+                ]
+            }
+        ),
+    )
+
+    settings = _provider_settings()
+
+    valid, reason = validate_provider_model_selection(
+        provider_id="alibaba",
+        model_id="text-embedding-v3",
+        settings=settings,
+    )
+    assert valid is False
+    assert "not available" in str(reason)
+    assert (
+        resolve_provider_for_model("text-embedding-v3", settings=settings)
+        is None
+    )
 
 
 def test_provider_governance_contract_classifies_every_known_provider_once():
@@ -350,19 +416,9 @@ def test_provider_governance_contract_classifies_every_known_provider_once():
     assert (
         discovery_backed
         == DISCOVERY_BACKED_PROVIDERS
-        == {
-            "alibaba",
-            "minimax",
-        }
+        == {"groq", "alibaba", "minimax"}
     )
-    assert (
-        static_authorized
-        == STATIC_AUTHORIZED_PROVIDERS
-        == {
-            "openai",
-            "groq",
-        }
-    )
+    assert static_authorized == STATIC_AUTHORIZED_PROVIDERS == {"openai"}
     assert local_only == LOCAL_ONLY_PROVIDERS == {"local"}
     assert disabled == DISABLED_PROVIDERS == {"anthropic", "gemini"}
     assert discovery_backed.isdisjoint(static_authorized)
