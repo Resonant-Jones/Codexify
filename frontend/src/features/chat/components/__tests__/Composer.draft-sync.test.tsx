@@ -118,8 +118,21 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
-  it("renders the textarea directly under the composer root without a nested face", () => {
+  it("keeps the send control inset and the button circular", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const sendSlot = screen.getByTestId("composer-send-slot");
+    expect(sendSlot).toHaveClass("flex", "shrink-0", "items-center", "pr-[3px]");
+
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton.parentElement).toBe(sendSlot);
+    expect(sendButton).toHaveClass(
+      "!h-8",
+      "!w-8",
+      "!min-w-0",
+      "!rounded-full",
+      "!px-0"
+    );
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(textarea.parentElement).toHaveAttribute("data-composer-root");
