@@ -118,21 +118,26 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
-  it("keeps the send control inset and the button circular", () => {
+  it("assigns right-edge ownership to the control row and keeps the send button circular", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
+    const controlsRow = screen.getByTestId("composer-control-row");
+    expect(controlsRow).toHaveClass("pr-[24px]");
+
     const sendSlot = screen.getByTestId("composer-send-slot");
-    expect(sendSlot).toHaveClass("flex", "shrink-0", "items-center", "pr-[3px]");
+    expect(sendSlot).toHaveClass("shrink-0");
+    expect(sendSlot.className).not.toMatch(/\bpr-/);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
     expect(sendButton).toHaveClass(
-      "!h-8",
-      "!w-8",
-      "!min-w-0",
-      "!rounded-full",
-      "!px-0"
+      "h-8",
+      "w-8",
+      "min-w-0",
+      "rounded-full",
+      "p-0"
     );
+    expect(sendButton.className).not.toMatch(/\brounded-md\b/);
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(textarea.parentElement).toHaveAttribute("data-composer-root");
@@ -412,7 +417,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const controlsRow = screen.getByTestId("composer-controls-row");
+    const controlsRow = screen.getByTestId("composer-control-row");
     expect(controlsRow.className).toContain("mt-auto");
     expect(controlsRow.className).toContain(
       CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
