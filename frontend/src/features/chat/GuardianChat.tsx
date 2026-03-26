@@ -43,7 +43,11 @@ import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 import { logOnce } from "@/lib/logging/logOnce";
-import { useLlmCatalog } from "@/features/chat/hooks/useLlmCatalog";
+import {
+  describeModelCapability,
+  isChatSelectableModel,
+  useLlmCatalog,
+} from "@/features/chat/hooks/useLlmCatalog";
 import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequestState";
 import {
   createIdleInferenceRequestState,
@@ -53,8 +57,13 @@ import {
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
 import {
+  CHAT_STAGE_MAX_WIDTH,
+  CHAT_COMPOSER_SHELL_MARGIN_CLASS,
+  CHAT_COMPOSER_SHELL_PAD_CLASS,
+  CHAT_LANE_GUTTER_CLASS,
   CHAT_LANE_MAX_WIDTH,
   CHAT_LANE_MAX_WIDTH_CLASS,
+  CHAT_LANE_STAGE_GUTTER_CLASS,
 } from "@/features/chat/chatLane";
 
 
@@ -570,10 +579,14 @@ export function GuardianChat({
 
   const selectedProvider = useMemo(() => {
     const explicitProvider = getProviderById(activeProviderId);
-    if (explicitProvider) return explicitProvider;
+    if (explicitProvider && explicitProvider.models.some(isChatSelectableModel)) {
+      return explicitProvider;
+    }
     const providerFromModel = findProviderForModel(activeModelId);
     if (providerFromModel) return providerFromModel;
-    return catalogProviders[0] ?? null;
+    return catalogProviders.find((provider) =>
+      provider.models.some(isChatSelectableModel)
+    ) ?? null;
   }, [
     activeModelId,
     activeProviderId,
@@ -583,14 +596,16 @@ export function GuardianChat({
   ]);
 
   const selectedModel = useMemo(() => {
-    if (selectedProvider?.models?.length) {
+    const chatModels = selectedProvider?.models.filter(isChatSelectableModel) ?? [];
+    if (chatModels.length > 0) {
       return (
-        selectedProvider.models.find((model) => model.id === activeModelId) ??
-        selectedProvider.models[0] ??
+        chatModels.find((model) => model.id === activeModelId) ??
+        chatModels[0] ??
         null
       );
     }
-    return getModelById(activeModelId);
+    const catalogModel = getModelById(activeModelId);
+    return isChatSelectableModel(catalogModel) ? catalogModel : null;
   }, [activeModelId, getModelById, selectedProvider]);
 
   const providerOptions = useMemo(
@@ -598,24 +613,31 @@ export function GuardianChat({
       catalogProviders.map((provider) => ({
         value: provider.id,
         label: provider.displayName,
-        description: provider.available
-          ? [
-              `${provider.models.length} models`,
-              describeProviderSource(provider.source)
-                ? `Source ${describeProviderSource(provider.source)}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          : provider.disabledReason || "Unavailable",
-        disabled: !provider.available,
+        description: (() => {
+          const chatModels = provider.models.filter(isChatSelectableModel);
+          if (!provider.available) {
+            return provider.disabledReason || "Unavailable";
+          }
+          if (chatModels.length === 0) {
+            return "No chat-capable models";
+          }
+          return [
+            `${chatModels.length} chat model${chatModels.length === 1 ? "" : "s"}`,
+            describeProviderSource(provider.source)
+              ? `Source ${describeProviderSource(provider.source)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        })(),
+        disabled: !provider.available || !provider.models.some(isChatSelectableModel),
       })),
     [catalogProviders]
   );
 
   const modelOptions = useMemo(
     () => {
-      const models = selectedProvider?.models ?? [];
+      const models = selectedProvider?.models.filter(isChatSelectableModel) ?? [];
       const providerSourceLabel = describeProviderSource(selectedProvider?.source);
       const modelsByLabel = new Map<string, typeof models>();
 
@@ -632,10 +654,16 @@ export function GuardianChat({
       return models.map((model) => {
         const label = getModelMenuLabel(model);
         const siblingModels = modelsByLabel.get(getModelLabelKey(model)) ?? [model];
+        const capabilityLabel = describeModelCapability(model);
         const description =
           siblingModels.length > 1
-            ? getModelDifferentiator(model, siblingModels, providerSourceLabel)
-            : undefined;
+            ? [
+                getModelDifferentiator(model, siblingModels, providerSourceLabel),
+                capabilityLabel,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : capabilityLabel;
 
         return {
           value: model.id,
@@ -645,6 +673,10 @@ export function GuardianChat({
             typeof model.contextWindow === "number"
               ? `${Math.round(model.contextWindow / 1000)}k`
               : null,
+          supportsChat: model.supportsChat,
+          supportsVision: model.supportsVision,
+          supportsTextInput: model.supportsTextInput,
+          modelKind: model.modelKind,
         };
       });
     },
@@ -2338,7 +2370,7 @@ export function GuardianChat({
   const body = (
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
       {/* Single header rail */}
-      <header className="shrink-0 z-20 px-4 py-2">
+      <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
         <div
           className="relative flex items-center gap-2 px-1 py-2 flex-nowrap"
           style={{
@@ -2392,7 +2424,7 @@ export function GuardianChat({
 
       {llmBackendUnavailable && (
         <div
-          className="mx-4 mt-2 rounded-lg border px-3 py-2 text-xs"
+          className={`mt-2 rounded-lg border px-3 py-2 text-xs ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
           style={{
             borderColor: "var(--panel-border)",
             color: "var(--text)",
@@ -2482,7 +2514,7 @@ export function GuardianChat({
             maxHeight: "60vh",
           }}
         >
-          <div className="flex flex-col p-4">
+          <div className="flex h-full min-h-0 flex-col">
             <div
               data-testid="composer-conversation-lane"
               className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
@@ -2533,29 +2565,111 @@ export function GuardianChat({
                     });
                   }
 
-                  const nextProvider =
-                    catalogProviders.find((p) => p.id === providerId) ?? null;
+            const nextProvider =
+              catalogProviders.find((p) => p.id === providerId) ?? null;
 
-                  onSessionProviderChange?.(providerId);
+            onSessionProviderChange?.(providerId);
 
-                  const nextModelId = nextProvider?.models?.[0]?.id ?? null;
+            const nextModelId =
+              nextProvider?.models.find(isChatSelectableModel)?.id ?? null;
 
-                  if (
-                    nextProvider &&
-                    (!selectedModel ||
-                      !nextProvider.models.some((m) => m.id === selectedModel.id)) &&
-                    nextModelId
-                  ) {
-                    onSessionModelChange?.(nextModelId);
+            const nextSelectedModel =
+              selectedModel != null
+                ? nextProvider?.models.find(
+                    (model) => model.id === selectedModel.id
+                  ) ?? null
+                : null;
+
+            if (
+              !nextSelectedModel ||
+              !isChatSelectableModel(nextSelectedModel)
+            ) {
+              onSessionModelChange?.(nextModelId);
+            }
+          }}
+          activeModelId={selectedModel?.id ?? activeModelId}
+          modelOptions={modelOptions}
+          onModelChange={(modelId) => onSessionModelChange?.(modelId)}
+          activeInferenceMode={effectiveInferenceMode}
+          inferenceModeOptions={inferenceModeOptions}
+          onInferenceModeChange={(mode) =>
+            onSessionInferenceModeChange?.(mode)
+          }
+          depthMode={depth}
+          depthOptions={depthOptions}
+          onDepthModeChange={setDepth}
+          onVoiceTurn={
+            voiceTurnBasedEnabled
+              ? () => {
+                  if (effectiveThreadId == null) {
+                    alert("Create or open a thread before starting a voice turn.");
+                    return;
                   }
-                }}
-                activeModelId={selectedModel?.id ?? activeModelId}
-                modelOptions={modelOptions}
-                onModelChange={(modelId) => onSessionModelChange?.(modelId)}
-                activeInferenceMode={effectiveInferenceMode}
-                inferenceModeOptions={inferenceModeOptions}
-                onInferenceModeChange={(mode) =>
-                  onSessionInferenceModeChange?.(mode)
+                  voiceFileInputRef.current?.click();
+                }
+              : undefined
+          }
+          voiceTurnLabel={
+            voiceUploading ? "Processing voice…" : "Upload voice turn"
+          }
+        />
+      </div>
+      {voiceTurnBasedEnabled ? (
+        <input
+          ref={voiceFileInputRef}
+          type="file"
+          accept={voiceUploadAccept}
+          className="hidden"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            event.currentTarget.value = "";
+            if (!file) return;
+            if (effectiveThreadId == null) {
+              alert("Create or open a thread before starting a voice turn.");
+              return;
+            }
+            const normalizedMime = String(file.type || "")
+              .trim()
+              .toLowerCase();
+            if (
+              normalizedMime &&
+              supportedVoiceInputMime.length > 0 &&
+              !supportedVoiceInputMime.includes(normalizedMime)
+            ) {
+              alert(`Unsupported audio type: ${normalizedMime}`);
+              return;
+            }
+            if (
+              voiceUploadLimitBytes != null &&
+              file.size > voiceUploadLimitBytes
+            ) {
+              const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+              alert(`Audio file too large. Max ${limitMb} MB.`);
+              return;
+            }
+            setVoiceUploading(true);
+            try {
+              const form = new FormData();
+              form.append("thread_id", String(effectiveThreadId));
+              form.append("audio_file", file);
+              form.append("tts_enabled", "true");
+              await api.post("/voice/turn", form, {
+                headers: { "Content-Type": "multipart/form-data" },
+                timeout: 180000,
+              });
+              triggerReload();
+            } catch (error) {
+              console.warn("[guardian] voice turn failed", error);
+              alert("Voice turn failed. Check backend voice configuration.");
+            } finally {
+              setVoiceUploading(false);
+            }
+          }}
+        />
+      ) : null}
+    </div>
+  </div>
+
                 }
                 depthMode={depth}
                 depthOptions={depthOptions}
@@ -2640,7 +2754,13 @@ export function GuardianChat({
       <>
         {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
         <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
-          {body}
+          <div
+            data-testid="guardian-shell"
+            className={`relative mx-auto flex h-full w-full min-h-0 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+            style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
+          >
+            {body}
+          </div>
         </div>
         <RAGTracePanel
           open={ragTraceOpen}
@@ -2654,7 +2774,9 @@ export function GuardianChat({
   return (
     <>
       <FrameCard
-        className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
+        data-testid="guardian-shell"
+        className={`mx-auto flex h-full min-h-0 min-w-0 w-full flex-1 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+        style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
         hoverPop
       >
         <div className="relative flex flex-col w-full h-full">

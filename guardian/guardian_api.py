@@ -321,7 +321,7 @@ from guardian.routes import (
     migration,
 )
 from guardian.routes import neo as neo_routes
-from guardian.routes import research, share, threads, ui_session
+from guardian.routes import obsidian, research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router

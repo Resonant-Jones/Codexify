@@ -60,16 +60,27 @@ function extOf(name: string): Accepted | null {
   return e;
 }
 
-function toIdString(v: number | string | undefined | null): string | undefined {
+function normalizePositiveIdString(
+  v: number | string | undefined | null
+): string | undefined {
   if (v === undefined || v === null) return undefined;
   const s = String(v).trim();
-  return s.length ? s : undefined;
+  if (!s.length) return undefined;
+  const parsed = Number(s);
+  if (Number.isFinite(parsed)) {
+    return parsed > 0 ? String(parsed) : undefined;
+  }
+  return s;
+}
+
+function toIdString(v: number | string | undefined | null): string | undefined {
+  return normalizePositiveIdString(v);
 }
 
 function inferIdFromTag(tag: string | undefined, prefix: string): string | undefined {
   if (!tag) return undefined;
   const m = tag.match(new RegExp(`(?:^|\\s)${prefix}:(\\d+)(?:$|\\s)`));
-  return m ? m[1] : undefined;
+  return normalizePositiveIdString(m?.[1]);
 }
 
 function inferIdFromPathname(regexes: RegExp[]): string | undefined {
@@ -96,7 +107,7 @@ function inferIdFromPathname(regexes: RegExp[]): string | undefined {
   for (const p of candidates) {
     for (const rx of regexes) {
       const m = p.match(rx);
-      if (m?.[1]) return m[1];
+      if (m?.[1]) return normalizePositiveIdString(m[1]);
     }
   }
 
@@ -108,7 +119,8 @@ function inferIdFromStorage(keys: string[]): string | undefined {
   try {
     for (const k of keys) {
       const v = localStorage.getItem(k);
-      if (v && v.trim()) return v.trim();
+      const normalized = normalizePositiveIdString(v);
+      if (normalized) return normalized;
     }
   } catch {}
   return undefined;
@@ -213,12 +225,12 @@ export function useUploader({
         if (threads.length) {
           const hit = threads.find((t) => String(t?.id) === String(tid));
           const pid = hit?.project_id ?? hit?.projectId ?? hit?.project?.id;
-          return pid !== undefined && pid !== null ? String(pid) : undefined;
+          return normalizePositiveIdString(pid);
         }
 
         const thread = j?.thread ?? j;
         const pid = thread?.project_id ?? thread?.projectId ?? thread?.project?.id;
-        return pid !== undefined && pid !== null ? String(pid) : undefined;
+        return normalizePositiveIdString(pid);
       };
 
       for (const url of candidates) {

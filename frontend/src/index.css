@@ -497,6 +497,78 @@ textarea:disabled::placeholder {
   background: var(--accent-strong);
   box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
 }
+
+/* Chat code blocks */
+.codexifyCodeBlock {
+  margin: 0.5rem 0;
+  border-radius: 16px;
+  border: 1px solid color-mix(in oklab, var(--panel-border) 80%, transparent);
+  background: color-mix(in oklab, var(--panel-bg) 72%, transparent);
+  overflow: hidden;
+}
+.codexifyCodeBlockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--panel-border) 85%, transparent);
+  background: color-mix(in oklab, var(--panel-bg) 86%, var(--text) 4%);
+}
+.codexifyCodeBlockLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+.codexifyCodeBlockAccent {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--codex, #22C55E);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--codex, #22C55E) 20%, transparent);
+}
+.codexifyCodeBlockCopy {
+  border: 1px solid color-mix(in oklab, var(--panel-border) 70%, transparent);
+  background: color-mix(in oklab, var(--panel-bg) 70%, transparent);
+  color: color-mix(in oklab, var(--text) 80%, var(--muted) 20%);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.codexifyCodeBlockCopy:hover {
+  background: color-mix(in oklab, var(--panel-bg) 60%, var(--text) 8%);
+  color: var(--text);
+}
+.codexifyCodeBlockCopy:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 75%, transparent);
+  outline-offset: 2px;
+}
+.codexifyCodeBlockBody {
+  padding: 14px 16px 16px;
+}
+.codexifyCodeBlockPre {
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  white-space: pre;
+}
+.codexifyCodeBlockCode {
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  display: block;
+}
 }
 
 /* Top shell layout helper */

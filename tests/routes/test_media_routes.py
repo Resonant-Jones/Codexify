@@ -8,7 +8,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 # Set environment variables early
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
@@ -44,6 +46,69 @@ def _mock_db_with_session() -> tuple[MagicMock, MagicMock]:
     db.get_session.return_value.__enter__ = MagicMock(return_value=session)
     db.get_session.return_value.__exit__ = MagicMock(return_value=False)
     return db, session
+
+
+class _FakeQuery:
+    def __init__(self, result):
+        self._result = result
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def filter_by(self, **kwargs):
+        return self
+
+    def order_by(self, *args, **kwargs):
+        return self
+
+    def limit(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return self._result
+
+
+class _ContextSession:
+    def __init__(self, *, thread=None, project=None):
+        self.thread = thread
+        self.project = project
+        self.add = MagicMock()
+        self.commit = MagicMock()
+        self.rollback = MagicMock()
+        self.flush = MagicMock()
+
+    def query(self, model):
+        model_name = getattr(model, "__name__", "")
+        if model_name == "ChatThread":
+            return _FakeQuery(self.thread)
+        if model_name == "Project":
+            return _FakeQuery(self.project)
+        raise AssertionError(f"Unexpected model query: {model_name}")
+
+
+def _mock_db_with_context(
+    *,
+    thread=None,
+    project=None,
+    projects=None,
+) -> tuple[MagicMock, _ContextSession]:
+    db = MagicMock()
+    session = _ContextSession(thread=thread, project=project)
+    db.get_session.return_value.__enter__ = MagicMock(return_value=session)
+    db.get_session.return_value.__exit__ = MagicMock(return_value=False)
+    db.list_projects.return_value = projects or []
+    return db, session
+
+
+class _FakeIntegrityDiag:
+    def __init__(self, constraint_name: str | None):
+        self.constraint_name = constraint_name
+
+
+class _FakeIntegrityOrig(Exception):
+    def __init__(self, constraint_name: str | None):
+        super().__init__("fk violation")
+        self.diag = _FakeIntegrityDiag(constraint_name)
 
 
 class TestImageGeneration:
@@ -277,6 +342,43 @@ class TestMediaQuarantine:
 class TestUploadDedupeAndResolve:
     """Tests for media dedupe and resolver routes."""
 
+    def test_resolve_upload_context_normalizes_zero_and_uses_default_project(
+        self,
+    ):
+        import guardian.routes.media as media_routes
+
+        mock_db, _mock_session = _mock_db_with_context(
+            thread=SimpleNamespace(id=9, project_id=None),
+            projects=[{"id": 42, "name": "General"}],
+        )
+
+        (
+            resolved_project_id,
+            resolved_thread_id,
+        ) = media_routes._resolve_upload_context(
+            mock_db, incoming_project_id=0, thread_id=9
+        )
+
+        assert resolved_project_id == 42
+        assert resolved_thread_id == 9
+
+    def test_resolve_upload_context_rejects_unknown_positive_project(self):
+        import guardian.routes.media as media_routes
+
+        mock_db, _mock_session = _mock_db_with_context(
+            project=None,
+            projects=[{"id": 42, "name": "General"}],
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            media_routes._resolve_upload_context(
+                mock_db, incoming_project_id=999, thread_id=None
+            )
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error"] == "invalid_project_id"
+        assert exc_info.value.detail["message"] == "Invalid project reference."
+
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media._get_db")
     @patch("guardian.routes.media._find_uploaded_image_for_asset")
@@ -325,6 +427,106 @@ class TestUploadDedupeAndResolve:
         assert payload["source_tag"] == "uploaded"
         mock_storage.upload_file.assert_not_called()
         mock_ensure_alias.assert_called_once()
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_image_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_image_zero_project_id_uses_resolved_default_project(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded,
+        mock_create_asset,
+        mock_get_db,
+        mock_storage,
+        client,
+    ):
+        identity = SimpleNamespace(
+            storage_prefix="images/",
+            system_name="20260325-c001d00d--upload.png",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(id="asset-ctx")
+        mock_storage.upload_file.return_value = "/media/images/upload.png"
+
+        mock_db, mock_session = _mock_db_with_context(
+            thread=SimpleNamespace(id=9, project_id=None),
+            projects=[{"id": 42, "name": "General"}],
+        )
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/image",
+            data={"project_id": 0, "thread_id": 9, "user_id": "u-1"},
+            files={"file": ("upload.png", b"12345678", "image/png")},
+        )
+
+        assert response.status_code == 200
+        assert mock_create_asset.call_args.kwargs["project_id"] == 42
+        uploaded_row = mock_session.add.call_args[0][0]
+        assert uploaded_row.project_id == 42
+        assert uploaded_row.thread_id == 9
+        mock_ensure_alias.assert_called_once()
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_image_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    def test_upload_image_sanitizes_integrity_error_response(
+        self,
+        mock_compute_identity,
+        mock_find_uploaded,
+        mock_create_asset,
+        mock_get_db,
+        mock_storage,
+        client,
+    ):
+        identity = SimpleNamespace(
+            storage_prefix="images/",
+            system_name="20260325-deadbeef--upload.png",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded.return_value = None
+        mock_create_asset.side_effect = IntegrityError(
+            "insert into media_assets ... project_id=(0)",
+            params={},
+            orig=_FakeIntegrityOrig("media_assets_project_id_fkey"),
+        )
+        mock_storage.upload_file.return_value = "/media/images/upload.png"
+
+        mock_db, _mock_session = _mock_db_with_context(
+            thread=SimpleNamespace(id=9, project_id=1),
+            project=SimpleNamespace(id=1),
+            projects=[{"id": 1, "name": "General"}],
+        )
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/image",
+            data={"project_id": 1, "thread_id": 9, "user_id": "u-1"},
+            files={"file": ("upload.png", b"12345678", "image/png")},
+        )
+
+        assert response.status_code == 500
+        payload = response.json()
+        assert payload["detail"]["error"] == "upload_failed"
+        assert (
+            payload["detail"]["message"] == "Upload failed. Please try again."
+        )
+        assert "ForeignKeyViolation" not in str(payload)
+        assert "project_id=(0)" not in str(payload)
 
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media.enqueue_document_embed")
@@ -400,6 +602,69 @@ class TestUploadDedupeAndResolve:
         assert link_kwargs["thread_id"] == 2
         assert link_kwargs["document_id"] == response.json()["id"]
         assert link_kwargs["relation"] == "attached"
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._ensure_project_document_link")
+    @patch("guardian.routes.media._ensure_thread_document_link")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_links_thread_and_project_scope(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_create_asset,
+        mock_get_db,
+        mock_ensure_thread_document_link,
+        mock_ensure_project_document_link,
+        mock_storage,
+        client,
+    ):
+        """Uploading in chat builds both thread and project link rows."""
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260325-feedface--notes.txt",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded_doc.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(
+            id="asset-doc-new",
+            deterministic_id="20260325-feedface",
+            system_name="20260325-feedface--notes.txt",
+            normalized_slug="notes",
+            media_kind="document",
+            provenance="uploaded",
+            source_tag="uploaded",
+            content_hash="feedfacecafebeef",
+        )
+        mock_storage.upload_file.return_value = (
+            "/media/documents/20260325-feedface--notes.txt"
+        )
+
+        mock_db, _mock_session = _mock_db_with_session()
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/document",
+            data={"project_id": 5, "thread_id": 9, "user_id": "u-2"},
+            files={"file": ("notes.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        _, thread_kwargs = mock_ensure_thread_document_link.call_args
+        assert thread_kwargs["thread_id"] == 9
+        assert thread_kwargs["document_id"] == payload["id"]
+        _, project_kwargs = mock_ensure_project_document_link.call_args
+        assert project_kwargs["project_id"] == 5
+        assert project_kwargs["document_id"] == payload["id"]
+        assert project_kwargs["document_type"] == "uploaded"
 
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media._ensure_thread_document_link")
