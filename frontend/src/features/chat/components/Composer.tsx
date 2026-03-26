@@ -730,10 +730,10 @@ export function Composer({
         />
 
         <div
-          data-testid="composer-controls-row"
+          data-testid="composer-control-row"
           className={cn(
-            "mt-auto flex w-full items-center justify-between gap-3",
-            CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS
+            CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+            "mt-auto flex w-full items-center justify-between gap-3 pl-[8px] pr-[24px] pb-[6px]"
           )}
         >
           <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
@@ -794,7 +794,7 @@ export function Composer({
             />
           </div>
 
-          <div data-testid="composer-send-slot" className="flex shrink-0 items-center pr-[3px]">
+          <div data-testid="composer-send-slot" className="shrink-0">
             <Button
               type="button"
               onClick={handleAttemptSend}
@@ -809,7 +809,7 @@ export function Composer({
               }
               size="icon"
               className={cn(
-                "!h-8 !w-8 !min-w-0 !rounded-full !px-0 transition-opacity",
+                "h-8 w-8 min-w-0 rounded-full p-0 transition-opacity",
                 sendTransportDisabled
                   ? "cursor-not-allowed opacity-50"
                   : sendBlockedByTurnLock
