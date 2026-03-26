@@ -9,6 +9,7 @@ import pytest
 
 from backend.rag import chatgpt_migration
 from guardian.core import dependencies
+from guardian.routes import migration as migration_routes
 
 SERVER_USER_ID = "local_user"
 
@@ -62,6 +63,14 @@ def _build_mainline_export() -> bytes:
         }
     ]
     return json.dumps(payload).encode("utf-8")
+
+
+def _build_large_export(min_size: int) -> bytes:
+    payload = _build_mainline_export()
+    if len(payload) >= min_size:
+        return payload
+    padding = b" " * (min_size - len(payload))
+    return payload + padding
 
 
 def _post_export(test_client, path: str):
@@ -526,10 +535,27 @@ def test_migration_route_reports_embedding_degradation_on_exit_139(
     assert data["embedding_coverage_degraded"] is True
 
 
-def test_migration_rejects_oversized_file(test_client):
-    """Oversized file should return 413 instead of loading into memory."""
-    # Create payload larger than 50MB limit
-    oversized_content = b"x" * (51 * 1024 * 1024)
+def test_migration_accepts_large_export(test_client, monkeypatch):
+    """Large but valid exports should be accepted and processed."""
+    oversized_content = _build_large_export(51 * 1024 * 1024)
+    captured: dict[str, object] = {}
+
+    def fake_ingest(content: bytes, user_id: str | None = None):
+        captured["size"] = len(content)
+        captured["user_id"] = user_id
+        parsed = json.loads(content)
+        chatgpt_migration._validate_chatgpt_export_payload(parsed)
+        return {
+            "threads_imported": 0,
+            "messages_imported": 0,
+            "embedding_candidates": 0,
+            "embeddings_persisted": 0,
+            "embeddings_failed": 0,
+            "embedding_coverage_degraded": False,
+        }
+
+    monkeypatch.setattr(migration_routes, "ingest_chatgpt_export", fake_ingest)
+
     files = {
         "file": (
             "huge_export.json",
@@ -544,8 +570,10 @@ def test_migration_rejects_oversized_file(test_client):
         headers={"X-User-Id": "spoofed_user"},
     )
 
-    assert response.status_code == 413
-    assert "50MB" in response.json()["detail"]
+    assert response.status_code == 200
+    assert captured["size"] >= 51 * 1024 * 1024
+    assert captured["user_id"] == SERVER_USER_ID
+    assert response.json()["threads_imported"] == 0
 
 
 def test_migration_rejects_malformed_json(test_client):

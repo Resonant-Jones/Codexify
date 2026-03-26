@@ -328,4 +328,150 @@ test.describe('ChatGPT migration import', () => {
     await expect.poll(() => completedThreadId).toBe(importedThread.id);
     await expect(page.getByText(recalledAnswer)).toBeVisible({ timeout: 20000 });
   });
+
+  test('accepts large exports without size gating', async ({ page, context }) => {
+    await context.addInitScript(() => {
+      localStorage.setItem('cfy.lastView', 'settings');
+    });
+
+    let uploadHits = 0;
+
+    await context.route('**/*', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const path = url.pathname;
+
+      if (!path.startsWith('/api/') && path !== '/upload-chatgpt-export') {
+        await route.continue();
+        return;
+      }
+      if (/\.(ts|tsx|js|jsx|css|map)$/.test(path)) {
+        await route.continue();
+        return;
+      }
+
+      if (path === '/upload-chatgpt-export') {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Use /api/upload-chatgpt-export' }),
+        });
+        return;
+      }
+
+      if (path === '/api/upload-chatgpt-export') {
+        uploadHits += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ threads_imported: 0, messages_imported: 0 }),
+        });
+        return;
+      }
+
+      if (path === '/api/health/llm') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: 'online',
+            provider: 'local',
+            model: 'test-local-model',
+          }),
+        });
+        return;
+      }
+
+      if (path.startsWith('/api/chat/threads')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, threads: [] }),
+        });
+        return;
+      }
+
+      if (path.startsWith('/api/connectors')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        });
+        return;
+      }
+
+      if (path.startsWith('/api/projects')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ projects: [] }),
+        });
+        return;
+      }
+
+      if (path.startsWith('/api/codex/entries')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        });
+        return;
+      }
+
+      if (path.startsWith('/api/events')) {
+        await route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+          body: 'event: ping\\ndata: {}\\n\\n',
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({}),
+      });
+    });
+
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+
+    const settingsTab = page.getByRole('button', { name: 'Settings' }).first();
+    await expect(settingsTab).toBeVisible({ timeout: 20000 });
+    await settingsTab.click();
+    await expect(page.getByRole('button', { name: 'Appearance' })).toBeVisible();
+
+    const dataTab = page.getByRole('button', { name: 'Data' }).first();
+    await dataTab.click();
+    await expect(page.getByText('ChatGPT Migration')).toBeVisible();
+
+    const importButton = page.getByRole('button', { name: 'Import from ChatGPT' });
+    await expect(importButton).toBeVisible();
+    await importButton.click();
+
+    await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
+
+    const largePayload = Buffer.alloc(51 * 1024 * 1024, ' ');
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'chatgpt_export_large.json',
+      mimeType: 'application/json',
+      buffer: largePayload,
+    });
+
+    await expect(page.getByText('chatgpt_export_large.json')).toBeVisible();
+    await expect(
+      page.getByText('Large ChatGPT exports are accepted.')
+    ).toBeVisible();
+    await expect(
+      page.getByText('Export file exceeds 50MB limit.')
+    ).toHaveCount(0);
+
+    const uploadButton = page.getByRole('button', { name: 'Upload & Migrate' });
+    await expect(uploadButton).toBeEnabled();
+    await uploadButton.click();
+    await expect.poll(() => uploadHits).toBe(1);
+  });
 });
