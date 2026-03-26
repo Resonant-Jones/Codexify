@@ -1,4 +1,4 @@
-"""Obsidian indexing utilities for local allowlist-scoped ingestion."""
+"""Obsidian indexing utilities for beta read-only vault ingestion."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from guardian.vector.store import VectorStore
 logger = logging.getLogger(__name__)
 
 OBSIDIAN_NAMESPACE = "obsidian:local"
+BETA_READONLY_MODE = "beta_read_only"
 _LOGGED_FRONTMATTER_FAILURES: set[str] = set()
 
 
@@ -277,20 +278,68 @@ def _delete_namespace_vectors(vector_store: Any) -> int:
         return len(ids)
 
 
-def index_obsidian_vault(
+def _scan_obsidian_vault(
+    vault_root: str | Path,
+    allowed_paths: Sequence[str | Path] | None = None,
+    allowed_tags: Sequence[str] | None = None,
+) -> tuple[list[str], int, list[dict[str, str]]]:
+    root = _resolve_vault_root(vault_root)
+    resolved_allowlist = _resolve_allowed_paths(root, allowed_paths)
+    allowed_tag_list = _normalize_tags(allowed_tags)
+
+    markdown_files = _collect_markdown_files(root, resolved_allowlist)
+    scanned = len(markdown_files)
+    matched: list[str] = []
+    failures: list[dict[str, str]] = []
+
+    for md in markdown_files:
+        try:
+            raw_text = md.read_text(encoding="utf-8", errors="ignore")
+            parsed = _parse_frontmatter(raw_text, path=str(md))
+            tags = _normalize_tags(parsed["frontmatter"].get("tags"))
+            if not _tags_match(tags, allowed_tag_list):
+                continue
+            matched.append(str(md.resolve()))
+        except Exception as exc:
+            failures.append({"path": str(md), "error": str(exc)})
+
+    # Deterministic ordering
+    matched = sorted(dict.fromkeys(matched))
+    return matched, scanned, failures
+
+
+def clear_obsidian_namespace(vector_store: Any | None = None) -> int:
+    """Delete all vectors in the Obsidian namespace."""
+    store = vector_store or VectorStore()
+    return _delete_namespace_vectors(store)
+
+
+def index_obsidian_vault_readonly(
     vault_root: str | Path,
     allowed_paths: Sequence[str | Path] | None = None,
     allowed_tags: Sequence[str] | None = None,
     vector_store: Any | None = None,
     now: datetime | None = None,
+    *,
+    rebuild: bool = True,
 ) -> dict[str, Any]:
+    """Index vault markdown into the Obsidian namespace in beta read-only mode.
+
+    Beta semantics:
+    - No live sync/file watching.
+    - No incremental lifecycle/idempotency guarantees.
+    - Refresh path is full namespace rebuild.
+    """
+    if not rebuild:
+        raise ValueError("obsidian_beta_requires_rebuild_refresh")
+
     root = _resolve_vault_root(vault_root)
     resolved_allowlist = _resolve_allowed_paths(root, allowed_paths)
     indexed_at = _utc_now_iso(now)
 
     store = vector_store or VectorStore()
 
-    deleted_count = _delete_namespace_vectors(store)
+    deleted_count = clear_obsidian_namespace(store)
 
     items, failures, scanned = _build_obsidian_items_with_failures(
         root,
@@ -306,6 +355,9 @@ def index_obsidian_vault(
     summary = {
         "vault_root": str(root),
         "namespace": OBSIDIAN_NAMESPACE,
+        "mode": BETA_READONLY_MODE,
+        "read_only": True,
+        "refresh_strategy": "rebuild",
         "allowed_paths": [str(p) for p in resolved_allowlist],
         "indexed_at": indexed_at,
         "scanned": scanned,
@@ -347,12 +399,52 @@ def _scan_obsidian_vault(
     return matched, scanned, failures
 
 
+def rebuild_obsidian_namespace(
+    vault_root: str | Path,
+    allowed_paths: Sequence[str | Path] | None = None,
+    allowed_tags: Sequence[str] | None = None,
+    vector_store: Any | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Supported beta refresh path: clear + full reindex."""
+    return index_obsidian_vault_readonly(
+        vault_root,
+        allowed_paths=allowed_paths,
+        allowed_tags=allowed_tags,
+        vector_store=vector_store,
+        now=now,
+        rebuild=True,
+    )
+
+
+def index_obsidian_vault(
+    vault_root: str | Path,
+    allowed_paths: Sequence[str | Path] | None = None,
+    allowed_tags: Sequence[str] | None = None,
+    vector_store: Any | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Compatibility wrapper for existing call sites."""
+    return index_obsidian_vault_readonly(
+        vault_root,
+        allowed_paths=allowed_paths,
+        allowed_tags=allowed_tags,
+        vector_store=vector_store,
+        now=now,
+        rebuild=True,
+    )
+
+
 __all__ = [
     "OBSIDIAN_NAMESPACE",
+    "BETA_READONLY_MODE",
+    "clear_obsidian_namespace",
     "index_obsidian_vault",
+    "index_obsidian_vault_readonly",
+    "rebuild_obsidian_namespace",
+    "_scan_obsidian_vault",
     "_build_obsidian_items",
     "_parse_frontmatter",
     "_yield_md_files",
     "_obsidian_source_id",
-    "_scan_obsidian_vault",
 ]

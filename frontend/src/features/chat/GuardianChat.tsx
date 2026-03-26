@@ -2366,7 +2366,7 @@ export function GuardianChat({
   const body = (
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
       {/* Single header rail */}
-      <header className="shrink-0 z-20 px-4 py-2">
+      <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
         <div
           className="relative flex items-center gap-2 px-1 py-2 flex-nowrap"
           style={{
@@ -2420,7 +2420,7 @@ export function GuardianChat({
 
       {llmBackendUnavailable && (
         <div
-          className="mx-4 mt-2 rounded-lg border px-3 py-2 text-xs"
+          className={`mt-2 rounded-lg border px-3 py-2 text-xs ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
           style={{
             borderColor: "var(--panel-border)",
             color: "var(--text)",
@@ -2499,9 +2499,9 @@ export function GuardianChat({
       <div className="shrink-0 z-20 mt-2 flex justify-center w-full">
         <div
           data-testid="composer-shell"
-          className="w-full rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
+          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
-            maxWidth: CHAT_STAGE_MAX_WIDTH,
+            maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
@@ -2510,7 +2510,7 @@ export function GuardianChat({
             maxHeight: "60vh",
           }}
         >
-          <div className="flex flex-col p-4">
+          <div className="flex h-full min-h-0 flex-col">
             <div
               data-testid="composer-conversation-lane"
               className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
@@ -2561,32 +2561,111 @@ export function GuardianChat({
                     });
                   }
 
-                  const nextProvider =
-                    catalogProviders.find((p) => p.id === providerId) ?? null;
+            const nextProvider =
+              catalogProviders.find((p) => p.id === providerId) ?? null;
 
-                  onSessionProviderChange?.(providerId);
+            onSessionProviderChange?.(providerId);
 
-                  const nextModelId =
-                    nextProvider?.models.find(isChatSelectableModel)?.id ?? null;
+            const nextModelId =
+              nextProvider?.models.find(isChatSelectableModel)?.id ?? null;
 
-                  if (
-                    nextProvider &&
-                    (!selectedModel ||
-                      !nextProvider.models.some(
-                        (m) => isChatSelectableModel(m) && m.id === selectedModel.id
-                      )) &&
-                    nextModelId
-                  ) {
-                    onSessionModelChange?.(nextModelId);
+            const nextSelectedModel =
+              selectedModel != null
+                ? nextProvider?.models.find(
+                    (model) => model.id === selectedModel.id
+                  ) ?? null
+                : null;
+
+            if (
+              !nextSelectedModel ||
+              !isChatSelectableModel(nextSelectedModel)
+            ) {
+              onSessionModelChange?.(nextModelId);
+            }
+          }}
+          activeModelId={selectedModel?.id ?? activeModelId}
+          modelOptions={modelOptions}
+          onModelChange={(modelId) => onSessionModelChange?.(modelId)}
+          activeInferenceMode={effectiveInferenceMode}
+          inferenceModeOptions={inferenceModeOptions}
+          onInferenceModeChange={(mode) =>
+            onSessionInferenceModeChange?.(mode)
+          }
+          depthMode={depth}
+          depthOptions={depthOptions}
+          onDepthModeChange={setDepth}
+          onVoiceTurn={
+            voiceTurnBasedEnabled
+              ? () => {
+                  if (effectiveThreadId == null) {
+                    alert("Create or open a thread before starting a voice turn.");
+                    return;
                   }
-                }}
-                activeModelId={selectedModel?.id ?? activeModelId}
-                modelOptions={modelOptions}
-                onModelChange={(modelId) => onSessionModelChange?.(modelId)}
-                activeInferenceMode={effectiveInferenceMode}
-                inferenceModeOptions={inferenceModeOptions}
-                onInferenceModeChange={(mode) =>
-                  onSessionInferenceModeChange?.(mode)
+                  voiceFileInputRef.current?.click();
+                }
+              : undefined
+          }
+          voiceTurnLabel={
+            voiceUploading ? "Processing voice…" : "Upload voice turn"
+          }
+        />
+      </div>
+      {voiceTurnBasedEnabled ? (
+        <input
+          ref={voiceFileInputRef}
+          type="file"
+          accept={voiceUploadAccept}
+          className="hidden"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            event.currentTarget.value = "";
+            if (!file) return;
+            if (effectiveThreadId == null) {
+              alert("Create or open a thread before starting a voice turn.");
+              return;
+            }
+            const normalizedMime = String(file.type || "")
+              .trim()
+              .toLowerCase();
+            if (
+              normalizedMime &&
+              supportedVoiceInputMime.length > 0 &&
+              !supportedVoiceInputMime.includes(normalizedMime)
+            ) {
+              alert(`Unsupported audio type: ${normalizedMime}`);
+              return;
+            }
+            if (
+              voiceUploadLimitBytes != null &&
+              file.size > voiceUploadLimitBytes
+            ) {
+              const limitMb = (voiceUploadLimitBytes / (1024 * 1024)).toFixed(1);
+              alert(`Audio file too large. Max ${limitMb} MB.`);
+              return;
+            }
+            setVoiceUploading(true);
+            try {
+              const form = new FormData();
+              form.append("thread_id", String(effectiveThreadId));
+              form.append("audio_file", file);
+              form.append("tts_enabled", "true");
+              await api.post("/voice/turn", form, {
+                headers: { "Content-Type": "multipart/form-data" },
+                timeout: 180000,
+              });
+              triggerReload();
+            } catch (error) {
+              console.warn("[guardian] voice turn failed", error);
+              alert("Voice turn failed. Check backend voice configuration.");
+            } finally {
+              setVoiceUploading(false);
+            }
+          }}
+        />
+      ) : null}
+    </div>
+  </div>
+
                 }
                 depthMode={depth}
                 depthOptions={depthOptions}
@@ -2671,7 +2750,13 @@ export function GuardianChat({
       <>
         {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
         <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
-          {body}
+          <div
+            data-testid="guardian-shell"
+            className={`relative mx-auto flex h-full w-full min-h-0 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+            style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
+          >
+            {body}
+          </div>
         </div>
         <RAGTracePanel
           open={ragTraceOpen}
@@ -2685,7 +2770,9 @@ export function GuardianChat({
   return (
     <>
       <FrameCard
-        className="flex-1 min-h-0 min-w-0 flex flex-col h-full"
+        data-testid="guardian-shell"
+        className={`mx-auto flex h-full min-h-0 min-w-0 w-full flex-1 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+        style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
         hoverPop
       >
         <div className="relative flex flex-col w-full h-full">

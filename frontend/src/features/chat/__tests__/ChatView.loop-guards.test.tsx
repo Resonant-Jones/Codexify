@@ -274,6 +274,6 @@ describe("ChatView loop guards", () => {
 
     const lane = screen.getByTestId("chat-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
-    expect(lane.className).toContain("md:max-w-[880px]");
+    expect(lane.className).toContain("md:max-w-[888px]");
   });
 });
