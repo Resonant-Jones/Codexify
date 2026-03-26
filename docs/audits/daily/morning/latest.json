@@ -2,13 +2,13 @@
   "audit_cli": {
     "attempts": [
       {
-        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
         "exit_code": 0,
         "stderr": "",
         "stdout_is_json": false
       },
       {
-        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
         "exit_code": 0,
         "stderr": ""
       }
@@ -63,242 +63,456 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 16,
+    "commit_count": 33,
     "commits": [
       {
         "files": [
+          ".env.template",
+          "README.md",
+          "docs/Codexify/CONFIGURATION.md",
+          "docs/architecture/providers.md",
+          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/hooks/useRuntimeHealth.ts",
+          "guardian/cognition/modular_prompt_builder.py",
+          "guardian/core/ai_router.py",
           "guardian/core/chat_completion_service.py",
-          "guardian/routes/chat.py",
+          "guardian/core/config.py",
+          "guardian/core/provider_registry.py",
+          "guardian/providers/minimax_adapter.py",
+          "guardian/providers/registry.py",
+          "guardian/tests/core/test_ai_router.py",
+          "guardian/tests/core/test_provider_registry.py",
+          "guardian/tests/test_llm_catalog_endpoint.py",
+          "guardian/tests/test_minimax_provider.py",
+          "guardian/tests/test_minimax_smoke.py",
           "guardian/workers/chat_worker.py",
-          "tests/routes/test_chat_profile_trace.py",
-          "tests/test_chat_payload_summary.py",
-          "tests/test_chat_worker_turn_integrity.py"
+          "tests/core/test_ai_router.py",
+          "tests/routes/test_llm_catalog.py",
+          "tests/system_prompt/test_modular_prompt_builder.py"
         ],
-        "sha": "158fb3b9322a269f4579705395e3a951c529011e",
-        "subject": "feat(chat): add sanitized payload summary diagnostics"
+        "sha": "f640a77f6e855e96fd24da0ae3810de1359d749c",
+        "subject": "Add MiniMax Anthropic-first integration"
       },
       {
         "files": [
-          "frontend/src/features/chat/useChat.ts"
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/chatLane.ts"
         ],
-        "sha": "0bb648de0e621a33fac234d2ca3d70eaa8e5efd0",
-        "subject": "Remove refreshSnapshot from useChat hook"
+        "sha": "47dbc792b72d439ad8fdaf5c6370ca51e3705235",
+        "subject": "Tuning Guardian Shell to be visually proportionate to the chat lane"
       },
       {
         "files": [
-          ".gitignore",
-          "docs/audits/daily/evening/2026-03-24-audit.json",
-          "docs/audits/daily/evening/2026-03-24-audit.md",
+          "docs/Future-Features/Internal-Advanced-Settings-v1.md",
+          "guardian/core/ai_router.py",
+          "guardian/core/config.py",
+          "guardian/core/llm_catalog.py",
+          "guardian/core/provider_registry.py",
+          "guardian/core/provider_truth.py",
+          "guardian/routes/health.py",
+          "guardian/tests/test_health_endpoints.py",
+          "guardian/tests/test_llm_catalog_endpoint.py",
+          "guardian/tests/workers/test_chat_worker_completion_semantics.py",
+          "guardian/workers/chat_worker.py",
+          "tests/core/test_ai_router.py",
+          "tests/routes/test_llm_catalog.py"
+        ],
+        "sha": "000e2680caa3b19c5710db24de3d09da8729f249",
+        "subject": "refactor(guardian): update provider truth wiring"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx"
+        ],
+        "sha": "49b855e3ed24218a83a91a7a6e1c071c0f2bb220",
+        "subject": "refactor(chat): inset and circle send button"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/chatLane.ts"
+        ],
+        "sha": "5c13de5425ea3c230725d54050f36d69c62acda6",
+        "subject": "fix(chat): unify shell width with chat lane and remove independent shell max-width"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx"
+        ],
+        "sha": "a4b021148e769d7bf4c613656773aa543b392402",
+        "subject": "refactor(chat): flatten composer inset stack"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/chatLane.ts"
+        ],
+        "sha": "6d9879575de045889ee2b5d09c72fc57d51cdf35",
+        "subject": "fix(chat): unify shell width with chat lane and remove independent shell max-width"
+      },
+      {
+        "files": [
+          "docs/audits/daily/evening/2026-03-25-audit.json",
+          "docs/audits/daily/evening/2026-03-25-audit.md",
           "docs/audits/daily/evening/latest.json",
           "docs/audits/daily/evening/latest.md",
           "docs/audits/latest.json",
           "docs/audits/latest.md"
         ],
-        "sha": "3ff07f74f6d8500b1183e2f25eeb9ae0b11da25e",
-        "subject": "Record daily audit and ignore vendor MCP server"
+        "sha": "af65545ac2ec9336c4ab066cbe97e4f3f7a85fd8",
+        "subject": "Update daily evening audit for 2026-03-25"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/ChatView.tsx",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/chatLane.ts"
+        ],
+        "sha": "4912259832b670741da63d9d4ca9fc806ba81755",
+        "subject": "Extract shared chat lane layout constants"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/chatLane.ts"
+        ],
+        "sha": "fc0e683abac793531c3b8e480ca48ab6d2bfa6c6",
+        "subject": "fix(ui): cap guardian shell width in fullscreen"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx",
+          "frontend/src/hooks/useUploader.ts",
+          "guardian/routes/media.py",
+          "tests/routes/test_media_routes.py"
+        ],
+        "sha": "854674c46c8d5b9ab4c74c3085e9aa1635bfecc9",
+        "subject": "Fix chat uploads and sanitize media upload errors"
+      },
+      {
+        "files": [
+          "scripts/verification/run_supported_path_proof.sh"
+        ],
+        "sha": "5c5a3eb5efd7cbf07cb4f89a32939333fa90d3b3",
+        "subject": "feat(release): add supported-path proof runner script"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/ChatView.tsx",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/chatLane.ts",
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx"
+        ],
+        "sha": "000f37e98b75d51387bd9fd7770e91c5e5decbde",
+        "subject": "merge: reconcile PR 162 chat composer layout conflicts"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/ChatView.tsx",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/chatLane.ts",
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx"
+        ],
+        "sha": "3c9ed4d006c00243c945b2fffc79a4024bf3559b",
+        "subject": "Align chat lane and composer width and anchor controls at bottom"
+      },
+      {
+        "files": [
+          "guardian/cli/ingest_cli.py",
+          "guardian/context/broker.py",
+          "guardian/core/chat_completion_service.py",
+          "guardian/obsidian/indexer.py",
+          "tests/core/test_context_broker_depth.py",
+          "tests/obsidian/test_file_lifecycle.py",
+          "tests/obsidian/test_indexer.py",
+          "tests/obsidian/test_ingest_idempotency.py",
+          "tests/test_chat_payload_summary.py"
+        ],
+        "sha": "5839362340415f773924dbe1f4f3d0f65540d942",
+        "subject": "feat(obsidian): add read-only vault indexing for beta"
       },
       {
         "files": [
           "frontend/src/components/persona/layout/AppShell.tsx"
         ],
-        "sha": "ec49d2a40491a193c6219a7292a11b7b1fcf10d6",
-        "subject": "stabilize responsive gallery grid"
+        "sha": "91ca4ad617cc18127182a55ce150fe638311c9e4",
+        "subject": "Fix gallery image src paths in AppShell"
       },
       {
         "files": [
-          "frontend/src/features/chat/useChat.ts"
+          "guardian/core/chat_completion_service.py",
+          "guardian/workers/chat_worker.py",
+          "tests/test_chat_worker_turn_integrity.py"
         ],
-        "sha": "5cd7185c110712c20a6de906343fc02d438718e8",
-        "subject": "fix(chat): rate-limit refreshSnapshot to prevent UI polling loop"
+        "sha": "f15cff897af57100b030a5da0af6a151dfc2f12c",
+        "subject": "fix(chat): restore completion compatibility after multimodal gating"
       },
       {
         "files": [
-          "frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.offline-banner.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-          "frontend/src/features/chat/useChat.ts",
-          "pnpm-lock.yaml"
-        ],
-        "sha": "9bb63e1f0aa1a48c6487258973cb948e838406aa",
-        "subject": "Add useChat refreshSnapshot contract and update mocks"
-      },
-      {
-        "files": [
-          "guardian/core/ai_router.py",
-          "guardian/core/provider_registry.py",
-          "tests/core/test_ai_router.py",
-          "tests/routes/test_llm_catalog.py"
-        ],
-        "sha": "f305e721fe29c7dc8dfccc91180fef3fc0d16c85",
-        "subject": "Harden Minimax and Alibaba provider failures"
-      },
-      {
-        "files": [
-          "frontend/src/components/__tests__/ProviderSelect.catalog.test.tsx",
-          "guardian/core/provider_registry.py",
-          "tests/routes/test_llm_catalog.py"
-        ],
-        "sha": "798d51c2888f73d3ca0e8bcc5dcaf1e0b45fb2f8",
-        "subject": "Expand Groq catalog visibility"
-      },
-      {
-        "files": [
-          ".env.example",
-          "docker-compose.yml",
-          "docs/architecture/config-and-ops.md",
-          "guardian/core/ai_router.py",
-          "guardian/core/config.py",
-          "guardian/core/llm_catalog.py",
-          "tests/core/test_ai_router.py",
-          "tests/routes/test_llm_catalog.py"
-        ],
-        "sha": "13ca84234c65b3d5665c1ad9b44bafc6eb13e50e",
-        "subject": "Fix local Ollama connectivity in Docker runtime"
-      },
-      {
-        "files": [
-          "guardian/cli/ingest_cli.py",
-          "guardian/obsidian/indexer.py",
-          "tests/obsidian/test_indexer.py"
-        ],
-        "sha": "d0d15efa9bc983ff0fbc32103e358d4d67d25f74",
-        "subject": "Add Obsidian allowlist indexer foundation"
-      },
-      {
-        "files": [
-          "frontend/src/components/sidebar/ProjectList.tsx",
-          "frontend/src/components/sidebar/SidebarRoot.tsx",
-          "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
-          "frontend/src/components/sidebar/useProjectsCache.ts"
-        ],
-        "sha": "5b83581c3606770f54b7e618e6d014a436ebfd21",
-        "subject": "Fix project create and delete flows"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
-          "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
-          "frontend/src/components/sidebar/SidebarRoot.tsx",
-          "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx"
-        ],
-        "sha": "0953a27d73336eaa95352dadf3d5e98730ae624b",
-        "subject": "Fix thread deletion flow"
-      },
-      {
-        "files": [
-          "frontend/src/hooks/useRuntimeHealth.test.ts",
-          "frontend/src/hooks/useRuntimeHealth.ts",
-          "frontend/src/test/useRuntimeHealth.test.ts"
-        ],
-        "sha": "f33bfbb36d16daf9b80e55dcc5f776e431ff4a15",
-        "subject": "Align health polling with backend routes"
-      },
-      {
-        "files": [
-          "frontend/src/state/session/SessionSpine.ts",
-          "frontend/src/state/session/types.ts",
-          "frontend/src/test/session-spine.test.ts",
-          "frontend/src/test/thread_documents_rehydration.test.tsx",
-          "frontend/src/tests/thread_documents_rehydration.spec.tsx"
-        ],
-        "sha": "304e6ba4366ecb3cedd1ba699ec76ab89614c975",
-        "subject": "Default inference mode to FAST and scope per-tab persistence"
-      },
-      {
-        "files": [
+          "frontend/src/features/chat/ChatView.tsx",
           "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
-          "frontend/src/test/thread_documents_rehydration.test.tsx"
+          "frontend/src/features/chat/chatLane.ts",
+          "frontend/src/features/chat/components/Composer.tsx"
         ],
-        "sha": "7915aa812a8a466873e01ae47861c90e6fc643d4",
-        "subject": "Release chat thread lock on all terminal states"
+        "sha": "7b9aa6760ad109807dc1919450a48831b61a0396",
+        "subject": "fix(ui): tighten chat lane and composer density"
       },
       {
         "files": [
-          "docs/Campaign/CAMPAIGN_2026_03_24_BETA_STABILIZATION.md",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_01_release_composer_thread_lock_on_all_terminal_paths.md",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_02_default_thinking_mode_fast_and_persist_change_in_thread.md",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_03_reconcile_frontend_health_polling_to_actual_backend_contract.md",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_04_restore_thread_deletion_end_to_end.md",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_05_restore_project_create_delete_mutations.md",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_06_restore_docker_to_local_ollama_accessibility.md",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_07_improve_provider_catalog_completeness_for_groq",
-          "docs/tasks/2026-03-24/TASK_2026_03_24_08_harden_minimax_and_alibaba_provider_failure_handling.md"
+          "frontend/src/components/ProviderSelect.tsx",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx",
+          "frontend/src/features/chat/hooks/useLlmCatalog.ts",
+          "guardian/core/llm_catalog.py",
+          "guardian/core/provider_registry.py",
+          "guardian/tests/core/test_provider_registry.py",
+          "tests/routes/test_llm_catalog.py"
         ],
-        "sha": "3b508649d539e7260434a52c852029fa0f82401b",
-        "subject": "Campaign Beta Stabilization Docs"
+        "sha": "442d159ac2914b60c9225c019bcb5cbd8b34e722",
+        "subject": "fix(chat): gate model selection by capability"
+      },
+      {
+        "files": [
+          ".gitignore"
+        ],
+        "sha": "ee0f9fbba8b014d009c5d5ad17ca8c06d89628b2",
+        "subject": "Remove duplicate compound-mcp-server-main entry from .gitignore"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/components/ChatBubble.tsx"
+        ],
+        "sha": "71e83c921e7ce5487c629a401beae5bd3b169ab1",
+        "subject": "Fix code block extraction in chat pre renderer"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/components/ChatBubble.tsx",
+          "frontend/src/index.css"
+        ],
+        "sha": "f2f23c3f56145e067ed3651530c88671a8278554",
+        "subject": "Enhance chat code blocks with header and copy button"
+      },
+      {
+        "files": [
+          "guardian/core/ai_router.py",
+          "guardian/core/chat_completion_service.py",
+          "guardian/core/provider_registry.py",
+          "guardian/routes/media.py",
+          "tests/core/test_chat_completion_service_image_routing.py"
+        ],
+        "sha": "fa2811a8688732b2031905eb40801325688b1b91",
+        "subject": "feat(chat): add multimodal image routing contract"
+      },
+      {
+        "files": [
+          "docs/architecture/2026-03-23-supported-path-proof.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
+        ],
+        "sha": "d448071deb7f0ccef53465be82a798ecfa122385",
+        "subject": "docs(audit): refresh supported path proof after prompt integrity fixes"
+      },
+      {
+        "files": [
+          "guardian/core/chat_completion_service.py",
+          "guardian/workers/chat_worker.py"
+        ],
+        "sha": "43ab90f016dd8d09c85902e0d1ad50b02fc5dd6e",
+        "subject": "fix(chat): restore worker compatibility after prompt wiring"
+      },
+      {
+        "files": [
+          "guardian/context/broker.py",
+          "guardian/core/chat_completion_service.py",
+          "guardian/routes/documents.py",
+          "guardian/routes/media.py",
+          "tests/core/test_chat_completion_service_attachments.py",
+          "tests/core/test_context_broker_depth.py",
+          "tests/routes/test_media_routes.py"
+        ],
+        "sha": "25bc3e8bbebbd6cf7f75aa195fce8317a7b69a9f",
+        "subject": "Link uploaded documents to project scope and fix broker sessions"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/ChatView.tsx",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/chatLane.ts"
+        ],
+        "sha": "2e04790ceb0d4a70019926d2fa262311ed0422ac",
+        "subject": "fix(ui): unify chat lane alignment across breakpoints"
+      },
+      {
+        "files": [
+          "guardian/guardian_api.py",
+          "guardian/obsidian/indexer.py",
+          "guardian/routes/obsidian.py",
+          "tests/routes/test_obsidian_routes.py"
+        ],
+        "sha": "36fec4608275c975dddf011b8e06ea652c8096ca",
+        "subject": "Add Obsidian config and indexing routes"
+      },
+      {
+        "files": [
+          "guardian/cognition/prompts.py",
+          "guardian/core/chat_completion_service.py",
+          "guardian/workers/chat_worker.py",
+          "tests/test_chat_payload_summary.py",
+          "tests/test_retrieval_context_prompt.py"
+        ],
+        "sha": "54c745f78e36891bf59270360d3b311337670240",
+        "subject": "fix(chat): wire retrieval context into prompt assembly"
+      },
+      {
+        "files": [
+          "guardian/guardian_api.py",
+          "guardian/obsidian/indexer.py",
+          "guardian/routes/obsidian.py",
+          "tests/routes/test_obsidian_routes.py"
+        ],
+        "sha": "5972b4c5b67d3ef46e2f12fd9b2aaf100646d83c",
+        "subject": "Add Obsidian config and indexing routes"
+      },
+      {
+        "files": [
+          "guardian/cognition/personas/store.py",
+          "guardian/cognition/system_prompt_builder.py",
+          "guardian/core/chat_completion_service.py",
+          "tests/test_chat_worker_turn_integrity.py",
+          "tests/test_persona_prompt_wiring.py"
+        ],
+        "sha": "2aafd4c901858f83bfcc2f2e3bb0026084d9b965",
+        "subject": "fix(chat): wire saved persona into system prompt"
+      },
+      {
+        "files": [
+          "docs/audits/daily/morning/2026-03-25-audit.json",
+          "docs/audits/daily/morning/2026-03-25-audit.md",
+          "docs/audits/daily/morning/latest.json",
+          "docs/audits/daily/morning/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
+        ],
+        "sha": "97af4512e929b7fc1d5336c9ce051989025d7ff5",
+        "subject": "Update daily morning audit to 2026-03-25"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md"
+        ],
+        "sha": "ac57d5612422111d24f32bbf63e69285599e04a7",
+        "subject": "docs: refresh weekly current-state override"
       }
     ],
     "files_changed": [
+      ".env.template",
+      "README.md",
+      "docs/Codexify/CONFIGURATION.md",
+      "docs/architecture/providers.md",
+      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/hooks/useRuntimeHealth.ts",
+      "guardian/cognition/modular_prompt_builder.py",
+      "guardian/core/ai_router.py",
       "guardian/core/chat_completion_service.py",
-      "guardian/routes/chat.py",
+      "guardian/core/config.py",
+      "guardian/core/provider_registry.py",
+      "guardian/providers/minimax_adapter.py",
+      "guardian/providers/registry.py",
+      "guardian/tests/core/test_ai_router.py",
+      "guardian/tests/core/test_provider_registry.py",
+      "guardian/tests/test_llm_catalog_endpoint.py",
+      "guardian/tests/test_minimax_provider.py",
+      "guardian/tests/test_minimax_smoke.py",
       "guardian/workers/chat_worker.py",
-      "tests/routes/test_chat_profile_trace.py",
-      "tests/test_chat_payload_summary.py",
-      "tests/test_chat_worker_turn_integrity.py",
-      "frontend/src/features/chat/useChat.ts",
-      ".gitignore",
-      "docs/audits/daily/evening/2026-03-24-audit.json",
-      "docs/audits/daily/evening/2026-03-24-audit.md",
+      "tests/core/test_ai_router.py",
+      "tests/routes/test_llm_catalog.py",
+      "tests/system_prompt/test_modular_prompt_builder.py",
+      "frontend/src/features/chat/GuardianChat.tsx",
+      "frontend/src/features/chat/chatLane.ts",
+      "docs/Future-Features/Internal-Advanced-Settings-v1.md",
+      "guardian/core/llm_catalog.py",
+      "guardian/core/provider_truth.py",
+      "guardian/routes/health.py",
+      "guardian/tests/test_health_endpoints.py",
+      "guardian/tests/workers/test_chat_worker_completion_semantics.py",
+      "frontend/src/features/chat/components/Composer.tsx",
+      "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx",
+      "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+      "docs/audits/daily/evening/2026-03-25-audit.json",
+      "docs/audits/daily/evening/2026-03-25-audit.md",
       "docs/audits/daily/evening/latest.json",
       "docs/audits/daily/evening/latest.md",
       "docs/audits/latest.json",
       "docs/audits/latest.md",
-      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/features/chat/ChatView.tsx",
+      "frontend/src/hooks/useUploader.ts",
+      "guardian/routes/media.py",
+      "tests/routes/test_media_routes.py",
+      "scripts/verification/run_supported_path_proof.sh",
       "frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.offline-banner.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-      "pnpm-lock.yaml",
-      "guardian/core/ai_router.py",
-      "guardian/core/provider_registry.py",
-      "tests/core/test_ai_router.py",
-      "tests/routes/test_llm_catalog.py",
-      "frontend/src/components/__tests__/ProviderSelect.catalog.test.tsx",
-      ".env.example",
-      "docker-compose.yml",
-      "docs/architecture/config-and-ops.md",
-      "guardian/core/config.py",
-      "guardian/core/llm_catalog.py",
       "guardian/cli/ingest_cli.py",
+      "guardian/context/broker.py",
       "guardian/obsidian/indexer.py",
+      "tests/core/test_context_broker_depth.py",
+      "tests/obsidian/test_file_lifecycle.py",
       "tests/obsidian/test_indexer.py",
-      "frontend/src/components/sidebar/ProjectList.tsx",
-      "frontend/src/components/sidebar/SidebarRoot.tsx",
-      "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
-      "frontend/src/components/sidebar/useProjectsCache.ts",
-      "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
-      "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
-      "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
-      "frontend/src/hooks/useRuntimeHealth.test.ts",
-      "frontend/src/hooks/useRuntimeHealth.ts",
-      "frontend/src/test/useRuntimeHealth.test.ts",
-      "frontend/src/state/session/SessionSpine.ts",
-      "frontend/src/state/session/types.ts",
-      "frontend/src/test/session-spine.test.ts",
-      "frontend/src/test/thread_documents_rehydration.test.tsx",
-      "frontend/src/tests/thread_documents_rehydration.spec.tsx",
-      "frontend/src/features/chat/GuardianChat.tsx",
+      "tests/obsidian/test_ingest_idempotency.py",
+      "tests/test_chat_payload_summary.py",
+      "tests/test_chat_worker_turn_integrity.py",
+      "frontend/src/components/ProviderSelect.tsx",
+      "frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx",
       "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
-      "docs/Campaign/CAMPAIGN_2026_03_24_BETA_STABILIZATION.md",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_01_release_composer_thread_lock_on_all_terminal_paths.md",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_02_default_thinking_mode_fast_and_persist_change_in_thread.md",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_03_reconcile_frontend_health_polling_to_actual_backend_contract.md",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_04_restore_thread_deletion_end_to_end.md",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_05_restore_project_create_delete_mutations.md",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_06_restore_docker_to_local_ollama_accessibility.md",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_07_improve_provider_catalog_completeness_for_groq",
-      "docs/tasks/2026-03-24/TASK_2026_03_24_08_harden_minimax_and_alibaba_provider_failure_handling.md"
+      "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+      "frontend/src/features/chat/hooks/useLlmCatalog.ts",
+      ".gitignore",
+      "frontend/src/features/chat/components/ChatBubble.tsx",
+      "frontend/src/index.css",
+      "tests/core/test_chat_completion_service_image_routing.py",
+      "docs/architecture/2026-03-23-supported-path-proof.md",
+      "guardian/routes/documents.py",
+      "tests/core/test_chat_completion_service_attachments.py",
+      "guardian/guardian_api.py",
+      "guardian/routes/obsidian.py",
+      "tests/routes/test_obsidian_routes.py",
+      "guardian/cognition/prompts.py",
+      "tests/test_retrieval_context_prompt.py",
+      "guardian/cognition/personas/store.py",
+      "guardian/cognition/system_prompt_builder.py",
+      "tests/test_persona_prompt_wiring.py",
+      "docs/audits/daily/morning/2026-03-25-audit.json",
+      "docs/audits/daily/morning/2026-03-25-audit.md",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/daily/morning/latest.md",
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/README.md"
     ],
-    "window_end": "2026-03-25T09:00:19.509606-04:00",
+    "window_end": "2026-03-26T09:00:52.192256-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-24T09:00:19.509606-04:00"
+    "window_start": "2026-03-25T09:00:52.192256-04:00"
   },
-  "date": "2026-03-25",
-  "generated_at": "2026-03-25T09:00:19.509606-04:00",
+  "date": "2026-03-26",
+  "generated_at": "2026-03-26T09:00:52.192256-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -307,9 +521,9 @@
   "phase": "morning",
   "repo": {
     "branch": "main",
-    "date": "2026-03-25",
+    "date": "2026-03-26",
     "dirty": false,
-    "head": "158fb3b9322a269f4579705395e3a951c529011e",
+    "head": "f640a77f6e855e96fd24da0ae3810de1359d749c",
     "status_error": "",
     "status_lines": []
   },
@@ -368,113 +582,134 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 6,
+      "count": 10,
       "files": [
-        "docs/audits/daily/evening/2026-03-24-audit.json",
-        "docs/audits/daily/evening/2026-03-24-audit.md",
+        "docs/audits/daily/evening/2026-03-25-audit.json",
+        "docs/audits/daily/evening/2026-03-25-audit.md",
         "docs/audits/daily/evening/latest.json",
         "docs/audits/daily/evening/latest.md",
         "docs/audits/latest.json",
-        "docs/audits/latest.md"
+        "docs/audits/latest.md",
+        "docs/audits/daily/morning/2026-03-25-audit.json",
+        "docs/audits/daily/morning/2026-03-25-audit.md",
+        "docs/audits/daily/morning/latest.json",
+        "docs/audits/daily/morning/latest.md"
       ]
     },
     "chat": {
-      "count": 2,
+      "count": 1,
       "files": [
-        "guardian/routes/chat.py",
         "guardian/workers/chat_worker.py"
       ]
     },
     "config": {
-      "count": 3,
+      "count": 2,
       "files": [
-        "pnpm-lock.yaml",
-        ".env.example",
+        ".env.template",
         "guardian/core/config.py"
       ]
     },
     "docs": {
-      "count": 8,
+      "count": 5,
       "files": [
-        "docs/architecture/config-and-ops.md",
-        "docs/Campaign/CAMPAIGN_2026_03_24_BETA_STABILIZATION.md",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_01_release_composer_thread_lock_on_all_terminal_paths.md",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_02_default_thinking_mode_fast_and_persist_change_in_thread.md",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_03_reconcile_frontend_health_polling_to_actual_backend_contract.md",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_04_restore_thread_deletion_end_to_end.md",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_05_restore_project_create_delete_mutations.md",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_06_restore_docker_to_local_ollama_accessibility.md"
+        "docs/Codexify/CONFIGURATION.md",
+        "docs/Future-Features/Internal-Advanced-Settings-v1.md",
+        "docs/architecture/2026-03-23-supported-path-proof.md",
+        "docs/architecture/00-current-state.md",
+        "docs/architecture/README.md"
       ]
     },
     "frontend": {
-      "count": 24,
+      "count": 17,
       "files": [
-        "frontend/src/features/chat/useChat.ts",
+        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
         "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/hooks/useRuntimeHealth.ts",
+        "frontend/src/features/chat/GuardianChat.tsx",
+        "frontend/src/features/chat/chatLane.ts",
+        "frontend/src/features/chat/components/Composer.tsx",
+        "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx",
+        "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+        "frontend/src/features/chat/ChatView.tsx",
+        "frontend/src/hooks/useUploader.ts",
         "frontend/src/features/chat/__tests__/ChatView.loop-guards.test.tsx",
         "frontend/src/features/chat/__tests__/GuardianChat.catalog-options.test.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.offline-banner.test.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-        "frontend/src/components/sidebar/ProjectList.tsx",
-        "frontend/src/components/sidebar/SidebarRoot.tsx",
-        "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
-        "frontend/src/components/sidebar/useProjectsCache.ts",
-        "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
-        "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
-        "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
-        "frontend/src/hooks/useRuntimeHealth.test.ts",
-        "frontend/src/hooks/useRuntimeHealth.ts",
-        "frontend/src/test/useRuntimeHealth.test.ts",
-        "frontend/src/state/session/SessionSpine.ts",
-        "frontend/src/state/session/types.ts",
-        "frontend/src/test/session-spine.test.ts",
-        "frontend/src/test/thread_documents_rehydration.test.tsx",
-        "frontend/src/tests/thread_documents_rehydration.spec.tsx",
-        "frontend/src/features/chat/GuardianChat.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx"
+        "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
+        "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+        "frontend/src/features/chat/hooks/useLlmCatalog.ts",
+        "frontend/src/features/chat/components/ChatBubble.tsx",
+        "frontend/src/index.css"
       ]
     },
     "infra": {
       "count": 1,
       "files": [
-        "docker-compose.yml"
+        "scripts/verification/run_supported_path_proof.sh"
       ]
     },
     "ingestion": {
-      "count": 1,
+      "count": 3,
       "files": [
-        "guardian/cli/ingest_cli.py"
+        "guardian/routes/media.py",
+        "guardian/cli/ingest_cli.py",
+        "tests/obsidian/test_ingest_idempotency.py"
       ]
     },
     "providers": {
-      "count": 8,
+      "count": 14,
       "files": [
+        "docs/architecture/providers.md",
         "guardian/core/ai_router.py",
         "guardian/core/provider_registry.py",
+        "guardian/providers/minimax_adapter.py",
+        "guardian/providers/registry.py",
+        "guardian/tests/core/test_ai_router.py",
+        "guardian/tests/core/test_provider_registry.py",
+        "guardian/tests/test_llm_catalog_endpoint.py",
+        "guardian/tests/test_minimax_provider.py",
         "tests/core/test_ai_router.py",
         "tests/routes/test_llm_catalog.py",
-        "frontend/src/components/__tests__/ProviderSelect.catalog.test.tsx",
         "guardian/core/llm_catalog.py",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_07_improve_provider_catalog_completeness_for_groq",
-        "docs/tasks/2026-03-24/TASK_2026_03_24_08_harden_minimax_and_alibaba_provider_failure_handling.md"
+        "guardian/core/provider_truth.py",
+        "frontend/src/components/ProviderSelect.tsx"
       ]
     },
     "tests": {
-      "count": 4,
+      "count": 15,
       "files": [
-        "tests/routes/test_chat_profile_trace.py",
+        "guardian/tests/test_minimax_smoke.py",
+        "tests/system_prompt/test_modular_prompt_builder.py",
+        "guardian/tests/test_health_endpoints.py",
+        "guardian/tests/workers/test_chat_worker_completion_semantics.py",
+        "tests/routes/test_media_routes.py",
+        "tests/core/test_context_broker_depth.py",
+        "tests/obsidian/test_file_lifecycle.py",
+        "tests/obsidian/test_indexer.py",
         "tests/test_chat_payload_summary.py",
         "tests/test_chat_worker_turn_integrity.py",
-        "tests/obsidian/test_indexer.py"
+        "tests/core/test_chat_completion_service_image_routing.py",
+        "tests/core/test_chat_completion_service_attachments.py",
+        "tests/routes/test_obsidian_routes.py",
+        "tests/test_retrieval_context_prompt.py",
+        "tests/test_persona_prompt_wiring.py"
       ]
     },
     "unknown": {
-      "count": 3,
+      "count": 13,
       "files": [
+        "README.md",
+        "guardian/cognition/modular_prompt_builder.py",
         "guardian/core/chat_completion_service.py",
+        "guardian/routes/health.py",
+        "guardian/context/broker.py",
+        "guardian/obsidian/indexer.py",
         ".gitignore",
-        "guardian/obsidian/indexer.py"
+        "guardian/routes/documents.py",
+        "guardian/guardian_api.py",
+        "guardian/routes/obsidian.py",
+        "guardian/cognition/prompts.py",
+        "guardian/cognition/personas/store.py",
+        "guardian/cognition/system_prompt_builder.py"
       ]
     }
   }
