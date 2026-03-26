@@ -52,7 +52,10 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
-import { CHAT_LANE_MAX_WIDTH, CHAT_STAGE_MAX_WIDTH } from "@/features/chat/chatLane";
+import {
+  CHAT_LANE_MAX_WIDTH,
+  CHAT_LANE_MAX_WIDTH_CLASS,
+} from "@/features/chat/chatLane";
 
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
@@ -2468,9 +2471,9 @@ export function GuardianChat({
       <div className="shrink-0 z-20 mt-2 flex justify-center w-full">
         <div
           data-testid="composer-shell"
-          className="w-full rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200"
+          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
-            maxWidth: CHAT_STAGE_MAX_WIDTH,
+            maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
@@ -2482,7 +2485,7 @@ export function GuardianChat({
           <div className="flex flex-col p-4">
             <div
               data-testid="composer-conversation-lane"
-              className="mx-auto w-full max-w-full md:max-w-[880px]"
+              className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
               style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
             >
               <GuardianThreadApprovalRail
