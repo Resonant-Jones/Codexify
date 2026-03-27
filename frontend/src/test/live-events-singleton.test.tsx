@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockSource = {
+  addEventListener: ReturnType<typeof vi.fn>;
   emitError: () => void;
   emitEvent: (type: string, data: unknown, lastEventId?: string) => void;
   close: ReturnType<typeof vi.fn>;
@@ -185,6 +186,24 @@ describe("live events singleton hub", () => {
     expect(listener).toHaveBeenCalledTimes(1);
 
     unsubscribe();
+    unmount();
+  });
+
+  it("binds task lifecycle SSE event types needed by the chat store bridge", async () => {
+    const { unmount } = renderHook(() => useLiveEvents({ passive: true }));
+
+    await waitFor(() => {
+      expect(mockState.createdSources).toHaveLength(1);
+    });
+
+    const registeredTypes = mockState.createdSources[0].addEventListener.mock.calls.map(
+      ([type]) => type
+    );
+
+    expect(registeredTypes).toEqual(
+      expect.arrayContaining(["task.created", "task.updated", "task.progress"])
+    );
+
     unmount();
   });
 
