@@ -279,6 +279,33 @@ export default function GuardianChatWithSidebar({
     const parsed = Number(selectedProjectId);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }, [selectedProjectId]);
+  const lastProjectScopeRef = React.useRef<string | null>(selectedProjectId ?? null);
+
+  React.useEffect(() => {
+    const nextScope = selectedProjectId ?? null;
+    const prevScope = lastProjectScopeRef.current;
+    lastProjectScopeRef.current = nextScope;
+
+    const generalProjectId = readStoredGeneralProjectId();
+    const isGeneralScope =
+      nextScope == null
+        || (generalProjectId != null && nextScope === String(generalProjectId));
+    const wasGeneralScope =
+      prevScope == null
+        || (generalProjectId != null && prevScope === String(generalProjectId));
+
+    if (!isGeneralScope || wasGeneralScope) return;
+
+    if (activeId !== null) {
+      setActiveId(null);
+    }
+    if (sessionSpine && activeSessionTabId) {
+      sessionSpine.tabSetThread(activeSessionTabId, undefined, NEW_THREAD_TITLE);
+    }
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", "/chat");
+    }
+  }, [activeId, activeSessionTabId, selectedProjectId, sessionSpine]);
 
   // Sync URL with session tab - only push when route differs to avoid loop.
   // Guard against stale session thread ids that no longer exist in the loaded list.

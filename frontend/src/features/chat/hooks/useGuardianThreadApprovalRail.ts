@@ -8,6 +8,7 @@ import {
   type GuardianThreadApprovalContext,
   type GuardianThreadIntervention,
 } from "@/features/chat/api/threadApprovals";
+import { useAgentRuns } from "@/features/chat/hooks/useAgentRuns";
 
 export type UseGuardianThreadApprovalRailResult = {
   approve: () => Promise<boolean>;
@@ -79,6 +80,9 @@ export function useGuardianThreadApprovalRail(
   const [submittingAction, setSubmittingAction] =
     useState<"approve" | "deny" | null>(null);
   const { subscribe } = useLiveEvents({ passive: true });
+  const { data: agentRuns, loading: agentRunsLoading } = useAgentRuns(
+    threadId ?? null
+  );
 
   const reload = useCallback(async () => {
     if (typeof threadId !== "number") {
@@ -89,12 +93,19 @@ export function useGuardianThreadApprovalRail(
       setNotice(null);
       return;
     }
+    if (agentRunsLoading && agentRuns.length === 0) {
+      setLoading(true);
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
     try {
-      const snapshot = await fetchGuardianThreadApprovalSnapshot({ threadId });
+      const snapshot = await fetchGuardianThreadApprovalSnapshot({
+        threadId,
+        agentRuns,
+      });
       setIntervention(snapshot.intervention);
       setHasLoaded(true);
       setNotice(snapshot.warnings.length > 0 ? snapshot.warnings.join(" ") : null);
@@ -110,7 +121,7 @@ export function useGuardianThreadApprovalRail(
     } finally {
       setLoading(false);
     }
-  }, [threadId]);
+  }, [agentRuns, agentRunsLoading, threadId]);
 
   useEffect(() => {
     void reload();

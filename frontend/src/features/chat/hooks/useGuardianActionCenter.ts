@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  buildAgentRunsSection,
+  buildRecentTaskItems,
   fetchGuardianActionCenterSnapshot,
   type GuardianActionCenterContext,
   type GuardianActionCenterSnapshot,
 } from "@/features/chat/api/actionCenter";
+import { useAgentRuns } from "@/features/chat/hooks/useAgentRuns";
 
 export type UseGuardianActionCenterResult = {
   error: string | null;
@@ -43,12 +46,32 @@ export function useGuardianActionCenter(
   context: GuardianActionCenterContext = {}
 ): UseGuardianActionCenterResult {
   const { threadId } = context;
-  const [snapshot, setSnapshot] = useState<GuardianActionCenterSnapshot | null>(
+  const { data: agentRuns, loading: agentRunsLoading } = useAgentRuns(
+    threadId ?? null
+  );
+  const [baseSnapshot, setBaseSnapshot] = useState<GuardianActionCenterSnapshot | null>(
     null
   );
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const agentRunsSection = useMemo(
+    () => buildAgentRunsSection(threadId != null ? agentRuns : null),
+    [agentRuns, threadId]
+  );
+
+  const snapshot = useMemo(() => {
+    if (!baseSnapshot) return null;
+    return {
+      ...baseSnapshot,
+      agentRuns: agentRunsSection,
+      recentTaskStatus: buildRecentTaskItems(
+        baseSnapshot.scheduledJobs,
+        agentRunsSection
+      ),
+    };
+  }, [agentRunsSection, baseSnapshot]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -56,7 +79,7 @@ export function useGuardianActionCenter(
 
     try {
       const nextSnapshot = await fetchGuardianActionCenterSnapshot({ threadId });
-      setSnapshot(nextSnapshot);
+      setBaseSnapshot(nextSnapshot);
       setHasLoaded(true);
       setError(
         nextSnapshot.warnings.length > 0
@@ -64,7 +87,7 @@ export function useGuardianActionCenter(
           : null
       );
     } catch (nextError) {
-      setSnapshot(null);
+      setBaseSnapshot(null);
       setHasLoaded(true);
       setError(getErrorMessage(nextError));
     } finally {
@@ -76,10 +99,13 @@ export function useGuardianActionCenter(
     void reload();
   }, [reload]);
 
+  const combinedLoading =
+    loading || (threadId != null && agentRunsLoading && !hasLoaded);
+
   return {
     error,
     hasLoaded,
-    loading,
+    loading: combinedLoading,
     reload,
     snapshot,
   };
