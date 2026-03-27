@@ -1,8 +1,14 @@
 import { GuardianEventSource } from "@/lib/guardianEventSource";
 import { getBackendOutageRemainingMs } from "@/lib/api";
+import type { LiveEvent, LiveEventEntity } from "@/lib/events/types";
 
 type HubEventListener = (event: LiveEventsHubEvent) => void;
 type HubStatusListener = (status: LiveEventsHubStatus) => void;
+type LiveEventsHubRawEvent = {
+  id: string | null;
+  type: string;
+  data: unknown;
+};
 
 type HubConnectionStatus =
   | "connecting"
@@ -17,11 +23,7 @@ export type LiveEventsHubConfig = {
   onUnauthorized?: () => void;
 };
 
-export type LiveEventsHubEvent = {
-  id: string | null;
-  type: string;
-  data: unknown;
-};
+export type LiveEventsHubEvent = LiveEvent;
 
 export type LiveEventsHubStatus = {
   readyState: 0 | 1 | 2;
@@ -55,6 +57,11 @@ const DEFAULT_EVENT_TYPES = [
   "task.failed",
   "task.cancelled",
   "completion.error",
+  "run.blocked",
+  "run.failed",
+  "run.completed",
+  "browser.approval.requested",
+  "browser.approval.decided",
   "connector.status",
   "connector.sync",
 ];
@@ -99,7 +106,7 @@ const seenFallbackHashQueue: string[] = [];
 const perTypeSequence = new Map<string, number>();
 
 const pressureTimestamps: number[] = [];
-const bufferedEvents: LiveEventsHubEvent[] = [];
+const bufferedEvents: LiveEventsHubRawEvent[] = [];
 let pressureFuseActive = false;
 let pressureLastHighAt = 0;
 
@@ -213,7 +220,312 @@ function extractSequence(data: unknown): number | null {
   return null;
 }
 
-function shouldDropEvent(event: LiveEventsHubEvent): boolean {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeToken(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function collectEventRecords(payload: unknown, raw: unknown): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+
+  const pushRecord = (value: unknown) => {
+    const record = asRecord(value);
+    if (record) {
+      records.push(record);
+    }
+  };
+
+  const payloadRecord = asRecord(payload);
+  pushRecord(payloadRecord);
+  pushRecord(payloadRecord?.run);
+  pushRecord(payloadRecord?.message);
+  pushRecord(payloadRecord?.thread);
+  pushRecord(payloadRecord?.child);
+
+  const rawRecord = asRecord(raw);
+  if (rawRecord && rawRecord !== payloadRecord) {
+    pushRecord(rawRecord);
+  }
+  pushRecord(rawRecord?.run);
+  pushRecord(rawRecord?.message);
+  pushRecord(rawRecord?.thread);
+  pushRecord(rawRecord?.child);
+
+  return records;
+}
+
+function pickToken(
+  records: Record<string, unknown>[],
+  keys: string[]
+): string | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const token = normalizeToken(record[key]);
+      if (token) {
+        return token;
+      }
+    }
+  }
+  return null;
+}
+
+function resolveThreadId(
+  eventType: string,
+  records: Record<string, unknown>[],
+  entityId: string | null
+): string | null {
+  const threadId = pickToken(records, ["thread_id", "threadId"]);
+  if (threadId) {
+    return threadId;
+  }
+  if (eventType.startsWith("thread.")) {
+    return entityId;
+  }
+  return null;
+}
+
+function resolveStatus(
+  eventType: string,
+  records: Record<string, unknown>[]
+): string | undefined {
+  const explicit = pickToken(records, ["status"]);
+  if (explicit) {
+    return explicit;
+  }
+
+  switch (eventType) {
+    case "task.created":
+    case "task.updated":
+    case "task.progress":
+    case "task.running":
+      return "running";
+    case "task.completed":
+      return "completed";
+    case "task.failed":
+    case "completion.error":
+      return "failed";
+    case "task.cancelled":
+      return "canceled";
+    case "run.blocked":
+      return "blocked";
+    case "run.failed":
+      return "failed";
+    case "run.completed":
+      return "completed";
+    default:
+      return undefined;
+  }
+}
+
+function hasAgentRunMarkers(records: Record<string, unknown>[]): boolean {
+  const runId = pickToken(records, ["run_id", "runId", "id"]);
+  const runtimeTarget = pickToken(records, ["runtime_target", "runtimeTarget"]);
+  const worktreeId = pickToken(records, ["worktree_id", "worktreeId"]);
+  const worktreePath = pickToken(records, ["worktree_path", "worktreePath"]);
+
+  return Boolean(
+    (runId && runId.startsWith("run_")) ||
+      runtimeTarget ||
+      worktreeId ||
+      worktreePath
+  );
+}
+
+function unwrapNormalizedPayload(raw: unknown): unknown {
+  const record = asRecord(raw);
+  const nested = asRecord(record?.data);
+  return nested ?? raw;
+}
+
+function buildLiveEventEnvelope(
+  rawEvent: LiveEventsHubRawEvent,
+  entity: LiveEventEntity,
+  entityId: string,
+  threadId: string | null,
+  status: string | undefined,
+  payload: unknown
+): LiveEvent {
+  const event: LiveEvent = {
+    id: rawEvent.id,
+    type: rawEvent.type || "message",
+    entity,
+    entity_id: entityId,
+    thread_id: threadId,
+    payload,
+    data: payload,
+    raw: rawEvent.data,
+    ts: Date.now(),
+  };
+
+  if (status) {
+    event.status = status;
+  }
+
+  return event;
+}
+
+export function normalizeLiveEvent(rawEvent: {
+  id: string | null;
+  type: string;
+  data: unknown;
+}): LiveEvent {
+  const normalizedType = rawEvent.type || "message";
+  const payload = unwrapNormalizedPayload(rawEvent.data);
+  const payloadRecord = asRecord(payload);
+  const rawRecord = asRecord(rawEvent.data);
+  const records = collectEventRecords(payload, rawEvent.data);
+  const status = resolveStatus(normalizedType, records);
+
+  if (normalizedType === "ping") {
+    return buildLiveEventEnvelope(
+      rawEvent,
+      "system",
+      rawEvent.id ?? "ping",
+      null,
+      status,
+      payload
+    );
+  }
+
+  if (normalizedType.startsWith("task.") || normalizedType === "completion.error") {
+    if (hasAgentRunMarkers(records)) {
+      const entityId =
+        pickToken(records, ["run_id", "runId", "id"]) ?? rawEvent.id ?? "unknown";
+      return buildLiveEventEnvelope(
+        rawEvent,
+        "agent_run",
+        entityId,
+        resolveThreadId(normalizedType, records, entityId),
+        status,
+        payload
+      );
+    }
+
+    const entityId =
+      pickToken(records, ["task_id", "taskId"]) ?? rawEvent.id ?? "unknown";
+    return buildLiveEventEnvelope(
+      rawEvent,
+      "task",
+      entityId,
+      resolveThreadId(normalizedType, records, entityId),
+      status,
+      payload
+    );
+  }
+
+  if (normalizedType.startsWith("run.")) {
+    const entityId =
+      pickToken(records, ["run_id", "runId"]) ?? rawEvent.id ?? "unknown";
+    return buildLiveEventEnvelope(
+      rawEvent,
+      "command_run",
+      entityId,
+      resolveThreadId(normalizedType, records, entityId),
+      status,
+      payload
+    );
+  }
+
+  if (normalizedType.startsWith("browser.approval.")) {
+    const entityId =
+      pickToken(records, ["approval_id", "approvalId"]) ?? rawEvent.id ?? "unknown";
+    return buildLiveEventEnvelope(
+      rawEvent,
+      "approval",
+      entityId,
+      resolveThreadId(normalizedType, records, null),
+      status,
+      payload
+    );
+  }
+
+  if (normalizedType === "message.created") {
+    const messageRecord =
+      asRecord(payloadRecord?.message) ?? asRecord(rawRecord?.message);
+    const entityId =
+      normalizeToken(
+        payloadRecord?.message_id ??
+          payloadRecord?.messageId ??
+          payloadRecord?.id ??
+          messageRecord?.id
+      ) ??
+      normalizeToken(
+        rawRecord?.message_id ?? rawRecord?.messageId ?? rawRecord?.id
+      ) ??
+      rawEvent.id ??
+      "unknown";
+    return buildLiveEventEnvelope(
+      rawEvent,
+      "message",
+      entityId,
+      resolveThreadId(normalizedType, records, null),
+      status,
+      payload
+    );
+  }
+
+  if (normalizedType.startsWith("thread.")) {
+    const childRecord =
+      asRecord(payloadRecord?.child) ?? asRecord(rawRecord?.child);
+    const threadRecord =
+      asRecord(payloadRecord?.thread) ?? asRecord(rawRecord?.thread);
+    const entityId =
+      normalizeToken(payloadRecord?.thread_id ?? payloadRecord?.threadId) ??
+      normalizeToken(rawRecord?.thread_id ?? rawRecord?.threadId) ??
+      normalizeToken(childRecord?.id) ??
+      normalizeToken(threadRecord?.id) ??
+      normalizeToken(payloadRecord?.id ?? rawRecord?.id) ??
+      rawEvent.id ??
+      "unknown";
+    return buildLiveEventEnvelope(
+      rawEvent,
+      "thread",
+      entityId,
+      resolveThreadId(normalizedType, records, entityId),
+      status,
+      payload
+    );
+  }
+
+  if (normalizedType.startsWith("connector.")) {
+    const entityId =
+      pickToken(records, ["connector_id", "connectorId", "connector"]) ??
+      rawEvent.id ??
+      "unknown";
+    return buildLiveEventEnvelope(
+      rawEvent,
+      "connector",
+      entityId,
+      resolveThreadId(normalizedType, records, null),
+      status,
+      payload
+    );
+  }
+
+  return buildLiveEventEnvelope(
+    rawEvent,
+    "system",
+    rawEvent.id ?? "unknown",
+    resolveThreadId(normalizedType, records, null),
+    status,
+    payload
+  );
+}
+
+function shouldDropEvent(event: LiveEventsHubRawEvent): boolean {
   const eventId = event.id ? String(event.id) : "";
   if (eventId) {
     if (seenEventIds.has(eventId)) return true;
@@ -289,10 +601,11 @@ function updatePressureFuse(now: number): void {
   }
 }
 
-function dispatchEvent(event: LiveEventsHubEvent): void {
+function dispatchEvent(event: LiveEventsHubRawEvent): void {
+  const normalizedEvent = normalizeLiveEvent(event);
   for (const listener of subscribers) {
     try {
-      listener(event);
+      listener(normalizedEvent);
     } catch (error) {
       console.error("[live-events-hub] subscriber failed", error);
     }
@@ -322,7 +635,7 @@ function scheduleBufferedFlush(): void {
   }, EVENT_PRESSURE_FLUSH_MS);
 }
 
-function publishEvent(event: LiveEventsHubEvent): void {
+function publishEvent(event: LiveEventsHubRawEvent): void {
   const now = Date.now();
   updatePressureFuse(now);
   if (pressureFuseActive) {
@@ -482,7 +795,7 @@ function connect(config: LiveEventsHubConfig, reconnecting: boolean): void {
 
   sourceMessageListener = (evt: MessageEvent) => {
     if (abortSignal.aborted) return;
-    const payload: LiveEventsHubEvent = {
+    const payload: LiveEventsHubRawEvent = {
       id: evt.lastEventId || null,
       type: evt.type || "message",
       data: parseEventData(evt.data as string),

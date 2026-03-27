@@ -1621,28 +1621,18 @@ export function GuardianChat({
 
   useEffect(() => {
     const handleAgentRunEvent = (event: LiveEvent) => {
-      const payload = flattenChatEventPayload(event.data);
-      const nestedRun =
-        payload.run && typeof payload.run === "object" && !Array.isArray(payload.run)
-          ? (payload.run as Record<string, unknown>)
-          : null;
-      const threadId = Number(
-        payload.thread_id ??
-          payload.threadId ??
-          nestedRun?.thread_id ??
-          nestedRun?.threadId
-      );
-
-      if (!Number.isFinite(threadId)) {
+      if (event.entity !== "agent_run" || !event.thread_id) {
         return;
       }
 
+      const payload = flattenChatEventPayload(event.payload);
+
       console.debug("[agent-runs:event]", {
         type: event.type,
-        threadId,
+        threadId: event.thread_id,
       });
 
-      applyAgentRunEvent(String(threadId), {
+      applyAgentRunEvent(String(event.thread_id), {
         ...payload,
         event_type: event.type,
       });
