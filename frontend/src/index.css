@@ -265,27 +265,32 @@ textarea:disabled::placeholder {
     inset 0 1px 0 rgba(255, 255, 255, 0.38);
 }
 
-/* Brand badge – black pill */
+/* Brand badge – black pill (theme-invariant, not overridden by global button or pill styles) */
 .brand-tab {
   font: 600 calc(var(--pill-font) * 1.15)/1 -apple-system, BlinkMacSystemFont, "SF Pro",
         "San Francisco", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
-  /* Fixed identity */
-  color: #f9fafb;
+  /* Absolute identity: opt out of theme tokens */
+  color: #f9fafb !important;
 
-  /* True neutral dark pill */
+  /* Stable dark pill regardless of theme */
   background: linear-gradient(
     180deg,
     rgba(20, 20, 20, 0.92),
     rgba(10, 10, 10, 0.98)
-  );
+  ) !important;
 
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
     inset 0 -6px 12px rgba(0,0,0,0.35),
-    0 6px 18px rgba(0,0,0,0.25);
+    0 6px 18px rgba(0,0,0,0.25) !important;
+}
+
+button.brand-tab,
+.pill-tab.brand-tab {
+  color: #f9fafb !important;
 }
 
 /* Dark mode tuning */
