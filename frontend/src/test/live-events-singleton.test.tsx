@@ -88,6 +88,7 @@ import {
 import {
   __resetLiveEventsHubForTests,
   getLiveEventsHubStatus,
+  normalizeLiveEvent,
 } from "@/lib/liveEventsHub";
 
 describe("live events singleton hub", () => {
@@ -189,7 +190,7 @@ describe("live events singleton hub", () => {
     unmount();
   });
 
-  it("binds task lifecycle SSE event types needed by the chat store bridge", async () => {
+  it("binds the active SSE event families consumed by the app", async () => {
     const { unmount } = renderHook(() => useLiveEvents({ passive: true }));
 
     await waitFor(() => {
@@ -201,10 +202,182 @@ describe("live events singleton hub", () => {
     );
 
     expect(registeredTypes).toEqual(
-      expect.arrayContaining(["task.created", "task.updated", "task.progress"])
+      expect.arrayContaining([
+        "task.created",
+        "task.updated",
+        "task.progress",
+        "run.blocked",
+        "run.failed",
+        "run.completed",
+        "browser.approval.requested",
+        "browser.approval.decided",
+      ])
     );
 
     unmount();
+  });
+
+  it("dispatches canonical task events without promoting incidental run_id payloads", async () => {
+    const { result, unmount } = renderHook(() => useLiveEvents({ passive: true }));
+
+    await waitFor(() => {
+      expect(mockState.createdSources).toHaveLength(1);
+    });
+
+    const listener = vi.fn();
+    const unsubscribe = result.current.subscribe("task.completed", listener);
+
+    act(() => {
+      mockState.createdSources[0].emitEvent(
+        "task.completed",
+        {
+          data: {
+            task_id: "task-1",
+            thread_id: 99,
+            run_id: "worker-local-run",
+            status: "completed",
+          },
+          seq: 1,
+        },
+        "evt-task-1"
+      );
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "evt-task-1",
+        type: "task.completed",
+        entity: "task",
+        entity_id: "task-1",
+        thread_id: "99",
+        status: "completed",
+        payload: {
+          task_id: "task-1",
+          thread_id: 99,
+          run_id: "worker-local-run",
+          status: "completed",
+        },
+        data: {
+          task_id: "task-1",
+          thread_id: 99,
+          run_id: "worker-local-run",
+          status: "completed",
+        },
+        raw: {
+          data: {
+            task_id: "task-1",
+            thread_id: 99,
+            run_id: "worker-local-run",
+            status: "completed",
+          },
+          seq: 1,
+        },
+      })
+    );
+    expect(typeof listener.mock.calls[0][0].ts).toBe("number");
+
+    unsubscribe();
+    unmount();
+  });
+
+  it("normalizes agent-run-shaped task events as canonical agent_run events", async () => {
+    const { result, unmount } = renderHook(() => useLiveEvents({ passive: true }));
+
+    await waitFor(() => {
+      expect(mockState.createdSources).toHaveLength(1);
+    });
+
+    const listener = vi.fn();
+    const unsubscribe = result.current.subscribe("task.created", listener);
+
+    act(() => {
+      mockState.createdSources[0].emitEvent(
+        "task.created",
+        {
+          thread_id: 701,
+          run_id: "run_live_1",
+          runtime_target: "terminal",
+          worktree_id: "wt-1",
+        },
+        "evt-run-1"
+      );
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "evt-run-1",
+        type: "task.created",
+        entity: "agent_run",
+        entity_id: "run_live_1",
+        thread_id: "701",
+        status: "running",
+      })
+    );
+
+    unsubscribe();
+    unmount();
+  });
+
+  it("keeps connector events in the connector family even when they carry run_id", async () => {
+    const { result, unmount } = renderHook(() => useLiveEvents({ passive: true }));
+
+    await waitFor(() => {
+      expect(mockState.createdSources).toHaveLength(1);
+    });
+
+    const listener = vi.fn();
+    const unsubscribe = result.current.subscribe("connector.sync", listener);
+
+    act(() => {
+      mockState.createdSources[0].emitEvent(
+        "connector.sync",
+        {
+          connector_id: 12,
+          connector: "github",
+          run_id: "abcd1234",
+          status: "running",
+        },
+        "evt-connector-1"
+      );
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "evt-connector-1",
+        type: "connector.sync",
+        entity: "connector",
+        entity_id: "12",
+        thread_id: null,
+        status: "running",
+      })
+    );
+
+    unsubscribe();
+    unmount();
+  });
+
+  it("normalizes unrecognized event families as system events", () => {
+    expect(
+      normalizeLiveEvent({
+        id: "evt-unknown-1",
+        type: "mystery.event",
+        data: { hello: "world" },
+      })
+    ).toEqual(
+      expect.objectContaining({
+        id: "evt-unknown-1",
+        type: "mystery.event",
+        entity: "system",
+        entity_id: "evt-unknown-1",
+        thread_id: null,
+        payload: { hello: "world" },
+        data: { hello: "world" },
+        raw: { hello: "world" },
+      })
+    );
   });
 
   it("activates pressure fuse under burst load and flushes buffered events", async () => {
