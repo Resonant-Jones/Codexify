@@ -1,4 +1,5 @@
 import api from "@/lib/api";
+import { type AgentRunResponse } from "@/features/chat/api/actionCenter";
 
 export type GuardianThreadInterventionKind =
   | "approval_required"
@@ -31,6 +32,7 @@ export type GuardianThreadApprovalSnapshot = {
 };
 
 export type GuardianThreadApprovalContext = {
+  agentRuns?: AgentRunResponse[] | null;
   threadId?: number | null;
 };
 
@@ -39,19 +41,6 @@ export type GuardianThreadDecisionResult = {
   operation: string | null;
   status: string;
   target: string | null;
-};
-
-type AgentRunsResponse = {
-  runs?: AgentRunResponse[] | null;
-};
-
-type AgentRunResponse = {
-  run_id?: string | null;
-  runtime_target?: string | null;
-  status?: string | null;
-  thread_id?: number | null;
-  worktree_id?: string | null;
-  worktree_path?: string | null;
 };
 
 type BrowserApprovalsResponse = {
@@ -268,26 +257,10 @@ export async function fetchGuardianThreadApprovalSnapshot(
   if (typeof threadId !== "number") {
     return { intervention: null, warnings: [] };
   }
-  if (typeof document !== "undefined" && document.hidden) {
-    return { intervention: null, warnings: [] };
-  }
 
   const warnings: string[] = [];
-  let runs: AgentRunResponse[] = [];
-
-  try {
-    console.debug("[chat-fetch]", {
-      type: "agent-runs",
-      threadId,
-      timestamp: Date.now(),
-    });
-    const runResponse = await api.get<AgentRunsResponse>(
-      `/api/chat/${threadId}/agent-runs`
-    );
-    runs = Array.isArray(runResponse.data?.runs)
-      ? runResponse.data.runs
-      : [];
-  } catch {
+  const runs = Array.isArray(context.agentRuns) ? context.agentRuns : [];
+  if (!context.agentRuns) {
     warnings.push("Thread intervention state is currently unavailable.");
     return { intervention: null, warnings };
   }

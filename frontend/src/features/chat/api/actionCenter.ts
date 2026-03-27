@@ -6,6 +6,7 @@ const APPROVAL_LIMIT = 5;
 const RECENT_TASK_LIMIT = 6;
 
 export type GuardianActionCenterContext = {
+  agentRuns?: AgentRunResponse[] | null;
   threadId?: number | null;
 };
 
@@ -103,7 +104,7 @@ type AgentRunsResponse = {
   runs?: AgentRunResponse[] | null;
 };
 
-type AgentRunResponse = {
+export type AgentRunResponse = {
   run_id?: string | null;
   runtime_target?: string | null;
   status?: string | null;
@@ -267,7 +268,43 @@ function normalizeApproval(
   };
 }
 
-function buildRecentTaskItems(
+export async function fetchAgentRuns(threadId: number): Promise<AgentRunResponse[]> {
+  const response = await api.get<AgentRunsResponse>(
+    `/api/chat/${threadId}/agent-runs`
+  );
+  return Array.isArray(response.data?.runs) ? response.data.runs : [];
+}
+
+export function buildAgentRunsSection(
+  runs: AgentRunResponse[] | null | undefined
+): GuardianActionCenterSection<GuardianAgentRunItem> {
+  if (!runs) {
+    return {
+      availability: "unavailable",
+      items: [],
+      message: "Delegation runs unavailable without thread context",
+    };
+  }
+
+  const items = runs
+    .map(normalizeAgentRun)
+    .filter((item): item is GuardianAgentRunItem => Boolean(item))
+    .slice(0, AGENT_RUN_LIMIT);
+
+  return items.length > 0
+    ? {
+        availability: "available",
+        items,
+        message: "",
+      }
+    : {
+        availability: "empty",
+        items: [],
+        message: "No recent delegation runs",
+      };
+}
+
+export function buildRecentTaskItems(
   scheduledJobs: GuardianActionCenterSection<GuardianScheduledJobItem>,
   agentRuns: GuardianActionCenterSection<GuardianAgentRunItem>
 ): GuardianActionCenterSection<GuardianRecentTaskItem> {
@@ -361,39 +398,16 @@ export async function fetchGuardianActionCenterSnapshot(
     items: [],
     message: "Pending approvals unavailable",
   };
-  let agentRuns: GuardianActionCenterSection<GuardianAgentRunItem> = {
-    availability: "unavailable",
-    items: [],
-    message: "Delegation runs unavailable",
-  };
 
   const jobsPromise = api.get<CronJobResponse[]>("/api/cron/jobs");
   const approvalsPromise = api.get<BrowserApprovalsResponse>(
     "/api/browser/approvals",
     { params: { status_value: "PENDING" } }
   );
-  const canFetchThreadRuns =
-    typeof context.threadId === "number"
-      && !(typeof document !== "undefined" && document.hidden);
-  let agentRunsPromise: Promise<any> | null = null;
-  if (canFetchThreadRuns) {
-    console.debug("[chat-fetch]", {
-      type: "agent-runs",
-      threadId: context.threadId,
-      timestamp: Date.now(),
-    });
-    agentRunsPromise = api.get<AgentRunsResponse>(
-      `/api/chat/${context.threadId}/agent-runs`
-    );
-  }
-
-  const [jobsResult, approvalsResult, agentRunsResult] = await Promise.allSettled(
-    [
-      jobsPromise,
-      approvalsPromise,
-      agentRunsPromise,
-    ]
-  );
+  const [jobsResult, approvalsResult] = await Promise.allSettled([
+    jobsPromise,
+    approvalsPromise,
+  ]);
 
   if (jobsResult.status === "fulfilled") {
     const jobs = Array.isArray(jobsResult.value.data)
@@ -473,35 +487,7 @@ export async function fetchGuardianActionCenterSnapshot(
     warnings.push("Pending approvals source did not respond.");
   }
 
-  if (agentRunsPromise === null) {
-    agentRuns = {
-      availability: "unavailable",
-      items: [],
-      message: "Delegation runs unavailable without thread context",
-    };
-  } else if (agentRunsResult.status === "fulfilled") {
-    const items = Array.isArray(agentRunsResult.value.data?.runs)
-      ? agentRunsResult.value.data.runs
-          .map(normalizeAgentRun)
-          .filter((item): item is GuardianAgentRunItem => Boolean(item))
-          .slice(0, AGENT_RUN_LIMIT)
-      : [];
-
-    agentRuns =
-      items.length > 0
-        ? {
-            availability: "available",
-            items,
-            message: "",
-          }
-        : {
-            availability: "empty",
-            items: [],
-            message: "No recent delegation runs",
-          };
-  } else {
-    warnings.push("Delegation runs source did not respond.");
-  }
+  const agentRuns = buildAgentRunsSection(context.agentRuns ?? null);
 
   return {
     agentRuns,

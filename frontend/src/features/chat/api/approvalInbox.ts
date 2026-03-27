@@ -1,9 +1,11 @@
 import api from "@/lib/api";
+import { type AgentRunResponse } from "@/features/chat/api/actionCenter";
 
 const APPROVAL_LIMIT = 12;
 const RUN_LIMIT = 12;
 
 export type GuardianApprovalInboxContext = {
+  agentRuns?: AgentRunResponse[] | null;
   threadId?: number | null;
 };
 
@@ -61,18 +63,6 @@ type BrowserApprovalResponse = {
   target?: string | null;
 };
 
-type AgentRunsResponse = {
-  runs?: AgentRunResponse[] | null;
-};
-
-type AgentRunResponse = {
-  run_id?: string | null;
-  runtime_target?: string | null;
-  status?: string | null;
-  thread_id?: number | null;
-  worktree_id?: string | null;
-  worktree_path?: string | null;
-};
 
 function emptySection(
   message: string
@@ -210,6 +200,77 @@ function normalizeRunItem(
   };
 }
 
+export function buildGuardianApprovalRunSections(
+  runs: AgentRunResponse[] | null | undefined,
+  awaitingApprovals: GuardianApprovalInboxSection<GuardianApprovalInboxItem>
+): {
+  awaitingApprovals: GuardianApprovalInboxSection<GuardianApprovalInboxItem>;
+  blockedActions: GuardianApprovalInboxSection<GuardianApprovalInboxItem>;
+  escalatedItems: GuardianApprovalInboxSection<GuardianApprovalInboxItem>;
+  clarificationNeeded: GuardianApprovalInboxSection<GuardianApprovalInboxItem>;
+} {
+  if (!runs) {
+    return {
+      awaitingApprovals,
+      blockedActions: unavailableSection(
+        "Blocked actions unavailable without thread context"
+      ),
+      escalatedItems: unavailableSection(
+        "Escalation items unavailable without thread context"
+      ),
+      clarificationNeeded: unavailableSection(
+        "Clarification items unavailable without thread context"
+      ),
+    };
+  }
+
+  const normalized = runs
+    .map(normalizeRunItem)
+    .filter(
+      (
+        item
+      ): item is GuardianApprovalInboxItem & {
+        bucket: "awaiting" | "blocked" | "escalated" | "clarification";
+      } => Boolean(item)
+    )
+    .slice(0, RUN_LIMIT);
+
+  const awaitingFromRuns = normalized
+    .filter((item) => item.bucket === "awaiting")
+    .map(({ bucket: _bucket, ...item }) => item);
+  const blockedFromRuns = normalized
+    .filter((item) => item.bucket === "blocked")
+    .map(({ bucket: _bucket, ...item }) => item);
+  const escalatedFromRuns = normalized
+    .filter((item) => item.bucket === "escalated")
+    .map(({ bucket: _bucket, ...item }) => item);
+  const clarificationFromRuns = normalized
+    .filter((item) => item.bucket === "clarification")
+    .map(({ bucket: _bucket, ...item }) => item);
+
+  let mergedAwaiting = awaitingApprovals;
+  if (awaitingFromRuns.length > 0) {
+    const combined = [
+      ...awaitingApprovals.items,
+      ...awaitingFromRuns,
+    ].slice(0, APPROVAL_LIMIT);
+    mergedAwaiting = availableSection(combined, "No pending approvals");
+  }
+
+  return {
+    awaitingApprovals: mergedAwaiting,
+    blockedActions: availableSection(blockedFromRuns, "No blocked actions"),
+    escalatedItems: availableSection(
+      escalatedFromRuns,
+      "No escalation items"
+    ),
+    clarificationNeeded: availableSection(
+      clarificationFromRuns,
+      "No clarification-needed items"
+    ),
+  };
+}
+
 export async function fetchGuardianApprovalInboxSnapshot(
   context: GuardianApprovalInboxContext = {}
 ): Promise<GuardianApprovalInboxSnapshot> {
@@ -228,25 +289,7 @@ export async function fetchGuardianApprovalInboxSnapshot(
     "/api/browser/approvals",
     { params: { status_value: "PENDING" } }
   );
-  const canFetchThreadRuns =
-    typeof context.threadId === "number"
-      && !(typeof document !== "undefined" && document.hidden);
-  let runsPromise: Promise<any> | null = null;
-  if (canFetchThreadRuns) {
-    console.debug("[chat-fetch]", {
-      type: "agent-runs",
-      threadId: context.threadId,
-      timestamp: Date.now(),
-    });
-    runsPromise = api.get<AgentRunsResponse>(
-      `/api/chat/${context.threadId}/agent-runs`
-    );
-  }
-
-  const [approvalsResult, runsResult] = await Promise.allSettled([
-    approvalsPromise,
-    runsPromise,
-  ]);
+  const [approvalsResult] = await Promise.allSettled([approvalsPromise]);
 
   if (approvalsResult.status === "fulfilled") {
     const approvalItems = Array.isArray(approvalsResult.value.data?.items)
@@ -264,68 +307,14 @@ export async function fetchGuardianApprovalInboxSnapshot(
     warnings.push("Pending approvals source did not respond.");
   }
 
-  if (runsPromise === null) {
-    blockedActions = unavailableSection(
-      "Blocked actions unavailable without thread context"
-    );
-    escalatedItems = unavailableSection(
-      "Escalation items unavailable without thread context"
-    );
-    clarificationNeeded = unavailableSection(
-      "Clarification items unavailable without thread context"
-    );
-  } else if (runsResult.status === "fulfilled") {
-    const normalized = Array.isArray(runsResult.value.data?.runs)
-      ? runsResult.value.data.runs
-          .map(normalizeRunItem)
-          .filter(
-            (
-              item
-            ): item is GuardianApprovalInboxItem & {
-              bucket: "awaiting" | "blocked" | "escalated" | "clarification";
-            } => Boolean(item)
-          )
-          .slice(0, RUN_LIMIT)
-      : [];
-
-    const awaitingFromRuns = normalized
-      .filter((item) => item.bucket === "awaiting")
-      .map(({ bucket: _bucket, ...item }) => item);
-    const blockedFromRuns = normalized
-      .filter((item) => item.bucket === "blocked")
-      .map(({ bucket: _bucket, ...item }) => item);
-    const escalatedFromRuns = normalized
-      .filter((item) => item.bucket === "escalated")
-      .map(({ bucket: _bucket, ...item }) => item);
-    const clarificationFromRuns = normalized
-      .filter((item) => item.bucket === "clarification")
-      .map(({ bucket: _bucket, ...item }) => item);
-
-    if (awaitingFromRuns.length > 0) {
-      const combined = [
-        ...awaitingApprovals.items,
-        ...awaitingFromRuns,
-      ].slice(0, APPROVAL_LIMIT);
-      awaitingApprovals = availableSection(combined, "No pending approvals");
-    }
-
-    blockedActions = availableSection(blockedFromRuns, "No blocked actions");
-    escalatedItems = availableSection(
-      escalatedFromRuns,
-      "No escalation items"
-    );
-    clarificationNeeded = availableSection(
-      clarificationFromRuns,
-      "No clarification-needed items"
-    );
-  } else {
-    warnings.push("Thread run source did not respond.");
-    blockedActions = unavailableSection("Blocked actions unavailable");
-    escalatedItems = unavailableSection("Escalation items unavailable");
-    clarificationNeeded = unavailableSection(
-      "Clarification items unavailable"
-    );
-  }
+  const runSections = buildGuardianApprovalRunSections(
+    context.agentRuns ?? null,
+    awaitingApprovals
+  );
+  awaitingApprovals = runSections.awaitingApprovals;
+  blockedActions = runSections.blockedActions;
+  escalatedItems = runSections.escalatedItems;
+  clarificationNeeded = runSections.clarificationNeeded;
 
   return {
     awaitingApprovals,
