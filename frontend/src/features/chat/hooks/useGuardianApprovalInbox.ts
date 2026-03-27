@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  buildGuardianApprovalRunSections,
   fetchGuardianApprovalInboxSnapshot,
   type GuardianApprovalInboxContext,
   type GuardianApprovalInboxSnapshot,
 } from "@/features/chat/api/approvalInbox";
+import { useAgentRuns } from "@/features/chat/hooks/useAgentRuns";
 
 export type UseGuardianApprovalInboxResult = {
   error: string | null;
@@ -43,11 +45,29 @@ export function useGuardianApprovalInbox(
   context: GuardianApprovalInboxContext = {}
 ): UseGuardianApprovalInboxResult {
   const { threadId } = context;
-  const [snapshot, setSnapshot] =
+  const { data: agentRuns, loading: agentRunsLoading } = useAgentRuns(
+    threadId ?? null
+  );
+  const [baseSnapshot, setBaseSnapshot] =
     useState<GuardianApprovalInboxSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const snapshot = useMemo(() => {
+    if (!baseSnapshot) return null;
+    const runSections = buildGuardianApprovalRunSections(
+      threadId != null ? agentRuns : null,
+      baseSnapshot.awaitingApprovals
+    );
+    return {
+      ...baseSnapshot,
+      awaitingApprovals: runSections.awaitingApprovals,
+      blockedActions: runSections.blockedActions,
+      escalatedItems: runSections.escalatedItems,
+      clarificationNeeded: runSections.clarificationNeeded,
+    };
+  }, [agentRuns, baseSnapshot, threadId]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -55,7 +75,7 @@ export function useGuardianApprovalInbox(
 
     try {
       const nextSnapshot = await fetchGuardianApprovalInboxSnapshot({ threadId });
-      setSnapshot(nextSnapshot);
+      setBaseSnapshot(nextSnapshot);
       setHasLoaded(true);
       setError(
         nextSnapshot.warnings.length > 0
@@ -63,7 +83,7 @@ export function useGuardianApprovalInbox(
           : null
       );
     } catch (nextError) {
-      setSnapshot(null);
+      setBaseSnapshot(null);
       setHasLoaded(true);
       setError(getErrorMessage(nextError));
     } finally {
@@ -75,10 +95,13 @@ export function useGuardianApprovalInbox(
     void reload();
   }, [reload]);
 
+  const combinedLoading =
+    loading || (threadId != null && agentRunsLoading && !hasLoaded);
+
   return {
     error,
     hasLoaded,
-    loading,
+    loading: combinedLoading,
     reload,
     snapshot,
   };
