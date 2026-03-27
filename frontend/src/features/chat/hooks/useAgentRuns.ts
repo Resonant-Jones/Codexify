@@ -5,104 +5,106 @@ import {
   type AgentRunResponse,
 } from "../api/actionCenter";
 
-type AgentRunsStore = {
+type AgentRunsEntry = {
   data: AgentRunResponse[];
-  inFlight: Promise<AgentRunResponse[]> | null;
   loading: boolean;
-  subscribers: Set<() => void>;
+  error: unknown | null;
+  listeners: Set<() => void>;
+  inFlight?: Promise<void>;
 };
 
-const stores = new Map<number, AgentRunsStore>();
+const agentRunsStore = new Map<string, AgentRunsEntry>();
 
-function getStore(threadId: number): AgentRunsStore {
-  const existing = stores.get(threadId);
-  if (existing) return existing;
-  const next: AgentRunsStore = {
-    data: [],
-    inFlight: null,
-    loading: false,
-    subscribers: new Set(),
-  };
-  stores.set(threadId, next);
-  return next;
-}
+function getOrCreateEntry(threadId: string): AgentRunsEntry {
+  let entry = agentRunsStore.get(threadId);
 
-function notify(threadId: number) {
-  const store = stores.get(threadId);
-  if (!store) return;
-  for (const subscriber of store.subscribers) {
-    subscriber();
+  if (!entry) {
+    entry = {
+      data: [],
+      loading: false,
+      error: null,
+      listeners: new Set(),
+    };
+    agentRunsStore.set(threadId, entry);
   }
+
+  return entry;
 }
 
-async function loadAgentRuns(threadId: number): Promise<AgentRunResponse[]> {
-  const store = getStore(threadId);
-  if (store.inFlight) return store.inFlight;
+function broadcast(entry: AgentRunsEntry) {
+  entry.listeners.forEach((listener) => listener());
+}
 
-  store.loading = true;
-  notify(threadId);
+async function fetchAgentRunsForThread(threadId: string) {
+  const entry = getOrCreateEntry(threadId);
 
-  console.debug("[chat-fetch]", {
-    type: "agent-runs",
-    threadId,
-    source: "useAgentRuns",
-    timestamp: Date.now(),
-  });
+  if (entry.inFlight) return entry.inFlight;
 
-  const request = fetchAgentRuns(threadId)
-    .then((runs) => {
-      store.data = Array.isArray(runs) ? runs : [];
-      store.loading = false;
-      store.inFlight = null;
-      notify(threadId);
-      return store.data;
-    })
-    .catch((error) => {
-      store.loading = false;
-      store.inFlight = null;
-      notify(threadId);
-      throw error;
-    });
+  entry.loading = true;
+  entry.error = null;
+  broadcast(entry);
 
-  store.inFlight = request;
-  return request;
+  entry.inFlight = (async () => {
+    try {
+      console.debug("[chat-fetch] agent-runs:start", { threadId });
+
+      const numericThreadId = Number(threadId);
+      const res = await fetchAgentRuns(numericThreadId);
+
+      entry.data = res ?? [];
+
+      console.debug("[chat-fetch] agent-runs:success", {
+        threadId,
+        count: entry.data.length,
+      });
+    } catch (err) {
+      entry.error = err;
+
+      console.error("[chat-fetch] agent-runs:error", {
+        threadId,
+        err,
+      });
+    } finally {
+      entry.loading = false;
+      entry.inFlight = undefined;
+      broadcast(entry);
+    }
+  })();
+
+  return entry.inFlight;
 }
 
 export function useAgentRuns(threadId: number | null) {
-  const [data, setData] = useState<AgentRunResponse[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [, forceRender] = useState(0);
+  const threadKey = threadId == null ? null : String(threadId);
 
   useEffect(() => {
-    if (threadId == null) {
-      setData([]);
-      setLoading(false);
-      return;
-    }
+    if (!threadKey) return;
 
-    const store = getStore(threadId);
-    const onUpdate = () => {
-      setData(store.data);
-      setLoading(store.loading);
-    };
+    const entry = getOrCreateEntry(threadKey);
+    const listener = () => forceRender((value) => value + 1);
 
-    store.subscribers.add(onUpdate);
-    onUpdate();
+    entry.listeners.add(listener);
 
     return () => {
-      store.subscribers.delete(onUpdate);
-      if (store.subscribers.size === 0 && !store.loading) {
-        stores.delete(threadId);
-      }
+      entry.listeners.delete(listener);
     };
-  }, [threadId]);
+  }, [threadKey]);
 
   useEffect(() => {
-    if (threadId == null) return;
+    if (!threadKey) return;
     if (typeof document !== "undefined" && document.hidden) return;
-    void loadAgentRuns(threadId);
-  }, [threadId]);
+    void fetchAgentRunsForThread(threadKey);
+  }, [threadKey]);
 
-  return { data, loading };
+  const entry = threadKey ? getOrCreateEntry(threadKey) : null;
+
+  return {
+    data: entry?.data ?? [],
+    loading: entry?.loading ?? false,
+    error: entry?.error ?? null,
+    refetch: () => (threadKey ? fetchAgentRunsForThread(threadKey) : undefined),
+  };
 }
 
 export default useAgentRuns;
