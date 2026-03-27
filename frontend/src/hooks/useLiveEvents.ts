@@ -3,6 +3,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
+import type { LiveEvent } from "@/lib/events/types";
 import { getRuntimeConfigSync, resolveSseEndpoint } from "@/lib/runtimeConfig";
 import {
   checkAuthGate,
@@ -23,11 +24,7 @@ import {
 const LAST_EVENT_DEBOUNCE_MS = 50;
 const CONNECTED_DEBOUNCE_MS = 200;
 
-export interface LiveEvent {
-  id: string | null;
-  type: string;
-  data: unknown;
-}
+export type { LiveEvent } from "@/lib/events/types";
 
 export type ConnectionStatus = LiveEventConnectionState;
 
@@ -127,31 +124,26 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
 
   const handleHubEvent = useCallback(
     (event: LiveEventsHubEvent) => {
-      const payload: LiveEvent = {
-        id: event.id || null,
-        type: event.type || "message",
-        data: event.data,
-      };
       const activeSpine = SessionSpine.getRegisteredSpine();
-      if (activeSpine && !activeSpine.shouldAcceptLiveEvent(payload.type, payload.data)) {
+      if (activeSpine && !activeSpine.shouldAcceptLiveEvent(event.type, event.data)) {
         return;
       }
-      if (isSameEvent(lastEventRef.current, payload)) {
+      if (isSameEvent(lastEventRef.current, event)) {
         return;
       }
-      lastEventRef.current = payload;
+      lastEventRef.current = event;
       if (!passive) {
-        scheduleLastEventUpdate(payload);
+        scheduleLastEventUpdate(event);
       }
-      const listeners = listenersRef.current.get(payload.type);
+      const listeners = listenersRef.current.get(event.type);
       if (!listeners) {
         return;
       }
       listeners.forEach((listener) => {
         try {
-          listener(payload);
+          listener(event);
         } catch (error) {
-          console.error(`[useLiveEvents] listener for ${payload.type} failed`, error);
+          console.error(`[useLiveEvents] listener for ${event.type} failed`, error);
         }
       });
     },
