@@ -1300,6 +1300,13 @@ export function GuardianChat({
       threadId: number,
       options: { throwOnError?: boolean } = {}
     ) => {
+      if (!Number.isFinite(threadId)) {
+        applyProfileFallback();
+        return null;
+      }
+      if (typeof document !== "undefined" && document.hidden) {
+        return null;
+      }
       if (
         threadProfileRequestRef.current.promise &&
         threadProfileRequestRef.current.threadId === threadId
@@ -1325,6 +1332,11 @@ export function GuardianChat({
 
       const request = (async () => {
         try {
+          console.debug("[chat-fetch]", {
+            type: "profile",
+            threadId,
+            timestamp: Date.now(),
+          });
           const response = await api.get(`/chat/${threadId}/profile`);
           if (
             effectiveThreadIdRef.current !== threadId ||
@@ -1437,6 +1449,7 @@ export function GuardianChat({
       applyProfileFallback();
       return;
     }
+    if (typeof document !== "undefined" && document.hidden) return;
     if (profileThreadRef.current === effectiveThreadId) return;
     profileThreadRef.current = effectiveThreadId;
     void refreshThreadProfile(effectiveThreadId);

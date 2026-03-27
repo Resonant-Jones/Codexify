@@ -228,10 +228,20 @@ export async function fetchGuardianApprovalInboxSnapshot(
     "/api/browser/approvals",
     { params: { status_value: "PENDING" } }
   );
-  const runsPromise =
+  const canFetchThreadRuns =
     typeof context.threadId === "number"
-      ? api.get<AgentRunsResponse>(`/api/chat/${context.threadId}/agent-runs`)
-      : null;
+      && !(typeof document !== "undefined" && document.hidden);
+  let runsPromise: Promise<any> | null = null;
+  if (canFetchThreadRuns) {
+    console.debug("[chat-fetch]", {
+      type: "agent-runs",
+      threadId: context.threadId,
+      timestamp: Date.now(),
+    });
+    runsPromise = api.get<AgentRunsResponse>(
+      `/api/chat/${context.threadId}/agent-runs`
+    );
+  }
 
   const [approvalsResult, runsResult] = await Promise.allSettled([
     approvalsPromise,
