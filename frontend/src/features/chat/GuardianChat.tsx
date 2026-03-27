@@ -31,7 +31,7 @@ import api, {
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
-import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
@@ -66,6 +66,7 @@ import {
   CHAT_LANE_MAX_WIDTH_CLASS,
   CHAT_LANE_STAGE_GUTTER_CLASS,
 } from "@/features/chat/chatLane";
+import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
 
 const DEBUG_LAYOUT = true;
 
@@ -1617,6 +1618,52 @@ export function GuardianChat({
       setThreadTitle(activeThread?.title ?? NEW_THREAD_TITLE);
     }
   }, [activeThread?.id, activeThread?.title, currentThreadId]);
+
+  useEffect(() => {
+    const handleAgentRunEvent = (event: LiveEvent) => {
+      const payload = flattenChatEventPayload(event.data);
+      const nestedRun =
+        payload.run && typeof payload.run === "object" && !Array.isArray(payload.run)
+          ? (payload.run as Record<string, unknown>)
+          : null;
+      const threadId = Number(
+        payload.thread_id ??
+          payload.threadId ??
+          nestedRun?.thread_id ??
+          nestedRun?.threadId
+      );
+
+      if (!Number.isFinite(threadId)) {
+        return;
+      }
+
+      console.debug("[agent-runs:event]", {
+        type: event.type,
+        threadId,
+      });
+
+      applyAgentRunEvent(String(threadId), {
+        ...payload,
+        event_type: event.type,
+      });
+    };
+
+    const unsubscribes = [
+      subscribe("task.created", handleAgentRunEvent),
+      subscribe("task.updated", handleAgentRunEvent),
+      subscribe("task.running", handleAgentRunEvent),
+      subscribe("task.progress", handleAgentRunEvent),
+      subscribe("task.completed", handleAgentRunEvent),
+      subscribe("task.failed", handleAgentRunEvent),
+      subscribe("task.cancelled", handleAgentRunEvent),
+    ];
+
+    return () => {
+      for (const unsubscribe of unsubscribes) {
+        unsubscribe();
+      }
+    };
+  }, [subscribe]);
 
   // Live event integration keeps the shared chat hook synchronized.
   useEffect(() => {
