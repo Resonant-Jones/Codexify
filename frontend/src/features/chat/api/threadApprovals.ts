@@ -268,11 +268,19 @@ export async function fetchGuardianThreadApprovalSnapshot(
   if (typeof threadId !== "number") {
     return { intervention: null, warnings: [] };
   }
+  if (typeof document !== "undefined" && document.hidden) {
+    return { intervention: null, warnings: [] };
+  }
 
   const warnings: string[] = [];
   let runs: AgentRunResponse[] = [];
 
   try {
+    console.debug("[chat-fetch]", {
+      type: "agent-runs",
+      threadId,
+      timestamp: Date.now(),
+    });
     const runResponse = await api.get<AgentRunsResponse>(
       `/api/chat/${threadId}/agent-runs`
     );
