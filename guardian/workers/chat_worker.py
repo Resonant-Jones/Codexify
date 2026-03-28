@@ -906,6 +906,21 @@ def _normalize_model_override(value: Any) -> str | None:
     return normalized or None
 
 
+def extract_assistant_response(text: str) -> str:
+    """Normalize model output to the final assistant-visible response."""
+
+    if not text:
+        return text
+
+    if "System Response ===" in text:
+        return text.split("System Response ===")[-1].strip()
+
+    if "=== SCRATCHPAD ===" in text:
+        return text.split("=== SCRATCHPAD ===")[-1].strip()
+
+    return text.strip()
+
+
 def _degraded_provider_model_fallback(
     *,
     provider: str,
@@ -1309,7 +1324,7 @@ def _run_chat_completion_task_compat(
                     )
                 )
                 if token_callback and (not streamed_any) and assistant_output:
-                    token_callback(assistant_output)
+                    token_callback(extract_assistant_response(assistant_output))
             return assistant_output
 
         if cancel_check and cancel_check():
@@ -1328,7 +1343,7 @@ def _run_chat_completion_task_compat(
             )
         )
         if token_callback:
-            token_callback(assistant_output)
+            token_callback(extract_assistant_response(assistant_output))
         return assistant_output
 
     fallback_reason: str | None = None
@@ -1410,6 +1425,9 @@ def _run_chat_completion_task_compat(
             raise
         payload_summary["final_provider"] = final_provider
         payload_summary["final_model"] = final_model
+
+    logger.debug("[llm] raw_output=%s", assistant_text)
+    assistant_text = extract_assistant_response(assistant_text)
 
     if not assistant_text.strip():
         assistant_text = "No assistant response was generated."
