@@ -374,6 +374,48 @@ def test_validate_provider_model_selection_rejects_non_chat_models(monkeypatch):
     )
 
 
+def test_discovery_falls_back_when_classifier_excludes_all_models(
+    monkeypatch, caplog
+):
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda *args, **kwargs: _MockResponse(
+            {
+                "data": [
+                    {"id": "qwen-max", "supports_chat": False},
+                    {"id": "qwen-plus", "supportsChat": False},
+                ]
+            }
+        ),
+    )
+
+    settings = _provider_settings(ALIBABA_MODEL=None)
+
+    with caplog.at_level("WARNING"):
+        capability = resolve_provider_capability("alibaba", settings)
+
+    assert capability["available"] is True
+    assert capability["enabled"] is True
+    assert [model["id"] for model in capability["models"]] == [
+        "qwen-max",
+        "qwen-plus",
+    ]
+    assert all(model["supports_chat"] is True for model in capability["models"])
+    assert capability["model_index"]["state"] == "degraded"
+    assert "falling back to all discovered models" in str(
+        capability["model_index"]["reason"]
+    )
+    assert "falling back to all discovered models" in caplog.text
+
+    valid, reason = validate_provider_model_selection(
+        provider_id="alibaba",
+        model_id="qwen-max",
+        settings=settings,
+    )
+    assert valid is True
+    assert reason is None
+
+
 def test_provider_governance_contract_classifies_every_known_provider_once():
     contract = provider_governance_contract()
 

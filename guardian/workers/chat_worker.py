@@ -47,6 +47,7 @@ from guardian.core.metrics import CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL
 from guardian.core.provider_registry import (
     default_model_for_provider,
     normalize_provider,
+    resolve_provider_capability,
     validate_provider_model_selection,
 )
 from guardian.core.provider_truth import build_provider_truth
@@ -905,6 +906,56 @@ def _normalize_model_override(value: Any) -> str | None:
     return normalized or None
 
 
+def _degraded_provider_model_fallback(
+    *,
+    provider: str,
+    requested_model: str | None,
+    reason: str | None,
+    settings: Settings,
+) -> str | None:
+    if "no chat-capable models" not in str(reason or "").lower():
+        return None
+
+    logger.error(
+        "[chat-worker] no chat-capable models after resolution; attempting degraded fallback provider=%s",
+        provider,
+    )
+    try:
+        capability = resolve_provider_capability(provider, settings)
+    except Exception:
+        logger.warning(
+            "[chat-worker] degraded fallback capability lookup failed provider=%s",
+            provider,
+            exc_info=True,
+        )
+        return None
+
+    fallback_models = [
+        candidate
+        for candidate in (
+            _normalize_model_override(item.get("id"))
+            for item in (capability.get("models") or [])
+            if isinstance(item, dict)
+        )
+        if candidate
+    ]
+    if not fallback_models:
+        return None
+
+    normalized_requested = _normalize_model_override(requested_model)
+    selected_model = (
+        normalized_requested
+        if normalized_requested in fallback_models
+        else fallback_models[0]
+    )
+    logger.warning(
+        "[chat-worker] using fallback model set due to classification failure provider=%s model=%s",
+        provider,
+        selected_model,
+    )
+    return selected_model
+
+
 class AssistantPersistenceError(RuntimeError):
     def __init__(self, message: str, *, metadata: dict[str, Any] | None = None):
         super().__init__(message)
@@ -1021,7 +1072,20 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
     model = requested_model
 
     if model:
-        resolved_provider = resolve_provider_for_model(model, settings=settings)
+        try:
+            resolved_provider = resolve_provider_for_model(
+                model, settings=settings
+            )
+        except Exception:
+            if provider is None:
+                raise
+            logger.debug(
+                "[chat-worker] model/provider resolution lookup failed provider=%s model=%s",
+                provider,
+                model,
+                exc_info=True,
+            )
+            resolved_provider = None
         if resolved_provider:
             model_resolved_provider = _normalize_provider_override(
                 resolved_provider
@@ -1088,9 +1152,17 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
                 settings=settings,
             )
             if not valid:
-                raise LLMConfigError(
-                    reason or "Provider/model selection is invalid"
+                fallback_model = _degraded_provider_model_fallback(
+                    provider=provider,
+                    requested_model=model,
+                    reason=reason,
+                    settings=settings,
                 )
+                if fallback_model is None:
+                    raise LLMConfigError(
+                        reason or "Provider/model selection is invalid"
+                    )
+                model = fallback_model
 
     return replace(
         task,
