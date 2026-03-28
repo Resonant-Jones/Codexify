@@ -20,7 +20,9 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+} from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -803,7 +805,7 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex shrink-0 items-center"
+              className="flex shrink-0 items-center justify-center"
             >
               <Button
                 type="button"
@@ -824,14 +826,9 @@ export function Composer({
                     ? "cursor-not-allowed opacity-50"
                     : sendBlockedByTurnLock
                       ? "opacity-75"
-                      : ""
+                    : ""
                 )}
                 style={{
-                  width: 32,
-                  height: 32,
-                  minWidth: 32,
-                  minHeight: 32,
-                  padding: 0,
                   background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
                   color: "var(--text-on-accent, #111827)",
                   boxShadow: "none",
