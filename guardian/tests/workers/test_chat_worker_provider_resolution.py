@@ -189,3 +189,48 @@ def test_explicit_model_selects_provider_even_with_profile_override(
     )
     assert provider == "groq"
     assert model == "moonshotai/kimi-k2-instruct-0905"
+
+
+def test_resolution_uses_degraded_model_fallback_on_classification_failure(
+    monkeypatch,
+):
+    settings = _fake_settings()
+    _patch_common(
+        monkeypatch,
+        settings=settings,
+        profile=_fake_profile(provider_override="openai"),
+        resolved_provider=None,
+        first_provider="groq",
+        first_model=None,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "validate_provider_model_selection",
+        lambda **kwargs: (
+            False,
+            "Provider model index returned no chat-capable models",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "resolve_provider_capability",
+        lambda provider_id, settings: {
+            "models": [
+                {"id": "recovered-model"},
+                {"id": "backup-model"},
+            ]
+        },
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="groq",
+        model=None,
+        max_context=10,
+    )
+
+    _, provider, model, _, _, _, _ = asyncio.run(
+        chat_worker._build_messages_for_llm(task)
+    )
+    assert provider == "groq"
+    assert model == "recovered-model"
