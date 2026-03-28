@@ -25,11 +25,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from guardian.agent_task_queue import (  # noqa: E402
     AGENT_TASK_QUEUE,
+    dequeue_agent_task,
     update_task_status,
 )
 from guardian.plugins.plugin_loader import load_all_manifests  # noqa: E402
 from guardian.plugins.plugin_manifest import PluginManifest  # noqa: E402
-from guardian.queue.redis_queue import get_redis_client  # noqa: E402
+from guardian.queue.redis_queue import get_request_redis_client  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -149,13 +150,14 @@ def run_worker() -> None:
     # Load plugins on startup
     load_plugins()
 
-    redis_client = get_redis_client()
+    redis_client = get_request_redis_client()
 
     while True:
         task_id: Optional[str] = None
         try:
-            _, raw = redis_client.blpop(AGENT_TASK_QUEUE)
-            task = json.loads(raw)
+            task = dequeue_agent_task(block=True, timeout=None)
+            if task is None:
+                continue
 
             # Ensure we always have a stable identifier for status/result writes
             task_id = task.get("task_id") or str(uuid4())
