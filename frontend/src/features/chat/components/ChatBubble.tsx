@@ -358,6 +358,11 @@ export function ChatBubble({
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(cleanedContent.trim());
   const formattedTime = fmtTime(message.createdAt);
+  const execution = message.execution;
+  const executionBadgeLabel =
+    execution && execution.final_model !== execution.attempted_model
+      ? `⚠ Executed on ${execution.final_model}`
+      : null;
   const resolvedPlayState =
     playState ?? (playing ? "playing" : "idle");
   const playButtonTitle =
@@ -474,6 +479,19 @@ export function ChatBubble({
           </div>
         ) : null}
         <div className="mt-1.5 flex items-center gap-2">
+          {executionBadgeLabel ? (
+            <span
+              className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium"
+              style={{
+                borderColor: "color-mix(in srgb, var(--panel-border) 70%, transparent)",
+                color: "var(--muted)",
+                background:
+                  "color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 90%, transparent)",
+              }}
+            >
+              {executionBadgeLabel}
+            </span>
+          ) : null}
           {formattedTime ? (
             <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
               {formattedTime}
