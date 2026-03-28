@@ -20,6 +20,9 @@ from guardian.protocol_tokens import ErrorCode
 logger = logging.getLogger(__name__)
 
 _DEFAULT_REDIS_URL = "redis://redis:6379/0"
+_DEFAULT_REDIS_OPERATION_TIMEOUT_SECONDS = float(
+    os.getenv("REDIS_OPERATION_TIMEOUT_SECONDS", "2")
+)
 _CANCEL_SET_KEY = "codexify:queue:cancelled"
 _TURN_LOCK_PREFIX = "turn_lock:"
 _DEFAULT_TURN_LOCK_TTL = int(os.getenv("CHAT_TURN_LOCK_TTL_SECONDS", "300"))
@@ -45,6 +48,24 @@ class QueueEnqueueError(RuntimeError):
         self.queue_name = queue_name
         self.error_code = error_code
         self.cause = cause
+
+
+class RedisOperationTimeout(RuntimeError):
+    """Raised when a Redis operation exceeds the backend fail-fast budget."""
+
+
+def run_with_redis_timeout(
+    fn: Callable[[], Any],
+    timeout_seconds: float = _DEFAULT_REDIS_OPERATION_TIMEOUT_SECONDS,
+) -> Any:
+    start = time.monotonic()
+    result = fn()
+    elapsed = time.monotonic() - start
+    if elapsed > timeout_seconds:
+        raise RedisOperationTimeout(
+            f"Redis operation exceeded {timeout_seconds}s"
+        )
+    return result
 
 
 class _InMemoryRedis:
@@ -249,9 +270,9 @@ def _connect() -> Any:
     client = redis.Redis.from_url(
         _redis_url(),
         decode_responses=True,
-        socket_connect_timeout=3,
-        socket_timeout=None,
-        retry_on_timeout=True,
+        socket_connect_timeout=2,
+        socket_timeout=2,
+        retry_on_timeout=False,
     )
     _patch_inmemory_redis(client)
     return client

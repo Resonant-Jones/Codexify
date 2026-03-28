@@ -50,8 +50,10 @@ from guardian.protocol_tokens import AcceptanceStatus, ErrorCode, TaskEventType
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     QueueEnqueueError,
+    RedisOperationTimeout,
     enqueue,
     enqueue_chat_embed,
+    run_with_redis_timeout,
 )
 from guardian.queue.turn_lock import (
     TurnLockEnvelope,
@@ -101,6 +103,28 @@ def _completion_service_unavailable(reason: str) -> HTTPException:
     )
 
 
+def _run_completion_redis_op(fn, *, reason: str, log_message: str):
+    try:
+        return run_with_redis_timeout(fn)
+    except (RedisOperationTimeout, Exception) as exc:
+        logger.warning(log_message, exc)
+        raise _completion_service_unavailable(reason)
+
+
+def _best_effort_release_turn_lock(
+    thread_id: int,
+    owner: str | TurnLockEnvelope,
+    *,
+    log_message: str,
+) -> None:
+    try:
+        run_with_redis_timeout(lambda: release_turn_lock(thread_id, owner))
+    except TypeError:
+        raise
+    except (RedisOperationTimeout, Exception):
+        logger.debug(log_message, exc_info=True)
+
+
 def _task_terminal_event(task_id: str) -> dict[str, Any]:
     """Return terminal-state evidence for a task event stream."""
 
@@ -127,8 +151,10 @@ def _chat_worker_heartbeat_evidence() -> dict[str, Any]:
     try:
         from guardian.queue.redis_queue import get_redis_client
 
-        client = get_redis_client()
-        raw_heartbeat = client.get(CHAT_WORKER_HEARTBEAT_KEY)
+        client = run_with_redis_timeout(get_redis_client)
+        raw_heartbeat = run_with_redis_timeout(
+            lambda: client.get(CHAT_WORKER_HEARTBEAT_KEY)
+        )
         if not raw_heartbeat:
             evidence["state"] = "missing"
             evidence["reason"] = "heartbeat_missing"
@@ -155,8 +181,8 @@ def _chat_worker_heartbeat_evidence() -> dict[str, Any]:
         evidence["state"] = _classify_chat_worker_heartbeat(True, age_seconds)
         evidence["reason"] = "ok"
         return evidence
-    except Exception as exc:
-        evidence["reason"] = "heartbeat_probe_failed"
+    except (RedisOperationTimeout, Exception) as exc:
+        evidence["reason"] = "redis_unavailable"
         evidence["error"] = f"{type(exc).__name__}: {exc}"
         return evidence
 
@@ -289,7 +315,11 @@ def _completion_acceptance_outcome(
 
 
 def _recover_orphaned_turn_lock(thread_id: int) -> bool:
-    stale_lock = get_turn_lock(thread_id)
+    stale_lock = _run_completion_redis_op(
+        lambda: get_turn_lock(thread_id),
+        reason="turn_lock_unavailable",
+        log_message="[chat.complete] stale turn lock probe unavailable: %s",
+    )
     if stale_lock is None or not turn_lock_is_stale(stale_lock):
         return False
 
@@ -340,7 +370,11 @@ def _recover_orphaned_turn_lock(thread_id: int) -> bool:
         )
         return False
 
-    cleared = clear_turn_lock(thread_id, expected=stale_lock)
+    cleared = _run_completion_redis_op(
+        lambda: clear_turn_lock(thread_id, expected=stale_lock),
+        reason="turn_lock_unavailable",
+        log_message="[chat.complete] stale turn lock clear unavailable: %s",
+    )
     if cleared and hasattr(chatlog_db, "write_audit_log"):
         chatlog_db.write_audit_log(
             "recover_orphaned_turn_lock",
@@ -506,13 +540,15 @@ def _embed_message(thread_id: int, role: str, content: str, message_id: int):
     if not _vector_store:
         return
     try:
-        enqueue_chat_embed(
-            {
-                "thread_id": thread_id,
-                "role": role,
-                "content": content,
-                "message_id": message_id,
-            }
+        run_with_redis_timeout(
+            lambda: enqueue_chat_embed(
+                {
+                    "thread_id": thread_id,
+                    "role": role,
+                    "content": content,
+                    "message_id": message_id,
+                }
+            )
         )
     except NameError:
         logger.exception(
@@ -781,7 +817,9 @@ def _persist_message_to_thread(
     lock_probe_owner = "api:chat.messages:user_probe"
     lock_probe_acquired = False
     try:
-        lock_probe_acquired = acquire_turn_lock(thread_id, lock_probe_owner)
+        lock_probe_acquired = run_with_redis_timeout(
+            lambda: acquire_turn_lock(thread_id, lock_probe_owner)
+        )
         if not lock_probe_acquired:
             raise HTTPException(
                 status_code=429,
@@ -805,10 +843,12 @@ def _persist_message_to_thread(
     finally:
         if lock_probe_acquired:
             try:
-                release_turn_lock(thread_id, lock_probe_owner)
+                run_with_redis_timeout(
+                    lambda: release_turn_lock(thread_id, lock_probe_owner)
+                )
             except TypeError:
                 raise
-            except Exception:
+            except (RedisOperationTimeout, Exception):
                 logger.debug(
                     "[chat.messages] turn lock probe release failed thread_id=%s",
                     thread_id,
@@ -1848,21 +1888,18 @@ async def chat_complete(
     task.task_id = task_identity
     task.turn_lock_owner = task_identity
 
-    try:
-        locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
-    except Exception as exc:
-        logger.warning("[chat.complete] turn lock unavailable: %s", exc)
-        raise _completion_service_unavailable("turn_lock_unavailable")
+    locked = _run_completion_redis_op(
+        lambda: acquire_turn_lock(thread_id, task.turn_lock_owner),
+        reason="turn_lock_unavailable",
+        log_message="[chat.complete] turn lock unavailable: %s",
+    )
     if not locked:
         if _recover_orphaned_turn_lock(thread_id):
-            try:
-                locked = acquire_turn_lock(thread_id, task.turn_lock_owner)
-            except Exception as exc:
-                logger.warning(
-                    "[chat.complete] turn lock unavailable after recovery: %s",
-                    exc,
-                )
-                raise _completion_service_unavailable("turn_lock_unavailable")
+            locked = _run_completion_redis_op(
+                lambda: acquire_turn_lock(thread_id, task.turn_lock_owner),
+                reason="turn_lock_unavailable",
+                log_message="[chat.complete] turn lock unavailable after recovery: %s",
+            )
         if not locked:
             raise HTTPException(status_code=429, detail="turn_in_flight")
 
@@ -1876,15 +1913,13 @@ async def chat_complete(
     queue_name = "codexify:queue:chat"
 
     try:
-        enqueue(task, queue_name)
+        run_with_redis_timeout(lambda: enqueue(task, queue_name))
     except QueueEnqueueError as exc:
-        try:
-            release_turn_lock(thread_id, task.turn_lock_owner)
-        except Exception:
-            logger.debug(
-                "[chat.complete] failed to release lock after enqueue error",
-                exc_info=True,
-            )
+        _best_effort_release_turn_lock(
+            thread_id,
+            task.turn_lock_owner,
+            log_message="[chat.complete] failed to release lock after enqueue error",
+        )
         logger.error(
             "[chat.complete] enqueue failed",
             extra={
@@ -1905,14 +1940,12 @@ async def chat_complete(
         if isinstance(detail, dict):
             detail = {**detail, "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED"}
         raise HTTPException(status_code=503, detail=detail)
-    except Exception as exc:
-        try:
-            release_turn_lock(thread_id, task.turn_lock_owner)
-        except Exception:
-            logger.debug(
-                "[chat.complete] failed to release lock after enqueue error",
-                exc_info=True,
-            )
+    except (RedisOperationTimeout, Exception) as exc:
+        _best_effort_release_turn_lock(
+            thread_id,
+            task.turn_lock_owner,
+            log_message="[chat.complete] failed to release lock after enqueue error",
+        )
         logger.warning(
             "[chat.complete] queue unavailable error_code=%s: %s",
             CHAT_COMPLETE_ENQUEUE_ERROR_CODE,

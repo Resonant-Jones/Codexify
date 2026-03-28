@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from guardian.queue.redis_queue import get_redis_client
+from guardian.queue.redis_queue import (
+    RedisOperationTimeout,
+    get_redis_client,
+    run_with_redis_timeout,
+)
 
 try:
     from guardian.core.dependencies import require_api_key
@@ -22,6 +28,7 @@ except Exception:  # pragma: no cover - test/import fallback
 
 
 router = APIRouter(tags=["UI Session"])
+logger = logging.getLogger(__name__)
 
 SESSION_NAMESPACE = "ui:v1"
 SESSION_STATE_KEY = "session"
@@ -74,6 +81,28 @@ def _now_iso() -> str:
 def _session_cache_client() -> Any:
     """Always resolve cache client via the shared redis_queue factory."""
     return get_redis_client()
+
+
+def _redis_dependency_unavailable_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "dependency_unavailable",
+            "dependency": "redis",
+        },
+    )
+
+
+def _best_effort_delete_session_key(key: str) -> None:
+    try:
+        client = _session_cache_client()
+        run_with_redis_timeout(lambda: client.delete(key))
+    except Exception:
+        logger.debug(
+            "[ui_session] best-effort delete failed key=%s",
+            key,
+            exc_info=True,
+        )
 
 
 def _decode_cached_json(raw: Any) -> Any | None:
@@ -235,24 +264,18 @@ def get_ui_session(
 ) -> dict[str, Any]:
     _ = api_key
     key = make_session_key(user_id, device_id)
-    client = _session_cache_client()
     try:
-        raw = client.get(key)
-    except Exception as exc:  # pragma: no cover - network/runtime failure path
-        raise HTTPException(status_code=503, detail=f"redis_unavailable: {exc}")
+        raw = run_with_redis_timeout(lambda: _session_cache_client().get(key))
+    except (RedisOperationTimeout, Exception) as exc:
+        logger.warning("[ui_session] redis unavailable during get: %s", exc)
+        return _redis_dependency_unavailable_response()
     decoded = _decode_cached_json(raw)
     if decoded is None:
-        try:
-            client.delete(key)
-        except Exception:
-            pass
+        _best_effort_delete_session_key(key)
         return {"ok": True, "state": None}
     state = _coerce_state(decoded, user_id=user_id, device_id=device_id)
     if not state:
-        try:
-            client.delete(key)
-        except Exception:
-            pass
+        _best_effort_delete_session_key(key)
         return {"ok": True, "state": None}
     return {"ok": True, "state": state}
 
@@ -275,11 +298,13 @@ def set_ui_session(
     ttl_seconds = _resolve_ttl(body.ttl_seconds)
     payload = json.dumps(state, separators=(",", ":"), default=str)
 
-    client = _session_cache_client()
     try:
-        client.setex(key, ttl_seconds, payload)
-    except Exception as exc:  # pragma: no cover - network/runtime failure path
-        raise HTTPException(status_code=503, detail=f"redis_unavailable: {exc}")
+        run_with_redis_timeout(
+            lambda: _session_cache_client().setex(key, ttl_seconds, payload)
+        )
+    except (RedisOperationTimeout, Exception) as exc:
+        logger.warning("[ui_session] redis unavailable during set: %s", exc)
+        return _redis_dependency_unavailable_response()
     return {"ok": True}
 
 
@@ -290,18 +315,17 @@ def patch_ui_session(
 ) -> dict[str, Any]:
     _ = api_key
     key = make_session_key(body.user_id, body.device_id)
-    client = _session_cache_client()
     try:
-        raw = client.get(key)
-    except Exception as exc:  # pragma: no cover - network/runtime failure path
-        raise HTTPException(status_code=503, detail=f"redis_unavailable: {exc}")
+        raw = run_with_redis_timeout(lambda: _session_cache_client().get(key))
+    except (RedisOperationTimeout, Exception) as exc:
+        logger.warning(
+            "[ui_session] redis unavailable during patch get: %s", exc
+        )
+        return _redis_dependency_unavailable_response()
 
     decoded = _decode_cached_json(raw)
     if decoded is None:
-        try:
-            client.delete(key)
-        except Exception:
-            pass
+        _best_effort_delete_session_key(key)
         return {"ok": True, "state": None}
 
     current = decoded if isinstance(decoded, dict) else {}
@@ -317,9 +341,14 @@ def patch_ui_session(
     ttl_seconds = _resolve_ttl(body.ttl_seconds)
     payload = json.dumps(coerced, separators=(",", ":"), default=str)
     try:
-        client.setex(key, ttl_seconds, payload)
-    except Exception as exc:  # pragma: no cover - network/runtime failure path
-        raise HTTPException(status_code=503, detail=f"redis_unavailable: {exc}")
+        run_with_redis_timeout(
+            lambda: _session_cache_client().setex(key, ttl_seconds, payload)
+        )
+    except (RedisOperationTimeout, Exception) as exc:
+        logger.warning(
+            "[ui_session] redis unavailable during patch set: %s", exc
+        )
+        return _redis_dependency_unavailable_response()
     return {"ok": True, "state": coerced}
 
 
@@ -331,9 +360,9 @@ def delete_ui_session(
 ) -> dict[str, Any]:
     _ = api_key
     key = make_session_key(user_id, device_id)
-    client = _session_cache_client()
     try:
-        client.delete(key)
-    except Exception as exc:  # pragma: no cover - network/runtime failure path
-        raise HTTPException(status_code=503, detail=f"redis_unavailable: {exc}")
+        run_with_redis_timeout(lambda: _session_cache_client().delete(key))
+    except (RedisOperationTimeout, Exception) as exc:
+        logger.warning("[ui_session] redis unavailable during delete: %s", exc)
+        return _redis_dependency_unavailable_response()
     return {"ok": True}
