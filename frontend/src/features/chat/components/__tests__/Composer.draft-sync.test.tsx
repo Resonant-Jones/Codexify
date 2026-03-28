@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+} from "@/features/chat/chatLane";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
 
@@ -118,11 +120,14 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
-  it("assigns right-edge ownership to the control row and keeps the send button circular", () => {
+  it("keeps the textarea on the content plane and gives the control row its own padding contract", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
+    const contentPlane = screen.getByTestId("composer-content-plane");
     const controlsRow = screen.getByTestId("composer-control-row");
     expect(controlsRow).toHaveClass("px-[var(--composer-text-pad-x,14px)]");
+    expect(contentPlane).toHaveClass("px-[var(--composer-pad-x,12px)]");
+    expect(controlsRow.parentElement).toBe(contentPlane);
     expect(controlsRow).not.toHaveClass("justify-between");
     expect(controlsRow.className).not.toMatch(/\bpl-\[/);
     expect(controlsRow.className).not.toMatch(/\bpr-\[/);
@@ -132,7 +137,12 @@ describe("Composer draft sync", () => {
     expect(controlsStrip.className).not.toMatch(/\bpr-/);
 
     const sendSlot = screen.getByTestId("composer-send-slot");
-    expect(sendSlot).toHaveClass("shrink-0");
+    expect(sendSlot).toHaveClass(
+      "flex",
+      "shrink-0",
+      "items-center",
+      "justify-center"
+    );
     expect(sendSlot.className).not.toMatch(/\bpr-/);
     expect(sendSlot.previousElementSibling).toBe(controlsStrip);
 
@@ -146,10 +156,14 @@ describe("Composer draft sync", () => {
       "p-0"
     );
     expect(sendButton.className).not.toMatch(/\brounded-md\b/);
+    expect(sendButton.getAttribute("style") ?? "").not.toMatch(
+      /\b(?:width|min-width|height|min-height|padding)\s*:/
+    );
 
     const textarea = screen.getByPlaceholderText("Write a message…");
-    expect(textarea.parentElement).toHaveAttribute("data-composer-root");
+    expect(textarea.parentElement).toBe(contentPlane);
     expect(composerSource).not.toContain("justify-between");
+    expect(composerSource).not.toContain('pl-[8px]');
     expect(composerSource).not.toContain('pr-[24px]');
   });
 
