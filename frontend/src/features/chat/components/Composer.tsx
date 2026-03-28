@@ -817,6 +817,11 @@ export function Composer({
                     : ""
               )}
               style={{
+                width: 32,
+                height: 32,
+                minWidth: 32,
+                minHeight: 32,
+                padding: 0,
                 background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
                 color: "var(--text-on-accent, #111827)",
                 boxShadow: "none",
