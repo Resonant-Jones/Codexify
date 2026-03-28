@@ -32,6 +32,7 @@ CHAT_EMBED_QUEUE_NAME = os.getenv(
 CHAT_EMBED_TASK_TYPE = "chat_embed"
 QUEUE_ENQUEUE_ERROR_CODE = ErrorCode.QUEUE_ENQUEUE_FAILED.value
 _CLIENT: Any = None
+_QUEUE_CLIENT: Any = None
 
 
 class QueueEnqueueError(RuntimeError):
@@ -141,11 +142,24 @@ class _InMemoryRedis:
         self._lists.setdefault(name, []).insert(0, value)
         return len(self._lists[name])
 
+    def lpop(self, name: str) -> str | None:
+        queue = self._lists.get(name)
+        if not queue:
+            return None
+        return queue.pop(0)
+
     def rpop(self, name: str) -> str | None:
         queue = self._lists.get(name)
         if not queue:
             return None
         return queue.pop()
+
+    def blpop(self, name: str, timeout: int = 0):
+        _ = timeout
+        value = self.lpop(name)
+        if value is None:
+            return None
+        return (name, value)
 
     def brpop(self, name: str, timeout: int = 0):
         _ = timeout
@@ -250,12 +264,27 @@ def _patch_inmemory_redis(client: redis.Redis) -> None:
         self._expiries.pop(key, None)
         return removed
 
+    def lpop(self, name: str) -> str | None:
+        queue = self._lists.get(name)
+        if not queue:
+            return None
+        return queue.pop(0)
+
+    def blpop(self, name: str, timeout: int = 0):
+        _ = timeout
+        value = self.lpop(name)
+        if value is None:
+            return None
+        return (name, value)
+
     cls._now = _now
     cls._purge_if_expired = _purge_if_expired
     cls.get = get
     cls.set = set
     cls.setex = setex
     cls.delete = delete
+    cls.lpop = lpop
+    cls.blpop = blpop
     cls._turn_lock_support = True
 
     if not hasattr(client, "_expiries"):
@@ -266,21 +295,29 @@ def _redis_url() -> str:
     return (os.getenv("REDIS_URL") or _DEFAULT_REDIS_URL).strip()
 
 
-def _connect() -> Any:
+def _connect(*, socket_timeout: float | None) -> Any:
     client = redis.Redis.from_url(
         _redis_url(),
         decode_responses=True,
         socket_connect_timeout=2,
-        socket_timeout=2,
+        socket_timeout=socket_timeout,
         retry_on_timeout=False,
     )
     _patch_inmemory_redis(client)
     return client
 
 
-def _build_pytest_client() -> Any:
+def _connect_request_client() -> Any:
+    return _connect(socket_timeout=2)
+
+
+def _connect_queue_client() -> Any:
+    return _connect(socket_timeout=None)
+
+
+def _build_pytest_client(connect_fn: Callable[[], Any]) -> Any:
     try:
-        candidate = _connect()
+        candidate = connect_fn()
     except Exception as exc:
         logger.warning(
             "[redis] falling back to in-memory client under pytest: %s", exc
@@ -294,17 +331,34 @@ def _build_pytest_client() -> Any:
     return candidate
 
 
-def _get_client() -> Any:
+def _get_request_client() -> Any:
     global _CLIENT
     if _is_mock_client(_CLIENT):
         _CLIENT = None
     if _CLIENT is None:
         _CLIENT = (
-            _build_pytest_client() if _running_under_pytest() else _connect()
+            _build_pytest_client(_connect_request_client)
+            if _running_under_pytest()
+            else _connect_request_client()
         )
     if _running_under_pytest() and _is_mock_client(_CLIENT):
         _CLIENT = _InMemoryRedis()
     return _CLIENT
+
+
+def _get_queue_client() -> Any:
+    global _QUEUE_CLIENT
+    if _is_mock_client(_QUEUE_CLIENT):
+        _QUEUE_CLIENT = None
+    if _QUEUE_CLIENT is None:
+        _QUEUE_CLIENT = (
+            _build_pytest_client(_connect_queue_client)
+            if _running_under_pytest()
+            else _connect_queue_client()
+        )
+    if _running_under_pytest() and _is_mock_client(_QUEUE_CLIENT):
+        _QUEUE_CLIENT = _InMemoryRedis()
+    return _QUEUE_CLIENT
 
 
 def _with_reconnect(fn: Callable[[Any], Any]) -> Any:
@@ -312,7 +366,7 @@ def _with_reconnect(fn: Callable[[Any], Any]) -> Any:
     last_err: Exception | None = None
     for attempt in range(2):
         try:
-            client = _get_client()
+            client = _get_request_client()
             return fn(client)
         except (RedisConnectionError, RedisTimeoutError) as exc:
             last_err = exc
@@ -327,6 +381,32 @@ def _with_reconnect(fn: Callable[[Any], Any]) -> Any:
     if last_err:
         raise last_err
     raise RuntimeError("redis operation failed without exception")
+
+
+def _with_queue_reconnect(fn: Callable[[Any], Any]) -> Any:
+    global _QUEUE_CLIENT
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            client = _get_queue_client()
+            return fn(client)
+        except (RedisConnectionError, RedisTimeoutError) as exc:
+            last_err = exc
+            _QUEUE_CLIENT = None
+            logger.warning(
+                "[queue_redis] connection issue; reconnecting: %s", exc
+            )
+            time.sleep(0.2 * (attempt + 1))
+        except Exception as exc:
+            last_err = exc
+            _QUEUE_CLIENT = None
+            logger.warning(
+                "[queue_redis] unexpected error; reconnecting: %s", exc
+            )
+            time.sleep(0.2 * (attempt + 1))
+    if last_err:
+        raise last_err
+    raise RuntimeError("queue redis operation failed without exception")
 
 
 def _serialize(task: Any) -> str:
@@ -369,20 +449,35 @@ def enqueue(task: Any, queue_name: str) -> None:
         raise
 
 
+class _QueueRedisFacade:
+    """Blocking-safe Redis facade for queue consumers."""
+
+    def blpop(self, name: Any, timeout: int = 0) -> Any:
+        return _with_queue_reconnect(
+            lambda client: client.blpop(name, timeout=timeout)
+        )
+
+    def brpop(self, name: Any, timeout: int = 0) -> Any:
+        return _with_queue_reconnect(
+            lambda client: client.brpop(name, timeout=timeout)
+        )
+
+
+queue_redis = _QueueRedisFacade()
+
+
 def dequeue(
     queue_name: str, *, block: bool = True, timeout: int | None = None
 ) -> dict[str, Any] | None:
-    def _pop(client: redis.Redis) -> str | None:
-        if block:
-            effective = 0 if timeout is None else int(timeout)
-            result = client.brpop(queue_name, timeout=effective)
-            if not result:
-                return None
-            _, payload = result
-            return payload
-        return client.rpop(queue_name)
+    if block:
+        effective = 0 if timeout is None else int(timeout)
+        result = queue_redis.brpop(queue_name, timeout=effective)
+        if not result:
+            return None
+        _, raw = result
+        return _deserialize(raw)
 
-    raw = _with_reconnect(_pop)
+    raw = _with_reconnect(lambda client: client.rpop(queue_name))
     return _deserialize(raw)
 
 
@@ -458,10 +553,17 @@ def release_turn_lock(thread_id: int) -> None:
     _with_reconnect(_clear)
 
 
-def get_redis_client() -> Any:
-    client = _get_client()
+def get_request_redis_client() -> Any:
+    client = _get_request_client()
     if _running_under_pytest() and _is_mock_client(client):
         global _CLIENT
         _CLIENT = _InMemoryRedis()
         client = _CLIENT
     return client
+
+
+def get_redis_client() -> Any:
+    # WARNING:
+    # This client is NOT safe for blocking operations.
+    # Do NOT use for BLPOP/BRPOP. Use queue_redis instead.
+    return get_request_redis_client()
