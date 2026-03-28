@@ -19,6 +19,7 @@ from guardian.cognition.prompts import (
 )
 from guardian.cognition.prompts import build_context_system_message_with_meta
 from guardian.context.broker import ContextBroker
+from guardian.context.retrieval_router_policy import resolve_retrieval_plan
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
     build_openai_vision_content,
@@ -38,6 +39,7 @@ from guardian.core.provider_registry import model_supports_capability
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
+RETRIEVAL_PLAN_TRACE_KEY = "retrieval_plan"
 
 try:  # pragma: no cover - prompts are optional in some deployments
     from guardian.cognition.system_prompt_builder import (
@@ -507,6 +509,38 @@ def _build_document_context_message(
     return (message_prefix + "\n".join(lines), len(sources))
 
 
+def _active_persona_context_from_prompt_meta(
+    prompt_meta: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(prompt_meta, dict):
+        return None
+    resolved_persona_id = prompt_meta.get("resolved_persona_id")
+    if resolved_persona_id is None:
+        return None
+    text = str(resolved_persona_id).strip()
+    return text or None
+
+
+def _serialize_retrieval_plan_trace(
+    *,
+    plan: Any,
+    user_depth: str,
+) -> dict[str, Any]:
+    normalized_user_depth = str(user_depth or "").strip().lower() or "auto"
+    return {
+        "intent": plan.intent.value,
+        "user_depth": normalized_user_depth,
+        "resolved_depth": plan.effective_depth.value,
+        "primary_scope": plan.default_scope.value,
+        "time_mode": plan.time_mode.value,
+        "graph_allowance": plan.graph_allowance.value,
+        "retrieval_needed": bool(plan.retrieval_needed),
+        "allow_global_fallback": bool(plan.allow_global_fallback),
+        "escalation_order": [step.value for step in plan.escalation_order],
+        "reasons": [str(reason) for reason in plan.reasons],
+    }
+
+
 async def build_messages_for_llm(
     task: ChatCompletionTask,
 ) -> tuple[
@@ -696,6 +730,30 @@ async def build_messages_for_llm(
         bundle["_attachment_meta"] = {
             "latest_user": latest_user_meta,
         }
+
+    try:
+        retrieval_plan = resolve_retrieval_plan(
+            latest_message,
+            depth,
+            active_thread_id=thread_id,
+            active_project_id=project_id_for_prompt,
+            active_persona=_active_persona_context_from_prompt_meta(
+                prompt_meta
+            ),
+        )
+        if isinstance(trace, dict):
+            trace = dict(trace)
+            trace[RETRIEVAL_PLAN_TRACE_KEY] = _serialize_retrieval_plan_trace(
+                plan=retrieval_plan,
+                user_depth=depth,
+            )
+    except Exception as exc:
+        logger.warning(
+            "[chat-completion] retrieval plan resolution failed depth=%s err=%s",
+            depth,
+            exc,
+        )
+
     messages_for_llm.extend(context)
 
     model = task.model
