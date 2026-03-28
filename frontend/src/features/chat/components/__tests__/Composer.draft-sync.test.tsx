@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+} from "@/features/chat/chatLane";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
 
@@ -118,7 +120,7 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
-  it("assigns right-edge ownership to the control row and keeps the send button circular", () => {
+  it("keeps the textarea, controls strip, and send slot on one horizontal content plane", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
     const contentPlane = screen.getByTestId("composer-content-plane");
@@ -133,7 +135,12 @@ describe("Composer draft sync", () => {
     expect(controlsStrip.className).not.toContain("pr-2");
 
     const sendSlot = screen.getByTestId("composer-send-slot");
-    expect(sendSlot).toHaveClass("flex", "shrink-0", "items-center");
+    expect(sendSlot).toHaveClass(
+      "flex",
+      "shrink-0",
+      "items-center",
+      "justify-center"
+    );
     expect(sendSlot.className).not.toMatch(/\bpr-/);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
@@ -146,6 +153,9 @@ describe("Composer draft sync", () => {
       "p-0"
     );
     expect(sendButton.className).not.toMatch(/\brounded-md\b/);
+    expect(sendButton.getAttribute("style") ?? "").not.toMatch(
+      /\b(?:width|min-width|height|min-height|padding)\s*:/
+    );
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(textarea.parentElement).toBe(contentPlane);
