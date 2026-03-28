@@ -122,11 +122,19 @@ describe("Composer draft sync", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
     const controlsRow = screen.getByTestId("composer-control-row");
-    expect(controlsRow).toHaveClass("pr-[24px]");
+    expect(controlsRow).toHaveClass("px-[var(--composer-text-pad-x,14px)]");
+    expect(controlsRow).not.toHaveClass("justify-between");
+    expect(controlsRow.className).not.toMatch(/\bpl-\[/);
+    expect(controlsRow.className).not.toMatch(/\bpr-\[/);
+
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    expect(controlsStrip).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
+    expect(controlsStrip.className).not.toMatch(/\bpr-/);
 
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass("shrink-0");
     expect(sendSlot.className).not.toMatch(/\bpr-/);
+    expect(sendSlot.previousElementSibling).toBe(controlsStrip);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
@@ -141,6 +149,8 @@ describe("Composer draft sync", () => {
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(textarea.parentElement).toHaveAttribute("data-composer-root");
+    expect(composerSource).not.toContain("justify-between");
+    expect(composerSource).not.toContain('pr-[24px]');
   });
 
   it("stages attachments locally and uploads them only after send", async () => {
