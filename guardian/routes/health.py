@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import requests
 from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 
 from guardian.core import metrics
 from guardian.core.dependencies import DB_BACKEND, get_database_dsn
@@ -44,6 +45,12 @@ _CHAT_QUEUE_LAST_CHECK_TS = 0.0
 
 # Create unprefixed router to preserve /health/chat path
 router = APIRouter(tags=["Health"])
+
+
+def _redis_dependency_unavailable_response(
+    payload: dict[str, object]
+) -> JSONResponse:
+    return JSONResponse(status_code=503, content=payload)
 
 
 def _resolve_llm_health_endpoints() -> list[str]:
@@ -161,22 +168,31 @@ def _classify_chat_worker_heartbeat(
 def _collect_chat_queue_health() -> dict[str, object]:
     global _CHAT_QUEUE_LAST_DEPTH, _CHAT_QUEUE_LAST_CHECK_TS
 
-    from guardian.queue.redis_queue import get_redis_client
+    from guardian.queue.redis_queue import (
+        RedisOperationTimeout,
+        get_redis_client,
+        run_with_redis_timeout,
+    )
 
     queue_health: dict[str, object] = {
         "depth": None,
         "status": "unknown",
         "error": None,
+        "dependency": None,
+        "dependency_unavailable": False,
     }
 
     try:
-        client = get_redis_client()
+        client = run_with_redis_timeout(get_redis_client)
         llen = getattr(client, "llen", None)
         if not callable(llen):
             queue_health["error"] = "queue_depth_unavailable"
             return queue_health
 
-        depth = max(0, int(llen(CHAT_QUEUE_NAME)))
+        depth = max(
+            0,
+            int(run_with_redis_timeout(lambda: llen(CHAT_QUEUE_NAME))),
+        )
         now = time.time()
         with _CHAT_QUEUE_PROGRESS_LOCK:
             previous_depth = _CHAT_QUEUE_LAST_DEPTH
@@ -206,14 +222,20 @@ def _collect_chat_queue_health() -> dict[str, object]:
             queue_health["status"] = "progressing"
         else:
             queue_health["status"] = "stalled"
-    except Exception as exc:
+    except (RedisOperationTimeout, Exception) as exc:
         queue_health["error"] = f"{type(exc).__name__}: {exc}"
+        queue_health["dependency"] = "redis"
+        queue_health["dependency_unavailable"] = True
 
     return queue_health
 
 
 def _collect_completion_service_health() -> dict[str, object]:
-    from guardian.queue.redis_queue import get_redis_client
+    from guardian.queue.redis_queue import (
+        RedisOperationTimeout,
+        get_redis_client,
+        run_with_redis_timeout,
+    )
 
     heartbeat_key = os.getenv(
         "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
@@ -227,11 +249,15 @@ def _collect_completion_service_health() -> dict[str, object]:
         "heartbeat_key": heartbeat_key,
         "status_reason": "unknown",
         "error": None,
+        "dependency": None,
+        "dependency_unavailable": False,
     }
 
     try:
-        client = get_redis_client()
-        completion_service["redis_reachable"] = bool(client.ping())
+        client = run_with_redis_timeout(get_redis_client)
+        completion_service["redis_reachable"] = bool(
+            run_with_redis_timeout(client.ping)
+        )
 
         probe_queue = f"codexify:queue:healthcheck:{uuid4().hex}"
         probe_payload = {
@@ -239,17 +265,21 @@ def _collect_completion_service_health() -> dict[str, object]:
             "probe_id": uuid4().hex,
             "ts": int(time.time()),
         }
-        client.lpush(probe_queue, json.dumps(probe_payload))
-        popped = client.rpop(probe_queue)
+        run_with_redis_timeout(
+            lambda: client.lpush(probe_queue, json.dumps(probe_payload))
+        )
+        popped = run_with_redis_timeout(lambda: client.rpop(probe_queue))
         completion_service["enqueue_test_ok"] = bool(popped)
         try:
-            client.delete(probe_queue)
-        except Exception:
+            run_with_redis_timeout(lambda: client.delete(probe_queue))
+        except (RedisOperationTimeout, Exception):
             logger.debug(
                 "[health/chat] probe queue cleanup failed", exc_info=True
             )
 
-        raw_heartbeat = client.get(heartbeat_key)
+        raw_heartbeat = run_with_redis_timeout(
+            lambda: client.get(heartbeat_key)
+        )
         completion_service["worker_heartbeat_detected"] = bool(raw_heartbeat)
         if raw_heartbeat:
             heartbeat_payload = {}
@@ -292,9 +322,11 @@ def _collect_completion_service_health() -> dict[str, object]:
             completion_service["status_reason"] = "worker_heartbeat_dead"
         else:
             completion_service["status_reason"] = "ok"
-    except Exception as exc:
+    except (RedisOperationTimeout, Exception) as exc:
         completion_service["error"] = f"{type(exc).__name__}: {exc}"
-        completion_service["status_reason"] = "probe_failed"
+        completion_service["status_reason"] = "dependency_unavailable"
+        completion_service["dependency"] = "redis"
+        completion_service["dependency_unavailable"] = True
         logger.warning("[health/chat] completion service check failed: %s", exc)
 
     return completion_service
@@ -353,6 +385,17 @@ def health_llm():
             {"ok": False, "status": "misconfigured", "error": str(exc)}
         )
         return payload
+
+    if completion_service.get("dependency_unavailable"):
+        payload.update(
+            {
+                "ok": False,
+                "status": "dependency_unavailable",
+                "error": "dependency_unavailable",
+                "dependency": "redis",
+            }
+        )
+        return _redis_dependency_unavailable_response(payload)
 
     if provider == "local":
         timeout = float(os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "1.0"))
@@ -456,6 +499,10 @@ def health_chat():
     queue_depth = queue_health.get("depth")
     queue_status = str(queue_health.get("status") or "unknown")
     queue_error = queue_health.get("error")
+    redis_dependency_unavailable = bool(
+        completion_service.get("dependency_unavailable")
+        or queue_health.get("dependency_unavailable")
+    )
 
     if not redis_reachable:
         status = "unhealthy"
@@ -527,7 +574,7 @@ def health_chat():
                 "worker heartbeat dead; chat completion cannot progress",
             ]
 
-    return {
+    payload = {
         "ok": status == "healthy",
         "status": status,
         "redis": "ok" if redis_ok else "unhealthy",
@@ -547,6 +594,21 @@ def health_chat():
         "backend": DB_BACKEND,
         "completion_service": completion_service,
     }
+    if redis_dependency_unavailable:
+        payload.update(
+            {
+                "ok": False,
+                "status": "unhealthy",
+                "error": "dependency_unavailable",
+                "dependency": "redis",
+            }
+        )
+        if not any("redis unavailable" in str(note).lower() for note in notes):
+            payload["notes"] = [
+                "redis unavailable; chat completion cannot be trusted"
+            ] + list(notes)
+        return _redis_dependency_unavailable_response(payload)
+    return payload
 
 
 @router.get("/health/memory")
