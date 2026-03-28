@@ -121,11 +121,19 @@ describe("Composer draft sync", () => {
   it("assigns right-edge ownership to the control row and keeps the send button circular", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
+    const contentPlane = screen.getByTestId("composer-content-plane");
     const controlsRow = screen.getByTestId("composer-control-row");
-    expect(controlsRow).toHaveClass("pr-[24px]");
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    expect(contentPlane).toHaveClass("px-[var(--composer-pad-x,12px)]");
+    expect(controlsRow.parentElement).toBe(contentPlane);
+    expect(controlsRow).not.toHaveClass("justify-between");
+    expect(controlsRow.className).not.toContain("pl-[8px]");
+    expect(controlsRow.className).not.toContain("pr-[24px]");
+    expect(controlsStrip).toHaveClass("flex-1");
+    expect(controlsStrip.className).not.toContain("pr-2");
 
     const sendSlot = screen.getByTestId("composer-send-slot");
-    expect(sendSlot).toHaveClass("shrink-0");
+    expect(sendSlot).toHaveClass("flex", "shrink-0", "items-center");
     expect(sendSlot.className).not.toMatch(/\bpr-/);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
@@ -140,7 +148,10 @@ describe("Composer draft sync", () => {
     expect(sendButton.className).not.toMatch(/\brounded-md\b/);
 
     const textarea = screen.getByPlaceholderText("Write a message…");
-    expect(textarea.parentElement).toHaveAttribute("data-composer-root");
+    expect(textarea.parentElement).toBe(contentPlane);
+    expect(composerSource).not.toContain("justify-between");
+    expect(composerSource).not.toContain('pl-[8px]');
+    expect(composerSource).not.toContain('pr-[24px]');
   });
 
   it("stages attachments locally and uploads them only after send", async () => {
