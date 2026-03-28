@@ -6,6 +6,7 @@ decisions used by catalog, health, router, and worker code.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, TypedDict
 
@@ -19,6 +20,8 @@ from guardian.core.config import (
     validate_llm_config,
 )
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+
+logger = logging.getLogger(__name__)
 
 ProviderGovernanceClassification = Literal[
     "discovery_backed",
@@ -873,6 +876,29 @@ def _normalize_model_descriptor(item: dict[str, Any]) -> dict[str, Any]:
     return descriptor
 
 
+def _fallback_chat_capable_models(
+    provider_id: str, models: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    logger.warning(
+        "[provider_registry] provider=%s no models passed chat-capable classification; falling back to all discovered models",
+        provider_id,
+    )
+    fallback_models: list[dict[str, Any]] = []
+    for item in models:
+        descriptor = dict(item)
+        supports_vision = bool(descriptor.get("supports_vision"))
+        descriptor["supports_chat"] = True
+        descriptor["supports_text_input"] = True
+        descriptor["model_kind"] = "vision_chat" if supports_vision else "chat"
+        capabilities = dict(descriptor.get("capabilities") or {})
+        capabilities["chat"] = True
+        capabilities["vision"] = supports_vision
+        capabilities["text_input"] = True
+        descriptor["capabilities"] = capabilities
+        fallback_models.append(descriptor)
+    return fallback_models
+
+
 def _extract_context_window(item: dict[str, Any]) -> int | None:
     for key in (
         "contextWindow",
@@ -1038,6 +1064,21 @@ def _discover_dynamic_provider_models(
             failure_kind="provider_payload_error",
         )
     if chat_model_count <= 0:
+        if models:
+            fallback_models = _fallback_chat_capable_models(provider, models)
+            return fallback_models, _model_index_metadata(
+                "degraded",
+                endpoint=endpoint,
+                reason=(
+                    "Provider model index returned no chat-capable models; "
+                    "falling back to all discovered models "
+                    "(classifier may be too strict)"
+                ),
+                model_count=len(fallback_models),
+                utility_model_count=0,
+                total_model_count=len(models),
+                failure_kind="empty_model_result",
+            )
         return [], _model_index_metadata(
             "degraded",
             endpoint=endpoint,
@@ -1226,13 +1267,17 @@ def resolve_provider_capability(
     default_model = default_model_for_provider(provider, settings)
 
     if governance and governance.local_only:
-        models: list[dict[str, Any]] = []
+        models = _static_provider_models(provider, settings)
         model_index = {
             "source": "local",
             "state": "available",
-            "model_count": 0,
-            "utility_model_count": 0,
-            "total_model_count": 0,
+            "model_count": sum(
+                1 for model in models if bool(model.get("supports_chat"))
+            ),
+            "utility_model_count": sum(
+                1 for model in models if not bool(model.get("supports_chat"))
+            ),
+            "total_model_count": len(models),
         }
     elif governance and governance.live_discovery_expected:
         models, model_index = _discover_dynamic_provider_models(
@@ -1274,9 +1319,15 @@ def resolve_provider_capability(
                     "utility_model_count": utility_model_count,
                     "total_model_count": len(models),
                 }
-        elif model_index["state"] != "available" and (
-            not default_model
-            or not provider_allows_default_during_degraded_discovery(provider)
+        elif (
+            model_index["state"] != "available"
+            and not models
+            and (
+                not default_model
+                or not provider_allows_default_during_degraded_discovery(
+                    provider
+                )
+            )
         ):
             available = False
             disabled_reason = (
