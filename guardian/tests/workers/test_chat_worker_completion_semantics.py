@@ -452,6 +452,97 @@ def test_generation_success_but_persistence_failure_is_non_authoritative(
         assert exc.metadata["completion_truth"]["completed"] is False
 
 
+def test_extract_assistant_response_strips_structured_scratchpad():
+    raw = (
+        "=== SCRATCHPAD ===\n"
+        "% System Note === internal\n"
+        "% User Note === internal\n"
+        "% System Response === Hello!\n"
+    )
+    assert chat_worker.extract_assistant_response(raw) == "Hello!"
+
+    raw_fallback = "header\n" "=== SCRATCHPAD ===\n" "Final visible reply"
+    assert (
+        chat_worker.extract_assistant_response(raw_fallback)
+        == "Final visible reply"
+    )
+
+
+def test_completion_persists_stripped_response_boundary(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.create_message.return_value = 321
+    mock_db.write_audit_log = MagicMock()
+    monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(
+        chat_worker.event_bus, "emit_event", lambda *a, **k: None
+    )
+    monkeypatch.setattr(chat_worker, "_embed_message", lambda *a, **k: None)
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "local",
+            "qwen3.5:27b",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(
+        chat_worker,
+        "get_settings",
+        lambda: Settings(
+            LLM_PROVIDER="local",
+            ALLOW_CLOUD_PROVIDERS=True,
+            CODEXIFY_LOCAL_ONLY_MODE=False,
+            CODEXIFY_EGRESS_ALLOWLIST="groq,openai,minimax",
+            LOCAL_LLM_MODEL="qwen3.5:27b",
+            DEFAULT_LOCAL_MODEL="qwen3.5:27b",
+            LLM_MODEL="qwen3.5:27b",
+        ),
+    )
+
+    class _EmptyStream:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_a, **_k: (
+            "=== SCRATCHPAD ===\n"
+            "% System Note === internal\n"
+            "% User Note === internal\n"
+            "% System Response === Hello!\n"
+        ),
+    )
+
+    callback_tokens: list[str] = []
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model="qwen3.5:27b",
+        selection_source="explicit",
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(
+        task,
+        token_callback=callback_tokens.append,
+    )
+
+    assert result["assistant_text"] == "Hello!"
+    assert callback_tokens == ["Hello!"]
+    assert mock_db.create_message.call_args[0][2] == "Hello!"
+
+
 def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
     published: list[tuple[str, dict]] = []
 
