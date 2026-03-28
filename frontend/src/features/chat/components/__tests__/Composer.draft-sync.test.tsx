@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+  CHAT_COMPOSER_SEND_PAD_CLASS,
+} from "@/features/chat/chatLane";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
 
@@ -118,15 +121,24 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
-  it("assigns right-edge ownership to the control row and keeps the send button circular", () => {
+  it("gives the send slot its own fixed padded lane and keeps the send button circular", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
     const controlsRow = screen.getByTestId("composer-control-row");
-    expect(controlsRow).toHaveClass("pr-[24px]");
+    expect(controlsRow).not.toHaveClass("justify-between");
+    expect(controlsRow.className).not.toMatch(/\bpr-\[/);
+
+    const controlsStrip = controlsRow.firstElementChild as HTMLElement;
+    expect(controlsStrip).toHaveClass("flex-1", "min-w-0", "overflow-x-auto");
 
     const sendSlot = screen.getByTestId("composer-send-slot");
-    expect(sendSlot).toHaveClass("shrink-0");
-    expect(sendSlot.className).not.toMatch(/\bpr-/);
+    expect(sendSlot).toHaveClass(
+      "flex",
+      "shrink-0",
+      "items-center",
+      "justify-center"
+    );
+    expect(sendSlot.className).toContain(CHAT_COMPOSER_SEND_PAD_CLASS);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
@@ -138,6 +150,9 @@ describe("Composer draft sync", () => {
       "p-0"
     );
     expect(sendButton.className).not.toMatch(/\brounded-md\b/);
+    expect(sendButton.getAttribute("style") ?? "").not.toMatch(
+      /\b(?:width|min-width|height|min-height|padding)\s*:/
+    );
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(textarea.parentElement).toHaveAttribute("data-composer-root");

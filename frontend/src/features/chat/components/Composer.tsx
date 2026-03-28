@@ -20,7 +20,10 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+  CHAT_COMPOSER_SEND_PAD_CLASS,
+} from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -733,10 +736,10 @@ export function Composer({
           data-testid="composer-control-row"
           className={cn(
             CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-            "mt-auto flex w-full items-center justify-between gap-3 pl-[8px] pr-[24px] pb-[6px]"
+            "mt-auto flex w-full items-center gap-3 pl-[8px] pb-[6px]"
           )}
         >
-          <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
+          <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
             <ComposerActionMenu
               disabled={draftControlsDisabled}
               depthMode={depthMode}
@@ -794,7 +797,13 @@ export function Composer({
             />
           </div>
 
-          <div data-testid="composer-send-slot" className="shrink-0">
+          <div
+            data-testid="composer-send-slot"
+            className={cn(
+              CHAT_COMPOSER_SEND_PAD_CLASS,
+              "flex shrink-0 items-center justify-center"
+            )}
+          >
             <Button
               type="button"
               onClick={handleAttemptSend}
@@ -817,11 +826,6 @@ export function Composer({
                     : ""
               )}
               style={{
-                width: 32,
-                height: 32,
-                minWidth: 32,
-                minHeight: 32,
-                padding: 0,
                 background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
                 color: "var(--text-on-accent, #111827)",
                 boxShadow: "none",
