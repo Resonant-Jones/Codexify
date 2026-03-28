@@ -733,10 +733,13 @@ export function Composer({
           data-testid="composer-control-row"
           className={cn(
             CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-            "mt-auto flex w-full items-center justify-between gap-3 pl-[8px] pr-[24px] pb-[6px]"
+            "mt-auto flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)] pb-[6px]"
           )}
         >
-          <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">
+          <div
+            data-testid="composer-controls-strip"
+            className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
+          >
             <ComposerActionMenu
               disabled={draftControlsDisabled}
               depthMode={depthMode}
