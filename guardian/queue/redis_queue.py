@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 from unittest.mock import Mock
+from urllib.parse import unquote, urlparse
 
 import redis
+from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
@@ -197,7 +200,7 @@ def _is_mock_client(client: Any) -> bool:
 
 
 def _running_under_pytest() -> bool:
-    return bool(os.getenv("PYTEST_CURRENT_TEST"))
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or "pytest" in sys.modules
 
 
 def _is_inmemory_redis(client: redis.Redis) -> bool:
@@ -295,29 +298,84 @@ def _redis_url() -> str:
     return (os.getenv("REDIS_URL") or _DEFAULT_REDIS_URL).strip()
 
 
-def _connect(*, socket_timeout: float | None) -> Any:
-    client = redis.Redis.from_url(
-        _redis_url(),
-        decode_responses=True,
-        socket_connect_timeout=2,
-        socket_timeout=socket_timeout,
-        retry_on_timeout=False,
-    )
+def _redis_connection_kwargs() -> dict[str, Any]:
+    parsed = urlparse(_redis_url())
+    if parsed.scheme not in {"redis", "rediss"}:
+        raise ValueError(
+            f"Unsupported Redis URL scheme: {parsed.scheme or 'missing'}"
+        )
+
+    db = 0
+    raw_path = str(parsed.path or "").lstrip("/")
+    if raw_path:
+        db = int(raw_path.split("/", 1)[0])
+
+    kwargs: dict[str, Any] = {
+        "host": parsed.hostname or "redis",
+        "port": int(parsed.port or 6379),
+        "db": db,
+        "decode_responses": True,
+    }
+    if parsed.username:
+        kwargs["username"] = unquote(parsed.username)
+    if parsed.password:
+        kwargs["password"] = unquote(parsed.password)
+    if parsed.scheme == "rediss":
+        kwargs["ssl"] = True
+    return kwargs
+
+
+def _create_redis_client(
+    *,
+    socket_timeout: float | None,
+    retry_on_timeout: bool,
+) -> Any:
+    client_kwargs = {
+        **_redis_connection_kwargs(),
+        "socket_connect_timeout": 2,
+        "socket_timeout": socket_timeout,
+        "retry_on_timeout": retry_on_timeout,
+    }
+    if _running_under_pytest():
+        from_url = getattr(redis.Redis, "from_url", None)
+        if callable(from_url):
+            candidate = from_url(_redis_url(), **client_kwargs)
+            _patch_inmemory_redis(candidate)
+            return candidate
+
+    client = Redis(**client_kwargs)
     _patch_inmemory_redis(client)
     return client
 
 
+def create_request_redis() -> Any:
+    return _create_redis_client(
+        socket_timeout=2,
+        retry_on_timeout=False,
+    )
+
+
+def create_queue_redis() -> Any:
+    return _create_redis_client(
+        socket_timeout=None,
+        retry_on_timeout=True,
+    )
+
+
 def _connect_request_client() -> Any:
-    return _connect(socket_timeout=2)
+    return create_request_redis()
 
 
 def _connect_queue_client() -> Any:
-    return _connect(socket_timeout=None)
+    return create_queue_redis()
 
 
-def _build_pytest_client(connect_fn: Callable[[], Any]) -> Any:
+request_redis: Any = None
+
+
+def _build_pytest_client(factory: Callable[[], Any]) -> Any:
     try:
-        candidate = connect_fn()
+        candidate = factory()
     except Exception as exc:
         logger.warning(
             "[redis] falling back to in-memory client under pytest: %s", exc
@@ -331,33 +389,46 @@ def _build_pytest_client(connect_fn: Callable[[], Any]) -> Any:
     return candidate
 
 
+def _set_request_client(client: Any) -> Any:
+    global _CLIENT, request_redis
+    _CLIENT = client
+    request_redis = client
+    return client
+
+
+def _set_queue_client(client: Any) -> Any:
+    global _QUEUE_CLIENT
+    _QUEUE_CLIENT = client
+    return client
+
+
 def _get_request_client() -> Any:
     global _CLIENT
     if _is_mock_client(_CLIENT):
-        _CLIENT = None
+        _set_request_client(None)
     if _CLIENT is None:
-        _CLIENT = (
+        _set_request_client(
             _build_pytest_client(_connect_request_client)
             if _running_under_pytest()
             else _connect_request_client()
         )
     if _running_under_pytest() and _is_mock_client(_CLIENT):
-        _CLIENT = _InMemoryRedis()
+        return _set_request_client(_InMemoryRedis())
     return _CLIENT
 
 
 def _get_queue_client() -> Any:
     global _QUEUE_CLIENT
     if _is_mock_client(_QUEUE_CLIENT):
-        _QUEUE_CLIENT = None
+        _set_queue_client(None)
     if _QUEUE_CLIENT is None:
-        _QUEUE_CLIENT = (
+        _set_queue_client(
             _build_pytest_client(_connect_queue_client)
             if _running_under_pytest()
             else _connect_queue_client()
         )
     if _running_under_pytest() and _is_mock_client(_QUEUE_CLIENT):
-        _QUEUE_CLIENT = _InMemoryRedis()
+        return _set_queue_client(_InMemoryRedis())
     return _QUEUE_CLIENT
 
 
@@ -370,12 +441,12 @@ def _with_reconnect(fn: Callable[[Any], Any]) -> Any:
             return fn(client)
         except (RedisConnectionError, RedisTimeoutError) as exc:
             last_err = exc
-            _CLIENT = None
+            _set_request_client(None)
             logger.warning("[redis] connection issue; reconnecting: %s", exc)
             time.sleep(0.2 * (attempt + 1))
         except Exception as exc:
             last_err = exc
-            _CLIENT = None
+            _set_request_client(None)
             logger.warning("[redis] unexpected error; reconnecting: %s", exc)
             time.sleep(0.2 * (attempt + 1))
     if last_err:
@@ -392,21 +463,21 @@ def _with_queue_reconnect(fn: Callable[[Any], Any]) -> Any:
             return fn(client)
         except (RedisConnectionError, RedisTimeoutError) as exc:
             last_err = exc
-            _QUEUE_CLIENT = None
+            _set_queue_client(None)
             logger.warning(
-                "[queue_redis] connection issue; reconnecting: %s", exc
+                "[redis:queue] connection issue; reconnecting: %s", exc
             )
             time.sleep(0.2 * (attempt + 1))
         except Exception as exc:
             last_err = exc
-            _QUEUE_CLIENT = None
+            _set_queue_client(None)
             logger.warning(
-                "[queue_redis] unexpected error; reconnecting: %s", exc
+                "[redis:queue] unexpected error; reconnecting: %s", exc
             )
             time.sleep(0.2 * (attempt + 1))
     if last_err:
         raise last_err
-    raise RuntimeError("queue redis operation failed without exception")
+    raise RuntimeError("redis queue operation failed without exception")
 
 
 def _serialize(task: Any) -> str:
@@ -556,9 +627,7 @@ def release_turn_lock(thread_id: int) -> None:
 def get_request_redis_client() -> Any:
     client = _get_request_client()
     if _running_under_pytest() and _is_mock_client(client):
-        global _CLIENT
-        _CLIENT = _InMemoryRedis()
-        client = _CLIENT
+        client = _set_request_client(_InMemoryRedis())
     return client
 
 
