@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-03-20
+Last updated: 2026-03-29
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -56,6 +56,14 @@ Acceptance semantics:
 - Normal acceptance means the route acquired the turn lock and enqueued the task.
 - The route does not prove dequeue, eventual success, or UI receipt.
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
+
+Conceptual state split:
+- The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
+- Provider runtime state answers whether the selected provider lane is reachable, warming, ready, or otherwise degraded.
+- Request execution state answers what a specific completion attempt is doing after acceptance.
+- Lifecycle visibility state answers what the UI or operator can currently observe from task events, persisted assistant rows, and related breadcrumbs.
+- `docs/architecture/chat-runtime-contract.md` is the normative source for the request/provider state vocabulary used by frontend/shared-runtime interpretation.
+- This flow remains descriptive of the current queue-backed path. It should not be read as proof that every contract state is already emitted literally by the backend on `main`.
 
 Concrete anchors:
 - `guardian/routes/chat.py`

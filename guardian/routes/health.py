@@ -390,6 +390,7 @@ def health_llm():
     from guardian.core.ai_router import (
         _resolve_local_base,
         describe_local_runtime,
+        resolve_local_execution_model,
     )
     from guardian.core.config import (
         LLMConfigError,
@@ -399,9 +400,24 @@ def health_llm():
 
     settings = get_settings()
     provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
-    provider_runtime = resolve_provider_capability(provider, settings)
+    provider_runtime = dict(resolve_provider_capability(provider, settings))
     model = str(provider_runtime.get("default_model") or "").strip()
     completion_service = _collect_completion_service_health()
+    local_model_resolution = None
+
+    if provider == "local":
+        local_model_resolution = resolve_local_execution_model(
+            settings=settings,
+            requested_model=model,
+            validate_availability=True,
+            request_get=requests.get,
+        )
+        if local_model_resolution.model:
+            model = local_model_resolution.model
+            provider_runtime["default_model"] = model
+        if local_model_resolution.failure_kind:
+            provider_runtime["enabled"] = False
+            provider_runtime["disabled_reason"] = local_model_resolution.message
 
     payload = {
         "provider": provider,
@@ -409,6 +425,8 @@ def health_llm():
         "provider_runtime": provider_runtime,
         "completion_service": completion_service,
     }
+    if local_model_resolution is not None:
+        payload["model_resolution"] = local_model_resolution.as_dict()
     if provider == "local" and model:
         payload["runtime"] = describe_local_runtime(model, settings=settings)
 
@@ -423,6 +441,35 @@ def health_llm():
             settings,
             capability=provider_runtime,
             discoverable=False,
+            selectable=False,
+        )
+        return payload
+
+    if (
+        local_model_resolution is not None
+        and local_model_resolution.failure_kind
+    ):
+        payload.update(
+            {
+                "ok": False,
+                "status": "misconfigured",
+                "error": payload["model_resolution"]["error"],
+                "failure_kind": local_model_resolution.failure_kind,
+                "message": local_model_resolution.message,
+            }
+        )
+        payload["provider_truth"] = build_provider_truth(
+            provider,
+            settings,
+            capability=provider_runtime,
+            discoverable=bool(
+                local_model_resolution.endpoint_resolution
+                and str(
+                    local_model_resolution.endpoint_resolution.get("state")
+                    or ""
+                ).strip()
+                == "available"
+            ),
             selectable=False,
         )
         return payload
@@ -549,7 +596,27 @@ def health_chat():
     queue_health = _collect_chat_queue_health()
     settings = get_settings()
     provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
-    provider_runtime = resolve_provider_capability(provider, settings)
+    provider_runtime = dict(resolve_provider_capability(provider, settings))
+    local_model_resolution = None
+    model = str(provider_runtime.get("default_model") or "").strip()
+    if provider == "local":
+        from guardian.core.ai_router import (
+            describe_local_runtime,
+            resolve_local_execution_model,
+        )
+
+        local_model_resolution = resolve_local_execution_model(
+            settings=settings,
+            requested_model=model,
+            validate_availability=True,
+            request_get=requests.get,
+        )
+        if local_model_resolution.model:
+            model = local_model_resolution.model
+            provider_runtime["default_model"] = model
+        if local_model_resolution.failure_kind:
+            provider_runtime["enabled"] = False
+            provider_runtime["disabled_reason"] = local_model_resolution.message
 
     try:
         threads = chatlog_db.count_chat_threads()
@@ -666,6 +733,7 @@ def health_chat():
         "backend": DB_BACKEND,
         "completion_service": completion_service,
         "provider": provider,
+        "model": model,
         "provider_runtime": provider_runtime,
         "provider_truth": build_provider_truth(
             provider,
@@ -680,6 +748,10 @@ def health_chat():
             selectable=bool(provider_runtime.get("enabled")),
         ),
     }
+    if local_model_resolution is not None:
+        payload["model_resolution"] = local_model_resolution.as_dict()
+    if provider == "local" and model:
+        payload["runtime"] = describe_local_runtime(model, settings=settings)
     if redis_dependency_unavailable:
         payload.update(
             {
@@ -694,6 +766,37 @@ def health_chat():
                 "redis unavailable; chat completion cannot be trusted"
             ] + list(notes)
         return _redis_dependency_unavailable_response(payload)
+    if (
+        local_model_resolution is not None
+        and local_model_resolution.failure_kind
+    ):
+        payload.update(
+            {
+                "ok": False,
+                "status": "unhealthy",
+                "error": payload["model_resolution"]["error"],
+                "failure_kind": local_model_resolution.failure_kind,
+                "message": local_model_resolution.message,
+            }
+        )
+        payload["notes"] = [
+            local_model_resolution.message
+            or "local chat model resolution failed"
+        ] + list(payload["notes"])
+        payload["provider_truth"] = build_provider_truth(
+            provider,
+            settings,
+            capability=provider_runtime,
+            discoverable=bool(
+                local_model_resolution.endpoint_resolution
+                and str(
+                    local_model_resolution.endpoint_resolution.get("state")
+                    or ""
+                ).strip()
+                == "available"
+            ),
+            selectable=False,
+        )
     return payload
 
 
