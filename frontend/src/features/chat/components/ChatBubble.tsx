@@ -8,6 +8,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Volume2 } from "lucide-react";
 import { Message, MessageAttachment } from "@/types/ui";
+import { resolveMediaSrc } from "@/lib/mediaUrl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -32,12 +33,15 @@ const mergeAttachments = (
     return messageAttachments.map((att) => ({
       kind: att.kind,
       id: att.id,
-      src: att.src,
+      src: att.src ? resolveMediaSrc(att.src) : att.src,
       name: att.name,
     }));
   }
   // Otherwise fall back to parsed content attachments
-  return contentAttachments;
+  return contentAttachments.map((att) => ({
+    ...att,
+    src: att.src ? resolveMediaSrc(att.src) : att.src,
+  }));
 };
 
 const parseAttachments = (content: string) => {
@@ -274,10 +278,11 @@ const AttachmentTiles = ({
     <div className={`flex flex-col gap-2 ${alignClass}`}>
       {attachments.map((att, idx) => {
         const key = `${att.kind}-${att.id ?? idx}`;
+        const resolvedSrc = att.src ? resolveMediaSrc(att.src) : att.src;
         if (att.kind === "image") {
           return (
             <div key={key} className={`${tileFrame} ${tileSize}`}>
-              {att.src ? (
+              {resolvedSrc ? (
                 <button
                   type="button"
                   onClick={() => openInWorkspace(att, idx)}
@@ -285,7 +290,7 @@ const AttachmentTiles = ({
                   aria-label="Open image"
                 >
                   <img
-                    src={att.src}
+                    src={resolvedSrc}
                     alt="uploaded image"
                     loading="lazy"
                     className="block w-full h-auto"
@@ -303,7 +308,7 @@ const AttachmentTiles = ({
 
         return (
           <div key={key} className={`${tileFrame} ${tileSize} px-3 py-2`}>
-            {att.src ? (
+            {resolvedSrc ? (
               <button
                 type="button"
                 onClick={() => openInWorkspace(att, idx)}
@@ -429,7 +434,7 @@ export function ChatBubble({
     ),
     img: ({ src, alt }: any) => (
       <img
-        src={src}
+        src={resolveMediaSrc(String(src ?? ""))}
         alt={alt || "uploaded media"}
         loading="lazy"
         className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"
