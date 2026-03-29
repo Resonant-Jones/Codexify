@@ -66,6 +66,11 @@ def _mock_redis_queue_for_chat_routes():
         ),
         patch("guardian.routes.chat.event_bus", fake_event_bus, create=True),
         patch(
+            "guardian.routes.chat.task_events.read_events",
+            return_value=[],
+            create=True,
+        ),
+        patch(
             "guardian.routes.chat.redis_queue",
             fake_redis_queue_module,
             create=True,
@@ -545,6 +550,39 @@ class TestChatMessagesGet:
         assert payload["messages"][0]["audio_url"] == "/api/voice/audio/99"
         assert payload["messages"][0]["audio_mime_type"] == "audio/wav"
         assert payload["messages"][0]["audio_duration_ms"] == 1250
+
+    def test_get_messages_exposes_execution_metadata(
+        self, test_client, mock_db, monkeypatch
+    ):
+        execution = {
+            "attempted_provider": "groq",
+            "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+            "final_provider": "local",
+            "final_model": "qwen3.5:27b",
+            "fallback_triggered": True,
+        }
+        mock_db.list_messages.return_value = [
+            {
+                "id": 56,
+                "thread_id": 1,
+                "role": "assistant",
+                "content": "Hello with fallback",
+                "created_at": "2026-03-07T12:00:00.000Z",
+                "extra_meta": {"execution": execution},
+            }
+        ]
+        mock_db.count_messages.return_value = 1
+        monkeypatch.setattr(
+            "guardian.routes.chat.list_message_audio_assets",
+            lambda **_kwargs: {},
+        )
+
+        response = test_client.get("/chat/1/messages")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["execution"] == execution
+        assert payload["messages"][0]["metadata"]["execution"] == execution
 
     def test_get_messages_includes_ready_audio_from_live_lookup_without_detached_access(
         self, test_client, mock_db, monkeypatch
@@ -1400,6 +1438,45 @@ class TestChatCompletePost:
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data.get("task_id"), str)
+
+    def test_api_complete_includes_execution_when_completion_payload_exists(
+        self, test_client, mock_db, monkeypatch
+    ):
+        mock_db.list_messages.return_value = [
+            {"role": "user", "content": "Hello there"}
+        ]
+
+        monkeypatch.setattr(
+            "guardian.routes.chat.acquire_turn_lock",
+            lambda *a, **k: True,
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat.enqueue",
+            lambda *a, **k: None,
+        )
+        monkeypatch.setattr(
+            "guardian.routes.chat._get_task_completed_payload",
+            lambda *_args, **_kwargs: {
+                "execution": {
+                    "attempted_provider": "groq",
+                    "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+                    "final_provider": "local",
+                    "final_model": "qwen3.5:27b",
+                    "fallback_triggered": True,
+                }
+            },
+        )
+
+        response = test_client.post("/api/chat/1/complete", json={})
+
+        assert response.status_code == 200
+        assert response.json()["execution"] == {
+            "attempted_provider": "groq",
+            "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+            "final_provider": "local",
+            "final_model": "qwen3.5:27b",
+            "fallback_triggered": True,
+        }
 
 
 class TestChatMessageDelete:

@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-03-25
+2026-03-28
 
 ## Interpretation rule
 
@@ -17,54 +17,49 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is in a stabilization-and-proof phase for the local Docker Compose beta path on `main`. Merged work this week tightened chat loop behavior, provider/runtime handling, and diagnostics, but release posture remains `hold` until supported-profile and end-to-end supported-path evidence are freshly re-proven on the live stack.
+Codexify is in release-hardening on `main` for the local Docker Compose beta path. Recent merges improved chat event/run consistency, retrieval routing policy scaffolding, and Redis failure behavior; readiness remains gated on fresh end-to-end supported-path proof and explicit release-gate evidence.
 
 ## What changed recently
 
-- Beta stabilization campaign work merged on `main` for chat turn-lock lifecycle, default inference mode handling, health-route alignment, thread/project mutation recovery, and provider runtime hardening.
-- Local Ollama Docker connectivity was fixed, including router/catalog/config updates and backend tests.
-- Provider visibility/governance moved forward with expanded Groq catalog coverage and stronger Minimax/Alibaba failure handling.
-- Obsidian allowlist indexer foundation landed for CLI ingest (`guardian/obsidian/indexer.py` plus tests).
-- `useChat` refresh behavior iterated quickly on `main` (contract added, rate-limited, then removed) to reduce UI loop instability.
-- Chat payload summary diagnostics landed with backend/worker test coverage.
-- Daily audit artifacts were refreshed under `docs/audits/daily/evening/` and `docs/audits/latest.*`.
+- Chat UI run-state flow was reworked to use a shared per-thread `useAgentRuns` store and task-event-driven updates.
+- Live event handling introduced canonical `LiveEvent` normalization across chat runtime paths.
+- Backend now enforces Redis fail-fast behavior and explicit `503` degradation contracts on chat/session/health surfaces.
+- Redis queue blocking paths were hardened to enforce queue-client usage, with targeted queue tests added.
+- Canonical retrieval router policy scaffold landed (`guardian/context/retrieval_router_policy.py`) with tests.
+- Daily/weekly audit artifacts continued to refresh under `docs/audits/`.
 
 ## Current supported reality
 
-- Supported install path is local Docker Compose with backend, frontend, Postgres, Redis, and required workers.
-- Core released interaction remains thread chat with queue-backed completion and persisted task/message state.
-- Chat runtime and frontend loop stability improved on `main` through lock lifecycle, route alignment, and payload diagnostics hardening.
-- Provider runtime posture is clearer than last week: local Ollama connectivity is fixed for Docker flow, Groq catalog visibility expanded, and Minimax/Alibaba failures are handled more defensively.
-- Project and thread mutation paths were repaired on `main` and backed by frontend tests.
-- Obsidian support on `main` is local CLI ingest plus indexer foundation, not a shipped continuous connector sync path.
-- Current validation evidence is primarily targeted backend/frontend tests and audit artifacts; release signoff still requires fresh integrated runtime proof.
+- Supported install path remains local Docker Compose with backend, frontend, Postgres, Redis, and workers.
+- Thread chat is the core supported flow, with queue-backed completion and persisted task/message state.
+- Chat runtime state on `main` now uses normalized live events and consolidated per-thread agent-runs state.
+- Retrieval routing now has an explicit policy scaffold and tests, but this is policy infrastructure rather than a full release gate.
+- Runtime now degrades explicitly when Redis coordination is unavailable instead of silently drifting.
+- Validation evidence on `main` is still mostly unit/targeted integration tests plus audit snapshots.
 
 ## Not yet true / do not assume
 
-- Do not assume supported-profile flags are freshly validated on the current release Compose stack.
-- Do not assume quarantined non-core routes are consistently excluded without explicit live verification.
-- Do not assume provider catalog presence means the path is supported for release.
-- Do not assume legacy `/tools` and command bus behavior are fully unified.
-- Do not assume queue acceptance, queue progress, or task events prove eventual completion in the UI.
-- Do not assume Redis dependency for chat coordination is removed.
-- Do not assume federation/sync durability is part of the present beta release promise.
-- Do not assume Obsidian connector sync is shipped; only local CLI ingest/indexing is evidenced on `main`.
+- Do not assume one fresh full supported-path smoke (thread -> completion -> upload -> embed -> retrieve) has been published for current `main`.
+- Do not assume supported-profile runtime flags were freshly re-verified on the live release Compose stack.
+- Do not assume route quarantine posture is continuously enforced without explicit runtime evidence.
+- Do not assume `/tools` and command-bus surfaces are fully unified into one release contract.
+- Do not assume provider/catalog visibility alone implies release support.
+- Do not assume Redis is optional for current chat/queue coordination.
+- Do not assume federation durability or broad connector sync is part of the present beta promise.
 
 ## Active blockers
 
-- Fresh supported-path proof on `main` is still missing for thread -> completion and upload -> embed -> retrieve in one passing run.
-- Supported-profile contract must be re-verified live to confirm route posture and runtime flags match release expectations.
-- Provider governance, catalog, and runtime health still require manual cross-reading rather than one release-grade gate.
-- Legacy `/tools` duality with command bus behavior remains unresolved in release-facing contract terms.
-- Redis-backed queue/worker dependency remains a central coordination risk for chat completion behavior.
+- Missing fresh end-to-end supported-path proof on current `main` for chat + ingestion + retrieval.
+- Missing current-cycle live verification for supported-profile flags and quarantined-route behavior.
+- Release gate evidence across `/health`, `/health/llm`, `/health/chat`, and `/api/llm/catalog` is not yet packaged as one operator-facing signoff.
+- `/tools` vs command-bus release-surface boundaries remain ambiguous in current release docs.
 
 ## This week's priorities
 
-1. Run and publish one fresh supported-path evidence pass on `main` (thread, completion, upload, embed, retrieval).
-2. Re-verify supported-profile runtime flags and quarantined-route behavior on the actual release Compose stack.
-3. Align release gate language across `/health`, `/health/llm`, `/health/chat`, and `/api/llm/catalog`.
-4. Reduce `/tools` vs command bus release-surface ambiguity and document the enforced contract.
-5. Lock Obsidian beta promise wording to what is currently shipped (`CLI ingest/indexer` only unless new proof lands).
+1. Execute and publish one full supported-path run on `main` (thread, completion, upload, embed, retrieval).
+2. Re-verify and record supported-profile flags and route quarantine posture on the live Compose stack.
+3. Publish one release-gate check artifact that reconciles `/health`, `/health/llm`, `/health/chat`, and `/api/llm/catalog`.
+4. Tighten and document `/tools` versus command-bus release boundaries in operator-facing terms.
 
 ## Release definition right now
 

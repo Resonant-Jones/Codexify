@@ -1237,6 +1237,40 @@ def _coerce_message_id(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
+def _coerce_execution_payload(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+
+    normalized: dict[str, Any] = {}
+    for key in (
+        "attempted_provider",
+        "attempted_model",
+        "final_provider",
+        "final_model",
+    ):
+        value = raw.get(key)
+        if not isinstance(value, str):
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        normalized[key] = trimmed
+
+    fallback_triggered = raw.get("fallback_triggered")
+    if isinstance(fallback_triggered, bool):
+        normalized["fallback_triggered"] = fallback_triggered
+    elif isinstance(fallback_triggered, (int, float)):
+        normalized["fallback_triggered"] = bool(fallback_triggered)
+    elif isinstance(fallback_triggered, str):
+        normalized[
+            "fallback_triggered"
+        ] = fallback_triggered.strip().lower() in {"1", "true", "yes", "on"}
+    else:
+        return None
+
+    return normalized
+
+
 def _fetch_message_extra_meta(
     *, thread_id: int, message_ids: list[int]
 ) -> dict[int, dict[str, Any]]:
@@ -1665,11 +1699,16 @@ def chat_list_messages(
             continue
         item = dict(raw_item)
         message_id = _coerce_message_id(item.get("id"))
+        execution = _coerce_execution_payload(item.get("execution"))
         metadata = _coerce_message_meta(item.get("metadata"))
         if not metadata:
             metadata = _coerce_message_meta(item.get("extra_meta"))
         if metadata:
             item["metadata"] = metadata
+            if execution is None:
+                execution = _coerce_execution_payload(metadata.get("execution"))
+            if execution:
+                item["execution"] = execution
             turn_id_raw = metadata.get("turn_id")
             if isinstance(turn_id_raw, str) and turn_id_raw.strip():
                 item["turn_id"] = turn_id_raw.strip()
@@ -1691,6 +1730,13 @@ def chat_list_messages(
                 if not metadata:
                     continue
                 item["metadata"] = metadata
+                execution = _coerce_execution_payload(item.get("execution"))
+                if execution is None:
+                    execution = _coerce_execution_payload(
+                        metadata.get("execution")
+                    )
+                if execution:
+                    item["execution"] = execution
                 turn_id_raw = metadata.get("turn_id")
                 if isinstance(turn_id_raw, str) and turn_id_raw.strip():
                     item["turn_id"] = turn_id_raw.strip()
@@ -2018,7 +2064,7 @@ async def chat_complete(
     messages_url = f"/api/chat/{thread_id}/messages"
     trace_url = f"/api/chat/debug/rag-trace/{thread_id}/latest"
 
-    return {
+    response = {
         "ok": True,
         "acceptance_status": acceptance_status,
         "acceptance_warnings": acceptance_warnings,
@@ -2032,6 +2078,33 @@ async def chat_complete(
         "messages_url": messages_url,
         "trace_url": trace_url,
     }
+
+    completed_payload = _get_task_completed_payload(task_identity, block_ms=0)
+    execution = None
+    if isinstance(completed_payload, dict):
+        execution = _coerce_execution_payload(
+            completed_payload.get("execution")
+        )
+        if execution is None:
+            execution = _coerce_execution_payload(
+                {
+                    "attempted_provider": completed_payload.get(
+                        "attempted_provider"
+                    ),
+                    "attempted_model": completed_payload.get("attempted_model"),
+                    "final_provider": completed_payload.get("provider")
+                    or completed_payload.get("final_provider"),
+                    "final_model": completed_payload.get("model")
+                    or completed_payload.get("final_model"),
+                    "fallback_triggered": (
+                        completed_payload.get("completion_truth", {}) or {}
+                    ).get("fallback_attempted"),
+                }
+            )
+    if execution is not None:
+        response["execution"] = execution
+
+    return response
 
 
 @router.get("/{thread_id}/profile")
@@ -2408,12 +2481,16 @@ async def simple_chat_entrypoint(
     }
 
 
-def _get_task_completed_payload(task_id: str) -> Optional[Dict[str, Any]]:
+def _get_task_completed_payload(
+    task_id: str, *, block_ms: int = 1000
+) -> Optional[Dict[str, Any]]:
     """
     Read task events and return the most recent task.completed payload.
     """
     try:
-        events = task_events.read_events(task_id, "0", count=100, block_ms=1000)
+        events = task_events.read_events(
+            task_id, "0", count=100, block_ms=block_ms
+        )
         completed_payload: Dict[str, Any] | None = None
         for _, event in events:
             if event.get("type") == "task.completed":
