@@ -23,7 +23,9 @@ export const CHAT_COMPOSER_CONTROLS_PAD_CLASS = "px-3 pb-3 pt-2";
 export const CHAT_COMPOSER_INNER_PAD_CLASS = "px-3 pb-3 pt-3";
 export const CHAT_COMPOSER_TEXTAREA_PAD_CLASS = "px-3 pt-3";
 export const CHAT_COMPOSER_ATTACHMENTS_PAD_CLASS = "px-3 pt-2";
-export const CHAT_COMPOSER_SEND_EDGE_INSET_CLASS = "pr-[32px]";
+// Keep the send button seated away from the rounded shell edge so it reads as
+// part of the control row instead of hanging off the corner on wide layouts.
+export const CHAT_COMPOSER_SEND_EDGE_INSET_CLASS = "pr-[48px]";
 
 // Outer Guardian surface ceiling for fullscreen layouts. Keeps the shell large
 // enough for future workspace activation without letting the empty side bands
