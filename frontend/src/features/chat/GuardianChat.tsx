@@ -68,8 +68,6 @@ import {
 } from "@/features/chat/chatLane";
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
 
-const DEBUG_LAYOUT = true;
-
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
   "Keep typing. Send unlocks when the current reply finishes.";
@@ -2465,15 +2463,7 @@ export function GuardianChat({
             />
           </div>
 
-          <div
-            className="flex items-center gap-2 shrink-0"
-            style={{
-              ...(DEBUG_LAYOUT && {
-                outline: "2px solid yellow",
-                background: "rgba(255,255,0,0.1)",
-              }),
-            }}
-          >
+          <div className="flex items-center gap-2 shrink-0">
             {headerActions}
           </div>
         </div>
@@ -2562,9 +2552,6 @@ export function GuardianChat({
           data-testid="composer-shell"
           className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
-            ...(DEBUG_LAYOUT && {
-              outline: "2px solid green",
-            }),
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
@@ -2579,9 +2566,6 @@ export function GuardianChat({
               data-testid="composer-conversation-lane"
               className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
               style={{
-                ...(DEBUG_LAYOUT && {
-                  outline: "2px solid blue",
-                }),
                 maxWidth: CHAT_LANE_MAX_WIDTH,
               }}
             >
@@ -2755,11 +2739,6 @@ export function GuardianChat({
         {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
 <div
   className="relative flex flex-col flex-1 min-h-0 overflow-y-auto"
-  style={{
-    ...(DEBUG_LAYOUT && {
-      outline: "2px solid red",
-    }),
-  }}
 >
   <div
     data-testid="guardian-shell"
@@ -2785,11 +2764,6 @@ export function GuardianChat({
         className={`mx-auto flex h-full min-h-0 min-w-0 w-full flex-1 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
         style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
         hoverPop
-        style={{
-          ...(DEBUG_LAYOUT && {
-            outline: "2px solid red",
-          }),
-        }}
       >
         <div className="relative flex flex-col w-full h-full">
           {body}
