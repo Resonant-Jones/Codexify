@@ -52,6 +52,7 @@ import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ShareButton } from "@/components/ShareButton";
@@ -242,6 +243,43 @@ function normalizeGalleryItem(raw: any): GalleryItem | null {
     prompt,
     mock: Boolean(raw?.mock),
   };
+}
+
+function AppShellGalleryImage({
+  src,
+  alt,
+}: {
+  src: string;
+  alt: string;
+}) {
+  const renderableSrc = useRenderableMediaSrc(src);
+  const [hasLoadError, setHasLoadError] = useState(false);
+
+  useEffect(() => {
+    setHasLoadError(false);
+  }, [renderableSrc.src]);
+
+  const showImage =
+    renderableSrc.status === "ready" &&
+    !!renderableSrc.src &&
+    !hasLoadError;
+
+  if (!showImage) {
+    return (
+      <div className="absolute inset-0 grid place-items-center text-xs opacity-70">
+        {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={renderableSrc.src}
+      alt={alt}
+      className="absolute inset-0 h-full w-full object-cover"
+      onError={() => setHasLoadError(true)}
+    />
+  );
 }
 
 function normalizeInterceptPath(url: unknown): string {
@@ -2104,7 +2142,7 @@ export default function AppShell({
                         }}
                         onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: resolvedSrc }); }}
                       >
-                        <img src={resolvedSrc} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
+                        <AppShellGalleryImage src={resolvedSrc} alt={g.prompt} />
                         {visionBusySrc === resolvedSrc && (
                           <div className="absolute inset-0 grid place-items-center bg-black/40">
                             <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />

@@ -1,14 +1,78 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const runtimeState = vi.hoisted(() => ({
+  invokeTauriCommandMock: vi.fn(),
+  tauriRuntime: false,
+}));
 
 vi.mock("@/lib/runtimeConfig", () => ({
   resolveBackendUrl: (path: string) =>
     `http://backend.test${path.startsWith("/") ? path : `/${path}`}`,
+  getRuntimeConfigSync: () => ({
+    mode: runtimeState.tauriRuntime ? "tauri" : "web",
+    backendBaseUrl: "http://backend.test",
+    apiBaseUrl: "http://backend.test/api",
+    sseUrl: "http://backend.test/api/events",
+    sharePublicBaseUrl: "http://share.test",
+    authMode: "local",
+  }),
+  isTauriRuntime: () => runtimeState.tauriRuntime,
+  invokeTauriCommand: runtimeState.invokeTauriCommandMock,
 }));
 
 import ChatBubble from "@/features/chat/components/ChatBubble";
 
 describe("ChatBubble", () => {
+  afterEach(() => {
+    runtimeState.tauriRuntime = false;
+    runtimeState.invokeTauriCommandMock.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it("uses the desktop media fetch contract for backend-owned attachment images in Tauri", async () => {
+    runtimeState.tauriRuntime = true;
+    runtimeState.invokeTauriCommandMock.mockResolvedValue({
+      contentType: "image/png",
+      bytesBase64: "aGVsbG8=",
+      sizeBytes: 5,
+    });
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:chat-image"),
+    });
+
+    render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "msg-tauri-attachment",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: "",
+          createdAt: Date.now(),
+          attachments: [
+            {
+              id: "img-tauri-1",
+              kind: "image",
+              src: "/media/images/chat-tauri.jpg?sig=tile#preview",
+              name: "chat-tauri.jpg",
+            },
+          ],
+        }}
+      />
+    );
+
+    const image = await screen.findByRole("img", { name: "uploaded image" });
+    expect(image).toHaveAttribute("src", "blob:chat-image");
+    expect(runtimeState.invokeTauriCommandMock).toHaveBeenCalledWith(
+      "desktop_fetch_media",
+      { path: "/media/images/chat-tauri.jpg" }
+    );
+    runtimeState.tauriRuntime = false;
+    runtimeState.invokeTauriCommandMock.mockReset();
+  });
+
   it("hides malformed timestamps instead of rendering Invalid Date", () => {
     render(
       <ChatBubble
