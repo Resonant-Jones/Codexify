@@ -12,6 +12,7 @@ import {
 
 import api from "@/lib/api";
 import { logOnce } from "@/lib/logging/logOnce";
+import type { ChatExecution } from "@/types/chat";
 
 export type ChatAttachment = {
   id: string;
@@ -30,6 +31,7 @@ export type ChatMessage = {
   content: string;
   created_at: string;
   attachments?: ChatAttachment[];
+  execution?: ChatExecution;
   turn_id?: string | null;
   audio_status?: "unavailable" | "pending" | "ready" | "failed";
   audio_url?: string | null;
@@ -257,6 +259,51 @@ function normalizeTaskId(raw: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+function normalizeExecution(raw: unknown): ChatExecution | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  const attemptedProvider =
+    typeof candidate.attempted_provider === "string"
+      ? candidate.attempted_provider.trim()
+      : "";
+  const attemptedModel =
+    typeof candidate.attempted_model === "string"
+      ? candidate.attempted_model.trim()
+      : "";
+  const finalProvider =
+    typeof candidate.final_provider === "string"
+      ? candidate.final_provider.trim()
+      : "";
+  const finalModel =
+    typeof candidate.final_model === "string"
+      ? candidate.final_model.trim()
+      : "";
+  if (!attemptedProvider || !attemptedModel || !finalProvider || !finalModel) {
+    return undefined;
+  }
+
+  const rawFallback = candidate.fallback_triggered;
+  const fallbackTriggered =
+    typeof rawFallback === "boolean"
+      ? rawFallback
+      : typeof rawFallback === "number"
+        ? Boolean(rawFallback)
+        : typeof rawFallback === "string"
+          ? ["1", "true", "yes", "on"].includes(
+              rawFallback.trim().toLowerCase()
+            )
+          : undefined;
+  if (fallbackTriggered === undefined) return undefined;
+
+  return {
+    attempted_provider: attemptedProvider,
+    attempted_model: attemptedModel,
+    final_provider: finalProvider,
+    final_model: finalModel,
+    fallback_triggered: fallbackTriggered,
+  };
+}
+
 function readTurnId(raw: any): string | null {
   const direct = normalizeTurnId(raw?.turn_id ?? raw?.turnId);
   if (direct) return direct;
@@ -269,6 +316,19 @@ function readTurnId(raw: any): string | null {
     );
   }
   return null;
+}
+
+function readExecution(raw: any): ChatExecution | undefined {
+  const base = raw?.message && typeof raw.message === "object" ? raw.message : raw;
+  const direct = normalizeExecution(raw?.execution ?? base?.execution);
+  if (direct) return direct;
+  const metadataCandidate = base?.metadata ?? base?.extra_meta ?? base?.extraMeta;
+  if (metadataCandidate && typeof metadataCandidate === "object") {
+    return normalizeExecution(
+      (metadataCandidate as Record<string, unknown>).execution
+    );
+  }
+  return undefined;
 }
 
 const normalizeMessage = (
@@ -285,6 +345,7 @@ const normalizeMessage = (
   const createdAtRaw = base.created_at ?? base.createdAt;
   const createdAt = createdAtRaw ? String(createdAtRaw) : "";
   const attachments = normalizeAttachments(raw);
+  const execution = readExecution(raw);
   const turnId = readTurnId(raw);
   const audioStatusRaw = base.audio_status ?? base.audioStatus;
   const audioStatus =
@@ -309,6 +370,7 @@ const normalizeMessage = (
     content,
     created_at: createdAt,
     attachments: attachments.length ? attachments : undefined,
+    execution,
     turn_id: turnId,
     audio_status: audioStatus,
     audio_url: normalizeAudioUrl(audioUrlRaw),
@@ -319,6 +381,21 @@ const normalizeMessage = (
       : null,
     audio_error: typeof audioErrorRaw === "string" ? audioErrorRaw : null,
   };
+};
+
+const sameExecution = (
+  left: ChatExecution | undefined,
+  right: ChatExecution | undefined
+): boolean => {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  return (
+    left.attempted_provider === right.attempted_provider &&
+    left.attempted_model === right.attempted_model &&
+    left.final_provider === right.final_provider &&
+    left.final_model === right.final_model &&
+    left.fallback_triggered === right.fallback_triggered
+  );
 };
 
 const sameMessage = (a: ChatMessage, b: ChatMessage): boolean => {
@@ -345,6 +422,7 @@ const sameMessage = (a: ChatMessage, b: ChatMessage): boolean => {
     a.role === b.role &&
     a.content === b.content &&
     (a.created_at || "") === (b.created_at || "") &&
+    sameExecution(a.execution, b.execution) &&
     (a.turn_id || null) === (b.turn_id || null) &&
     (a.audio_status || null) === (b.audio_status || null) &&
     (a.audio_url || null) === (b.audio_url || null) &&
