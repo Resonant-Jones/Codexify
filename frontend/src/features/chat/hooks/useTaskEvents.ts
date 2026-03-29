@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { buildAuthenticatedFetchInit } from "@/lib/api";
+import { resolveApiUrl } from "@/lib/runtimeConfig";
 
 export type TaskStreamEvent = {
   type: string;
@@ -14,7 +15,9 @@ const INITIAL_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 5000;
 
 function isAbortError(error: unknown): boolean {
-  const name = String((error as any)?.name ?? "").trim();
+  const name = String(
+    (error as { name?: unknown } | null | undefined)?.name ?? ""
+  ).trim();
   return name === "AbortError";
 }
 
@@ -102,6 +105,7 @@ export function useTaskEvents(
 ) {
   const abortRef = useRef<AbortController | null>(null);
   const retryRef = useRef(0);
+  const retryTimeoutRef = useRef<number | null>(null);
   const onEventRef = useRef(onEvent);
 
   useEffect(() => {
@@ -112,8 +116,17 @@ export function useTaskEvents(
     if (!taskId) return;
 
     let isActive = true;
+    let isAuthTerminalError = false;
     let backoff = INITIAL_BACKOFF_MS;
     let lastEventId: string | null = null;
+
+    const clearRetryTimeout = () => {
+      if (retryTimeoutRef.current == null) {
+        return;
+      }
+      window.clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    };
 
     const connect = async () => {
       while (isActive) {
@@ -129,8 +142,12 @@ export function useTaskEvents(
             headers["Last-Event-ID"] = lastEventId;
           }
 
+          const url = resolveApiUrl(
+            `/api/tasks/${encodeURIComponent(taskId)}/events`
+          );
+
           const response = await fetch(
-            `/api/tasks/${encodeURIComponent(taskId)}/events`,
+            url,
             buildAuthenticatedFetchInit(
               {
                 signal: controller.signal,
@@ -140,6 +157,15 @@ export function useTaskEvents(
               { forceApiKey: false }
             )
           );
+
+          if (response.status === 401 || response.status === 403) {
+            console.warn(
+              `[task-events] stream unauthorized (${response.status}); stopping reconnect`
+            );
+            isAuthTerminalError = true;
+            clearRetryTimeout();
+            return;
+          }
 
           if (!response.ok) {
             throw new Error(
@@ -178,15 +204,22 @@ export function useTaskEvents(
             onEventRef.current(event);
           });
         } catch (error) {
-          if (!isActive || isAbortError(error)) {
+          if (!isActive || isAuthTerminalError || isAbortError(error)) {
             break;
           }
 
           console.warn("[task-events] stream disconnected", error);
 
           await new Promise<void>((resolve) => {
-            window.setTimeout(() => resolve(), backoff);
+            clearRetryTimeout();
+            retryTimeoutRef.current = window.setTimeout(() => {
+              retryTimeoutRef.current = null;
+              resolve();
+            }, backoff);
           });
+          if (!isActive || isAuthTerminalError) {
+            break;
+          }
           backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
           retryRef.current += 1;
         }
@@ -197,6 +230,7 @@ export function useTaskEvents(
 
     return () => {
       isActive = false;
+      clearRetryTimeout();
       abortRef.current?.abort();
       abortRef.current = null;
     };
