@@ -143,6 +143,22 @@ def _mock_supported_local_catalog_request(
     return _MockResponse({"data": []}, status_code=404)
 
 
+def _mock_non_strict_local_catalog_request(
+    url: str, *args, **kwargs
+) -> _MockResponse:
+    _ = (args, kwargs)
+    if url.endswith("/api/tags"):
+        return _MockResponse(
+            {
+                "models": [
+                    {"name": "llama3.2:3b"},
+                    {"name": "qwen2.5:7b"},
+                ]
+            }
+        )
+    return _MockResponse({"data": []}, status_code=404)
+
+
 def _provider_by_id(payload: dict, provider_id: str) -> dict:
     return next(
         provider
@@ -292,6 +308,50 @@ def test_llm_catalog_local_only_exposes_effective_local_chat_model(
         assert local["enabled"] is True
         assert local["truth"]["selectable"] is True
         assert local["models"][0]["id"] == "qwen3.5:0.8b"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_non_strict_mode_keeps_runnable_local_available(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_non_strict_local_catalog_request,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_LLM_MODEL = "llama3.2:3b"
+        settings.LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
+        settings.DEFAULT_LOCAL_MODEL = "llama3.2:3b"
+        settings.LLM_MODEL = "llama3.2:3b"
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+
+        local = _provider_by_id(payload, "local")
+        assert local["default_model"] == "llama3.2:3b"
+        assert local["enabled"] is True
+        assert local["truth"]["selectable"] is True
+        assert local["models"][0]["id"] == "llama3.2:3b"
+        assert "disabled_reason" not in local
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
