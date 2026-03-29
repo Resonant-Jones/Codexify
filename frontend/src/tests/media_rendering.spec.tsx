@@ -1,9 +1,24 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+const runtimeState = vi.hoisted(() => ({
+  invokeTauriCommandMock: vi.fn(),
+  tauriRuntime: false,
+}));
+
 vi.mock("@/lib/runtimeConfig", () => ({
   resolveBackendUrl: (path: string) =>
     `http://backend.test${path.startsWith("/") ? path : `/${path}`}`,
+  getRuntimeConfigSync: () => ({
+    mode: runtimeState.tauriRuntime ? "tauri" : "web",
+    backendBaseUrl: "http://backend.test",
+    apiBaseUrl: "http://backend.test/api",
+    sseUrl: "http://backend.test/api/events",
+    sharePublicBaseUrl: "http://share.test",
+    authMode: "local",
+  }),
+  isTauriRuntime: () => runtimeState.tauriRuntime,
+  invokeTauriCommand: runtimeState.invokeTauriCommandMock,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -25,6 +40,7 @@ import DashboardView from "@/components/dashboard/DashboardView";
 import GalleryGrid from "@/components/gallery/GalleryGrid";
 import MediaTile from "@/components/media/MediaTile";
 import {
+  extractBackendMediaPath,
   normalizeMediaUrl,
   resolveMediaAssetSrc,
   resolveMediaSrc,
@@ -47,6 +63,18 @@ describe("media rendering", () => {
     expect(resolveMediaSrc("https://cdn.example.com/image.png?sig=abc123#viewer")).toBe(
       "https://cdn.example.com/image.png?sig=abc123#viewer"
     );
+  });
+
+  it("extracts canonical backend media paths from relative and signed backend URLs", () => {
+    expect(extractBackendMediaPath("/media/images/right.png?sig=abc123#viewer")).toBe(
+      "/media/images/right.png"
+    );
+    expect(
+      extractBackendMediaPath("http://backend.test/media/images/right.png?sig=abc123#viewer")
+    ).toBe("/media/images/right.png");
+    expect(
+      extractBackendMediaPath("https://cdn.example.com/media/images/right.png?sig=abc123")
+    ).toBeNull();
   });
 
   it("keeps compatibility callers routed through the shared helper", () => {

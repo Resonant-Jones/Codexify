@@ -10,6 +10,7 @@ import {
   downloadAsset,
   notifyAssetActionError,
 } from "@/lib/assetActions";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import TileShell, { type TileShellSizeVariant } from "@/components/surface/TileShell";
 import "./media.css";
@@ -34,12 +35,13 @@ export function MediaTile({
   sizeVariant = "gallery-image",
 }: MediaTileProps) {
   const resolvedSrc = React.useMemo(() => normalizeMediaUrl(src), [src]);
+  const renderableSrc = useRenderableMediaSrc(src);
   const [hasLoadError, setHasLoadError] = React.useState(false);
   const [isDeleted, setIsDeleted] = React.useState(false);
 
   React.useEffect(() => {
     setHasLoadError(false);
-  }, [resolvedSrc]);
+  }, [renderableSrc.src]);
 
   const canDownload = !!resolvedSrc;
   const canDelete = typeof assetId === "string" && assetId.trim().length > 0;
@@ -82,18 +84,23 @@ export function MediaTile({
 
   if (isDeleted) return null;
 
-  const showImage = !!resolvedSrc && !hasLoadError;
+  const showImage =
+    renderableSrc.status === "ready" &&
+    !!renderableSrc.src &&
+    !hasLoadError;
   const content = showImage ? (
     <img
       className="codexifyMediaTileMedia"
-      src={resolvedSrc}
+      src={renderableSrc.src}
       alt={alt ?? ""}
       loading="lazy"
       onError={() => setHasLoadError(true)}
     />
   ) : (
     <div className="codexifyMediaTileFallback" aria-hidden="true">
-      <span className="codexifyMediaTileFallbackLabel">Image unavailable</span>
+      <span className="codexifyMediaTileFallbackLabel">
+        {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+      </span>
     </div>
   );
 
