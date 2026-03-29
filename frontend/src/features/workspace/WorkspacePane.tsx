@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DocumentLike } from "@/types/documents";
 import { Button } from "@/components/ui/button";
 import { getCodexEntry, getCodexExportUrl, CodexEntry } from "@/api/codex";
+import { isImageMediaUrl, isPdfMediaUrl } from "@/lib/mediaUrl";
 import WorkspaceViewer from "./WorkspaceViewer";
 import "./workspace.css";
 
@@ -27,14 +28,11 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
   const previewUrl = resolvePreviewUrl();
 
   const isImage = useMemo(() => {
-    if (!previewUrl) return false;
-    const u = previewUrl.toLowerCase();
-    return u.endsWith(".png") || u.endsWith(".jpg") || u.endsWith(".jpeg") || u.endsWith(".webp") || u.startsWith("data:image/");
+    return previewUrl ? isImageMediaUrl(previewUrl) : false;
   }, [previewUrl]);
 
   const isPdf = useMemo(() => {
-    if (!previewUrl) return false;
-    return previewUrl.toLowerCase().includes(".pdf") || previewUrl.toLowerCase().startsWith("data:application/pdf");
+    return previewUrl ? isPdfMediaUrl(previewUrl) : false;
   }, [previewUrl]);
   const [codexEntry, setCodexEntry] = useState<CodexEntry | null>(null);
   const [loading, setLoading] = useState(false);
