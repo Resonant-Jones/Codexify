@@ -2,6 +2,7 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodexEntry } from "@/api/codex";
+import { resolveMediaSrc } from "@/lib/mediaUrl";
 import { DocumentLike } from "@/types/documents";
 
 type WorkspaceViewerProps = {
@@ -23,6 +24,8 @@ export default function WorkspaceViewer({
   loading,
   error,
 }: WorkspaceViewerProps) {
+  const resolvedPreviewUrl = previewUrl ? resolveMediaSrc(previewUrl) : null;
+
   if (!activeDoc) {
     return (
       <div className="codexifyWorkspaceViewer">
@@ -35,7 +38,7 @@ export default function WorkspaceViewer({
   }
 
   if (activeDoc.type !== "codex_entry") {
-    if (!previewUrl) {
+    if (!resolvedPreviewUrl) {
       return (
         <div className="codexifyWorkspaceViewer">
           <div className="codexifyWorkspaceHint">
@@ -49,7 +52,7 @@ export default function WorkspaceViewer({
     if (isPdf) {
       return (
         <div className="codexifyWorkspaceViewer codexifyWorkspaceViewer--embed">
-          <iframe title={activeDoc?.title || "PDF"} src={previewUrl} />
+          <iframe title={activeDoc?.title || "PDF"} src={resolvedPreviewUrl} />
         </div>
       );
     }
@@ -58,7 +61,7 @@ export default function WorkspaceViewer({
       return (
         <div className="codexifyWorkspaceViewer codexifyWorkspaceViewer--image">
           <img
-            src={previewUrl}
+            src={resolvedPreviewUrl}
             alt={activeDoc?.title || "Image"}
             className="codexifyWorkspaceImage"
             loading="lazy"
@@ -73,7 +76,7 @@ export default function WorkspaceViewer({
           This file type does not have an inline preview yet.
         </div>
         <a
-          href={previewUrl}
+          href={resolvedPreviewUrl}
           target="_blank"
           rel="noreferrer"
           className="codexifyWorkspaceLink"
@@ -114,7 +117,18 @@ export default function WorkspaceViewer({
 
       {!loading && !error && codexEntry && (
         <div className="prose prose-sm max-w-none dark:prose-invert codexifyWorkspaceMarkdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              img: ({ src, alt }) => (
+                <img
+                  src={resolveMediaSrc(String(src ?? ""))}
+                  alt={alt || "Workspace media"}
+                  loading="lazy"
+                />
+              ),
+            }}
+          >
             {codexEntry?.body || "_No content available._"}
           </ReactMarkdown>
         </div>
