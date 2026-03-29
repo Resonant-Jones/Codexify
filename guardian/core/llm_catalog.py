@@ -408,22 +408,24 @@ def _cloud_models(
             )
         if not supports_chat or model_kind == "utility":
             continue
-        entries.append(
-            _base_model_entry(
-                model_id=model_id,
-                display_name=str(item.get("displayName") or model_id).strip(),
-                context_window=(
-                    int(item["contextWindow"])
-                    if isinstance(item.get("contextWindow"), int)
-                    else None
-                ),
-                capabilities=capabilities if capabilities else None,
-                supports_chat=bool(supports_chat),
-                supports_vision=bool(supports_vision),
-                supports_text_input=bool(supports_text_input),
-                model_kind=model_kind,
-            )
+        entry = _base_model_entry(
+            model_id=model_id,
+            display_name=str(item.get("displayName") or model_id).strip(),
+            context_window=(
+                int(item["contextWindow"])
+                if isinstance(item.get("contextWindow"), int)
+                else None
+            ),
+            capabilities=capabilities if capabilities else None,
+            supports_chat=bool(supports_chat),
+            supports_vision=bool(supports_vision),
+            supports_text_input=bool(supports_text_input),
+            model_kind=model_kind,
         )
+        capability_status = str(item.get("_capability") or "").strip().lower()
+        if capability_status in {"confirmed", "inferred", "unsupported"}:
+            entry["_capability"] = capability_status
+        entries.append(entry)
     return entries
 
 
