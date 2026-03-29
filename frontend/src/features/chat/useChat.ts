@@ -12,7 +12,7 @@ import {
 
 import api from "@/lib/api";
 import { logOnce } from "@/lib/logging/logOnce";
-import type { ChatExecution } from "@/types/chat";
+import type { ChatExecution, StreamChunk } from "@/types/chat";
 
 export type ChatAttachment = {
   id: string;
@@ -159,6 +159,24 @@ export const parseMessagesResponse = (
   }
   return null;
 };
+
+export function renderStreamChunk(chunk: unknown): string {
+  // Only render the explicit public content channel.
+  if (!chunk || typeof chunk !== "object" || !("content" in chunk)) {
+    return "";
+  }
+
+  const content = (chunk as StreamChunk).content;
+  return typeof content === "string" ? content : "";
+}
+
+function normalizeMessageContent(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && "content" in raw) {
+    return renderStreamChunk(raw);
+  }
+  return String(raw ?? "");
+}
 
 const normalizeSrcUrl = (src: any): string => {
   if (typeof src !== "string") return "";
@@ -340,8 +358,7 @@ const normalizeMessage = (
   const threadId = Number(base.thread_id ?? base.threadId ?? fallbackThreadId);
   const id = Number(base.id ?? base.message_id ?? base.messageId);
   const role = String(base.role ?? "").trim();
-  const content =
-    typeof base.content === "string" ? base.content : String(base.content ?? "");
+  const content = normalizeMessageContent(base.content);
   const createdAtRaw = base.created_at ?? base.createdAt;
   const createdAt = createdAtRaw ? String(createdAtRaw) : "";
   const attachments = normalizeAttachments(raw);

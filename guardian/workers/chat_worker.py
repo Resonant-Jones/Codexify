@@ -921,6 +921,54 @@ def extract_assistant_response(text: str) -> str:
     return text.strip()
 
 
+def _extract_visible_stream_text(chunk: Any) -> str:
+    """Enforce the public stream contract: content only, never reasoning."""
+
+    if isinstance(chunk, str):
+        return chunk
+
+    if not isinstance(chunk, dict):
+        return ""
+
+    delta = chunk.get("delta")
+    if isinstance(delta, dict):
+        content = delta.get("content")
+        if isinstance(content, str):
+            return content
+        if content is not None:
+            return str(content)
+        # Explicitly ignore reasoning/thinking deltas.
+        return ""
+
+    content = chunk.get("content")
+    if isinstance(content, str):
+        return content
+    if "content" in chunk and content is not None:
+        return str(content)
+
+    message = chunk.get("message")
+    if isinstance(message, dict):
+        nested_content = message.get("content")
+        if isinstance(nested_content, str):
+            return nested_content
+        if nested_content is not None:
+            return str(nested_content)
+
+    return ""
+
+
+def _sanitize_assistant_result_payload(result: dict[str, Any]) -> None:
+    """Strip provider-specific reasoning fields from the public assistant payload."""
+
+    result.pop("thinking", None)
+    result.pop("reasoning", None)
+
+    execution = result.get("execution")
+    if isinstance(execution, dict):
+        execution.pop("thinking", None)
+        execution.pop("reasoning", None)
+
+
 def _degraded_provider_model_fallback(
     *,
     provider: str,
@@ -1301,16 +1349,17 @@ def _run_chat_completion_task_compat(
                 for token in token_stream:
                     if cancel_check and cancel_check():
                         raise ChatTaskCancelled("task_cancelled")
-                    if token:
+                    visible_token = _extract_visible_stream_text(token)
+                    if visible_token:
                         streamed_any = True
-                        assistant_output += token
+                        assistant_output += visible_token
                         if token_callback:
-                            token_callback(token)
+                            token_callback(visible_token)
             finally:
                 token_stream.close()
 
             if not assistant_output.strip():
-                assistant_output = str(
+                assistant_output = _extract_visible_stream_text(
                     chat_with_ai(
                         messages_for_llm,
                         model=execution_model,
@@ -1329,7 +1378,7 @@ def _run_chat_completion_task_compat(
 
         if cancel_check and cancel_check():
             raise ChatTaskCancelled("task_cancelled")
-        assistant_output = str(
+        assistant_output = _extract_visible_stream_text(
             chat_with_ai(
                 messages_for_llm,
                 model=execution_model,
@@ -1505,6 +1554,7 @@ def _run_chat_completion_task_compat(
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
     }
+    _sanitize_assistant_result_payload(result)
 
     if not persist_assistant_message:
         return result
