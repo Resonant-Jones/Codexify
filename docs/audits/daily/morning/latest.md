@@ -1,10 +1,10 @@
-# Daily Audit — 2026-03-28
+# Daily Audit — 2026-03-29
 
 ## Repo Status
-- Date: 2026-03-28
+- Date: 2026-03-29
 - Phase: `morning`
 - Branch: `main`
-- HEAD: `3614726a20ffbbc65575d99352f9832deddf4272`
+- HEAD: `4af532ce8227f5e603ae27ab8e84883e8ddd3b9d`
 - Worktree: clean
 
 ## Audit CLI Summary
@@ -45,27 +45,36 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 5
-- Unique files changed: 20
-- Files changed: `guardian/queue/redis_queue.py`, `guardian/tests/queue/test_redis_queue_clients.py`, `scripts/agent_task_worker.py`, `guardian/routes/chat.py`, `guardian/routes/health.py`, `guardian/routes/ui_session.py`, `docs/architecture/router-decision-table.md`, `guardian/context/retrieval_router_policy.py`, `tests/context/test_retrieval_router_policy.py`, `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/lib/events/types.ts`, `frontend/src/lib/liveEventsHub.ts`, `frontend/src/test/live-events-singleton.test.tsx`, `docs/audits/daily/morning/2026-03-27-audit.json`, `docs/audits/daily/morning/2026-03-27-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`
+- Commit count: 14
+- Unique files changed: 37
+- Files changed: `frontend/src/features/chat/components/ChatBubble.tsx`, `frontend/src/features/chat/components/__tests__/ChatBubble.test.tsx`, `frontend/src/features/workspace/WorkspacePane.spec.tsx`, `frontend/src/features/workspace/WorkspacePane.tsx`, `frontend/src/features/workspace/WorkspaceViewer.tsx`, `frontend/src/lib/mediaUrl.ts`, `frontend/src/tests/media_rendering.spec.tsx`, `frontend/src/tests/vite.config.proxy.spec.ts`, `frontend/src/vite.config.ts`, `docs/audits/daily/evening/2026-03-28-audit.json`, `docs/audits/daily/evening/2026-03-28-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `frontend/src/features/chat/chatLane.ts`, `frontend/src/features/chat/components/Composer.tsx`, `frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx`, `frontend/src/features/chat/ChatView.tsx`, `frontend/src/features/chat/components/__tests__/Message.execution.test.tsx`, `frontend/src/features/chat/useChat.ts`, `frontend/src/types/chat.ts`, `frontend/src/types/ui.ts`, `guardian/routes/chat.py`, `guardian/tests/workers/test_chat_worker_completion_semantics.py`, `guardian/workers/chat_worker.py`, `tests/routes/test_chat_routes.py`, `docs/architecture/2026-03-28-release-gate-proof.md`, `guardian/core/provider_registry.py`, `guardian/tests/core/test_provider_registry.py`, `guardian/tests/workers/test_chat_worker_provider_resolution.py`, `docs/audits/daily/morning/2026-03-28-audit.json`, `docs/audits/daily/morning/2026-03-28-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `3614726a20ff` | fix(redis): enforce queue client usage for blocking operations | `guardian/queue/redis_queue.py`, `guardian/tests/queue/test_redis_queue_clients.py`, `scripts/agent_task_worker.py` |
-| `9e1fcdfd304c` | fix(backend): enforce redis fail-fast and 503 degradation contract | `guardian/queue/redis_queue.py`, `guardian/routes/chat.py`, `guardian/routes/health.py`, `guardian/routes/ui_session.py` |
-| `ab07c419d71a` | Add canonical retrieval router policy scaffold | `docs/architecture/router-decision-table.md`, `guardian/context/retrieval_router_policy.py`, `tests/context/test_retrieval_router_policy.py` |
-| `ac53cba41425` | Introduce canonical LiveEvent normalization | `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/lib/events/types.ts`, `frontend/src/lib/liveEventsHub.ts`, `frontend/src/test/live-events-singleton.test.tsx` |
-| `9319ecda6a9e` | Weekly and Daily Audit Reports | `docs/audits/daily/morning/2026-03-27-audit.json`, `docs/audits/daily/morning/2026-03-27-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `fcbe41220f24` | Fix browser-dev media rendering across shared surfaces | `frontend/src/features/chat/components/ChatBubble.tsx`, `frontend/src/features/chat/components/__tests__/ChatBubble.test.tsx`, `frontend/src/features/workspace/WorkspacePane.spec.tsx`, `frontend/src/features/workspace/WorkspacePane.tsx`, `frontend/src/features/workspace/WorkspaceViewer.tsx`, `frontend/src/lib/mediaUrl.ts`, `frontend/src/tests/media_rendering.spec.tsx`, `frontend/src/tests/vite.config.proxy.spec.ts`, `frontend/src/vite.config.ts` |
+| `50d3e9cf6124` | Refresh daily evening audit snapshot | `docs/audits/daily/evening/2026-03-28-audit.json`, `docs/audits/daily/evening/2026-03-28-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `3e44dad62afb` | Fix browser-dev media rendering across shared surfaces | `frontend/src/features/chat/components/ChatBubble.tsx`, `frontend/src/features/chat/components/__tests__/ChatBubble.test.tsx`, `frontend/src/features/workspace/WorkspacePane.spec.tsx`, `frontend/src/features/workspace/WorkspacePane.tsx`, `frontend/src/features/workspace/WorkspaceViewer.tsx`, `frontend/src/lib/mediaUrl.ts`, `frontend/src/tests/media_rendering.spec.tsx`, `frontend/src/tests/vite.config.proxy.spec.ts`, `frontend/src/vite.config.ts` |
+| `0ddb477603be` | Shift composer send button inset left | `frontend/src/features/chat/chatLane.ts`, `frontend/src/features/chat/components/Composer.tsx`, `frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx` |
+| `cc19baf217fd` | feat(chat): surface execution truth and expose fallback model to UI | `frontend/src/features/chat/ChatView.tsx`, `frontend/src/features/chat/components/ChatBubble.tsx`, `frontend/src/features/chat/components/__tests__/Message.execution.test.tsx`, `frontend/src/features/chat/useChat.ts`, `frontend/src/types/chat.ts`, `frontend/src/types/ui.ts`, `guardian/routes/chat.py`, `guardian/tests/workers/test_chat_worker_completion_semantics.py`, `guardian/workers/chat_worker.py`, `tests/routes/test_chat_routes.py` |
+| `ae01076a5001` | Add current main release-gate proof | `docs/architecture/2026-03-28-release-gate-proof.md` |
+| `d6a57975bcc1` | Tighten composer horizontal layout contract | `frontend/src/features/chat/components/Composer.tsx`, `frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx` |
+| `09c4ccf186a4` | Tighten composer horizontal layout contract | `frontend/src/features/chat/components/Composer.tsx`, `frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx` |
+| `d1e52338a375` | Fix composer send button clipping | `frontend/src/features/chat/components/Composer.tsx`, `frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx` |
+| `9ef879754ca7` | Constrain composer send button to a fixed square size | `frontend/src/features/chat/components/Composer.tsx` |
+| `c3422735b21c` | fix(chat): enforce response boundary by stripping scratchpad output from model responses | `guardian/tests/workers/test_chat_worker_completion_semantics.py`, `guardian/workers/chat_worker.py` |
+| `ff81a5e26b68` | Relax chat-capable model classification with safe fallback to prevent hard failure | `guardian/core/provider_registry.py`, `guardian/tests/core/test_provider_registry.py`, `guardian/tests/workers/test_chat_worker_provider_resolution.py`, `guardian/workers/chat_worker.py` |
+| `287de4f11595` | Refresh daily morning audit snapshot | `docs/audits/daily/morning/2026-03-28-audit.json`, `docs/audits/daily/morning/2026-03-28-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `f7b8cb775650` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `chat` | 1 | `guardian/routes/chat.py` |
-| `docs` | 1 | `docs/architecture/router-decision-table.md` |
-| `audit` | 6 | `docs/audits/daily/morning/2026-03-27-audit.json`, `docs/audits/daily/morning/2026-03-27-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `frontend` | 5 | `frontend/src/features/chat/GuardianChat.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/lib/events/types.ts`, `frontend/src/lib/liveEventsHub.ts`, `frontend/src/test/live-events-singleton.test.tsx` |
-| `tests` | 2 | `guardian/tests/queue/test_redis_queue_clients.py`, `tests/context/test_retrieval_router_policy.py` |
-| `unknown` | 5 | `guardian/queue/redis_queue.py`, `scripts/agent_task_worker.py`, `guardian/routes/health.py`, `guardian/routes/ui_session.py`, `guardian/context/retrieval_router_policy.py` |
+| `chat` | 2 | `guardian/routes/chat.py`, `guardian/workers/chat_worker.py` |
+| `docs` | 3 | `docs/architecture/2026-03-28-release-gate-proof.md`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `audit` | 10 | `docs/audits/daily/evening/2026-03-28-audit.json`, `docs/audits/daily/evening/2026-03-28-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/audits/daily/morning/2026-03-28-audit.json`, `docs/audits/daily/morning/2026-03-28-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md` |
+| `providers` | 3 | `guardian/core/provider_registry.py`, `guardian/tests/core/test_provider_registry.py`, `guardian/tests/workers/test_chat_worker_provider_resolution.py` |
+| `frontend` | 17 | `frontend/src/features/chat/components/ChatBubble.tsx`, `frontend/src/features/chat/components/__tests__/ChatBubble.test.tsx`, `frontend/src/features/workspace/WorkspacePane.spec.tsx`, `frontend/src/features/workspace/WorkspacePane.tsx`, `frontend/src/features/workspace/WorkspaceViewer.tsx`, `frontend/src/lib/mediaUrl.ts`, `frontend/src/tests/media_rendering.spec.tsx`, `frontend/src/tests/vite.config.proxy.spec.ts`, `frontend/src/vite.config.ts`, `frontend/src/features/chat/chatLane.ts`, `frontend/src/features/chat/components/Composer.tsx`, `frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx`, `frontend/src/features/chat/ChatView.tsx`, `frontend/src/features/chat/components/__tests__/Message.execution.test.tsx`, `frontend/src/features/chat/useChat.ts`, `frontend/src/types/chat.ts`, `frontend/src/types/ui.ts` |
+| `tests` | 2 | `guardian/tests/workers/test_chat_worker_completion_semantics.py`, `tests/routes/test_chat_routes.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
