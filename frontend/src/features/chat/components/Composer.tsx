@@ -20,7 +20,10 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
+} from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -733,7 +736,8 @@ export function Composer({
           data-testid="composer-control-row"
           className={cn(
             CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-            "mt-auto flex w-full items-center justify-between gap-3 pl-[8px] pr-[24px] pb-[6px]"
+            CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
+            "mt-auto flex w-full items-center justify-between gap-3 pl-[8px] pb-[6px]"
           )}
         >
           <div className="flex min-w-0 flex-nowrap items-center gap-3 overflow-x-auto pr-2">

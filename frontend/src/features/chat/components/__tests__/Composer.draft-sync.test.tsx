@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
-import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS } from "@/features/chat/chatLane";
+import {
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
+} from "@/features/chat/chatLane";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
 
@@ -122,7 +125,7 @@ describe("Composer draft sync", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
     const controlsRow = screen.getByTestId("composer-control-row");
-    expect(controlsRow).toHaveClass("pr-[24px]");
+    expect(controlsRow.className).toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
 
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass("shrink-0");
@@ -141,6 +144,8 @@ describe("Composer draft sync", () => {
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(textarea.parentElement).toHaveAttribute("data-composer-root");
+    expect(composerSource).toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
+    expect(composerSource).not.toContain('pr-[24px]');
   });
 
   it("stages attachments locally and uploads them only after send", async () => {
