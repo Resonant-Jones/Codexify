@@ -582,31 +582,48 @@ def _local_chat_model_is_authoritative(settings: Settings) -> bool:
     )
 
 
-def _configured_local_model_resolution(
+def _local_execution_model_candidates(
     settings: Settings,
-) -> tuple[str, str | None, bool]:
+    *,
+    requested_model: str | None = None,
+) -> tuple[list[tuple[str, str]], bool]:
     strict = _local_chat_model_is_authoritative(settings)
-    candidates: tuple[tuple[str, Any], ...]
+    raw_candidates: tuple[tuple[str, Any], ...]
     if strict:
-        candidates = (
+        raw_candidates = (
             ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
         )
     else:
-        candidates = (
-            ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
+        raw_candidates = (
+            ("requested_model", requested_model),
             ("LOCAL_LLM_MODEL", getattr(settings, "LOCAL_LLM_MODEL", None)),
             (
                 "DEFAULT_LOCAL_MODEL",
                 getattr(settings, "DEFAULT_LOCAL_MODEL", None),
             ),
             ("LLM_MODEL", getattr(settings, "LLM_MODEL", None)),
+            ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
         )
 
-    for source, candidate in candidates:
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for source, candidate in raw_candidates:
         normalized = normalize_model_id(candidate)
-        if normalized:
-            return normalized, source, strict
-    return "", candidates[0][0] if candidates else None, strict
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append((normalized, source))
+    return candidates, strict
+
+
+def _configured_local_model_resolution(
+    settings: Settings,
+) -> tuple[str, str | None, bool]:
+    candidates, strict = _local_execution_model_candidates(settings)
+    if candidates:
+        model, source = candidates[0]
+        return model, source, strict
+    return "", "LOCAL_CHAT_MODEL" if strict else None, strict
 
 
 def resolve_local_execution_model(
@@ -621,11 +638,12 @@ def resolve_local_execution_model(
 ) -> LocalModelResolution:
     resolved = _resolve_settings(settings)
     requested = normalize_model_id(requested_model)
-    configured_model, source, strict = _configured_local_model_resolution(
-        resolved
+    candidates, strict = _local_execution_model_candidates(
+        resolved,
+        requested_model=requested_model,
     )
-    if not configured_model:
-        source_name = str(source or "LOCAL_CHAT_MODEL").strip()
+    if not candidates:
+        source_name = "LOCAL_CHAT_MODEL" if strict else "local_model"
         return LocalModelResolution(
             model=None,
             source=source_name,
@@ -637,6 +655,7 @@ def resolve_local_execution_model(
             ),
             endpoint_resolution=endpoint_resolution,
         )
+    configured_model, source = candidates[0]
 
     resolved_endpoint = endpoint_resolution
     names = list(discovered_model_names or [])
@@ -659,7 +678,7 @@ def resolve_local_execution_model(
             )
             if normalized
         }
-        if configured_model not in available_models:
+        if strict and configured_model not in available_models:
             return LocalModelResolution(
                 model=configured_model,
                 source=source,
@@ -669,6 +688,28 @@ def resolve_local_execution_model(
                 message=(
                     f"Configured local chat model '{configured_model}' from "
                     f"{source} is not advertised by the reachable local runtime"
+                ),
+                endpoint_resolution=resolved_endpoint,
+            )
+        if not strict:
+            for candidate_model, candidate_source in candidates:
+                if candidate_model in available_models:
+                    return LocalModelResolution(
+                        model=candidate_model,
+                        source=candidate_source,
+                        strict=strict,
+                        requested_model=requested or None,
+                        endpoint_resolution=resolved_endpoint,
+                    )
+            return LocalModelResolution(
+                model=configured_model,
+                source=source,
+                strict=strict,
+                requested_model=requested or None,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message=(
+                    "No runnable local model was found among the requested "
+                    "or configured local candidates"
                 ),
                 endpoint_resolution=resolved_endpoint,
             )
@@ -769,6 +810,7 @@ def chat_with_ai(
     local_model_resolution: LocalModelResolution | None = None
 
     if provider_name == "local":
+        strict_local_chat = _local_chat_model_is_authoritative(settings)
         authoritative_model = normalize_model_id(
             getattr(settings, "LOCAL_CHAT_MODEL", None)
         )
@@ -777,7 +819,9 @@ def chat_with_ai(
             settings=settings,
             requested_model=target_model,
             validate_availability=bool(
-                authoritative_model and authoritative_model != requested_model
+                strict_local_chat
+                and authoritative_model
+                and authoritative_model != requested_model
             ),
         )
         if not local_model_resolution.ok:
@@ -1196,6 +1240,7 @@ def call_local(
             status_code=400,
             detail=local_model_resolution.error_detail(),
         )
+    model = local_model_resolution.model or model
     runtime_policy = resolve_local_runtime_policy(
         model, settings=settings, timeout=timeout
     )
@@ -1393,6 +1438,7 @@ def stream_local(
             status_code=400,
             detail=local_model_resolution.error_detail(),
         )
+    model = local_model_resolution.model or model
     runtime_policy = resolve_local_runtime_policy(model, settings=settings)
     adapted_messages, _ = apply_local_reasoning_directive(
         messages or [],

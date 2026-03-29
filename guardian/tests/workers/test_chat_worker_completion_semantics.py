@@ -630,6 +630,109 @@ def test_completion_persists_stripped_response_boundary(monkeypatch):
     assert mock_db.create_message.call_args[0][2] == "Hello!"
 
 
+def test_stream_completion_ignores_reasoning_chunks(monkeypatch):
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "local",
+            "qwen3.5:27b",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    class _ChunkStream:
+        def __iter__(self):
+            return iter(
+                [
+                    {"delta": {"thinking": "private", "content": "Hello"}},
+                    {"delta": {"thinking": "hidden"}},
+                    {"delta": {"content": " world"}},
+                ]
+            )
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(
+        chat_worker, "stream_local", lambda *a, **k: _ChunkStream()
+    )
+
+    callback_tokens: list[str] = []
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model="qwen3.5:27b",
+        selection_source="explicit",
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(
+        task,
+        token_callback=callback_tokens.append,
+        persist_assistant_message=False,
+    )
+
+    assert result["assistant_text"] == "Hello world"
+    assert callback_tokens == ["Hello", " world"]
+    assert "thinking" not in result
+    assert "reasoning" not in result
+
+
+def test_completion_fallback_response_ignores_reasoning_fields(monkeypatch):
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "local",
+            "qwen3.5:27b",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    class _EmptyStream:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(
+        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_a, **_k: {
+            "content": "visible fallback",
+            "thinking": "private reasoning",
+            "reasoning": "internal only",
+        },
+    )
+
+    callback_tokens: list[str] = []
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model="qwen3.5:27b",
+        selection_source="explicit",
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(
+        task,
+        token_callback=callback_tokens.append,
+        persist_assistant_message=False,
+    )
+
+    assert result["assistant_text"] == "visible fallback"
+    assert callback_tokens == ["visible fallback"]
+    assert "thinking" not in result
+    assert "reasoning" not in result
+
+
 def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
     published: list[tuple[str, dict]] = []
 
