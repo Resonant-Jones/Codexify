@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from guardian.core.ai_router import LOCAL_MODEL_RESOLUTION_ERROR
+import json
+
+from guardian.core.ai_router import LOCAL_MODEL_RESOLUTION_ERROR, call_local
 from guardian.core.config import get_settings
 from guardian.routes import health as health_routes
 
@@ -12,6 +14,15 @@ class _MockResponse:
 
     def json(self) -> dict:
         return self._payload
+
+
+class _MockRawResponse:
+    def __init__(self, payload: dict, status_code: int = 200) -> None:
+        self.status_code = status_code
+        self.content = json.dumps(payload).encode("utf-8")
+
+    def json(self) -> dict:
+        return json.loads(self.content.decode("utf-8"))
 
 
 def _mock_local_runtime_request(
@@ -144,6 +155,69 @@ def test_health_chat_reports_effective_local_chat_model(
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
+
+
+def test_health_surfaces_match_executed_local_model(
+    test_client,
+    monkeypatch,
+):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        _ = (headers, timeout)
+        return _MockRawResponse({"message": {"content": "Strict reply"}})
+
+    monkeypatch.setattr(
+        "guardian.core.ai_router.requests.get",
+        _mock_local_runtime_request,
+    )
+    monkeypatch.setattr(
+        "guardian.routes.health.requests.get",
+        _mock_local_runtime_request,
+    )
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(
+        health_routes,
+        "_collect_completion_service_health",
+        _healthy_completion_service,
+    )
+    monkeypatch.setattr(
+        health_routes, "_collect_chat_queue_health", _healthy_queue
+    )
+    health_routes._LLM_HEALTH_PROBE_CACHE = None
+    health_routes._LLM_HEALTH_PROBE_TS = 0.0
+
+    settings = get_settings()
+    snapshot = _snapshot_settings(settings)
+    try:
+        _apply_local_only_runtime(settings)
+        result = call_local(
+            [{"role": "user", "content": "hello"}],
+            "library2/ministral-3:8b",
+            settings=settings,
+        )
+        llm_payload = test_client.get("/health/llm").json()
+        chat_payload = test_client.get("/health/chat").json()
+
+        assert result == "Strict reply"
+        assert captured["json"]["model"] == "qwen3.5:0.8b"
+        assert llm_payload["model"] == captured["json"]["model"]
+        assert (
+            llm_payload["provider_runtime"]["default_model"]
+            == captured["json"]["model"]
+        )
+        assert chat_payload["model"] == captured["json"]["model"]
+        assert (
+            chat_payload["provider_runtime"]["default_model"]
+            == captured["json"]["model"]
+        )
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+        health_routes._LLM_HEALTH_PROBE_CACHE = None
+        health_routes._LLM_HEALTH_PROBE_TS = 0.0
 
 
 def test_health_llm_surfaces_local_model_resolution_error(

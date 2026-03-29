@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import ChatBubble from "@/features/chat/components/ChatBubble";
+import { renderStreamChunk } from "@/features/chat/useChat";
 
 const baseMessage = {
   id: "msg-execution",
@@ -70,5 +71,17 @@ describe("ChatBubble execution badge", () => {
     );
 
     expect(screen.getByText("⚠ Executed on gpt-5.4-mini")).toBeInTheDocument();
+  });
+
+  it("does not render reasoning/thinking tokens", () => {
+    const chunk = {
+      content: "",
+      thinking: "internal reasoning",
+    };
+
+    const result = renderStreamChunk(chunk);
+
+    expect(result).not.toContain("internal reasoning");
+    expect(result).toBe("");
   });
 });
