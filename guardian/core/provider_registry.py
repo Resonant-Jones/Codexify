@@ -867,6 +867,7 @@ def _normalize_model_descriptor(item: dict[str, Any]) -> dict[str, Any]:
     descriptor["supports_vision"] = supports_vision
     descriptor["supports_text_input"] = supports_text_input
     descriptor["model_kind"] = model_kind
+    descriptor["_capability"] = "confirmed" if supports_chat else "unsupported"
 
     capabilities = dict(descriptor.get("capabilities") or {})
     capabilities["chat"] = supports_chat
@@ -890,6 +891,7 @@ def _fallback_chat_capable_models(
         descriptor["supports_chat"] = True
         descriptor["supports_text_input"] = True
         descriptor["model_kind"] = "vision_chat" if supports_vision else "chat"
+        descriptor["_capability"] = "inferred"
         capabilities = dict(descriptor.get("capabilities") or {})
         capabilities["chat"] = True
         capabilities["vision"] = supports_vision
