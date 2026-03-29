@@ -250,6 +250,12 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
         chat_worker.event_bus, "emit_event", lambda *a, **k: None
     )
     monkeypatch.setattr(chat_worker, "_embed_message", lambda *a, **k: None)
+    persisted_extra_meta: dict[str, object] = {}
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_message_extra_meta",
+        lambda **kwargs: persisted_extra_meta.update(kwargs) or True,
+    )
 
     async def _build_messages(_task):
         return (
@@ -328,6 +334,13 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
     assert result["attempted_provider"] == "groq"
     assert result["upstream_status"] == 404
     assert result["fallback_reason"] == "cloud_failure_local_rescue"
+    assert result["execution"] == {
+        "attempted_provider": "groq",
+        "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": True,
+    }
     assert result["completion_truth"] == {
         "accepted": True,
         "attempted": True,
@@ -338,6 +351,80 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
     assert result["attempted_provider_truth"]["attempted"] is True
     assert result["final_provider_truth"]["completed"] is True
     assert mock_db.create_message.call_args[0][2] == "rescued locally"
+    assert persisted_extra_meta["payload"]["execution"] == {
+        "attempted_provider": "groq",
+        "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": True,
+    }
+
+
+def test_completion_result_includes_execution_metadata_without_fallback(
+    monkeypatch,
+):
+    mock_db = MagicMock()
+    mock_db.create_message.return_value = 322
+    mock_db.write_audit_log = MagicMock()
+    monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(
+        chat_worker.event_bus, "emit_event", lambda *a, **k: None
+    )
+    monkeypatch.setattr(chat_worker, "_embed_message", lambda *a, **k: None)
+    persisted_extra_meta: dict[str, object] = {}
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_message_extra_meta",
+        lambda **kwargs: persisted_extra_meta.update(kwargs) or True,
+    )
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "local",
+            "qwen3.5:27b",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    class _EmptyStream:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(
+        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+    )
+    monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model="qwen3.5:27b",
+        selection_source="explicit",
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(task)
+
+    assert result["execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+    }
+    assert persisted_extra_meta["payload"]["execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+    }
 
 
 def test_explicit_provider_failure_does_not_rescue(monkeypatch):

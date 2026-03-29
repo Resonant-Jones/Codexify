@@ -1471,6 +1471,14 @@ def _run_chat_completion_task_compat(
         }
     )
 
+    execution = {
+        "attempted_provider": attempted_provider,
+        "attempted_model": attempted_model,
+        "final_provider": final_provider,
+        "final_model": final_model,
+        "fallback_triggered": bool(completion_truth.get("fallback_attempted")),
+    }
+
     result: dict[str, Any] = {
         "assistant_text": assistant_text,
         "provider": final_provider,
@@ -1491,6 +1499,7 @@ def _run_chat_completion_task_compat(
         "completion_truth": completion_truth,
         "attempted_provider_truth": attempted_provider_truth,
         "final_provider_truth": final_provider_truth,
+        "execution": execution,
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
@@ -1523,6 +1532,7 @@ def _run_chat_completion_task_compat(
             "completion_truth": completion_truth,
             "attempted_provider_truth": attempted_provider_truth,
             "final_provider_truth": final_provider_truth,
+            "execution": execution,
         }
         logger.error(
             "[chat-worker] assistant_message_persist_failed thread_id=%s attempted_provider=%s attempted_model=%s final_provider=%s final_model=%s chars=%s",
@@ -1560,6 +1570,7 @@ def _run_chat_completion_task_compat(
                 "completion_truth": completion_truth,
                 "attempted_provider_truth": attempted_provider_truth,
                 "final_provider_truth": final_provider_truth,
+                "execution": execution,
             },
         )
 
@@ -1860,6 +1871,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "attempted_provider_truth"
                 ),
                 "final_provider_truth": result.get("final_provider_truth"),
+                "execution": result.get("execution"),
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
