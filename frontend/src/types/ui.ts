@@ -1,3 +1,5 @@
+import type { ChatExecution } from "@/types/chat";
+
 export type ThemeMode = "light" | "dark" | "system";
 
 export type MessageAttachment = {
@@ -15,6 +17,7 @@ export type Message = {
   createdAt: number | null;
   status?: "sending" | "sent" | "delivered" | "read";
   attachments?: MessageAttachment[];
+  execution?: ChatExecution;
 };
 
 export type ProfileMode = "local" | "cloud";

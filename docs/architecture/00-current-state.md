@@ -17,57 +17,61 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is in release-hardening on `main` for the local Docker Compose beta path. Recent merges improved chat event/run consistency, retrieval routing policy scaffolding, and Redis failure behavior; readiness remains gated on fresh end-to-end supported-path proof and explicit release-gate evidence.
+Codexify is in release-gate remediation on `main` for the local Docker Compose beta profile. The latest merged release-gate proof on `main` (2026-03-28) confirms profile flags and route quarantine behavior, but does not close readiness because fresh completion and retrieval proofs failed on the live stack.
 
 ## What changed recently
 
-- Chat UI run-state flow was reworked to use a shared per-thread `useAgentRuns` store and task-event-driven updates.
-- Live event handling introduced canonical `LiveEvent` normalization across chat runtime paths.
-- Backend now enforces Redis fail-fast behavior and explicit `503` degradation contracts on chat/session/health surfaces.
-- Redis queue blocking paths were hardened to enforce queue-client usage, with targeted queue tests added.
-- Canonical retrieval router policy scaffold landed (`guardian/context/retrieval_router_policy.py`) with tests.
-- Daily/weekly audit artifacts continued to refresh under `docs/audits/`.
+- Added fresh release-gate artifact on `main` (`docs/architecture/2026-03-28-release-gate-proof.md`) with explicit pass/fail evidence.
+- Chat runtime now surfaces execution truth and fallback model details to the UI and tests for completion semantics were updated.
+- Provider/model classification was hardened with soft fallback logic and catalog/provider tests.
+- Architecture docs now include a normative chat runtime contract plus gap analysis for warmup, timeout, replay, and transcript-integrity semantics.
+- Browser-dev media rendering was fixed across chat/workspace surfaces with new coverage.
+- Composer layout contract and send-button placement were tightened across multiple merged UI fixes.
 
 ## Current supported reality
 
 - Supported install path remains local Docker Compose with backend, frontend, Postgres, Redis, and workers.
 - Thread chat is the core supported flow, with queue-backed completion and persisted task/message state.
+- Supported-profile flags were live-verified on `main`: `CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
+- Quarantined non-core routes were live-verified as unavailable (`404`) in supported profile.
+- Chat request acceptance path works on `main` (thread creation, message persistence, completion acceptance with task id/turn id).
+- Document upload and embed lifecycle reached `embedding_status=ready` in the latest release-gate run.
 - Chat runtime state on `main` now uses normalized live events and consolidated per-thread agent-runs state.
-- Architecture docs now include a chat runtime state contract for frontend/shared-runtime interpretation of provider warmup, request lifecycle ambiguity, and replay semantics; this is documentation alignment, not fresh live-runtime proof.
-- Retrieval routing now has an explicit policy scaffold and tests, but this is policy infrastructure rather than a full release gate.
+- `docs/architecture/chat-runtime-contract.md` is now the normative frontend/shared-runtime vocabulary for provider warmup, request lifecycle ambiguity, and replay semantics; this is documentation alignment, not fresh live-runtime proof.
 - Runtime now degrades explicitly when Redis coordination is unavailable instead of silently drifting.
-- Validation evidence on `main` is still mostly unit/targeted integration tests plus audit snapshots.
+- `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog` are available but currently not reconciled into one release-signoff truth.
 
 ## Not yet true / do not assume
 
-- Do not assume one fresh full supported-path smoke (thread -> completion -> upload -> embed -> retrieve) has been published for current `main`.
-- Do not assume supported-profile runtime flags were freshly re-verified on the live release Compose stack.
-- Do not assume route quarantine posture is continuously enforced without explicit runtime evidence.
-- Do not assume `/tools` and command-bus surfaces are fully unified into one release contract.
-- Do not assume provider/catalog visibility alone implies release support.
-- Do not assume Redis is optional for current chat/queue coordination.
-- Do not assume federation durability or broad connector sync is part of the present beta promise.
+- Do not assume accepted completions produce persisted assistant output on current `main`; latest proof captured worker `502` after local inference endpoint `404`s.
+- Do not assume retrieval is proven on current `main`; latest proof saw `/api/retrieve` return `404`.
+- Do not assume backend and embed worker use the same vector-store backend in the live supported profile.
+- Do not assume health/collateral routes are alias-consistent (`/health*` vs `/api/health*`) without explicit probe evidence.
+- Do not assume older supported-path proof artifacts still represent current `main` without a fresh rerun.
+- Do not assume `/tools` and command-bus surfaces are one finalized release contract unless stated here.
 
 ## Active blockers
 
-- Missing fresh end-to-end supported-path proof on current `main` for chat + ingestion + retrieval.
-- Missing current-cycle live verification for supported-profile flags and quarantined-route behavior.
-- Release gate evidence across `/health`, `/health/llm`, `/health/chat`, and `/api/llm/catalog` is not yet packaged as one operator-facing signoff.
-- `/tools` vs command-bus release-surface boundaries remain ambiguous in current release docs.
+- Chat completion execution fails after acceptance on current supported profile because local inference endpoints return `404`, producing worker `502`.
+- Retrieval evidence is not closed: `/api/retrieve` is missing in the proven stack and backend retrieval did not return the fresh sentinel.
+- Vector-store backend mismatch in live runtime (`backend` observed `faiss`, `worker-document-embed` observed `chroma`) blocks reliable retrieval signoff.
+- Release-gate reconciliation is incomplete across `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog`.
 
 ## This week's priorities
 
-1. Execute and publish one full supported-path run on `main` (thread, completion, upload, embed, retrieval).
-2. Re-verify and record supported-profile flags and route quarantine posture on the live Compose stack.
-3. Publish one release-gate check artifact that reconciles `/health`, `/health/llm`, `/health/chat`, and `/api/llm/catalog`.
-4. Tighten and document `/tools` versus command-bus release boundaries in operator-facing terms.
+1. Fix local inference endpoint/model wiring so accepted completions persist assistant responses on supported profile.
+2. Align backend and embed-worker vector-store configuration and re-prove retrieval with a fresh sentinel document.
+3. Restore and verify one supported retrieval API path used by release proof (`/api/retrieve` or documented replacement).
+4. Publish one fresh end-to-end supported-path proof on `main` that passes create -> complete -> upload -> embed -> retrieve.
+5. Reconcile and document health/catalog route expectations for operator signoff.
 
 ## Release definition right now
 
 - [ ] Supported-profile flags are active in live runtime (`CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`).
-- [ ] Quarantined non-core routes match the supported-profile contract in the running stack.
-- [ ] One fresh supported-path smoke on `main` proves thread create, assistant completion, document upload, embed readiness, and retrieval evidence.
-- [ ] `/health/chat`, `/health/llm`, `/health`, and `/api/llm/catalog` agree with supported-profile and provider-governance expectations.
+- [ ] Quarantined non-core routes return the expected unsupported behavior in the running stack.
+- [ ] One fresh supported-path run on `main` proves thread create, completion execution, assistant persistence, document upload, embed readiness, and retrieval evidence.
+- [ ] Retrieval runtime uses one aligned vector-store backend across backend and embed worker on the supported profile.
+- [ ] `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog` are reconciled with the actual supported model/runtime contract.
 - [ ] No release claim depends on internal-only or dev-only surfaces.
 
 ## How to read the rest of the KB

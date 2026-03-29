@@ -469,6 +469,7 @@ export function ChatView({
                       src: attachment.src_url,
                       name: attachment.filename,
                     })),
+                    execution: message.execution,
                   }}
                   isGuardian={message.role !== "user"}
                   showPlay={showPlay}

@@ -217,10 +217,12 @@ def test_resolve_provider_capability_discovers_alibaba_models_live(
     assert capability["models"][0]["supports_vision"] is False
     assert capability["models"][0]["supports_text_input"] is True
     assert capability["models"][0]["model_kind"] == "chat"
+    assert capability["models"][0]["_capability"] == "confirmed"
     assert capability["models"][1]["supports_chat"] is False
     assert capability["models"][1]["supports_vision"] is False
     assert capability["models"][1]["supports_text_input"] is True
     assert capability["models"][1]["model_kind"] == "utility"
+    assert capability["models"][1]["_capability"] == "unsupported"
     assert capability["model_index"]["state"] == "available"
     assert capability["model_index"]["model_count"] == 1
     assert capability["model_index"]["utility_model_count"] == 1
@@ -319,6 +321,7 @@ def test_resolve_provider_for_model_only_matches_discovered_dynamic_models(
             "supports_vision": False,
             "supports_text_input": True,
             "model_kind": "chat",
+            "_capability": "confirmed",
             "capabilities": {
                 "chat": True,
                 "vision": False,
@@ -332,6 +335,7 @@ def test_resolve_provider_for_model_only_matches_discovered_dynamic_models(
             "supports_vision": False,
             "supports_text_input": True,
             "model_kind": "chat",
+            "_capability": "confirmed",
             "capabilities": {
                 "chat": True,
                 "vision": False,
@@ -401,6 +405,9 @@ def test_discovery_falls_back_when_classifier_excludes_all_models(
         "qwen-plus",
     ]
     assert all(model["supports_chat"] is True for model in capability["models"])
+    assert all(
+        model["_capability"] == "inferred" for model in capability["models"]
+    )
     assert capability["model_index"]["state"] == "degraded"
     assert "falling back to all discovered models" in str(
         capability["model_index"]["reason"]
