@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "@/features/chat/components/Composer";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
 } from "@/features/chat/chatLane";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
@@ -125,12 +126,12 @@ describe("Composer draft sync", () => {
 
     const contentPlane = screen.getByTestId("composer-content-plane");
     const controlsRow = screen.getByTestId("composer-control-row");
+    expect(controlsRow.className).toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
     expect(controlsRow).toHaveClass("px-[var(--composer-text-pad-x,14px)]");
     expect(contentPlane).toHaveClass("px-[var(--composer-pad-x,12px)]");
     expect(controlsRow.parentElement).toBe(contentPlane);
     expect(controlsRow).not.toHaveClass("justify-between");
     expect(controlsRow.className).not.toMatch(/\bpl-\[/);
-    expect(controlsRow.className).not.toMatch(/\bpr-\[/);
 
     const controlsStrip = screen.getByTestId("composer-controls-strip");
     expect(controlsStrip).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
@@ -161,6 +162,7 @@ describe("Composer draft sync", () => {
     );
 
     const textarea = screen.getByPlaceholderText("Write a message…");
+    expect(composerSource).toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(textarea.parentElement).toBe(contentPlane);
     expect(composerSource).not.toContain("justify-between");
     expect(composerSource).not.toContain('pl-[8px]');
