@@ -13,6 +13,10 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+vi.mock("../hooks/useTaskEvents", () => ({
+  useTaskEvents: vi.fn(),
+}));
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -251,6 +255,9 @@ describe("useChat refresh ownership", () => {
         })
       ).toBe(true);
     });
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
 
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledTimes(3);
@@ -411,9 +418,15 @@ describe("useChat refresh ownership", () => {
         })
       ).toBe(true);
     });
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
 
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledTimes(3);
+    });
+    await act(async () => {
+      await Promise.resolve();
     });
 
     expect(
