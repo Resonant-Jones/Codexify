@@ -1240,6 +1240,7 @@ def call_local(
             status_code=400,
             detail=local_model_resolution.error_detail(),
         )
+    model = local_model_resolution.model or model
     runtime_policy = resolve_local_runtime_policy(
         model, settings=settings, timeout=timeout
     )
@@ -1437,6 +1438,7 @@ def stream_local(
             status_code=400,
             detail=local_model_resolution.error_detail(),
         )
+    model = local_model_resolution.model or model
     runtime_policy = resolve_local_runtime_policy(model, settings=settings)
     adapted_messages, _ = apply_local_reasoning_directive(
         messages or [],

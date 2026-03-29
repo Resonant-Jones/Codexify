@@ -11,8 +11,10 @@ from guardian.core.ai_router import (
     LOCAL_MODEL_RESOLUTION_ERROR,
     LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
     call_alibaba,
+    call_local,
     call_minimax,
     chat_with_ai,
+    stream_local,
 )
 from guardian.core.config import Settings
 
@@ -33,6 +35,20 @@ class _MockRawResponse:
 
     def json(self) -> dict:
         return json.loads(self.content.decode("utf-8"))
+
+
+class _MockStreamingResponse:
+    def __init__(self, lines: list[bytes], status_code: int = 200) -> None:
+        self._lines = lines
+        self.status_code = status_code
+        self.closed = False
+
+    def iter_lines(self, decode_unicode: bool = False):
+        _ = decode_unicode
+        yield from self._lines
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def _mock_local_inventory_request(
@@ -386,6 +402,82 @@ def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
         exc.value.detail["failure_kind"] == LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND
     )
     assert exc.value.detail["model"] == "qwen3.5:0.8b"
+
+
+def test_call_local_local_only_uses_resolved_model_for_execution(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        _ = (headers, timeout)
+        return _MockRawResponse({"message": {"content": "Local call reply"}})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="qwen3.5:0.8b",
+        DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
+        LLM_MODEL="library2/ministral-3:8b",
+    )
+
+    result = call_local(
+        [{"role": "user", "content": "hello"}],
+        "library2/ministral-3:8b",
+        settings=settings,
+    )
+
+    assert result == "Local call reply"
+    assert captured["json"]["model"] == "qwen3.5:0.8b"
+
+
+def test_stream_local_local_only_uses_resolved_model_for_execution(
+    monkeypatch,
+):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, stream, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        _ = (headers, stream, timeout)
+        return _MockStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"Local "}}]}',
+                b'data: {"choices":[{"delta":{"content":"stream"}}]}',
+                b"data: [DONE]",
+            ]
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL="http://127.0.0.1:11434/v1",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="qwen3.5:0.8b",
+        DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
+        LLM_MODEL="library2/ministral-3:8b",
+    )
+
+    result = list(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "library2/ministral-3:8b",
+            settings=settings,
+        )
+    )
+
+    assert result == ["Local ", "stream"]
+    assert captured["json"]["model"] == "qwen3.5:0.8b"
 
 
 def test_call_alibaba_missing_key_surfaces_auth_config_failure():
