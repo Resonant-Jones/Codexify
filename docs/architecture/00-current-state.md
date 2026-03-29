@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-03-28
+2026-03-29
 
 ## Interpretation rule
 
@@ -33,6 +33,7 @@ Codexify is in release-hardening on `main` for the local Docker Compose beta pat
 - Supported install path remains local Docker Compose with backend, frontend, Postgres, Redis, and workers.
 - Thread chat is the core supported flow, with queue-backed completion and persisted task/message state.
 - Chat runtime state on `main` now uses normalized live events and consolidated per-thread agent-runs state.
+- Architecture docs now include a chat runtime state contract for frontend/shared-runtime interpretation of provider warmup, request lifecycle ambiguity, and replay semantics; this is documentation alignment, not fresh live-runtime proof.
 - Retrieval routing now has an explicit policy scaffold and tests, but this is policy infrastructure rather than a full release gate.
 - Runtime now degrades explicitly when Redis coordination is unavailable instead of silently drifting.
 - Validation evidence on `main` is still mostly unit/targeted integration tests plus audit snapshots.
