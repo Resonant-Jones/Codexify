@@ -90,6 +90,30 @@ def _mock_groq_model_index(url: str, *args, **kwargs) -> _MockResponse:
     )
 
 
+def _mock_groq_model_index_classifier_miss(
+    url: str, *args, **kwargs
+) -> _MockResponse:
+    assert url == "https://api.groq.com/openai/v1/models"
+    headers = kwargs.get("headers") or {}
+    assert headers.get("Authorization") == "Bearer test-groq-key"
+    return _MockResponse(
+        {
+            "data": [
+                {
+                    "id": "llama-3.3-70b-versatile",
+                    "name": "Llama 3.3 70B",
+                    "supports_chat": False,
+                },
+                {
+                    "id": "moonshotai/kimi-k2-instruct-0905",
+                    "name": "Kimi K2 Instruct",
+                    "supportsChat": False,
+                },
+            ]
+        }
+    )
+
+
 def _mock_bridge_fallback_catalog_request(calls: list[str]):
     def _handler(url: str, *args, **kwargs) -> _MockResponse:
         _ = (args, kwargs)
@@ -364,10 +388,74 @@ def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
             "Llama 3.3 70B",
             "Kimi K2 Instruct",
         ]
+        assert groq["models"][0]["_capability"] == "confirmed"
         assert groq["models"][0]["supports_chat"] is True
         assert groq["models"][0]["supports_vision"] is False
         assert groq["models"][0]["supports_text_input"] is True
         assert groq["models"][0]["model_kind"] == "chat"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_soft_fallback_surfaces_inferred_groq_models(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_groq_model_index_classifier_miss,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "GROQ_BASE_URL": settings.GROQ_BASE_URL,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "groq"
+        settings.OPENAI_API_KEY = None
+        settings.GROQ_API_KEY = "test-groq-key"
+        settings.GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+        settings.ALIBABA_API_KEY = None
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.ALIBABA_MODEL = None
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+        groq = _provider_by_id(payload, "groq")
+
+        assert groq["enabled"] is True
+        assert groq["available"] is True
+        assert groq["authorized"] is True
+        assert groq["model_index"]["state"] == "degraded"
+        assert groq["model_index"]["failure_kind"] == "empty_model_result"
+        assert groq["model_index"]["model_count"] == 2
+        assert [model["id"] for model in groq["models"]] == [
+            "llama-3.3-70b-versatile",
+            "moonshotai/kimi-k2-instruct-0905",
+        ]
+        assert all(
+            model["_capability"] == "inferred" for model in groq["models"]
+        )
+        assert all(model["supports_chat"] is True for model in groq["models"])
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
