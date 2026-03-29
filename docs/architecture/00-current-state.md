@@ -24,16 +24,21 @@ Codexify is in release-gate remediation on `main` for the local Docker Compose b
 - Added fresh release-gate artifact on `main` (`docs/architecture/2026-03-28-release-gate-proof.md`) with explicit pass/fail evidence.
 - Chat runtime now surfaces execution truth and fallback model details to the UI and tests for completion semantics were updated.
 - Provider/model classification was hardened with soft fallback logic and catalog/provider tests.
+- Architecture docs now include a normative chat runtime contract plus gap analysis for warmup, timeout, replay, and transcript-integrity semantics.
 - Browser-dev media rendering was fixed across chat/workspace surfaces with new coverage.
 - Composer layout contract and send-button placement were tightened across multiple merged UI fixes.
 
 ## Current supported reality
 
 - Supported install path remains local Docker Compose with backend, frontend, Postgres, Redis, and workers.
+- Thread chat is the core supported flow, with queue-backed completion and persisted task/message state.
 - Supported-profile flags were live-verified on `main`: `CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
 - Quarantined non-core routes were live-verified as unavailable (`404`) in supported profile.
 - Chat request acceptance path works on `main` (thread creation, message persistence, completion acceptance with task id/turn id).
 - Document upload and embed lifecycle reached `embedding_status=ready` in the latest release-gate run.
+- Chat runtime state on `main` now uses normalized live events and consolidated per-thread agent-runs state.
+- `docs/architecture/chat-runtime-contract.md` is now the normative frontend/shared-runtime vocabulary for provider warmup, request lifecycle ambiguity, and replay semantics; this is documentation alignment, not fresh live-runtime proof.
+- Runtime now degrades explicitly when Redis coordination is unavailable instead of silently drifting.
 - `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog` are available but currently not reconciled into one release-signoff truth.
 
 ## Not yet true / do not assume
