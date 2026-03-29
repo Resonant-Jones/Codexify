@@ -39,4 +39,4 @@ export const GUARDIAN_SHELL_MAX_WIDTH_CLASS = "max-w-[1500px]";
 // Token-friendly padding expression reused by chat surfaces so portrait and
 // fullscreen share the same baseline inset without bespoke numbers.
 export const CHAT_LANE_INLINE_PADDING =
-  "max(var(--page-pad, 0px), var(--shell-gap, )10px)";
+  "max(var(--page-pad, 0px), var(--shell-gap, 10px))";
