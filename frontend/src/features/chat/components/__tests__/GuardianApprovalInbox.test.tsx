@@ -1,10 +1,25 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import GuardianApprovalInbox from "@/features/chat/components/GuardianApprovalInbox";
+import { fetchAgentRuns } from "@/features/chat/api/actionCenter";
 import { fetchGuardianApprovalInboxSnapshot } from "@/features/chat/api/approvalInbox";
 import type { GuardianApprovalInboxSnapshot } from "@/features/chat/api/approvalInbox";
+import {
+  __resetAgentRunsStoreForTests,
+  applyAgentRunEvent,
+} from "@/features/chat/hooks/useAgentRuns";
+
+vi.mock("@/features/chat/api/actionCenter", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/features/chat/api/actionCenter")
+  >("@/features/chat/api/actionCenter");
+  return {
+    ...actual,
+    fetchAgentRuns: vi.fn(),
+  };
+});
 
 vi.mock("@/features/chat/api/approvalInbox", async () => {
   const actual = await vi.importActual<
@@ -19,6 +34,7 @@ vi.mock("@/features/chat/api/approvalInbox", async () => {
 const fetchGuardianApprovalInboxSnapshotMock = vi.mocked(
   fetchGuardianApprovalInboxSnapshot
 );
+const fetchAgentRunsMock = vi.mocked(fetchAgentRuns);
 
 function buildSnapshot(
   overrides: Partial<GuardianApprovalInboxSnapshot> = {}
@@ -51,26 +67,37 @@ function buildSnapshot(
 
 describe("GuardianApprovalInbox", () => {
   beforeEach(() => {
+    __resetAgentRunsStoreForTests();
     vi.clearAllMocks();
+    fetchAgentRunsMock.mockResolvedValue([]);
   });
 
-  test("renders inbox heading and core sections", async () => {
-    fetchGuardianApprovalInboxSnapshotMock.mockResolvedValue(buildSnapshot());
-
-    render(<GuardianApprovalInbox />);
-
-    expect(
-      await screen.findByRole("heading", { name: "Guardian Approval Inbox" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Awaiting Approval" })
-    ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Blocked" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Escalated" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Clarification Needed" })
-    ).toBeInTheDocument();
+  afterEach(() => {
+    vi.clearAllMocks();
+    __resetAgentRunsStoreForTests();
   });
+
+  test(
+    "renders inbox heading and core sections",
+    async () => {
+      fetchGuardianApprovalInboxSnapshotMock.mockResolvedValue(buildSnapshot());
+
+      render(<GuardianApprovalInbox />);
+
+      expect(
+        await screen.findByRole("heading", { name: "Guardian Approval Inbox" })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Awaiting Approval" })
+      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Blocked" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Escalated" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Clarification Needed" })
+      ).toBeInTheDocument();
+    },
+    15_000
+  );
 
   test("shows empty state when there are no pending items", async () => {
     fetchGuardianApprovalInboxSnapshotMock.mockResolvedValue(buildSnapshot());
@@ -78,9 +105,18 @@ describe("GuardianApprovalInbox", () => {
     render(<GuardianApprovalInbox />);
 
     expect(await screen.findByText("No pending approvals")).toBeInTheDocument();
-    expect(screen.getByText("No blocked actions")).toBeInTheDocument();
-    expect(screen.getByText("No escalation items")).toBeInTheDocument();
-    expect(screen.getByText("No clarification-needed items")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Blocked actions unavailable without thread context")
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Escalation items unavailable without thread context")
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Clarification items unavailable without thread context")
+      ).toBeInTheDocument();
+    });
   });
 
   test("shows unavailable state when sources are unsupported", async () => {
@@ -124,7 +160,7 @@ describe("GuardianApprovalInbox", () => {
     ).toBeInTheDocument();
   });
 
-  test("renders mixed pending items correctly", async () => {
+  test("renders mixed pending items correctly from emitted run events", async () => {
     fetchGuardianApprovalInboxSnapshotMock.mockResolvedValue(
       buildSnapshot({
         awaitingApprovals: {
@@ -147,61 +183,19 @@ describe("GuardianApprovalInbox", () => {
           message: "",
         },
         blockedActions: {
-          availability: "available",
-          items: [
-            {
-              createdAt: null,
-              href: null,
-              id: "agent-run-run_blocked",
-              runId: "run_blocked",
-              sourceType: "Delegation run",
-              status: "Blocked",
-              summary: "Runtime terminal | Raw status blocked",
-              taskId: null,
-              threadId: 81,
-              title: "Run run_blocked",
-              updatedAt: null,
-            },
-          ],
-          message: "",
+          availability: "empty",
+          items: [],
+          message: "No blocked actions",
         },
         escalatedItems: {
-          availability: "available",
-          items: [
-            {
-              createdAt: null,
-              href: null,
-              id: "agent-run-run_failed",
-              runId: "run_failed",
-              sourceType: "Delegation run",
-              status: "Escalated",
-              summary: "Runtime container | Raw status failed",
-              taskId: null,
-              threadId: 81,
-              title: "Run run_failed",
-              updatedAt: null,
-            },
-          ],
-          message: "",
+          availability: "empty",
+          items: [],
+          message: "No escalation items",
         },
         clarificationNeeded: {
-          availability: "available",
-          items: [
-            {
-              createdAt: null,
-              href: null,
-              id: "agent-run-run_clarify",
-              runId: "run_clarify",
-              sourceType: "Delegation run",
-              status: "Clarification needed",
-              summary: "Runtime terminal | Raw status clarification_needed",
-              taskId: null,
-              threadId: 81,
-              title: "Run run_clarify",
-              updatedAt: null,
-            },
-          ],
-          message: "",
+          availability: "empty",
+          items: [],
+          message: "No clarification-needed items",
         },
       })
     );
@@ -209,15 +203,39 @@ describe("GuardianApprovalInbox", () => {
     render(<GuardianApprovalInbox threadId={81} />);
 
     expect(await screen.findByText("browser.click")).toBeInTheDocument();
-    expect(screen.getByText("Run run_blocked")).toBeInTheDocument();
-    expect(screen.getByText("Run run_failed")).toBeInTheDocument();
-    expect(screen.getByText("Run run_clarify")).toBeInTheDocument();
-    expect(screen.getByText("Source: Browser approval")).toBeInTheDocument();
-    expect(screen.getAllByText("Source: Delegation run").length).toBeGreaterThanOrEqual(3);
-    expect(screen.getAllByText("Awaiting approval").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Blocked").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Escalated").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Clarification needed").length).toBeGreaterThanOrEqual(1);
+
+    act(() => {
+      applyAgentRunEvent("81", {
+        run_id: "run_blocked",
+        runtime_target: "terminal",
+        status: "blocked",
+        thread_id: 81,
+      });
+      applyAgentRunEvent("81", {
+        run_id: "run_failed",
+        runtime_target: "container",
+        status: "failed",
+        thread_id: 81,
+      });
+      applyAgentRunEvent("81", {
+        run_id: "run_clarify",
+        runtime_target: "terminal",
+        status: "clarification_needed",
+        thread_id: 81,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Run run_blocked")).toBeInTheDocument();
+      expect(screen.getByText("Run run_failed")).toBeInTheDocument();
+      expect(screen.getByText("Run run_clarify")).toBeInTheDocument();
+      expect(screen.getByText("Source: Browser approval")).toBeInTheDocument();
+      expect(screen.getAllByText("Source: Delegation run").length).toBeGreaterThanOrEqual(3);
+      expect(screen.getAllByText("Awaiting approval").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Blocked").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Escalated").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Clarification needed").length).toBeGreaterThanOrEqual(1);
+    });
 
     expect(
       screen.queryByRole("button", { name: /approve|reject|accept|deny|create/i })

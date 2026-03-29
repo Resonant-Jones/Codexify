@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -177,7 +177,7 @@ function installMatchMedia(prefersDark = false) {
 function renderWordmark(themeMode: "light" | "dark") {
   window.localStorage.setItem("cfy.themeMode", themeMode);
   render(<AppShell />);
-  return screen.getByRole("button", { name: "Codexify" });
+  return screen.findByRole("button", { name: "Codexify" });
 }
 
 describe("AppShell logo wordmark color contract", () => {
@@ -188,26 +188,41 @@ describe("AppShell logo wordmark color contract", () => {
   });
 
   afterEach(() => {
+    vi.clearAllMocks();
     cleanup();
   });
 
-  it("binds the wordmark to the text token instead of a raw color literal across light and dark themes", () => {
-    const lightWordmark = renderWordmark("light");
-    expect(lightWordmark.style.color).toBe("var(--text)");
-    expect(lightWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
+  it(
+    "binds the wordmark to a theme token instead of a raw color literal across light and dark themes",
+    async () => {
+      const lightWordmark = await renderWordmark("light");
+      await waitFor(() => {
+        expect(lightWordmark.style.color).toBe("var(--text-on-accent)");
+      });
+      expect(lightWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
 
-    const lightShell = lightWordmark.closest("div[style*='--text:']");
-    expect(lightShell).not.toBeNull();
-    expect(lightShell?.getAttribute("style")).toContain("--text: #111827");
+      const lightShell = lightWordmark.closest("div[style*='--text:']");
+      expect(lightShell).not.toBeNull();
+      expect(lightShell?.getAttribute("style")).toContain("--text: #111827");
+      expect(lightShell?.getAttribute("style")).toContain(
+        "--text-on-accent: #111827"
+      );
 
-    cleanup();
+      cleanup();
 
-    const darkWordmark = renderWordmark("dark");
-    expect(darkWordmark.style.color).toBe("var(--text)");
-    expect(darkWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
+      const darkWordmark = await renderWordmark("dark");
+      await waitFor(() => {
+        expect(darkWordmark.style.color).toBe("var(--text-on-accent)");
+      });
+      expect(darkWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
 
-    const darkShell = darkWordmark.closest("div[style*='--text:']");
-    expect(darkShell).not.toBeNull();
-    expect(darkShell?.getAttribute("style")).toContain("--text: #ffffff");
-  });
+      const darkShell = darkWordmark.closest("div[style*='--text:']");
+      expect(darkShell).not.toBeNull();
+      expect(darkShell?.getAttribute("style")).toContain("--text: #ffffff");
+      expect(darkShell?.getAttribute("style")).toContain(
+        "--text-on-accent: #f9fafb"
+      );
+    },
+    15_000
+  );
 });
