@@ -53,9 +53,14 @@ from guardian.connectors.google import router as google_connect_router
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
 from guardian.core.config import (
+    VECTOR_STORE_BACKEND_CHROMA,
+    VECTOR_STORE_PROOF_STATUS_MISMATCH,
+    VECTOR_STORE_PROOF_STATUS_READY,
+    VECTOR_STORE_PROOF_STATUS_UNPROVEN,
     ConfigCoherenceError,
     assert_config_coherence,
     get_settings,
+    resolve_vector_store_runtime,
 )
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
@@ -305,6 +310,70 @@ def _resolve_embedding_backend(settings_obj: Any | None = None) -> str:
         )
 
     return backend
+
+
+def _normalize_optional_namespace(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _vector_runtime_payload(runtime: Any) -> dict[str, str]:
+    if hasattr(runtime, "as_dict"):
+        return runtime.as_dict()
+    return {
+        "backend": str(getattr(runtime, "backend", "") or "").strip(),
+        "chroma_path": str(getattr(runtime, "chroma_path", "") or "").strip(),
+        "collection": str(getattr(runtime, "collection", "") or "").strip(),
+    }
+
+
+def _backend_vector_runtime_payload(vector_store: Any) -> dict[str, str]:
+    runtime = getattr(vector_store, "runtime", None)
+    if runtime is not None:
+        return _vector_runtime_payload(runtime)
+    embedder = getattr(vector_store, "embedder", None)
+    return {
+        "backend": str(
+            getattr(vector_store, "store", None)
+            or getattr(embedder, "store", "")
+            or ""
+        ).strip(),
+        "chroma_path": str(
+            getattr(vector_store, "chroma_path", None)
+            or getattr(embedder, "chroma_path", "")
+            or ""
+        ).strip(),
+        "collection": str(
+            getattr(vector_store, "collection", None)
+            or getattr(embedder, "collection", "")
+            or ""
+        ).strip(),
+    }
+
+
+def _retrieval_proof_state(
+    worker_runtime: dict[str, str],
+    backend_runtime: dict[str, str],
+) -> tuple[str, str, bool]:
+    if worker_runtime != backend_runtime:
+        return (
+            VECTOR_STORE_PROOF_STATUS_MISMATCH,
+            "backend search runtime diverges from canonical worker write runtime",
+            False,
+        )
+    if backend_runtime.get("backend") != VECTOR_STORE_BACKEND_CHROMA:
+        return (
+            VECTOR_STORE_PROOF_STATUS_UNPROVEN,
+            "configured vector store is process-local and cannot prove cross-runtime retrieval",
+            False,
+        )
+    return (
+        VECTOR_STORE_PROOF_STATUS_READY,
+        "backend search runtime matches canonical worker write runtime",
+        True,
+    )
 
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
@@ -1303,6 +1372,69 @@ def health_embedder():
     return {
         "status": "ok",
         "embedder": embedder_status,
+    }
+
+
+@app.get("/api/health/retrieval", tags=["Health"])
+def health_retrieval(
+    q: str = Query("", description="Optional retrieval probe query."),
+    k: int = Query(5, ge=1, le=50),
+    namespace: Optional[str] = Query(
+        None, description="Optional namespace filter for retrieval probe."
+    ),
+):
+    """Expose backend retrieval runtime truth for supported-path proofs."""
+    from guardian.vector.store import VectorStore
+
+    query = str(q or "").strip()
+    normalized_namespace = _normalize_optional_namespace(namespace)
+    worker_runtime = _vector_runtime_payload(resolve_vector_store_runtime())
+
+    vector_store = dependencies._vector_store
+    backend_store_source = "shared"
+    if vector_store is None:
+        vector_store = VectorStore()
+        backend_store_source = "local"
+    backend_runtime = _backend_vector_runtime_payload(vector_store)
+
+    status, reason, proof_capable = _retrieval_proof_state(
+        worker_runtime,
+        backend_runtime,
+    )
+    matches: list[dict[str, Any]] = []
+    search_error: str | None = None
+    if query:
+        try:
+            matches = vector_store.search(
+                query,
+                k=k,
+                namespace=normalized_namespace,
+            )
+        except Exception as exc:
+            search_error = str(exc)
+            if status == VECTOR_STORE_PROOF_STATUS_READY:
+                status = VECTOR_STORE_PROOF_STATUS_UNPROVEN
+                proof_capable = False
+                reason = f"backend retrieval probe failed: {exc}"
+
+    return {
+        "status": status,
+        "ok": status == VECTOR_STORE_PROOF_STATUS_READY,
+        "reason": reason,
+        "worker_write_runtime": worker_runtime,
+        "backend_search_runtime": backend_runtime,
+        "backend_store_source": backend_store_source,
+        "same_runtime_as_worker": worker_runtime == backend_runtime,
+        "proof_capable": proof_capable,
+        "search": {
+            "executed": bool(query),
+            "query": query or None,
+            "k": k,
+            "namespace": normalized_namespace,
+            "match_count": len(matches),
+            "matches": matches,
+            "error": search_error,
+        },
     }
 
 
