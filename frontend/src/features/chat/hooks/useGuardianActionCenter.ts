@@ -46,9 +46,11 @@ export function useGuardianActionCenter(
   context: GuardianActionCenterContext = {}
 ): UseGuardianActionCenterResult {
   const { threadId } = context;
-  const { data: agentRuns, loading: agentRunsLoading } = useAgentRuns(
-    threadId ?? null
-  );
+  const {
+    data: agentRuns,
+    loading: agentRunsLoading,
+    capabilityState: agentRunsCapabilityState,
+  } = useAgentRuns(threadId ?? null);
   const [baseSnapshot, setBaseSnapshot] = useState<GuardianActionCenterSnapshot | null>(
     null
   );
@@ -57,8 +59,13 @@ export function useGuardianActionCenter(
   const [error, setError] = useState<string | null>(null);
 
   const agentRunsSection = useMemo(
-    () => buildAgentRunsSection(threadId != null ? agentRuns : null),
-    [agentRuns, threadId]
+    () =>
+      buildAgentRunsSection(
+        threadId != null && agentRunsCapabilityState !== "unavailable"
+          ? agentRuns
+          : null
+      ),
+    [agentRuns, agentRunsCapabilityState, threadId]
   );
 
   const snapshot = useMemo(() => {

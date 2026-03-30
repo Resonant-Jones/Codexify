@@ -67,6 +67,11 @@ import {
   CHAT_LANE_STAGE_GUTTER_CLASS,
 } from "@/features/chat/chatLane";
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import {
+  markRuntimeRouteUnavailableIfNotFound,
+  useRuntimeRouteCapability,
+} from "@/lib/runtimeRouteCapabilities";
 
 const DEBUG_LAYOUT = true;
 
@@ -1252,21 +1257,38 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+  const {
+    ready: systemPromptCapabilityReady,
+    state: systemPromptCapability,
+  } = useRuntimeRouteCapability(
+    SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT
+  );
 
   useEffect(() => {
     effectiveThreadIdRef.current = effectiveThreadId;
   }, [effectiveThreadId]);
 
   const refreshPromptCostSummary = useCallback(async (threadId: number | null) => {
+    if (!systemPromptCapabilityReady) {
+      return;
+    }
+    if (systemPromptCapability === "unavailable") {
+      setPromptCostSummary(null);
+      return;
+    }
     try {
       const params = threadId != null ? { thread_id: threadId } : undefined;
       const data = await fetchSystemPromptSummary(params);
       setPromptCostSummary(data ?? null);
     } catch (error) {
+      markRuntimeRouteUnavailableIfNotFound(
+        SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT,
+        error
+      );
       console.debug("[guardian] prompt cost summary refresh failed", error);
       setPromptCostSummary(null);
     }
-  }, []);
+  }, [systemPromptCapability, systemPromptCapabilityReady]);
 
   const applyProfileFallback = useCallback(() => {
     const fallbackThread = activeThreadRef.current as any;

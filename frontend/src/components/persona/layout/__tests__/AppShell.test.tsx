@@ -20,9 +20,23 @@ const runtimeHealthState = {
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
 };
+const routeCapabilityState = {
+  ready: true,
+  state: "available" as const,
+};
+const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("@/hooks/useRuntimeHealth", () => ({
   default: () => runtimeHealthState,
+}));
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  useRuntimeRouteCapability: () => ({
+    ready: routeCapabilityState.ready,
+    state: routeCapabilityState.state,
+    mounted: [],
+    declared: {},
+  }),
 }));
 
 vi.mock("@/hooks/useLiveEvents", () => ({
@@ -82,7 +96,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
 }));
 
 vi.mock("@/api/codex", () => ({
-  listCodexEntries: vi.fn(async () => []),
+  listCodexEntries: listCodexEntriesSpy,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -185,6 +199,9 @@ describe("AppShell logo wordmark color contract", () => {
     localStorage.clear();
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
   });
 
   afterEach(() => {
@@ -193,21 +210,33 @@ describe("AppShell logo wordmark color contract", () => {
 
   it("binds the wordmark to the text token instead of a raw color literal across light and dark themes", () => {
     const lightWordmark = renderWordmark("light");
-    expect(lightWordmark.style.color).toBe("var(--text)");
+    expect(lightWordmark.style.color).toBe("var(--text-on-accent)");
     expect(lightWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
 
-    const lightShell = lightWordmark.closest("div[style*='--text:']");
+    const lightShell = lightWordmark.closest("div[style*='--text-on-accent:']");
     expect(lightShell).not.toBeNull();
-    expect(lightShell?.getAttribute("style")).toContain("--text: #111827");
+    expect(lightShell?.getAttribute("style")).toContain(
+      "--text-on-accent: #111827"
+    );
 
     cleanup();
 
     const darkWordmark = renderWordmark("dark");
-    expect(darkWordmark.style.color).toBe("var(--text)");
+    expect(darkWordmark.style.color).toBe("var(--text-on-accent)");
     expect(darkWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
 
-    const darkShell = darkWordmark.closest("div[style*='--text:']");
+    const darkShell = darkWordmark.closest("div[style*='--text-on-accent:']");
     expect(darkShell).not.toBeNull();
-    expect(darkShell?.getAttribute("style")).toContain("--text: #ffffff");
+    expect(darkShell?.getAttribute("style")).toContain(
+      "--text-on-accent: #f9fafb"
+    );
+  });
+
+  it("skips codex bootstrap when the restricted profile marks codex unavailable", () => {
+    routeCapabilityState.state = "unavailable";
+
+    render(<AppShell />);
+
+    expect(listCodexEntriesSpy).not.toHaveBeenCalled();
   });
 });
