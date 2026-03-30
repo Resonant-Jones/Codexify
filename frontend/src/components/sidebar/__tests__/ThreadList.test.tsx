@@ -63,4 +63,12 @@ describe("ThreadList dark mode surface contract", () => {
       background: "color-mix(in oklab, var(--accent) 16%, var(--panel-sheet) 84%)",
     });
   });
+
+  it("labels the active project context as project instead of scope", () => {
+    renderThreadList({ title: "Project thread" });
+
+    expect(screen.getByText("Project:")).toBeInTheDocument();
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.queryByText("Scope:")).not.toBeInTheDocument();
+  });
 });
