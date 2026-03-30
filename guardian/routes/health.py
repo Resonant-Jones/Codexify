@@ -11,6 +11,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import requests
@@ -199,6 +200,103 @@ def _classify_chat_worker_heartbeat(
     return "dead"
 
 
+def _coerce_chat_worker_heartbeat_timestamp(
+    raw_timestamp: object,
+) -> float | None:
+    if isinstance(raw_timestamp, bool):
+        return None
+
+    if isinstance(raw_timestamp, (int, float)):
+        return float(raw_timestamp)
+
+    if not isinstance(raw_timestamp, str):
+        return None
+
+    value = raw_timestamp.strip()
+    if not value:
+        return None
+
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _resolve_chat_worker_heartbeat(
+    raw_heartbeat: object,
+) -> dict[str, object]:
+    evidence: dict[str, object] = {
+        "detected": False,
+        "age_seconds": None,
+        "status": "dead",
+        "reason": "missing",
+        "detail": None,
+    }
+    if not raw_heartbeat:
+        return evidence
+
+    evidence["detected"] = True
+    parsed_payload: object = raw_heartbeat
+    raw_text: str | None = None
+
+    if isinstance(raw_heartbeat, (bytes, bytearray)):
+        try:
+            raw_text = raw_heartbeat.decode("utf-8")
+        except UnicodeDecodeError:
+            evidence["reason"] = "malformed"
+            evidence["detail"] = "payload_decode_failed"
+            return evidence
+    elif isinstance(raw_heartbeat, str):
+        raw_text = raw_heartbeat
+
+    if raw_text is not None:
+        try:
+            parsed_payload = json.loads(raw_text)
+        except Exception:
+            parsed_payload = raw_text
+
+    timestamp_value: object | None = None
+    if isinstance(parsed_payload, dict):
+        for key in ("ts", "timestamp", "last_seen", "updated_at"):
+            if key in parsed_payload:
+                timestamp_value = parsed_payload.get(key)
+                break
+        if timestamp_value is None:
+            evidence["reason"] = "malformed"
+            evidence["detail"] = "timestamp_missing"
+            return evidence
+    elif isinstance(parsed_payload, (int, float, str)):
+        timestamp_value = parsed_payload
+    else:
+        evidence["reason"] = "malformed"
+        evidence["detail"] = "payload_shape_invalid"
+        return evidence
+
+    timestamp_seconds = _coerce_chat_worker_heartbeat_timestamp(timestamp_value)
+    if timestamp_seconds is None:
+        evidence["reason"] = "malformed"
+        evidence["detail"] = "timestamp_invalid"
+        return evidence
+
+    heartbeat_age_seconds = max(0.0, round(time.time() - timestamp_seconds, 3))
+    evidence["age_seconds"] = heartbeat_age_seconds
+    evidence["status"] = _classify_chat_worker_heartbeat(
+        True, heartbeat_age_seconds
+    )
+    evidence["reason"] = "ok"
+    return evidence
+
+
 def _collect_chat_queue_health() -> dict[str, object]:
     global _CHAT_QUEUE_LAST_DEPTH, _CHAT_QUEUE_LAST_CHECK_TS
 
@@ -280,6 +378,8 @@ def _collect_completion_service_health() -> dict[str, object]:
         "enqueue_test_ok": False,
         "worker_heartbeat_detected": False,
         "worker_heartbeat_age_seconds": None,
+        "worker_heartbeat_reason": "missing",
+        "worker_heartbeat_detail": None,
         "heartbeat_key": heartbeat_key,
         "status_reason": "unknown",
         "error": None,
@@ -314,30 +414,23 @@ def _collect_completion_service_health() -> dict[str, object]:
         raw_heartbeat = run_with_redis_timeout(
             lambda: client.get(heartbeat_key)
         )
-        completion_service["worker_heartbeat_detected"] = bool(raw_heartbeat)
-        if raw_heartbeat:
-            heartbeat_payload = {}
-            try:
-                if isinstance(raw_heartbeat, (bytes, bytearray)):
-                    heartbeat_payload = json.loads(
-                        raw_heartbeat.decode("utf-8")
-                    )
-                else:
-                    heartbeat_payload = json.loads(str(raw_heartbeat))
-            except Exception:
-                heartbeat_payload = {}
-            ts = heartbeat_payload.get("ts")
-            if isinstance(ts, (int, float)):
-                completion_service["worker_heartbeat_age_seconds"] = max(
-                    0.0, round(time.time() - float(ts), 3)
-                )
-
-        completion_service[
-            "worker_heartbeat_status"
-        ] = _classify_chat_worker_heartbeat(
-            completion_service["worker_heartbeat_detected"],
-            completion_service["worker_heartbeat_age_seconds"],
+        heartbeat_evidence = _resolve_chat_worker_heartbeat(raw_heartbeat)
+        completion_service["worker_heartbeat_detected"] = bool(
+            heartbeat_evidence["detected"]
         )
+        completion_service["worker_heartbeat_age_seconds"] = heartbeat_evidence[
+            "age_seconds"
+        ]
+        completion_service["worker_heartbeat_reason"] = heartbeat_evidence[
+            "reason"
+        ]
+        completion_service["worker_heartbeat_detail"] = heartbeat_evidence[
+            "detail"
+        ]
+
+        completion_service["worker_heartbeat_status"] = heartbeat_evidence[
+            "status"
+        ]
 
         completion_service["ok"] = bool(
             completion_service["redis_reachable"]
@@ -348,8 +441,10 @@ def _collect_completion_service_health() -> dict[str, object]:
             completion_service["status_reason"] = "redis_unreachable"
         elif not completion_service["enqueue_test_ok"]:
             completion_service["status_reason"] = "queue_enqueue_failed"
-        elif not completion_service["worker_heartbeat_detected"]:
+        elif completion_service["worker_heartbeat_reason"] == "missing":
             completion_service["status_reason"] = "worker_heartbeat_missing"
+        elif completion_service["worker_heartbeat_reason"] == "malformed":
+            completion_service["status_reason"] = "worker_heartbeat_malformed"
         elif completion_service["worker_heartbeat_status"] == "stale":
             completion_service["status_reason"] = "worker_heartbeat_stale"
         elif completion_service["worker_heartbeat_status"] == "dead":
@@ -635,6 +730,11 @@ def health_chat():
         completion_service.get("worker_heartbeat_status")
         or _classify_chat_worker_heartbeat(worker_detected, worker_age_seconds)
     )
+    worker_reason = str(
+        completion_service.get("worker_heartbeat_reason")
+        or ("missing" if not worker_detected else "ok")
+    )
+    worker_detail = completion_service.get("worker_heartbeat_detail")
     queue_depth = queue_health.get("depth")
     queue_status = str(queue_health.get("status") or "unknown")
     queue_error = queue_health.get("error")
@@ -700,9 +800,13 @@ def health_chat():
         ]
     else:
         status = "unhealthy"
-        if not worker_detected:
+        if worker_reason == "missing" or not worker_detected:
             notes = [
                 "worker heartbeat missing; chat completion cannot progress",
+            ]
+        elif worker_reason == "malformed":
+            notes = [
+                "worker heartbeat malformed; chat completion cannot be trusted",
             ]
         elif worker_age_seconds is None:
             notes = [
@@ -719,6 +823,7 @@ def health_chat():
         "redis": "ok" if redis_ok else "unhealthy",
         "worker": {
             "status": worker_status,
+            "reason": worker_reason,
             "heartbeat_age_seconds": worker_age_seconds
             if worker_detected
             else None,
@@ -748,6 +853,8 @@ def health_chat():
             selectable=bool(provider_runtime.get("enabled")),
         ),
     }
+    if worker_detail:
+        payload["worker"]["detail"] = worker_detail
     if local_model_resolution is not None:
         payload["model_resolution"] = local_model_resolution.as_dict()
     if provider == "local" and model:
