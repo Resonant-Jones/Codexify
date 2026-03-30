@@ -1,8 +1,9 @@
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import AppShell from "../AppShell";
+import api from "@/lib/api";
 import {
   LIVE_EVENT_CONNECTION_STATES,
   RUNTIME_HEALTH_STATUSES,
@@ -98,11 +99,16 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children }: { children?: ReactNode }) => <button>{children}</button>,
+  Button: ({
+    children,
+    ...props
+  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button {...props}>{children}</button>
+  ),
 }));
 
 vi.mock("@/components/ui/input", () => ({
-  Input: () => <input data-testid="input-mock" />,
+  Input: (props: Record<string, unknown>) => <input {...props} />,
 }));
 
 vi.mock("@/components/ui/RefractiveGlassCard", () => ({
@@ -122,7 +128,17 @@ vi.mock("@/features/workspace/WorkspacePane", () => ({
 }));
 
 vi.mock("@/components/dashboard/DashboardView", () => ({
-  default: () => <div data-testid="dashboard-view-mock" />,
+  default: ({
+    onRequestNewProject,
+  }: {
+    onRequestNewProject: () => void;
+  }) => (
+    <div data-testid="dashboard-view-mock">
+      <button type="button" onClick={onRequestNewProject}>
+        New Project
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/features/settings/SettingsView", () => ({
@@ -161,6 +177,12 @@ vi.mock("@/theme", () => ({
   injectCssVars: vi.fn(),
 }));
 
+const mockApi = api as {
+  get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+};
+
 function installMatchMedia(prefersDark = false) {
   window.matchMedia = ((query: string) => ({
     matches: query === "(prefers-color-scheme: dark)" ? prefersDark : false,
@@ -185,6 +207,9 @@ describe("AppShell logo wordmark color contract", () => {
     localStorage.clear();
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
   });
 
   afterEach(() => {
@@ -225,4 +250,50 @@ describe("AppShell logo wordmark color contract", () => {
     },
     15_000
   );
+});
+
+describe("AppShell dashboard create project flow", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    localStorage.setItem("cfy.lastView", "dashboard");
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("submits through the runtime API contract and falls back to the mounted projects route on 404", async () => {
+    mockApi.post
+      .mockRejectedValueOnce({ response: { status: 404 } })
+      .mockResolvedValueOnce({ data: { id: 321 } });
+
+    render(<AppShell />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Project" }));
+    fireEvent.change(screen.getByLabelText(/project name/i), {
+      target: { value: "Atlas" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /create project/i }));
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenNthCalledWith(1, "/api/projects", {
+        name: "Atlas",
+        icon: "📁",
+      });
+      expect(mockApi.post).toHaveBeenNthCalledWith(2, "/projects", {
+        name: "Atlas",
+        icon: "📁",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/project name/i)).not.toBeInTheDocument();
+    });
+  });
 });
