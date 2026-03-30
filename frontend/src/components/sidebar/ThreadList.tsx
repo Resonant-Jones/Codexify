@@ -135,6 +135,9 @@ function ThreadPreviewList({
   onLoadMore?: () => void | Promise<void>;
 }) {
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const isDarkMode =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark");
 
   const maybeLoadMore = React.useCallback(() => {
     if (!onLoadMore || !hasMore || isLoadingMore) return;
@@ -175,6 +178,7 @@ function ThreadPreviewList({
             key={`t:${String(t.id)}`}
             thread={t}
             active={t.id === activeId}
+            isDarkMode={isDarkMode}
             onSelect={onSelect}
             rectH={rectH}
             onRename={onRename}
@@ -196,6 +200,7 @@ function ThreadPreviewList({
 function ThreadTileRow({
   thread,
   active,
+  isDarkMode,
   onSelect,
   rectH = 60,
   className,
@@ -205,6 +210,7 @@ function ThreadTileRow({
 }: {
   thread: Thread;
   active: boolean;
+  isDarkMode: boolean;
   onSelect: (id: string) => void;
   rectH?: number;
   className?: string;
@@ -228,6 +234,9 @@ function ThreadTileRow({
     () => colorStringToRgba(accentColor, 0.45, "rgba(107,114,128,0.45)"),
     [accentColor]
   );
+  const darkTileBackground = "var(--panel-sheet)";
+  const darkActiveBackground =
+    "color-mix(in oklab, var(--accent) 16%, var(--panel-sheet) 84%)";
 
   const makeMenuStyle = React.useCallback(
     (action: ThreadAction) => {
@@ -398,18 +407,23 @@ function ThreadTileRow({
       </span>
     ) : null;
 
+  const tileStyle: React.CSSProperties = { minHeight: rectH };
+  if (active) {
+    tileStyle.background = isDarkMode ? darkActiveBackground : highlightBg;
+  } else if (isDarkMode) {
+    tileStyle.background = darkTileBackground;
+  }
+
   return (
     <div className={clsx("relative", className)}>
       <TileShell
         as="button"
         type="button"
         onClick={() => onSelect(thread.id)}
-        className="thread-preview w-full text-left transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
-        style={{
-          minHeight: rectH,
-          background: active ? highlightBg : undefined,
-          borderColor: active ? highlightBorder : undefined,
-        }}
+        data-testid={`thread-tile-${thread.id}`}
+        className="thread-preview w-full text-left text-[var(--text)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white"
+        borderColor={active ? highlightBorder : undefined}
+        style={tileStyle}
       >
         <div className="flex h-full w-full items-center gap-3 px-3 py-2">
           <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
