@@ -109,6 +109,27 @@ class TestProjectsPatch:
         )
 
 
+class TestProjectsCreate:
+    """Tests for POST /api/projects endpoint."""
+
+    def test_create_project_success_on_api_route(self, test_client, mock_db):
+        """Test successful project creation returns 200 on the mounted API route."""
+        mock_db.create_project.return_value = 7
+
+        response = test_client.post(
+            "/api/projects",
+            json={"name": "New Project", "description": ""},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": 7,
+            "name": "New Project",
+            "description": "",
+        }
+        mock_db.create_project.assert_called_once_with("New Project", "")
+
+
 class TestProjectsDelete:
     """Tests for DELETE /projects/{project_id} endpoint."""
 
