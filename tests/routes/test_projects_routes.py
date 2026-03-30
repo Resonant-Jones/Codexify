@@ -129,6 +129,25 @@ class TestProjectsCreate:
         }
         mock_db.create_project.assert_called_once_with("New Project", "")
 
+    def test_create_project_success_on_legacy_route_alias(
+        self, test_client, mock_db
+    ):
+        """Test successful project creation also works on the mounted /projects alias."""
+        mock_db.create_project.return_value = 8
+
+        response = test_client.post(
+            "/projects",
+            json={"name": "Dashboard Project", "description": ""},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": 8,
+            "name": "Dashboard Project",
+            "description": "",
+        }
+        mock_db.create_project.assert_called_once_with("Dashboard Project", "")
+
 
 class TestProjectsDelete:
     """Tests for DELETE /projects/{project_id} endpoint."""

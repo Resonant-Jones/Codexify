@@ -351,6 +351,23 @@ function isDefaultProjectAlias(value: unknown): boolean {
   return normalized === "general" || normalized === "loose threads";
 }
 
+async function createProjectApi(payload: { name: string; icon: string }) {
+  const paths = ["/api/projects", "/projects"];
+  let lastErr: any = null;
+  for (const path of paths) {
+    try {
+      return await api.post(path, payload);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error("Project create route unavailable");
+}
+
 function findDefaultProjectId(projects: any[]): number | null {
   if (!Array.isArray(projects)) return null;
   const match = projects.find((project) => isDefaultProjectAlias(project?.name));
@@ -772,15 +789,10 @@ export default function AppShell({
       setProjectModalError(null);
       const iconValue = projectModalIcon.trim() || "📁";
       try {
-        // Backend projects routes are mounted at `/projects` (not under `/api`).
-        // Our Axios instance is typically configured with a base of `/api`, so using
-        // a relative URL like "/projects" would become "/api/projects" and 404.
-        // Use an absolute URL to bypass the base prefix while keeping Axios interceptors.
-        const projectsUrl =
-          typeof window !== "undefined"
-            ? `${window.location.origin}/projects`
-            : "/projects";
-        const response = await api.post(projectsUrl, { name: trimmedName, icon: iconValue });
+        const response = await createProjectApi({
+          name: trimmedName,
+          icon: iconValue,
+        });
         try {
           window.dispatchEvent(
             new CustomEvent("cfy:projects:refresh", {
