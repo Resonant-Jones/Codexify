@@ -1,4 +1,4 @@
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -22,6 +22,12 @@ const runtimeHealthState = {
   stale: false,
 };
 
+const uploaderState = vi.hoisted(() => ({
+  configs: [] as Array<{
+    onImages?: (items: Array<Record<string, unknown>>) => void;
+  }>,
+}));
+
 vi.mock("@/hooks/useRuntimeHealth", () => ({
   default: () => runtimeHealthState,
 }));
@@ -41,10 +47,16 @@ vi.mock("@/hooks/useWallpaperUrl", () => ({
 }));
 
 vi.mock("@/hooks/useUploader", () => ({
-  default: () => ({
-    uploadFiles: vi.fn(),
-    uploading: false,
-  }),
+  default: (config: { onImages?: (items: Array<Record<string, unknown>>) => void }) => {
+    uploaderState.configs.push(config);
+    return {
+      handleFiles: vi.fn(),
+      onDrop: vi.fn(),
+      onDragOver: vi.fn(),
+      pick: vi.fn(),
+      uploading: false,
+    };
+  },
 }));
 
 vi.mock("@/hooks/useBreakpoint", () => ({
@@ -130,13 +142,20 @@ vi.mock("@/features/workspace/WorkspacePane", () => ({
 vi.mock("@/components/dashboard/DashboardView", () => ({
   default: ({
     onRequestNewProject,
+    gallery,
   }: {
     onRequestNewProject: () => void;
+    gallery?: Array<{ src: string; prompt: string }>;
   }) => (
     <div data-testid="dashboard-view-mock">
       <button type="button" onClick={onRequestNewProject}>
         New Project
       </button>
+      <div data-testid="dashboard-gallery-mock">
+        {(gallery ?? []).map((item) => (
+          <span key={item.src}>{item.prompt}</span>
+        ))}
+      </div>
     </div>
   ),
 }));
@@ -205,6 +224,7 @@ function renderWordmark(themeMode: "light" | "dark") {
 describe("AppShell logo wordmark color contract", () => {
   beforeEach(() => {
     localStorage.clear();
+    uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
     mockApi.get.mockClear();
@@ -255,6 +275,7 @@ describe("AppShell logo wordmark color contract", () => {
 describe("AppShell dashboard create project flow", () => {
   beforeEach(() => {
     localStorage.clear();
+    uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
     localStorage.setItem("cfy.lastView", "dashboard");
@@ -294,6 +315,103 @@ describe("AppShell dashboard create project flow", () => {
 
     await waitFor(() => {
       expect(screen.queryByLabelText(/project name/i)).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe("AppShell shared gallery persistence truth", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("renders only persisted gallery items on the dashboard when transient failed uploads are cached", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/media/images/persisted-image.png", prompt: "Persisted image" },
+        {
+          src: "data:image/png;base64,ZmFrZQ==",
+          prompt: "Failed upload",
+          mock: true,
+        },
+      ])
+    );
+
+    render(<AppShell />);
+
+    expect(await screen.findByText("Persisted image")).toBeInTheDocument();
+    expect(screen.queryByText("Failed upload")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ prompt: string }>;
+      expect(persistedGallery).toHaveLength(1);
+      expect(persistedGallery[0]?.prompt).toBe("Persisted image");
+    });
+  });
+
+  it("ignores failed gallery upload previews and keeps persisted uploads visible", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem("cfy.gallery", JSON.stringify([]));
+
+    render(<AppShell />);
+
+    const galleryUploaderConfig = uploaderState.configs.at(-1);
+    expect(galleryUploaderConfig?.onImages).toBeTypeOf("function");
+
+    act(() => {
+      galleryUploaderConfig?.onImages?.([
+        {
+          src: "data:image/png;base64,ZmFrZQ==",
+          prompt: "Failed upload",
+          mock: true,
+        },
+      ]);
+    });
+
+    expect(
+      screen.queryByRole("img", { name: "Failed upload" })
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ prompt: string }>;
+      expect(persistedGallery).toHaveLength(0);
+    });
+
+    act(() => {
+      galleryUploaderConfig?.onImages?.([
+        {
+          src: "/media/images/persisted-upload.png",
+          prompt: "Persisted upload",
+        },
+      ]);
+    });
+
+    expect(
+      await screen.findByRole("img", { name: "Persisted upload" })
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      const persistedGallery = JSON.parse(
+        localStorage.getItem("cfy.gallery") ?? "[]"
+      ) as Array<{ prompt: string }>;
+      expect(persistedGallery).toHaveLength(1);
+      expect(persistedGallery[0]?.prompt).toBe("Persisted upload");
     });
   });
 });
