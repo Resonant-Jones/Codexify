@@ -1,4 +1,11 @@
-import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -21,6 +28,11 @@ const runtimeHealthState = {
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
 };
+const routeCapabilityState = {
+  ready: true,
+  state: "available" as const,
+};
+const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
 
 const uploaderState = vi.hoisted(() => ({
   configs: [] as Array<{
@@ -30,6 +42,15 @@ const uploaderState = vi.hoisted(() => ({
 
 vi.mock("@/hooks/useRuntimeHealth", () => ({
   default: () => runtimeHealthState,
+}));
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  useRuntimeRouteCapability: () => ({
+    ready: routeCapabilityState.ready,
+    state: routeCapabilityState.state,
+    mounted: [],
+    declared: {},
+  }),
 }));
 
 vi.mock("@/hooks/useLiveEvents", () => ({
@@ -47,7 +68,9 @@ vi.mock("@/hooks/useWallpaperUrl", () => ({
 }));
 
 vi.mock("@/hooks/useUploader", () => ({
-  default: (config: { onImages?: (items: Array<Record<string, unknown>>) => void }) => {
+  default: (config: {
+    onImages?: (items: Array<Record<string, unknown>>) => void;
+  }) => {
     uploaderState.configs.push(config);
     return {
       handleFiles: vi.fn(),
@@ -95,7 +118,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
 }));
 
 vi.mock("@/api/codex", () => ({
-  listCodexEntries: vi.fn(async () => []),
+  listCodexEntries: listCodexEntriesSpy,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -227,6 +250,9 @@ describe("AppShell logo wordmark color contract", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
     mockApi.get.mockClear();
     mockApi.post.mockClear();
     mockApi.delete.mockClear();
@@ -246,7 +272,9 @@ describe("AppShell logo wordmark color contract", () => {
       });
       expect(lightWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
 
-      const lightShell = lightWordmark.closest("div[style*='--text:']");
+      const lightShell = lightWordmark.closest(
+        "div[style*='--text-on-accent:']"
+      );
       expect(lightShell).not.toBeNull();
       expect(lightShell?.getAttribute("style")).toContain("--text: #111827");
       expect(lightShell?.getAttribute("style")).toContain(
@@ -261,7 +289,9 @@ describe("AppShell logo wordmark color contract", () => {
       });
       expect(darkWordmark.getAttribute("style")).not.toMatch(/#|rgb|hsl/i);
 
-      const darkShell = darkWordmark.closest("div[style*='--text:']");
+      const darkShell = darkWordmark.closest(
+        "div[style*='--text-on-accent:']"
+      );
       expect(darkShell).not.toBeNull();
       expect(darkShell?.getAttribute("style")).toContain("--text: #ffffff");
       expect(darkShell?.getAttribute("style")).toContain(
@@ -270,6 +300,14 @@ describe("AppShell logo wordmark color contract", () => {
     },
     15_000
   );
+
+  it("skips codex bootstrap when the restricted profile marks codex unavailable", () => {
+    routeCapabilityState.state = "unavailable";
+
+    render(<AppShell />);
+
+    expect(listCodexEntriesSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("AppShell dashboard create project flow", () => {
@@ -279,6 +317,9 @@ describe("AppShell dashboard create project flow", () => {
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
     localStorage.setItem("cfy.lastView", "dashboard");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
     mockApi.get.mockClear();
     mockApi.post.mockClear();
     mockApi.delete.mockClear();
@@ -325,6 +366,9 @@ describe("AppShell shared gallery persistence truth", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
     mockApi.get.mockClear();
     mockApi.post.mockClear();
     mockApi.delete.mockClear();
@@ -422,6 +466,9 @@ describe("AppShell gallery demo content", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
     mockApi.get.mockClear();
     mockApi.post.mockClear();
     mockApi.delete.mockClear();

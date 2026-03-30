@@ -10,6 +10,7 @@ export default defineConfig({
     include: [
       "components/**/*.test.{ts,tsx}",
       "features/**/*.test.{ts,tsx}",
+      "lib/**/*.test.{ts,tsx}",
       "persona/**/*.test.{ts,tsx}",
       "test/**/*.test.{ts,tsx}"
     ],
