@@ -4,11 +4,11 @@ import ContextMenu from "@/components/ui/ContextMenu";
 import useUploader from "@/hooks/useUploader";
 import { ExtColors } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
+import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 
 interface DocumentsViewProps {
   documents: DocumentLike[];
   extColors: ExtColors;
-  onDocumentClick?: (doc: DocumentLike) => void;
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
   defaultBehavior?: "workspace" | "thread";
@@ -32,7 +32,6 @@ interface DocumentsViewProps {
 export default function DocumentsView({
   documents,
   extColors: _extColors,
-  onDocumentClick,
   onOpenInThread,
   onDeleteDocument,
   defaultBehavior = "workspace",
@@ -69,7 +68,11 @@ export default function DocumentsView({
       onOpenInThread(doc);
       return;
     }
-    onDocumentClick?.(doc);
+
+    requestWorkspaceOpen(
+      { doc, source: "documents", targetView: "documents" },
+      { source: "documents", targetView: "documents" }
+    );
   };
 
   const realDocuments = useMemo(

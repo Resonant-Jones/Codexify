@@ -57,6 +57,10 @@ import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ShareButton } from "@/components/ShareButton";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import {
+  useWorkspaceState,
+  type WorkspaceOpenRequest,
+} from "@/features/workspace/state/useWorkspaceState";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -754,7 +758,6 @@ export default function AppShell({
   const [view, setView] = useState<"dashboard" | "documents" | "gallery" | "guardian" | "settings">(() =>
     (typeof window === "undefined" ? "dashboard" : ((localStorage.getItem("cfy.lastView") as any) || "dashboard"))
   );
-  const [workspaceOpen, setWorkspaceOpen] = useState<boolean>(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalSaving, setProjectModalSaving] = useState(false);
   const [projectModalName, setProjectModalName] = useState("");
@@ -846,7 +849,7 @@ export default function AppShell({
      - `documents`: List of available document items, with types and colors.
      - `gallery`: List of images for the gallery view.
      - `activeDoc`: Which document is open in the workspace.
-     - `openDocInPlace`: Helper to open a doc and reveal the workspace pane.
+     - Workspace open/close state now flows through the shared invocation hook.
      ───────────────────────────────────────────────────────────────────────────── */
   const defaultDocs: DocItem[] = [
     normalizeDoc({ id: "mock-covenant", name: "Covenant", ext: "pdf", mock: true }),
@@ -1547,7 +1550,25 @@ export default function AppShell({
     onAnyUpload: () => {},
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
-  const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
+  const handleWorkspaceOpenRequest = useCallback(
+    (request: WorkspaceOpenRequest) => {
+      const doc = normalizeDoc(request.doc);
+      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
+      setDocuments((prev) => dedupeDocItems([doc, ...prev]));
+      setView(request.targetView === "guardian" ? "guardian" : "documents");
+    },
+    []
+  );
+  const {
+    activeDoc,
+    workspaceOpen,
+    openWorkspaceDocument,
+    closeWorkspace,
+    toggleWorkspace,
+  } = useWorkspaceState({
+    normalizeDocument: (doc) => normalizeDoc(doc),
+    onOpenRequest: handleWorkspaceOpenRequest,
+  });
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
@@ -1629,53 +1650,28 @@ export default function AppShell({
     try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Image prompt generated" } })); } catch {}
     setVisionBusySrc(null);
   }
-  // Helper to open a document and reveal the workspace
-  const openDocInPlace = (doc: DocumentLike) => {
-    setActiveDoc(doc);
-    setWorkspaceOpen(true);
-    setView("documents");
-  };
-  const openDocInThread = (doc: DocumentLike) => {
-    setActiveDoc(doc);
-    setWorkspaceOpen(true);
-    setView("guardian");
-    const displayName = doc.ext ? `${doc.title}.${doc.ext}` : doc.title;
+  const openDocInThread = useCallback((doc: DocumentLike) => {
+    const normalizedDoc = normalizeDoc(doc);
+    const didOpen = openWorkspaceDocument(normalizedDoc, {
+      source: "documents",
+      targetView: "guardian",
+    });
+    if (!didOpen) return;
+    const displayName = normalizedDoc.ext
+      ? `${normalizedDoc.title}.${normalizedDoc.ext}`
+      : normalizedDoc.title;
     setPrefill(`Let's review "${displayName}".`);
-  };
-  const toggleWorkspace = useCallback(() => {
-    setWorkspaceOpen((prev) => !prev);
-  }, []);
-  const closeWorkspace = useCallback(() => {
-    setWorkspaceOpen(false);
-  }, []);
-  const openDocFromWorkspace = (doc: DocumentLike | null) => {
+  }, [openWorkspaceDocument]);
+  const openDocFromWorkspace = useCallback((doc: DocumentLike | null) => {
     if (!doc) return;
     openDocInThread(doc);
-  };
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onOpen = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
-      const raw = detail.doc ?? detail;
-      if (!raw) return;
-      const doc = normalizeDoc(raw);
-      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
-      setDocuments((prev) => dedupeDocItems([doc, ...prev]));
-      openDocInPlace(doc);
-    };
-    window.addEventListener("cfy:documents:open", onOpen as EventListener);
-    return () =>
-      window.removeEventListener(
-        "cfy:documents:open",
-        onOpen as EventListener
-      );
-  }, [openDocInPlace, normalizeDoc]);
+  }, [openDocInThread]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
       return;
     }
     setPrefill(undefined);
-    setWorkspaceOpen(false);
+    closeWorkspace();
     setView("guardian");
     if (typeof window !== "undefined") {
       try {
@@ -1690,7 +1686,7 @@ export default function AppShell({
       window.history.pushState({}, "", "/chat");
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, [auth]);
+  }, [auth, closeWorkspace]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
@@ -2083,7 +2079,6 @@ export default function AppShell({
                     <DocumentsView
                       documents={allDocuments}
                       extColors={extColors}
-                      onDocumentClick={openDocInPlace}
                       onOpenInThread={openDocInThread}
                       onDeleteDocument={deleteDocument}
                       defaultProjectId={generalProjectId}
