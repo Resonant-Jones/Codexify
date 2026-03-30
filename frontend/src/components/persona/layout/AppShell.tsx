@@ -229,7 +229,17 @@ function normalizeGallerySrc(value: unknown): string {
   return normalizeMediaUrl(trimmed);
 }
 
+function isTransientFailedGalleryItem(raw: any): boolean {
+  const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
+  return (
+    Boolean(raw?.mock) &&
+    typeof candidate === "string" &&
+    candidate.trim().toLowerCase().startsWith("data:")
+  );
+}
+
 function normalizeGalleryItem(raw: any): GalleryItem | null {
+  if (isTransientFailedGalleryItem(raw)) return null;
   const src = normalizeGallerySrc(
     raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url
   );
