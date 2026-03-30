@@ -67,6 +67,10 @@ import {
   CHAT_LANE_STAGE_GUTTER_CLASS,
 } from "@/features/chat/chatLane";
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
+import {
+  forwardLegacyDocumentOpenToWorkspace,
+  LEGACY_DOCUMENT_OPEN_EVENT,
+} from "@/features/workspace/state/useWorkspaceState";
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
@@ -567,6 +571,30 @@ export function GuardianChat({
         new CustomEvent("cfy:toast", { detail: { message, kind: "error" } })
       );
     } catch {}
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Chat bubbles still emit the legacy document-open event. Re-emit through
+    // the shared workspace contract so Guardian attachments and Documents use
+    // the same invocation seam.
+    const onLegacyWorkspaceOpen = (event: Event) => {
+      forwardLegacyDocumentOpenToWorkspace((event as CustomEvent).detail, {
+        source: "guardian-chat",
+        targetView: "guardian",
+      });
+    };
+
+    window.addEventListener(
+      LEGACY_DOCUMENT_OPEN_EVENT,
+      onLegacyWorkspaceOpen as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        LEGACY_DOCUMENT_OPEN_EVENT,
+        onLegacyWorkspaceOpen as EventListener
+      );
+    };
   }, []);
   const voiceReadAloudEnabled = voiceCapabilities.read_aloud_enabled;
   const voiceTurnBasedEnabled = voiceCapabilities.turn_based_enabled;
