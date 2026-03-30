@@ -42,7 +42,6 @@ export default function DocumentsView({
   showProjectScopeToggle = false,
 }: DocumentsViewProps) {
   const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
-  const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [menu, setMenu] = useState<{x:number;y:number;doc?:DocumentLike}|null>(null);
 
   const uploader = useUploader({
@@ -73,7 +72,14 @@ export default function DocumentsView({
     onDocumentClick?.(doc);
   };
 
-  const docItems = useMemo(() => (hideMocks ? (documents ?? []).filter(d => !d.mock) : (documents ?? [])), [documents, hideMocks]);
+  const realDocuments = useMemo(
+    () => (documents ?? []).filter((doc) => !doc.mock),
+    [documents]
+  );
+  const docItems = useMemo(
+    () => (realDocuments.length > 0 ? realDocuments : (documents ?? [])),
+    [documents, realDocuments]
+  );
 
   const pills = [
     { key: "workspace" as const, label: "Open in Workspace" },
@@ -179,7 +185,7 @@ export default function DocumentsView({
         </div>
 
         {/* Footer: Upload controls */}
-        <div className="flex-shrink-0 flex items-center justify-between gap-2 border-t border-[var(--panel-border)] py-4 text-xs" style={{ color: "var(--muted)" }}>
+        <div className="flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-4 text-xs" style={{ color: "var(--muted)" }}>
           <div className="flex items-center gap-2">
             <span>Drag & drop files here, or</span>
             <button
@@ -190,17 +196,6 @@ export default function DocumentsView({
               choose files
             </button>
           </div>
-          <label className="flex items-center gap-2 cursor-pointer hover:opacity-80">
-            <input
-              type="checkbox"
-              checked={hideMocks}
-              onChange={(e) => {
-                setHideMocks(e.target.checked);
-                try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {}
-              }}
-            />
-            <span>Hide Mock Items</span>
-          </label>
         </div>
 
         {/* Context Menu */}
@@ -218,14 +213,6 @@ export default function DocumentsView({
                   onDeleteDocument(menu.doc!);
                 },
               }] : []),
-              {
-                label: hideMocks ? "Show Mock Items" : "Hide Mock Items",
-                onClick: () => {
-                  const v = !hideMocks;
-                  setHideMocks(v);
-                  try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {}
-                }
-              },
             ]}
           />
         )}
