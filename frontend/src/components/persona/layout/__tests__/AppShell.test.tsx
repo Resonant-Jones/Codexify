@@ -415,3 +415,70 @@ describe("AppShell shared gallery persistence truth", () => {
     });
   });
 });
+
+describe("AppShell gallery demo content", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("renders gallery demo items when no real gallery items exist", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        {
+          src: "https://example.test/demo-gallery.png",
+          prompt: "Demo gallery item",
+          mock: true,
+        },
+      ])
+    );
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByRole("img", { name: "Demo gallery item" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("auto-hides gallery demo items once real gallery items exist", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        {
+          src: "/media/images/real-gallery-item.png",
+          prompt: "Real gallery item",
+        },
+        {
+          src: "https://example.test/demo-gallery.png",
+          prompt: "Demo gallery item",
+          mock: true,
+        },
+      ])
+    );
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByRole("img", { name: "Real gallery item" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: "Demo gallery item" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
+  });
+});

@@ -1548,11 +1548,14 @@ export default function AppShell({
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
   const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
-  const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
   const [showImgGenDashboard, setShowImgGenDashboard] = useState(false);
+  const galleryItemsToRender = useMemo(() => {
+    const realGallery = gallery.filter((item) => !item.mock);
+    return realGallery.length > 0 ? realGallery : gallery;
+  }, [gallery]);
 
   // Lightweight local vision captioner: analyze colors and aspect ratio
   async function localDescribeImage(src: string): Promise<string> {
@@ -2149,7 +2152,7 @@ export default function AppShell({
                     onDrop={galleryUploader.onDrop}
                     onDragOver={galleryUploader.onDragOver}
                   >
-                    {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => {
+                    {galleryItemsToRender.map((g, i) => {
                       const resolvedSrc = normalizeGallerySrc(g.src) || g.src;
                       return (
                       <div
@@ -2191,12 +2194,6 @@ export default function AppShell({
                     <div>Drag & drop images or documents here, or</div>
                     <button type="button" className="underline" onClick={galleryUploader.pick}>Choose files</button>
                     <button type="button" className="underline ml-2" onClick={() => setShowImgGenGallery(true)}>Generate Image</button>
-                    <div className="ml-auto flex items-center gap-2">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
-                        Hide Mock Items
-                      </label>
-                    </div>
                   </div>
                 </div>
               </FrameCard>
@@ -2470,7 +2467,6 @@ export default function AppShell({
                 }}}));
               } catch {}
             }}] : []),
-            { label: hideMocks ? "Show Mock Items" : "Hide Mock Items", onClick: () => { const v = !hideMocks; setHideMocks(v); try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {} } },
           ]}
         />
       )}
