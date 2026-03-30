@@ -2,6 +2,7 @@ import * as React from "react";
 import ContextMenu, { type ContextMenuItem } from "@/components/menus/ContextMenu";
 import MediaGrid from "@/components/media/MediaGrid";
 import TileShell from "@/components/surface/TileShell";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import "@/components/media/media.css";
 import "./DashboardGallery.css";
@@ -58,6 +59,69 @@ function triggerDownload(url: string, filename: string): void {
   } catch {
     window.open(url, "_blank", "noopener,noreferrer");
   }
+}
+
+function DashboardGalleryImageTile({
+  item,
+  alt,
+  provenance,
+  provenanceClass,
+  onOpenPreview,
+  onOpenContextMenu,
+}: {
+  item: DashboardGalleryItem;
+  alt: string;
+  provenance: string;
+  provenanceClass: string;
+  onOpenPreview: (item: DashboardGalleryItem) => void;
+  onOpenContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
+  const renderableSrc = useRenderableMediaSrc(item.src);
+  const [hasLoadError, setHasLoadError] = React.useState(false);
+
+  React.useEffect(() => {
+    setHasLoadError(false);
+  }, [renderableSrc.src]);
+
+  const showImage =
+    renderableSrc.status === "ready" &&
+    !!renderableSrc.src &&
+    !hasLoadError;
+
+  return (
+    <TileShell
+      as="button"
+      type="button"
+      sizeVariant="dashboard-image"
+      className="codexifyMediaTile dashboardGalleryTile cursor-pointer"
+      style={{ padding: 0 }}
+      onClick={() => onOpenPreview(item)}
+      onContextMenu={onOpenContextMenu}
+      aria-label={alt}
+    >
+      {showImage ? (
+        <img
+          className="codexifyMediaTileMedia"
+          src={renderableSrc.src}
+          alt={alt}
+          loading="lazy"
+          onError={() => setHasLoadError(true)}
+        />
+      ) : (
+        <div className="codexifyMediaTileFallback" aria-hidden="true">
+          <span className="codexifyMediaTileFallbackLabel">
+            {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+          </span>
+        </div>
+      )}
+      <span
+        className={`dashboardGalleryBadge ${provenanceClass}`}
+        aria-hidden="true"
+      >
+        {provenance}
+      </span>
+    </TileShell>
+  );
 }
 
 export default function DashboardGallery({
@@ -179,15 +243,14 @@ export default function DashboardGallery({
               ? "dashboardGalleryBadge--generated"
               : "dashboardGalleryBadge--uploaded";
           return (
-            <TileShell
+            <DashboardGalleryImageTile
               key={key}
-              as="button"
-              type="button"
-              sizeVariant="dashboard-image"
-              className="codexifyMediaTile dashboardGalleryTile cursor-pointer"
-              style={{ padding: 0 }}
-              onClick={() => onOpenPreview(item)}
-              onContextMenu={(event) => {
+              item={item}
+              alt={alt}
+              provenance={provenance}
+              provenanceClass={provenanceClass}
+              onOpenPreview={onOpenPreview}
+              onOpenContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
                 setMenu({
@@ -198,21 +261,7 @@ export default function DashboardGallery({
                   alt,
                 });
               }}
-              aria-label={alt}
-            >
-              <img
-                className="codexifyMediaTileMedia"
-                src={resolvedSrc}
-                alt={alt}
-                loading="lazy"
-              />
-              <span
-                className={`dashboardGalleryBadge ${provenanceClass}`}
-                aria-hidden="true"
-              >
-                {provenance}
-              </span>
-            </TileShell>
+            />
           );
         })}
       </MediaGrid>

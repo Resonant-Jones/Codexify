@@ -1,5 +1,10 @@
+use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
+use base64::Engine as _;
+use hmac::{Hmac, Mac};
+use reqwest::header::CONTENT_TYPE;
 use serde::Serialize;
 use serde_json::Value;
+use sha2::Sha256;
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::ffi::OsStr;
@@ -17,6 +22,7 @@ const NORMALIZED_DOCKER_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/Applicat
 const BOOTSTRAP_LOG_TAIL_LINES: &str = "200";
 const BOOTSTRAP_LOG_SERVICES: [&str; 5] = ["backend", "worker-chat", "db", "redis", "migrator"];
 const BOOTSTRAP_RESTART_SERVICES: [&str; 5] = ["db", "redis", "migrator", "backend", "worker-chat"];
+const DESKTOP_MEDIA_MAX_BYTES: usize = 10 * 1024 * 1024;
 const FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE: &str = "runtime-root-unavailable";
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING: &str = "packaged-runtime-assets-missing";
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_CORRUPT: &str = "packaged-runtime-assets-corrupt";
@@ -85,6 +91,22 @@ pub struct DesktopRuntimeConfig {
     pub sse_url: String,
     pub share_public_base_url: String,
     pub auth_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopFetchedMedia {
+    pub content_type: String,
+    pub bytes_base64: String,
+    pub size_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopFetchMediaError {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -877,6 +899,138 @@ fn env_first(keys: &[&str], fallback: &str) -> String {
         }
     }
     fallback.to_string()
+}
+
+fn desktop_backend_base_url() -> String {
+    trim_trailing_slash(&env_first(
+        &[
+            "CODEXIFY_DESKTOP_BACKEND_URL",
+            "VITE_GUARDIAN_API_BASE",
+            "GUARDIAN_API_BASE",
+        ],
+        "http://127.0.0.1:8888",
+    ))
+}
+
+fn desktop_fetch_media_error(kind: &str, detail: impl Into<String>) -> DesktopFetchMediaError {
+    DesktopFetchMediaError {
+        kind: kind.to_string(),
+        detail: Some(detail.into()),
+    }
+}
+
+fn normalize_desktop_media_fetch_path(raw: &str) -> Result<String, DesktopFetchMediaError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || !trimmed.starts_with("/media/")
+        || trimmed.contains("..")
+        || trimmed.contains('?')
+        || trimmed.contains('#')
+    {
+        return Err(desktop_fetch_media_error(
+            "invalid_path",
+            "Desktop media fetch requires a canonical /media/... path.",
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn desktop_media_signing_secret() -> Result<String, DesktopFetchMediaError> {
+    let env_secret = env_first(
+        &[
+            "GUARDIAN_MEDIA_URL_SECRET",
+            "GUARDIAN_SESSION_SECRET",
+            "GUARDIAN_API_KEY",
+            "VITE_GUARDIAN_API_KEY",
+        ],
+        "",
+    );
+    if !env_secret.trim().is_empty() {
+        return Ok(env_secret.trim().to_string());
+    }
+    match read_keychain_password() {
+        Ok(Some(value)) if !value.trim().is_empty() => Ok(value.trim().to_string()),
+        Ok(_) => Err(desktop_fetch_media_error(
+            "fetch_failed",
+            "Desktop media signing secret unavailable.",
+        )),
+        Err(detail) => Err(desktop_fetch_media_error("fetch_failed", detail)),
+    }
+}
+
+fn desktop_media_signature_for_path(
+    path: &str,
+    secret: &str,
+) -> Result<String, DesktopFetchMediaError> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|_| {
+        desktop_fetch_media_error(
+            "fetch_failed",
+            "Unable to initialize desktop media signature state.",
+        )
+    })?;
+    mac.update(path.as_bytes());
+    Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+}
+
+fn desktop_signed_media_url(
+    backend_base_url: &str,
+    path: &str,
+) -> Result<String, DesktopFetchMediaError> {
+    let secret = desktop_media_signing_secret()?;
+    let signature = desktop_media_signature_for_path(path, &secret)?;
+    Ok(combine_url(
+        backend_base_url,
+        &format!("{path}?sig={signature}"),
+    ))
+}
+
+fn desktop_media_response_content_type(
+    response: &reqwest::Response,
+) -> Result<String, DesktopFetchMediaError> {
+    let header_value = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default();
+    desktop_media_content_type_guard(&header_value)?;
+    Ok(header_value)
+}
+
+fn desktop_media_content_type_guard(header_value: &str) -> Result<(), DesktopFetchMediaError> {
+    let normalized = header_value
+        .split(';')
+        .next()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    if normalized.starts_with("image/") {
+        Ok(())
+    } else {
+        Err(desktop_fetch_media_error(
+            "type_not_allowed",
+            format!(
+                "Desktop media fetch only supports image/* responses (got {}).",
+                if header_value.is_empty() {
+                    "<missing>"
+                } else {
+                    header_value.as_str()
+                }
+            ),
+        ))
+    }
+}
+
+fn desktop_media_size_guard(size_bytes: usize) -> Result<(), DesktopFetchMediaError> {
+    if size_bytes > DESKTOP_MEDIA_MAX_BYTES {
+        return Err(desktop_fetch_media_error(
+            "too_large",
+            format!(
+                "Desktop media fetch exceeded {} bytes.",
+                DESKTOP_MEDIA_MAX_BYTES
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn trim_trailing_slash(raw: &str) -> String {
@@ -2504,14 +2658,7 @@ fn delete_keychain_password() -> Result<(), String> {
 
 #[tauri::command]
 pub fn desktop_get_runtime_config() -> DesktopRuntimeConfig {
-    let backend_base_url = trim_trailing_slash(&env_first(
-        &[
-            "CODEXIFY_DESKTOP_BACKEND_URL",
-            "VITE_GUARDIAN_API_BASE",
-            "GUARDIAN_API_BASE",
-        ],
-        "http://127.0.0.1:8888",
-    ));
+    let backend_base_url = desktop_backend_base_url();
     let api_base_url = resolve_api_base_url(&backend_base_url);
     let sse_url = combine_url(&api_base_url, "/events");
     let share_public_base_url = resolve_share_public_base_url(&backend_base_url);
@@ -2525,6 +2672,58 @@ pub fn desktop_get_runtime_config() -> DesktopRuntimeConfig {
         share_public_base_url,
         auth_mode,
     }
+}
+
+#[tauri::command]
+pub async fn desktop_fetch_media(
+    path: String,
+) -> Result<DesktopFetchedMedia, DesktopFetchMediaError> {
+    let canonical_path = normalize_desktop_media_fetch_path(&path)?;
+    let backend_base_url = desktop_backend_base_url();
+    let request_url = desktop_signed_media_url(&backend_base_url, &canonical_path)?;
+    let client = reqwest::Client::builder().build().map_err(|err| {
+        desktop_fetch_media_error(
+            "fetch_failed",
+            format!("Unable to initialize desktop media client: {err}"),
+        )
+    })?;
+
+    let response = client.get(&request_url).send().await.map_err(|err| {
+        desktop_fetch_media_error(
+            "fetch_failed",
+            format!("Desktop media fetch request failed: {err}"),
+        )
+    })?;
+
+    if !response.status().is_success() {
+        return Err(desktop_fetch_media_error(
+            "fetch_failed",
+            format!(
+                "Desktop media fetch returned status {} for {}.",
+                response.status(),
+                canonical_path
+            ),
+        ));
+    }
+
+    let content_type = desktop_media_response_content_type(&response)?;
+    if let Some(content_length) = response.content_length() {
+        desktop_media_size_guard(content_length as usize)?;
+    }
+
+    let bytes = response.bytes().await.map_err(|err| {
+        desktop_fetch_media_error(
+            "fetch_failed",
+            format!("Desktop media response read failed: {err}"),
+        )
+    })?;
+    desktop_media_size_guard(bytes.len())?;
+
+    Ok(DesktopFetchedMedia {
+        content_type,
+        bytes_base64: BASE64_STANDARD.encode(&bytes),
+        size_bytes: bytes.len(),
+    })
 }
 
 #[tauri::command]
@@ -3758,5 +3957,48 @@ mod tests {
         );
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn desktop_media_fetch_path_requires_canonical_media_path() {
+        assert_eq!(
+            normalize_desktop_media_fetch_path("/media/images/example.png")
+                .expect("expected canonical media path"),
+            "/media/images/example.png"
+        );
+
+        let external = normalize_desktop_media_fetch_path("https://example.com/example.png")
+            .expect_err("expected external URL to be rejected");
+        assert_eq!(external.kind, "invalid_path");
+
+        let query = normalize_desktop_media_fetch_path("/media/images/example.png?sig=123")
+            .expect_err("expected signed URL to be rejected");
+        assert_eq!(query.kind, "invalid_path");
+
+        let traversal = normalize_desktop_media_fetch_path("/media/../secrets.txt")
+            .expect_err("expected traversal path to be rejected");
+        assert_eq!(traversal.kind, "invalid_path");
+    }
+
+    #[test]
+    fn desktop_media_content_type_guard_enforces_image_contract() {
+        desktop_media_content_type_guard("image/png")
+            .expect("expected image/png to pass content-type guard");
+        desktop_media_content_type_guard("image/webp; charset=binary")
+            .expect("expected image/webp to pass content-type guard");
+
+        let err = desktop_media_content_type_guard("application/json")
+            .expect_err("expected non-image content type to be rejected");
+        assert_eq!(err.kind, "type_not_allowed");
+    }
+
+    #[test]
+    fn desktop_media_size_guard_enforces_byte_ceiling() {
+        desktop_media_size_guard(DESKTOP_MEDIA_MAX_BYTES)
+            .expect("expected payload at limit to pass size guard");
+
+        let err = desktop_media_size_guard(DESKTOP_MEDIA_MAX_BYTES + 1)
+            .expect_err("expected oversize payload to be rejected");
+        assert_eq!(err.kind, "too_large");
     }
 }
