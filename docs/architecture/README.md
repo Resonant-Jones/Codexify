@@ -35,6 +35,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
+- [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
