@@ -147,6 +147,46 @@ describe("CreateProjectModal", () => {
     expect(mockRefreshProjects).toHaveBeenCalled();
   });
 
+  it("falls back to the legacy mounted projects route when /api/projects returns 404", async () => {
+    mockApi.post
+      .mockRejectedValueOnce({ response: { status: 404 } })
+      .mockResolvedValueOnce({ data: { id: 456 } });
+
+    render(
+      <SidebarRoot
+        threads={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /new project/i }));
+    fireEvent.change(screen.getByLabelText(/name/i), {
+      target: { value: "Fallback" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /create project/i }));
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenNthCalledWith(1, "/api/projects", {
+        name: "Fallback",
+        icon: "📁",
+        description: "",
+      });
+      expect(mockApi.post).toHaveBeenNthCalledWith(2, "/projects", {
+        name: "Fallback",
+        icon: "📁",
+        description: "",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    expect(mockRefreshProjects).toHaveBeenCalled();
+  });
+
   it("shows an error message when create fails", async () => {
     mockApi.post.mockRejectedValue({
       response: { data: { message: "Nope" } },

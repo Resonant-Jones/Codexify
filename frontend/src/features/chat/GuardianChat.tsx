@@ -72,8 +72,10 @@ import {
   markRuntimeRouteUnavailableIfNotFound,
   useRuntimeRouteCapability,
 } from "@/lib/runtimeRouteCapabilities";
-
-const DEBUG_LAYOUT = true;
+import {
+  forwardLegacyDocumentOpenToWorkspace,
+  LEGACY_DOCUMENT_OPEN_EVENT,
+} from "@/features/workspace/state/useWorkspaceState";
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
@@ -574,6 +576,30 @@ export function GuardianChat({
         new CustomEvent("cfy:toast", { detail: { message, kind: "error" } })
       );
     } catch {}
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Chat bubbles still emit the legacy document-open event. Re-emit through
+    // the shared workspace contract so Guardian attachments and Documents use
+    // the same invocation seam.
+    const onLegacyWorkspaceOpen = (event: Event) => {
+      forwardLegacyDocumentOpenToWorkspace((event as CustomEvent).detail, {
+        source: "guardian-chat",
+        targetView: "guardian",
+      });
+    };
+
+    window.addEventListener(
+      LEGACY_DOCUMENT_OPEN_EVENT,
+      onLegacyWorkspaceOpen as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        LEGACY_DOCUMENT_OPEN_EVENT,
+        onLegacyWorkspaceOpen as EventListener
+      );
+    };
   }, []);
   const voiceReadAloudEnabled = voiceCapabilities.read_aloud_enabled;
   const voiceTurnBasedEnabled = voiceCapabilities.turn_based_enabled;
@@ -2487,15 +2513,7 @@ export function GuardianChat({
             />
           </div>
 
-          <div
-            className="flex items-center gap-2 shrink-0"
-            style={{
-              ...(DEBUG_LAYOUT && {
-                outline: "2px solid yellow",
-                background: "rgba(255,255,0,0.1)",
-              }),
-            }}
-          >
+          <div className="flex items-center gap-2 shrink-0">
             {headerActions}
           </div>
         </div>
@@ -2584,9 +2602,6 @@ export function GuardianChat({
           data-testid="composer-shell"
           className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
-            ...(DEBUG_LAYOUT && {
-              outline: "2px solid green",
-            }),
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
@@ -2601,9 +2616,6 @@ export function GuardianChat({
               data-testid="composer-conversation-lane"
               className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
               style={{
-                ...(DEBUG_LAYOUT && {
-                  outline: "2px solid blue",
-                }),
                 maxWidth: CHAT_LANE_MAX_WIDTH,
               }}
             >
@@ -2777,11 +2789,6 @@ export function GuardianChat({
         {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
 <div
   className="relative flex flex-col flex-1 min-h-0 overflow-y-auto"
-  style={{
-    ...(DEBUG_LAYOUT && {
-      outline: "2px solid red",
-    }),
-  }}
 >
   <div
     data-testid="guardian-shell"
@@ -2807,11 +2814,6 @@ export function GuardianChat({
         className={`mx-auto flex h-full min-h-0 min-w-0 w-full flex-1 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
         style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
         hoverPop
-        style={{
-          ...(DEBUG_LAYOUT && {
-            outline: "2px solid red",
-          }),
-        }}
       >
         <div className="relative flex flex-col w-full h-full">
           {body}
