@@ -18,8 +18,13 @@ import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import useImprintZero from "@/imprint/useImprintZero";
 import ImprintZeroToast from "@/imprint/ImprintZeroToast";
 import PromptCostIndicator from "@/features/chat/components/PromptCostIndicator";
-import { RedisSessionStateStore } from "@/state/session/SessionStateStore";
+import {
+  InMemorySessionStateStore,
+  RedisSessionStateStore,
+} from "@/state/session/SessionStateStore";
 import { SessionSpine } from "@/state/session/SessionSpine";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
 import {
   useSessionActiveDraft,
   useSessionActiveInferenceMode,
@@ -184,7 +189,21 @@ export default function GuardianChatWithSidebar({
   const threadsRef = React.useRef<Thread[]>([]);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
-  const imprintZero = useImprintZero();
+  const {
+    ready: routeCapabilitiesReady,
+    states: routeCapabilityStates,
+  } = useRuntimeRouteCapabilities([
+    SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT,
+    SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION,
+  ]);
+  const imprintCapability =
+    routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] ?? "unknown";
+  const uiSessionCapability =
+    routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION] ??
+    "unknown";
+  const imprintZero = useImprintZero({
+    enabled: routeCapabilitiesReady && imprintCapability !== "unavailable",
+  });
 
   const resolveRouteThreadId = React.useCallback((): string | null => {
     if (typeof window === "undefined") return null;
@@ -198,8 +217,16 @@ export default function GuardianChatWithSidebar({
   }, [threads]);
 
   React.useEffect(() => {
+    if (!routeCapabilitiesReady) {
+      setSessionSpine(null);
+      sessionHydratedRef.current = false;
+      return;
+    }
     if (typeof window === "undefined") return;
-    const store = new RedisSessionStateStore();
+    const store =
+      uiSessionCapability === "unavailable"
+        ? new InMemorySessionStateStore()
+        : new RedisSessionStateStore();
     const preferredSelection = getPreferredProviderSelection();
     const spine = new SessionSpine({
       userId: (userName || "default").trim() || "default",
@@ -214,7 +241,7 @@ export default function GuardianChatWithSidebar({
 
     setSessionSpine(spine);
     sessionHydratedRef.current = false;
-  }, [userName]);
+  }, [routeCapabilitiesReady, uiSessionCapability, userName]);
 
   React.useEffect(() => {
     if (!sessionSpine) return;
