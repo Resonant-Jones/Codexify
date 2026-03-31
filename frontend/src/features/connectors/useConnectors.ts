@@ -1,5 +1,3 @@
-
-
 import { useState, useEffect, useCallback } from "react";
 import api from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
@@ -47,13 +45,25 @@ export interface Connector {
   errorMessage?: string | null;
 }
 
-export function useConnectors() {
+type UseConnectorsOptions = {
+  enabled?: boolean;
+};
+
+export function useConnectors(options: UseConnectorsOptions = {}) {
+  const enabled = options.enabled ?? true;
   const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(enabled);
   const [error, setError] = useState<string | null>(null);
   const { subscribe } = useLiveEvents();
 
   const fetchConnectors = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false);
+      setError(null);
+      setConnectors([]);
+      return;
+    }
+
     try {
       setLoading(true);
       // Prefer /api/connectors if backend is namespaced; fall back to /connectors
@@ -90,7 +100,7 @@ export function useConnectors() {
       } finally {
         setLoading(false);
       }
-  }, []);
+  }, [enabled]);
 
   async function updateConnector(id: string, data: Partial<Connector>) {
     try {
@@ -158,14 +168,23 @@ export function useConnectors() {
   }
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      setError(null);
+      setConnectors([]);
+      return;
+    }
     fetchConnectors();
-  }, [fetchConnectors]);
+  }, [enabled, fetchConnectors]);
 
   useEffect(() => {
+    if (!enabled) {
+      return () => {};
+    }
     return subscribe("connector.sync", () => {
       fetchConnectors();
     });
-  }, [fetchConnectors, subscribe]);
+  }, [enabled, fetchConnectors, subscribe]);
 
   return {
     connectors,
