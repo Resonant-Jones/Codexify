@@ -24,22 +24,10 @@ type WorkspaceDrawerProps = {
   onMoveScratchpadToComposer?: (text: string) => void;
 };
 
-const WORKSPACE_PANEL_COPY: Record<
-  WorkspaceDrawerTab,
-  { title: string; body: string }
-> = {
-  shelf: {
-    title: "Shelf",
-    body: "Shelf items will appear here in a later phase.",
-  },
-  scratchpad: {
-    title: "Scratchpad",
-    body: "Scratchpad editing lands in Phase 2 with text input and autosave.",
-  },
-  inspector: {
-    title: "Inspector",
-    body: "Inspector renderers will plug into this panel in a later phase.",
-  },
+const WORKSPACE_PANEL_COPY: Record<WorkspaceDrawerTab, string> = {
+  shelf: "Shelf items will appear here in a later phase.",
+  scratchpad: "Scratchpad editing lands in Phase 2 with text input and autosave.",
+  inspector: "Inspector renderers will plug into this panel in a later phase.",
 };
 
 function formatLayoutModeLabel(layoutMode: WorkspaceLayoutMode): string {
@@ -171,15 +159,9 @@ export default function WorkspaceDrawer({
             }}
           >
             <div className="flex flex-1 min-h-0 flex-col justify-between gap-4">
-              <div className="space-y-2">
-                <h2 className="text-sm font-semibold">{panel.title}</h2>
-                <p
-                  className="text-sm leading-6"
-                  style={{ color: "var(--muted)" }}
-                >
-                  {panel.body}
-                </p>
-              </div>
+              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+                {panel}
+              </p>
 
               <div
                 className="rounded-[var(--radius-micro)] border px-3 py-2 text-xs"
