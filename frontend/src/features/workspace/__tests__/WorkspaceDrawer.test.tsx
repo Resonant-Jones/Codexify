@@ -160,6 +160,10 @@ describe("WorkspaceDrawer shell", () => {
 
       await user.click(screen.getByTestId("workspace-open-button"));
 
+      expect(screen.getByTestId("workspace-tabs")).toHaveClass("glass-pill");
+      expect(screen.getByRole("tab", { name: expectedLabel })).toHaveClass(
+        "pill-tab"
+      );
       expect(screen.getByRole("tab", { name: expectedLabel })).toHaveAttribute(
         "aria-selected",
         "true"
@@ -191,11 +195,13 @@ describe("WorkspaceDrawer shell", () => {
     expect(screen.getByRole("tabpanel")).toHaveTextContent(
       "Inspector renderers will plug into this panel in a later phase."
     );
+    expect(screen.getAllByText(/^Inspector$/)).toHaveLength(1);
 
     await user.click(screen.getByRole("tab", { name: "Shelf" }));
     expect(screen.getByRole("tabpanel")).toHaveTextContent(
       "Select a thread or project to see linked items."
     );
+    expect(screen.getAllByText(/^Shelf$/)).toHaveLength(1);
   });
 
   it("renders posture as passive status text while tabs remain the interactive controls", async () => {
@@ -235,6 +241,7 @@ describe("WorkspaceDrawer shell", () => {
     const tablist = screen.getByRole("tablist", { name: "Workspace panels" });
     expect(tablist).toBeInTheDocument();
     expect(screen.getByTestId("workspace-tabs")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-tabs")).toHaveClass("glass-pill");
     expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
 
@@ -279,6 +286,7 @@ describe("WorkspaceDrawer shell", () => {
     );
     expect(screen.queryByTestId("workspace-drawer-close")).not.toBeInTheDocument();
     expect(screen.queryByText(/Autosaves locally per thread/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^Scratchpad$/)).toHaveLength(1);
     expect(
       screen.getByTestId("workspace-scratchpad-textarea")
     ).toHaveAttribute(
