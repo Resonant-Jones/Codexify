@@ -1,8 +1,8 @@
 import json
-import os
 from typing import Any, Dict, List, Optional
 
 from backend.rag.embedder import Embedder
+from guardian.core.config import resolve_vector_store_runtime
 
 DEFAULT_NAMESPACE = "global"
 
@@ -49,24 +49,22 @@ def _coerce_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
 
 class VectorStore:
     def __init__(self, index_dir: Optional[str] = None) -> None:
-        # index_dir is kept for backward compatibility but not used for Chroma path (which comes from env)
-        store = os.getenv("CODEXIFY_VECTOR_STORE", "faiss").strip().lower()
-        if store not in ("faiss", "chroma"):
-            store = "faiss"
-        self.store = store
-        chroma_path = (
-            os.getenv("CODEXIFY_CHROMA_PATH", "./.chroma").strip()
-            or "./.chroma"
-        )
-        collection = (
-            os.getenv("CODEXIFY_COLLECTION", "codexify_vault").strip()
-            or "codexify_vault"
-        )
+        # index_dir is kept for backward compatibility while runtime resolution
+        # is centralized through guardian.core.config.
+        _ = index_dir
+        runtime = resolve_vector_store_runtime()
+        self.runtime = runtime
+        self.store = runtime.backend
+        self.chroma_path = runtime.chroma_path
+        self.collection = runtime.collection
         self.embedder = Embedder(
-            store=store,
-            chroma_path=chroma_path,
-            collection=collection,
+            store=self.store,
+            chroma_path=self.chroma_path,
+            collection=self.collection,
         )
+
+    def describe_runtime(self) -> Dict[str, str]:
+        return self.runtime.as_dict()
 
     def add_texts(self, items: List[Dict[str, Any]]) -> int:
         texts = [i.get("text", "") for i in items]

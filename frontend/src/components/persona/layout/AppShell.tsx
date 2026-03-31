@@ -52,10 +52,17 @@ import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ShareButton } from "@/components/ShareButton";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { useRuntimeRouteCapability } from "@/lib/runtimeRouteCapabilities";
+import {
+  useWorkspaceState,
+  type WorkspaceOpenRequest,
+} from "@/features/workspace/state/useWorkspaceState";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -228,7 +235,17 @@ function normalizeGallerySrc(value: unknown): string {
   return normalizeMediaUrl(trimmed);
 }
 
+function isTransientFailedGalleryItem(raw: any): boolean {
+  const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
+  return (
+    Boolean(raw?.mock) &&
+    typeof candidate === "string" &&
+    candidate.trim().toLowerCase().startsWith("data:")
+  );
+}
+
 function normalizeGalleryItem(raw: any): GalleryItem | null {
+  if (isTransientFailedGalleryItem(raw)) return null;
   const src = normalizeGallerySrc(
     raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url
   );
@@ -242,6 +259,43 @@ function normalizeGalleryItem(raw: any): GalleryItem | null {
     prompt,
     mock: Boolean(raw?.mock),
   };
+}
+
+function AppShellGalleryImage({
+  src,
+  alt,
+}: {
+  src: string;
+  alt: string;
+}) {
+  const renderableSrc = useRenderableMediaSrc(src);
+  const [hasLoadError, setHasLoadError] = useState(false);
+
+  useEffect(() => {
+    setHasLoadError(false);
+  }, [renderableSrc.src]);
+
+  const showImage =
+    renderableSrc.status === "ready" &&
+    !!renderableSrc.src &&
+    !hasLoadError;
+
+  if (!showImage) {
+    return (
+      <div className="absolute inset-0 grid place-items-center text-xs opacity-70">
+        {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={renderableSrc.src}
+      alt={alt}
+      className="absolute inset-0 h-full w-full object-cover"
+      onError={() => setHasLoadError(true)}
+    />
+  );
 }
 
 function normalizeInterceptPath(url: unknown): string {
@@ -311,6 +365,23 @@ function normalizeProjectName(value: unknown): string {
 function isDefaultProjectAlias(value: unknown): boolean {
   const normalized = normalizeProjectName(value);
   return normalized === "general" || normalized === "loose threads";
+}
+
+async function createProjectApi(payload: { name: string; icon: string }) {
+  const paths = ["/api/projects", "/projects"];
+  let lastErr: any = null;
+  for (const path of paths) {
+    try {
+      return await api.post(path, payload);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error("Project create route unavailable");
 }
 
 function findDefaultProjectId(projects: any[]): number | null {
@@ -425,6 +496,10 @@ export default function AppShell({
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
   const { lastEvent } = useLiveEvents();
   const runtimeHealth = useRuntimeHealth();
+  const {
+    ready: codexCapabilityReady,
+    state: codexCapability,
+  } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.CODEX);
   const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
   const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
     () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
@@ -689,7 +764,6 @@ export default function AppShell({
   const [view, setView] = useState<"dashboard" | "documents" | "gallery" | "guardian" | "settings">(() =>
     (typeof window === "undefined" ? "dashboard" : ((localStorage.getItem("cfy.lastView") as any) || "dashboard"))
   );
-  const [workspaceOpen, setWorkspaceOpen] = useState<boolean>(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalSaving, setProjectModalSaving] = useState(false);
   const [projectModalName, setProjectModalName] = useState("");
@@ -734,15 +808,10 @@ export default function AppShell({
       setProjectModalError(null);
       const iconValue = projectModalIcon.trim() || "📁";
       try {
-        // Backend projects routes are mounted at `/projects` (not under `/api`).
-        // Our Axios instance is typically configured with a base of `/api`, so using
-        // a relative URL like "/projects" would become "/api/projects" and 404.
-        // Use an absolute URL to bypass the base prefix while keeping Axios interceptors.
-        const projectsUrl =
-          typeof window !== "undefined"
-            ? `${window.location.origin}/projects`
-            : "/projects";
-        const response = await api.post(projectsUrl, { name: trimmedName, icon: iconValue });
+        const response = await createProjectApi({
+          name: trimmedName,
+          icon: iconValue,
+        });
         try {
           window.dispatchEvent(
             new CustomEvent("cfy:projects:refresh", {
@@ -786,7 +855,7 @@ export default function AppShell({
      - `documents`: List of available document items, with types and colors.
      - `gallery`: List of images for the gallery view.
      - `activeDoc`: Which document is open in the workspace.
-     - `openDocInPlace`: Helper to open a doc and reveal the workspace pane.
+     - Workspace open/close state now flows through the shared invocation hook.
      ───────────────────────────────────────────────────────────────────────────── */
   const defaultDocs: DocItem[] = [
     normalizeDoc({ id: "mock-covenant", name: "Covenant", ext: "pdf", mock: true }),
@@ -1003,6 +1072,17 @@ export default function AppShell({
         cancelled = true;
       };
     }
+    if (!codexCapabilityReady) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (codexCapability === "unavailable") {
+      setCodexEntries([]);
+      return () => {
+        cancelled = true;
+      };
+    }
     (async () => {
       try {
         const entries = await listCodexEntries();
@@ -1014,7 +1094,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [startupLocked]);
+  }, [codexCapability, codexCapabilityReady, startupLocked]);
   const codexDocs = useMemo<DocItem[]>(() => {
     if (!Array.isArray(codexEntries)) return [];
     return codexEntries.map((e, idx) => ({
@@ -1487,12 +1567,33 @@ export default function AppShell({
     onAnyUpload: () => {},
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
-  const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
-  const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
+  const handleWorkspaceOpenRequest = useCallback(
+    (request: WorkspaceOpenRequest) => {
+      const doc = normalizeDoc(request.doc);
+      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
+      setDocuments((prev) => dedupeDocItems([doc, ...prev]));
+      setView(request.targetView === "guardian" ? "guardian" : "documents");
+    },
+    []
+  );
+  const {
+    activeDoc,
+    workspaceOpen,
+    openWorkspaceDocument,
+    closeWorkspace,
+    toggleWorkspace,
+  } = useWorkspaceState({
+    normalizeDocument: (doc) => normalizeDoc(doc),
+    onOpenRequest: handleWorkspaceOpenRequest,
+  });
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
   const [showImgGenDashboard, setShowImgGenDashboard] = useState(false);
+  const galleryItemsToRender = useMemo(() => {
+    const realGallery = gallery.filter((item) => !item.mock);
+    return realGallery.length > 0 ? realGallery : gallery;
+  }, [gallery]);
 
   // Lightweight local vision captioner: analyze colors and aspect ratio
   async function localDescribeImage(src: string): Promise<string> {
@@ -1566,53 +1667,28 @@ export default function AppShell({
     try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Image prompt generated" } })); } catch {}
     setVisionBusySrc(null);
   }
-  // Helper to open a document and reveal the workspace
-  const openDocInPlace = (doc: DocumentLike) => {
-    setActiveDoc(doc);
-    setWorkspaceOpen(true);
-    setView("documents");
-  };
-  const openDocInThread = (doc: DocumentLike) => {
-    setActiveDoc(doc);
-    setWorkspaceOpen(true);
-    setView("guardian");
-    const displayName = doc.ext ? `${doc.title}.${doc.ext}` : doc.title;
+  const openDocInThread = useCallback((doc: DocumentLike) => {
+    const normalizedDoc = normalizeDoc(doc);
+    const didOpen = openWorkspaceDocument(normalizedDoc, {
+      source: "documents",
+      targetView: "guardian",
+    });
+    if (!didOpen) return;
+    const displayName = normalizedDoc.ext
+      ? `${normalizedDoc.title}.${normalizedDoc.ext}`
+      : normalizedDoc.title;
     setPrefill(`Let's review "${displayName}".`);
-  };
-  const toggleWorkspace = useCallback(() => {
-    setWorkspaceOpen((prev) => !prev);
-  }, []);
-  const closeWorkspace = useCallback(() => {
-    setWorkspaceOpen(false);
-  }, []);
-  const openDocFromWorkspace = (doc: DocumentLike | null) => {
+  }, [openWorkspaceDocument]);
+  const openDocFromWorkspace = useCallback((doc: DocumentLike | null) => {
     if (!doc) return;
     openDocInThread(doc);
-  };
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onOpen = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
-      const raw = detail.doc ?? detail;
-      if (!raw) return;
-      const doc = normalizeDoc(raw);
-      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
-      setDocuments((prev) => dedupeDocItems([doc, ...prev]));
-      openDocInPlace(doc);
-    };
-    window.addEventListener("cfy:documents:open", onOpen as EventListener);
-    return () =>
-      window.removeEventListener(
-        "cfy:documents:open",
-        onOpen as EventListener
-      );
-  }, [openDocInPlace, normalizeDoc]);
+  }, [openDocInThread]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
       return;
     }
     setPrefill(undefined);
-    setWorkspaceOpen(false);
+    closeWorkspace();
     setView("guardian");
     if (typeof window !== "undefined") {
       try {
@@ -1627,7 +1703,7 @@ export default function AppShell({
       window.history.pushState({}, "", "/chat");
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, [auth]);
+  }, [auth, closeWorkspace]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
@@ -2020,7 +2096,6 @@ export default function AppShell({
                     <DocumentsView
                       documents={allDocuments}
                       extColors={extColors}
-                      onDocumentClick={openDocInPlace}
                       onOpenInThread={openDocInThread}
                       onDeleteDocument={deleteDocument}
                       defaultProjectId={generalProjectId}
@@ -2089,7 +2164,7 @@ export default function AppShell({
                     onDrop={galleryUploader.onDrop}
                     onDragOver={galleryUploader.onDragOver}
                   >
-                    {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => {
+                    {galleryItemsToRender.map((g, i) => {
                       const resolvedSrc = normalizeGallerySrc(g.src) || g.src;
                       return (
                       <div
@@ -2104,7 +2179,7 @@ export default function AppShell({
                         }}
                         onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: resolvedSrc }); }}
                       >
-                        <img src={resolvedSrc} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
+                        <AppShellGalleryImage src={resolvedSrc} alt={g.prompt} />
                         {visionBusySrc === resolvedSrc && (
                           <div className="absolute inset-0 grid place-items-center bg-black/40">
                             <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
@@ -2131,12 +2206,6 @@ export default function AppShell({
                     <div>Drag & drop images or documents here, or</div>
                     <button type="button" className="underline" onClick={galleryUploader.pick}>Choose files</button>
                     <button type="button" className="underline ml-2" onClick={() => setShowImgGenGallery(true)}>Generate Image</button>
-                    <div className="ml-auto flex items-center gap-2">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
-                        Hide Mock Items
-                      </label>
-                    </div>
                   </div>
                 </div>
               </FrameCard>
@@ -2410,7 +2479,6 @@ export default function AppShell({
                 }}}));
               } catch {}
             }}] : []),
-            { label: hideMocks ? "Show Mock Items" : "Hide Mock Items", onClick: () => { const v = !hideMocks; setHideMocks(v); try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {} } },
           ]}
         />
       )}
