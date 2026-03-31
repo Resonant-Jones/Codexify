@@ -3,7 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "vite dev",
+    "dev": "vite dev --force",
     "build": "vite build",
     "test": "vitest",
     "format": "prettier . --write",
