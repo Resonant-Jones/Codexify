@@ -6,11 +6,14 @@ export const MAX_WORKSPACE_PANE_RATIO = 0.62;
 export const DEFAULT_WORKSPACE_PANE_RATIO = 0.42;
 export const BALANCED_SPLIT_MIN_RATIO = 0.36;
 export const WORKSPACE_FOCUS_MIN_RATIO = 0.52;
+export const MIN_WORKSPACE_PRIMARY_PANE_WIDTH = "24rem";
+export const MIN_WORKSPACE_DRAWER_PANE_WIDTH = "20rem";
 
 export type WorkspaceLayoutMode =
   | "chat_focus"
   | "balanced_split"
   | "workspace_focus";
+export type WorkspaceLayoutRatioBucket = "chat_first" | "shared" | "workspace_first";
 
 type PersistedWorkspaceLayoutState = {
   paneRatio?: number;
@@ -52,6 +55,20 @@ export function deriveWorkspaceLayoutMode({
   }
 
   return "balanced_split";
+}
+
+export function getWorkspaceLayoutRatioBucket(
+  layoutMode: WorkspaceLayoutMode
+): WorkspaceLayoutRatioBucket {
+  switch (layoutMode) {
+    case "workspace_focus":
+      return "workspace_first";
+    case "balanced_split":
+      return "shared";
+    case "chat_focus":
+    default:
+      return "chat_first";
+  }
 }
 
 function readPersistedWorkspaceLayoutState(
@@ -122,6 +139,10 @@ export function useWorkspaceLayoutMode({
     [isOpen, paneRatio]
   );
   const primaryPaneRatio = 1 - paneRatio;
+  const isWorkspaceDominant = layoutMode === "workspace_focus";
+  const ratioBucket = getWorkspaceLayoutRatioBucket(layoutMode);
+  const workspacePaneBasis = `${(paneRatio * 100).toFixed(2)}%`;
+  const primaryPaneBasis = `${(primaryPaneRatio * 100).toFixed(2)}%`;
 
   return {
     paneRatio,
@@ -129,6 +150,12 @@ export function useWorkspaceLayoutMode({
     minPaneRatio: MIN_WORKSPACE_PANE_RATIO,
     maxPaneRatio: MAX_WORKSPACE_PANE_RATIO,
     primaryPaneRatio,
+    workspacePaneBasis,
+    primaryPaneBasis,
+    primaryPaneMinWidth: MIN_WORKSPACE_PRIMARY_PANE_WIDTH,
+    workspacePaneMinWidth: MIN_WORKSPACE_DRAWER_PANE_WIDTH,
     layoutMode,
+    isWorkspaceDominant,
+    ratioBucket,
   };
 }
