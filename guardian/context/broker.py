@@ -762,7 +762,7 @@ class ContextBroker:
             and target_count > 0
             and len(limited_hits) >= target_count
         ):
-            preserve_count = max(target_count - 1, 1)
+            preserve_count = max(target_count - 1, 0)
             return limited_hits[:preserve_count]
         return limited_hits[:target_count]
 
