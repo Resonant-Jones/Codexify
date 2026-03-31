@@ -121,6 +121,7 @@ async def test_project_source_widens_only_within_same_project(
     assert [item["text"] for item in context["semantic"]] == [
         "project sibling hit"
     ]
+    assert trace["source_mode"] == "project"
     assert trace["widen_reason"] == "insufficient_thread_hits"
     assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
 
@@ -164,6 +165,7 @@ async def test_personal_knowledge_widens_same_user_across_projects(
         "same project sibling",
         "cross project sibling",
     ]
+    assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
     assert _namespaces(mock_vector_store) == [
         "thread:1",
@@ -205,5 +207,90 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
         source_mode="project",
     )
 
+    assert trace["source_mode"] == "project"
     assert trace["widen_reason"] == "low_confidence_thread_hits"
     assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
+
+
+@pytest.mark.asyncio
+async def test_personal_knowledge_marks_explicit_widening_even_when_same_project_hit_satisfies_query(
+    context_broker, mock_vector_store
+):
+    def _search(query, k, namespace=None):
+        if namespace == "thread:1":
+            return []
+        if namespace == "thread:2":
+            return [
+                {
+                    "text": "same project sibling",
+                    "metadata": {"message_id": 20},
+                    "score": 0.89,
+                }
+            ]
+        if namespace == "thread:3":
+            return [
+                {
+                    "text": "cross project sibling",
+                    "metadata": {"message_id": 30},
+                    "score": 0.91,
+                }
+            ]
+        return []
+
+    mock_vector_store.search = MagicMock(side_effect=_search)
+
+    context, trace = await context_broker.assemble(
+        thread_id=1,
+        query="status",
+        depth_mode="normal",
+        k_semantic=1,
+        source_mode="personal_knowledge",
+    )
+
+    assert [item["text"] for item in context["semantic"]] == [
+        "same project sibling"
+    ]
+    assert trace["source_mode"] == "personal_knowledge"
+    assert trace["widen_reason"] == "explicit_personal_knowledge"
+    assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
+
+
+@pytest.mark.asyncio
+async def test_strong_thread_hits_keep_trace_stable_without_widening(
+    context_broker, mock_vector_store
+):
+    def _search(query, k, namespace=None):
+        if namespace == "thread:1":
+            return [
+                {
+                    "text": "strong local hit",
+                    "metadata": {"message_id": 10},
+                    "score": 0.91,
+                }
+            ]
+        if namespace == "thread:2":
+            return [
+                {
+                    "text": "project sibling hit",
+                    "metadata": {"message_id": 20},
+                    "score": 0.99,
+                }
+            ]
+        return []
+
+    mock_vector_store.search = MagicMock(side_effect=_search)
+
+    context, trace = await context_broker.assemble(
+        thread_id=1,
+        query="status",
+        depth_mode="normal",
+        k_semantic=1,
+        source_mode="project",
+    )
+
+    assert [item["text"] for item in context["semantic"]] == [
+        "strong local hit"
+    ]
+    assert trace["source_mode"] == "project"
+    assert trace["widen_reason"] == "none"
+    assert _namespaces(mock_vector_store) == ["thread:1"]
