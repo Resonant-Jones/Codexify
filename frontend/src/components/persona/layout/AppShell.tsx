@@ -57,6 +57,8 @@ import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ShareButton } from "@/components/ShareButton";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { useRuntimeRouteCapability } from "@/lib/runtimeRouteCapabilities";
 import {
   useWorkspaceState,
   type WorkspaceOpenRequest,
@@ -494,6 +496,10 @@ export default function AppShell({
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
   const { lastEvent } = useLiveEvents();
   const runtimeHealth = useRuntimeHealth();
+  const {
+    ready: codexCapabilityReady,
+    state: codexCapability,
+  } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.CODEX);
   const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
   const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
     () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
@@ -1066,6 +1072,17 @@ export default function AppShell({
         cancelled = true;
       };
     }
+    if (!codexCapabilityReady) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (codexCapability === "unavailable") {
+      setCodexEntries([]);
+      return () => {
+        cancelled = true;
+      };
+    }
     (async () => {
       try {
         const entries = await listCodexEntries();
@@ -1077,7 +1094,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [startupLocked]);
+  }, [codexCapability, codexCapabilityReady, startupLocked]);
   const codexDocs = useMemo<DocItem[]>(() => {
     if (!Array.isArray(codexEntries)) return [];
     return codexEntries.map((e, idx) => ({

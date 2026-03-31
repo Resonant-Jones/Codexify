@@ -36,9 +36,22 @@ const runtimeHealthState: RuntimeHealthMock = {
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
 };
+const routeCapabilityState = {
+  ready: true,
+  state: "available" as const,
+};
 
 vi.mock("@/hooks/useRuntimeHealth", () => ({
   default: () => runtimeHealthState,
+}));
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  useRuntimeRouteCapability: () => ({
+    ready: routeCapabilityState.ready,
+    state: routeCapabilityState.state,
+    mounted: [],
+    declared: {},
+  }),
 }));
 
 vi.mock("@/hooks/useLiveEvents", () => ({
@@ -182,6 +195,8 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.failureKind = null;
     runtimeHealthState.llmDetail = null;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T12:00:00Z");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
     if (!window.matchMedia) {
       window.matchMedia = ((query: string) => ({
         matches: false,

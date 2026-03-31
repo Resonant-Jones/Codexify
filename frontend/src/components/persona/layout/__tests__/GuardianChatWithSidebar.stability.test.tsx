@@ -4,11 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import GuardianChatWithSidebar from "../GuardianChatWithSidebar";
-import api from "@/lib/api";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 
 const guardianPropsSpy = vi.hoisted(() => vi.fn());
 const sidebarPropsSpy = vi.hoisted(() => vi.fn());
 const sessionSpineInstances = vi.hoisted(() => [] as any[]);
+const apiSpies = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  patch: vi.fn(),
+  put: vi.fn(),
+  delete: vi.fn(),
+}));
 const sessionHooksState = vi.hoisted(() => ({
   railSlice: { tabs: [] as any[], activeTabId: null as string | null },
   activeTab: null as any,
@@ -22,6 +29,13 @@ const authState = vi.hoisted(() => ({
   status: "authenticated" as const,
   token: "test-token",
 }));
+const routeCapabilityStates = vi.hoisted(
+  () =>
+    ({
+      imprint: "available",
+      ui_session: "available",
+    }) as Record<string, "available" | "unavailable" | "unknown">
+);
 
 vi.mock("@/features/chat/GuardianChat", () => ({
   default: (props: any) => {
@@ -106,17 +120,53 @@ vi.mock("@/lib/authState", () => ({
   requireAuthReady: () => true,
 }));
 
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  useRuntimeRouteCapabilities: (labels: string[]) => {
+    const states: Record<string, "available" | "unavailable" | "unknown"> =
+      {};
+    for (const label of labels) {
+      states[label] = routeCapabilityStates[label] ?? "unknown";
+    }
+    return {
+      ready: true,
+      states,
+      mounted: [],
+      declared: {},
+    };
+  },
+}));
+
 vi.mock("@/state/session/SessionStateStore", () => ({
-  RedisSessionStateStore: class {},
+  InMemorySessionStateStore: class {
+    getSessionState = vi.fn(async () => null);
+  },
+  RedisSessionStateStore: class {
+    getSessionState = vi.fn(async (_userId: string, _deviceId: string) => {
+      return apiSpies.get("/ui/session", {
+        params: {
+          user_id: _userId,
+          device_id: _deviceId,
+        },
+      });
+    });
+  },
 }));
 
 vi.mock("@/state/session/SessionSpine", () => ({
   SessionSpine: class {
+    __config: any;
     __activeCompletion: any;
     __composerBlocked: boolean;
     __cancelShouldUnblock: boolean;
 
-    hydrate = vi.fn(async () => null);
+    hydrate = vi.fn(async () => {
+      return (
+        (await this.__config?.store?.getSessionState?.(
+          this.__config?.userId,
+          this.__config?.deviceId
+        )) ?? null
+      );
+    });
     getDraft = vi.fn(() => "");
     getActiveCompletion = vi.fn(() => this.__activeCompletion ?? null);
     isComposerBlocked = vi.fn(() => Boolean(this.__composerBlocked));
@@ -165,7 +215,8 @@ vi.mock("@/state/session/SessionSpine", () => ({
     tabSetInferenceMode = vi.fn();
     tabSetDraft = vi.fn();
 
-    constructor() {
+    constructor(config: any) {
+      this.__config = config;
       this.__activeCompletion = null;
       this.__composerBlocked = false;
       this.__cancelShouldUnblock = true;
@@ -184,22 +235,10 @@ vi.mock("@/state/session/hooks", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  default: {
-    get: vi.fn(),
-    post: vi.fn(),
-    patch: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-  },
+  default: apiSpies,
 }));
 
-const mockApi = api as unknown as {
-  get: ReturnType<typeof vi.fn>;
-  post: ReturnType<typeof vi.fn>;
-  patch: ReturnType<typeof vi.fn>;
-  put: ReturnType<typeof vi.fn>;
-  delete: ReturnType<typeof vi.fn>;
-};
+const mockApi = apiSpies;
 
 type ThreadRow = {
   id: number;
@@ -252,6 +291,9 @@ describe("GuardianChatWithSidebar stability contract", () => {
     sessionHooksState.activeProviderId = "local";
     sessionHooksState.activeModelId = "default";
     sessionHooksState.activeInferenceMode = "default";
+    routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] = "available";
+    routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION] =
+      "available";
     localStorage.clear();
     window.history.pushState({}, "", "/chat");
     Object.defineProperty(window, "matchMedia", {
@@ -267,6 +309,24 @@ describe("GuardianChatWithSidebar stability contract", () => {
         dispatchEvent: vi.fn(),
       })),
     });
+  });
+
+  it("does not probe /ui/session when the restricted profile marks ui_session unavailable", async () => {
+    routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION] =
+      "unavailable";
+    setupThreadApi({
+      all: {
+        0: { threads: [t(1), t(2)], has_more: false },
+      },
+    });
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-1");
+
+    expect(
+      mockApi.get.mock.calls.some(([url]) => url === "/ui/session")
+    ).toBe(false);
   });
 
   it("keeps selected thread stable when pagination appends", async () => {
