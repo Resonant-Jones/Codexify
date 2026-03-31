@@ -70,12 +70,15 @@ export default function WorkspaceTabs({
       role="tablist"
       aria-label="Workspace panels"
       data-testid={`${idBase}-tabs`}
-      className="flex items-center gap-2 rounded-[var(--radius-micro)] border p-2"
-      style={{
-        borderColor: "var(--panel-border)",
-        background:
-          "color-mix(in oklab, var(--chip-bg) 78%, transparent)",
-      }}
+      className="glass-pill flex w-full items-center gap-1.5"
+      style={
+        {
+          "--pill-active-text": "var(--text-on-accent)",
+          "--pill-font": "0.92rem",
+          width: "100%",
+          justifyContent: "stretch",
+        } as React.CSSProperties
+      }
     >
       {WORKSPACE_TABS.map((tab, index) => {
         const isActive = tab.id === activeTab;
@@ -94,19 +97,10 @@ export default function WorkspaceTabs({
             tabIndex={isActive ? 0 : -1}
             data-state={isActive ? "active" : "inactive"}
             data-testid={`${idBase}-tab-${tab.id}`}
-            className="min-w-0 flex-1 rounded-[var(--radius-micro)] px-4 py-3 text-[0.95rem] transition-colors"
+            className="pill-tab min-w-0 flex-1 px-4 py-3.5 text-[0.95rem]"
             style={{
-              border: isActive
-                ? "1px solid var(--chip-border)"
-                : "1px solid color-mix(in oklab, var(--chip-border) 32%, transparent)",
-              background: isActive
-                ? "var(--accent)"
-                : "color-mix(in oklab, var(--panel-bg) 70%, transparent)",
               color: isActive ? "var(--text-on-accent)" : "var(--text)",
               fontWeight: isActive ? 600 : 500,
-              boxShadow: isActive
-                ? "inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 6px rgba(0,0,0,0.14)"
-                : undefined,
             }}
             onClick={() => onTabChange(tab.id)}
             onKeyDown={(event) => handleKeyDown(event, index)}
