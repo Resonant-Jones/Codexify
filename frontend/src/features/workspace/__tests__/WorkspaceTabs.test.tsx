@@ -70,7 +70,7 @@ describe("WorkspaceTabs", () => {
       expect(activeTab).not.toHaveClass("pill-tab");
     });
 
-    it("rail uses segment-tab class for all tabs", () => {
+    it("rail tabs use inline-styled button elements", () => {
       render(
         <WorkspaceTabs
           activeTab="shelf"
@@ -81,7 +81,8 @@ describe("WorkspaceTabs", () => {
 
       const tabs = screen.getAllByRole("tab");
       tabs.forEach((tab) => {
-        expect(tab).toHaveClass("segment-tab");
+        expect(tab.tagName).toBe("BUTTON");
+        expect(tab).toHaveAttribute("role", "tab");
       });
     });
   });
@@ -158,8 +159,8 @@ describe("WorkspaceTabs", () => {
       const activeTab = screen.getByTestId("workspace-tab-shelf");
       const inactiveTab = screen.getByTestId("workspace-tab-scratchpad");
 
-      expect(activeTab).toHaveClass("segment-tab");
-      expect(inactiveTab).toHaveClass("segment-tab");
+      expect(activeTab.tagName).toBe("BUTTON");
+      expect(inactiveTab.tagName).toBe("BUTTON");
       expect(activeTab).toHaveAttribute("data-state", "active");
       expect(inactiveTab).toHaveAttribute("data-state", "inactive");
     });
@@ -207,7 +208,7 @@ describe("WorkspaceTabs", () => {
 
       const closeButton = screen.getByTestId("workspace-tab-shelf-close");
       expect(closeButton).toBeInTheDocument();
-      expect(closeButton).toHaveClass("segment-close");
+      expect(closeButton).toHaveAttribute("role", "button");
     });
 
     it("clicking close button on selected tab calls onTabClose", async () => {
