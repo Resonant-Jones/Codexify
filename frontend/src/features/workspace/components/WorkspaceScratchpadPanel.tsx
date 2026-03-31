@@ -79,27 +79,19 @@ export default function WorkspaceScratchpadPanel({
   }, [clear]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <label
-          htmlFor={textareaId}
-          className="text-sm font-semibold"
-          style={{ color: "var(--text)" }}
-        >
-          Scratchpad
-        </label>
-        <div
-          data-testid="workspace-scratchpad-thread-scope"
-          className="text-[11px]"
-          style={{ color: "var(--text-subtle)" }}
-        >
-          Thread: {threadKey}
-        </div>
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div
+        data-testid="workspace-scratchpad-thread-scope"
+        className="text-center text-[11px]"
+        style={{ color: "var(--text-subtle)" }}
+      >
+        Thread: {threadKey}
       </div>
 
       <Textarea
         id={textareaId}
         data-testid="workspace-scratchpad-textarea"
+        aria-label="Scratchpad"
         aria-describedby={statusId}
         value={text}
         rows={12}
