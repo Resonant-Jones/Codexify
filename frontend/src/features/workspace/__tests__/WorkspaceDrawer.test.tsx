@@ -222,6 +222,10 @@ describe("WorkspaceDrawer shell", () => {
     expect(posture.tagName).toBe("P");
     expect(posture).toHaveTextContent("Workspace focus");
     expect(
+      screen.queryByRole("button", { name: "Close workspace" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-drawer-close")).not.toBeInTheDocument();
+    expect(
       screen.queryByRole("button", { name: "Workspace focus" })
     ).not.toBeInTheDocument();
     expect(
@@ -232,32 +236,6 @@ describe("WorkspaceDrawer shell", () => {
     expect(tablist).toBeInTheDocument();
     expect(screen.getByTestId("workspace-tabs")).toBeInTheDocument();
     expect(screen.getAllByRole("tab")).toHaveLength(3);
-  });
-
-  it("drawer close and reopen preserves the current thread scratchpad content", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-
-    render(
-      <WorkspaceDrawerHarness
-        routeContext="guardian"
-        activeThreadId="thread-77"
-      />
-    );
-
-    await user.click(screen.getByTestId("workspace-open-button"));
-    await user.type(
-      screen.getByTestId("workspace-scratchpad-textarea"),
-      "Thread scoped draft"
-    );
-    await user.click(screen.getByTestId("workspace-drawer-close"));
-
-    expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId("workspace-open-button"));
-
-    expect(screen.getByTestId("workspace-scratchpad-textarea")).toHaveValue(
-      "Thread scoped draft"
-    );
   });
 
   it("moves scratchpad content through the drawer integration path", async () => {
@@ -299,6 +277,7 @@ describe("WorkspaceDrawer shell", () => {
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
       "Balanced split"
     );
+    expect(screen.queryByTestId("workspace-drawer-close")).not.toBeInTheDocument();
     expect(screen.queryByText(/Autosaves locally per thread/i)).not.toBeInTheDocument();
     expect(
       screen.getByTestId("workspace-scratchpad-textarea")
