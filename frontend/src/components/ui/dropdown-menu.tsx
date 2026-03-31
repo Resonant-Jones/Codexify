@@ -127,6 +127,8 @@ type Placement = {
   left: number;
   top: number;
   triggerWidth: number;
+  side: "top" | "bottom";
+  availableHeight: number;
   visibility: React.CSSProperties["visibility"];
 };
 
@@ -143,21 +145,36 @@ function resolvePlacement(
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const { side, align, sideOffset, collisionPadding } = options;
+  const availableHeightAbove = Math.max(
+    0,
+    rootRect.top - collisionPadding - sideOffset
+  );
+  const availableHeightBelow = Math.max(
+    0,
+    viewportHeight - rootRect.bottom - collisionPadding - sideOffset
+  );
 
-  const fitsBelow =
-    rootRect.bottom + sideOffset + contentRect.height <=
-    viewportHeight - collisionPadding;
-  const fitsAbove =
-    rootRect.top - sideOffset - contentRect.height >= collisionPadding;
+  const fitsBelow = contentRect.height <= availableHeightBelow;
+  const fitsAbove = contentRect.height <= availableHeightAbove;
 
   const resolvedSide =
     side === "top"
-      ? fitsAbove || !fitsBelow
+      ? fitsAbove
         ? "top"
-        : "bottom"
-      : fitsBelow || !fitsAbove
+        : fitsBelow
+          ? "bottom"
+          : availableHeightAbove >= availableHeightBelow
+            ? "top"
+            : "bottom"
+      : fitsBelow
         ? "bottom"
-        : "top";
+        : fitsAbove
+          ? "top"
+          : availableHeightBelow >= availableHeightAbove
+            ? "bottom"
+            : "top";
+  const availableHeight =
+    resolvedSide === "top" ? availableHeightAbove : availableHeightBelow;
 
   let left =
     align === "end"
@@ -177,7 +194,13 @@ function resolvePlacement(
     Math.max(collisionPadding, viewportHeight - contentRect.height - collisionPadding)
   );
 
-  return { left, top, visibility: "visible" };
+  return {
+    left,
+    top,
+    side: resolvedSide,
+    availableHeight,
+    visibility: "visible",
+  };
 }
 
 export const DropdownMenuContent = ({
@@ -196,6 +219,8 @@ export const DropdownMenuContent = ({
     left: 0,
     top: 0,
     triggerWidth: 0,
+    side,
+    availableHeight: 0,
     visibility: "hidden",
   });
 
@@ -212,8 +237,8 @@ export const DropdownMenuContent = ({
     if (!root || !content) return;
     const rootRect = root.getBoundingClientRect();
     const contentRect = content.getBoundingClientRect();
-    setPlacement(
-      {
+    setPlacement((previous) => {
+      const nextPlacement = {
         ...resolvePlacement(rootRect, contentRect, {
           side,
           align,
@@ -221,8 +246,16 @@ export const DropdownMenuContent = ({
           collisionPadding: resolvedCollisionPadding,
         }),
         triggerWidth: rootRect.width,
-      }
-    );
+      };
+      return previous.left === nextPlacement.left
+        && previous.top === nextPlacement.top
+        && previous.triggerWidth === nextPlacement.triggerWidth
+        && previous.side === nextPlacement.side
+        && previous.availableHeight === nextPlacement.availableHeight
+        && previous.visibility === nextPlacement.visibility
+        ? previous
+        : nextPlacement;
+    });
   }, [align, ctx.rootRef, resolvedCollisionPadding, resolvedOffset, side]);
 
   React.useLayoutEffect(() => {
@@ -231,11 +264,23 @@ export const DropdownMenuContent = ({
 
     const handleResize = () => updatePlacement();
     const handleScroll = () => updatePlacement();
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => updatePlacement())
+        : null;
+
+    if (ctx.rootRef.current) {
+      resizeObserver?.observe(ctx.rootRef.current);
+    }
+    if (contentRef.current) {
+      resizeObserver?.observe(contentRef.current);
+    }
 
     window.addEventListener("resize", handleResize);
     window.addEventListener("scroll", handleScroll, true);
 
     return () => {
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("scroll", handleScroll, true);
     };
@@ -275,6 +320,7 @@ export const DropdownMenuContent = ({
     <div
       ref={contentRef}
       data-ddm-root
+      data-side={placement.side}
       role="menu"
       className={
         "inline-flex min-w-40 max-w-[min(32rem,calc(100vw-24px))] flex-col rounded-md border bg-[var(--panel-bg)] p-1 shadow-lg " +
@@ -287,6 +333,7 @@ export const DropdownMenuContent = ({
         top: placement.top,
         width: "max-content",
         ["--dropdown-menu-trigger-width" as string]: `${placement.triggerWidth}px`,
+        ["--dropdown-menu-available-height" as string]: `${placement.availableHeight}px`,
         visibility: placement.visibility,
         ...style,
       }}

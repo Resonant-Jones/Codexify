@@ -33,6 +33,11 @@ type ComposerSelectMenuProps = {
   onSelect: (value: string) => void;
 };
 
+const COMPOSER_SELECT_MENU_COLLISION_PADDING = 12;
+const COMPOSER_SELECT_MENU_SIDE_OFFSET = 10;
+const COMPOSER_SELECT_MENU_MAX_HEIGHT = "24rem";
+const COMPOSER_SELECT_MENU_VIEWPORT_MAX_HEIGHT = `min(${COMPOSER_SELECT_MENU_MAX_HEIGHT}, var(--dropdown-menu-available-height, calc(100vh - ${COMPOSER_SELECT_MENU_COLLISION_PADDING * 2}px)))`;
+
 export function ComposerSelectMenu({
   ariaLabel,
   menuLabel,
@@ -213,14 +218,15 @@ export function ComposerSelectMenu({
       <DropdownMenuContent
         side="top"
         align="start"
-        sideOffset={10}
-        collisionPadding={12}
+        sideOffset={COMPOSER_SELECT_MENU_SIDE_OFFSET}
+        collisionPadding={COMPOSER_SELECT_MENU_COLLISION_PADDING}
         aria-label={menuLabel}
-        className="overflow-hidden rounded-[var(--card-radius,19px)] border p-0 shadow-xl"
+        className="flex min-h-0 flex-col overflow-hidden rounded-[var(--card-radius,19px)] border p-0 shadow-xl"
         onKeyDown={handleMenuKeyDown}
         style={{
           minWidth: "max(var(--dropdown-menu-trigger-width, 0px), 11.5rem)",
           maxWidth: "min(20rem, calc(100vw - 24px))",
+          maxHeight: COMPOSER_SELECT_MENU_VIEWPORT_MAX_HEIGHT,
           borderColor: "color-mix(in oklab, var(--panel-border) 84%, var(--text) 16%)",
           background: menuSurface,
           boxShadow:
@@ -229,7 +235,7 @@ export function ComposerSelectMenu({
         }}
       >
         <div
-          className="w-full px-3 py-2 text-center text-[10px] font-medium uppercase tracking-[0.12em] leading-none"
+          className="w-full shrink-0 px-3 py-2 text-center text-[10px] font-medium uppercase tracking-[0.12em] leading-none"
           style={{ color: "var(--muted)" }}
         >
           {menuLabel}
@@ -238,7 +244,7 @@ export function ComposerSelectMenu({
           <div
             ref={scrollRegionRef}
             data-composer-select-scroll-region="true"
-            className="max-h-64 overflow-y-auto overscroll-contain pb-1"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-1"
           >
             {options.map((option, index) => {
               const selected = option.value === selectedValue;
