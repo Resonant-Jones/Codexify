@@ -54,12 +54,6 @@ function formatLayoutModeLabel(layoutMode: WorkspaceLayoutMode): string {
   }
 }
 
-function formatRouteContextLabel(routeContext: WorkspaceRouteContext): string {
-  const normalized = String(routeContext ?? "").trim().toLowerCase();
-  if (!normalized) return "Workspace";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
 function resolveRouteThreadIdentity(): string | null {
   if (typeof window === "undefined") return null;
   const match = window.location.pathname.match(/^\/chat\/([^/]+)/);
@@ -119,7 +113,7 @@ export default function WorkspaceDrawer({
         data-pane-ratio-min={minPaneRatio?.toFixed(2)}
         data-pane-ratio-max={maxPaneRatio?.toFixed(2)}
       >
-        <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="mb-2 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div
               className="text-sm font-semibold"
@@ -127,31 +121,13 @@ export default function WorkspaceDrawer({
             >
               Workspace
             </div>
-            <div
-              className="text-xs"
-              style={{ color: "var(--muted)" }}
+            <p
+              data-testid="workspace-drawer-posture"
+              className="mt-1 text-[11px] font-medium tracking-[0.04em]"
+              style={{ color: "var(--text-subtle)" }}
             >
-              {formatRouteContextLabel(routeContext)} surface
-            </div>
-            <div className="mt-2">
-              <span
-                data-testid="workspace-drawer-posture"
-                className="inline-flex items-center rounded-[999px] border px-2 py-1 text-[11px] font-medium tracking-[0.02em]"
-                style={{
-                  borderColor:
-                    layoutMode === "workspace_focus"
-                      ? "var(--panel-border-strong)"
-                      : "var(--chip-border)",
-                  background:
-                    layoutMode === "workspace_focus"
-                      ? "color-mix(in oklab, var(--chip-bg) 64%, var(--panel-bg))"
-                      : "var(--chip-bg)",
-                  color: "var(--text)",
-                }}
-              >
-                {layoutModeLabel}
-              </span>
-            </div>
+              {layoutModeLabel}
+            </p>
           </div>
           <button
             type="button"

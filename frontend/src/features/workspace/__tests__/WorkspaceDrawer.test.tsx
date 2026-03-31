@@ -1,5 +1,5 @@
 import React from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -185,6 +185,35 @@ describe("WorkspaceDrawer shell", () => {
     );
   });
 
+  it("renders posture as passive status text while tabs remain the interactive controls", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(
+      <WorkspaceDrawerHarness
+        routeContext="documents"
+        layoutMode="workspace_focus"
+        paneRatio={MAX_WORKSPACE_PANE_RATIO}
+      />
+    );
+
+    await user.click(screen.getByTestId("workspace-open-button"));
+
+    const posture = screen.getByTestId("workspace-drawer-posture");
+    expect(posture.tagName).toBe("P");
+    expect(posture).toHaveTextContent("Workspace focus");
+    expect(
+      screen.queryByRole("button", { name: "Workspace focus" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: "Workspace focus" })
+    ).not.toBeInTheDocument();
+
+    const tablist = screen.getByRole("tablist", { name: "Workspace panels" });
+    expect(tablist).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-tabs")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+  });
+
   it("drawer close and reopen preserves the current thread scratchpad content", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
@@ -233,6 +262,29 @@ describe("WorkspaceDrawer shell", () => {
     expect(onMoveScratchpadToComposer).toHaveBeenCalledWith(
       "Stage this for the composer"
     );
+  });
+
+  it("keeps the header honest and preserves scratchpad meaning and actions", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<WorkspaceDrawerHarness routeContext="guardian" />);
+
+    await user.click(screen.getByTestId("workspace-open-button"));
+
+    expect(screen.queryByText("Guardian surface")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
+      "Balanced split"
+    );
+    expect(
+      screen.getByText(/Plaintext staging area\./i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Move to composer" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Copy to clipboard" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
   });
 
   it("renders distinct visible posture labels for balanced and dominant layouts", async () => {
