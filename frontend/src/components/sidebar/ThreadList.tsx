@@ -162,7 +162,7 @@ function ThreadPreviewList({
       {showHeader && (
         <div className="flex items-center justify-between pb-2">
           <div className="inline-flex items-center gap-1 text-xs opacity-70">
-            <ChevronDown className="h-3 w-3" /> <span>Scope:</span>{" "}
+            <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
             <span className="font-medium">{scopeLabel ?? "—"}</span>
           </div>
           {onNewChat && (
