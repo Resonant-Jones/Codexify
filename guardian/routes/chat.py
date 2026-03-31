@@ -1925,7 +1925,8 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        # Encode turn_id into origin so it survives dataclass serialization.
+        # Temporary transport bridge: carry turn_id and source_mode via origin
+        # until ChatCompletionTask gains typed fields for both values.
         origin=f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}",
     )
     task.turn_id = turn_id

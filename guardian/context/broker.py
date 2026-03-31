@@ -368,7 +368,8 @@ class ContextBroker:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
 
-        # Build RAG Trace
+        # Keep source-boundary diagnostics stable while source_mode still
+        # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
             "documents": [
                 {

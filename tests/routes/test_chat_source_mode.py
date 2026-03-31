@@ -7,6 +7,7 @@ import pytest
     ("raw_source_mode", "expected_source_mode"),
     [
         ("personal_knowledge", "personal_knowledge"),
+        ("", "project"),
         ("invalid", "project"),
         (None, "project"),
     ],
