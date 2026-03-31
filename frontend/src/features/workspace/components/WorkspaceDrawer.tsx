@@ -68,7 +68,6 @@ export default function WorkspaceDrawer({
   paneRatio,
   minPaneRatio,
   maxPaneRatio,
-  onOpenChange,
   onActiveTabChange,
   activeThreadId,
   onMoveScratchpadToComposer,
@@ -114,40 +113,24 @@ export default function WorkspaceDrawer({
         data-pane-ratio-max={maxPaneRatio?.toFixed(2)}
       >
         <div
-          className="relative mb-3 flex min-h-[3.25rem] items-start justify-center"
+          className="mb-3 flex flex-col items-center text-center"
           data-testid="workspace-drawer-header"
           data-header-layout="centered"
         >
-          <div className="flex min-w-0 flex-col items-center px-10 text-center">
-            <div
-              className="text-[15px] font-semibold"
-              data-testid="workspace-drawer-title"
-              style={{ color: "var(--text)" }}
-            >
-              Workspace
-            </div>
-            <p
-              data-testid="workspace-drawer-posture"
-              className="mt-1 text-[11px] font-medium tracking-[0.04em]"
-              style={{ color: "var(--text-subtle)" }}
-            >
-              {layoutModeLabel}
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close workspace"
-            data-testid="workspace-drawer-close"
-            className="absolute right-0 top-0 flex h-8 w-8 items-center justify-center rounded-[var(--radius-micro)] border text-sm"
-            style={{
-              borderColor: "var(--panel-border)",
-              background: "var(--chip-bg)",
-              color: "var(--text)",
-            }}
-            onClick={() => onOpenChange(false)}
+          <div
+            className="text-[15px] font-semibold"
+            data-testid="workspace-drawer-title"
+            style={{ color: "var(--text)" }}
           >
-            ×
-          </button>
+            Workspace
+          </div>
+          <p
+            data-testid="workspace-drawer-posture"
+            className="mt-1 text-[11px] font-medium tracking-[0.04em]"
+            style={{ color: "var(--text-subtle)" }}
+          >
+            {layoutModeLabel}
+          </p>
         </div>
 
         <WorkspaceTabs
