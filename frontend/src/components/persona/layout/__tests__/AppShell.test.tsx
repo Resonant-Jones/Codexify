@@ -18,6 +18,7 @@ import {
 import {
   DEFAULT_WORKSPACE_PANE_RATIO,
   MAX_WORKSPACE_PANE_RATIO,
+  MIN_WORKSPACE_PRIMARY_PANE_WIDTH,
   WORKSPACE_LAYOUT_STORAGE_KEY,
 } from "@/features/workspace/state/useWorkspaceLayoutMode";
 
@@ -254,6 +255,10 @@ function setWorkspaceLayoutState(paneRatio: number) {
     WORKSPACE_LAYOUT_STORAGE_KEY,
     JSON.stringify({ paneRatio })
   );
+}
+
+function readPaneBasis(element: HTMLElement): number {
+  return Number.parseFloat(element.getAttribute("data-pane-basis") ?? "0");
 }
 
 describe("AppShell logo wordmark color contract", () => {
@@ -608,9 +613,28 @@ describe("AppShell workspace drawer shell", () => {
       "data-pane-ratio",
       DEFAULT_WORKSPACE_PANE_RATIO.toFixed(2)
     );
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
+      "Balanced split"
+    );
   });
 
-  it("clamps workspace-dominant ratios and resolves them to workspace_focus", () => {
+  it("makes workspace_focus visibly more dominant than balanced_split", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setWorkspaceLayoutState(DEFAULT_WORKSPACE_PANE_RATIO);
+
+    const { unmount } = render(<AppShell />);
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+
+    const balancedPrimaryPane = await screen.findByTestId(
+      "workspace-primary-pane"
+    );
+    const balancedDrawerPane = screen.getByTestId("workspace-drawer-pane");
+    const balancedPrimaryBasis = readPaneBasis(balancedPrimaryPane);
+    const balancedDrawerBasis = readPaneBasis(balancedDrawerPane);
+
+    unmount();
+
     localStorage.setItem("cfy.lastView", "documents");
     localStorage.setItem(
       "cfy.workspace.ui",
@@ -620,15 +644,46 @@ describe("AppShell workspace drawer shell", () => {
 
     render(<AppShell />);
 
+    const focusPrimaryPane = screen.getByTestId("workspace-primary-pane");
+    const focusDrawerPane = screen.getByTestId("workspace-drawer-pane");
     const drawer = screen.getByTestId("workspace-drawer");
     expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
       "data-workspace-layout-mode",
       "workspace_focus"
     );
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-dominant",
+      "true"
+    );
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-ratio-bucket",
+      "workspace_first"
+    );
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
     expect(drawer).toHaveAttribute(
       "data-pane-ratio",
       MAX_WORKSPACE_PANE_RATIO.toFixed(2)
+    );
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
+      "Workspace focus"
+    );
+    expect(readPaneBasis(focusDrawerPane)).toBeGreaterThan(balancedDrawerBasis);
+    expect(readPaneBasis(focusPrimaryPane)).toBeLessThan(balancedPrimaryBasis);
+  });
+
+  it("keeps the chat lane at a readable minimum width in workspace_focus", () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    localStorage.setItem(
+      "cfy.workspace.ui",
+      JSON.stringify({ isOpen: true, activeTab: "scratchpad" })
+    );
+    setWorkspaceLayoutState(MAX_WORKSPACE_PANE_RATIO);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("workspace-primary-pane")).toHaveAttribute(
+      "data-pane-min-width",
+      MIN_WORKSPACE_PRIMARY_PANE_WIDTH
     );
   });
 

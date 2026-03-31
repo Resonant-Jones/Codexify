@@ -1600,7 +1600,13 @@ export default function AppShell({
     minPaneRatio: minWorkspacePaneRatio,
     maxPaneRatio: maxWorkspacePaneRatio,
     primaryPaneRatio,
+    workspacePaneBasis,
+    primaryPaneBasis,
+    primaryPaneMinWidth,
+    workspacePaneMinWidth,
     layoutMode: workspaceLayoutMode,
+    isWorkspaceDominant,
+    ratioBucket: workspaceRatioBucket,
   } = useWorkspaceLayoutMode({
     isOpen: workspaceDrawerOpen,
   });
@@ -1796,14 +1802,12 @@ export default function AppShell({
     [bp],
   );
   const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
-  const workspacePaneBasis = `${(workspacePaneRatio * 100).toFixed(2)}%`;
-  const primaryPaneBasis = `${(primaryPaneRatio * 100).toFixed(2)}%`;
   const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
     ? {
         flexBasis: primaryPaneBasis,
         flexGrow: primaryPaneRatio,
         flexShrink: 1,
-        minWidth: 0,
+        minWidth: primaryPaneMinWidth,
         minHeight: 0,
       }
     : {
@@ -1811,10 +1815,26 @@ export default function AppShell({
         minWidth: 0,
         minHeight: 0,
       };
+  const workspaceDrawerPaneStyle: React.CSSProperties = {
+    padding: "var(--board-edge)",
+    flexBasis: workspacePaneBasis,
+    flexGrow: workspacePaneRatio,
+    flexShrink: 1,
+    minWidth: workspacePaneMinWidth,
+    minHeight: "0",
+    maxHeight: "100%",
+    borderRadius: "var(--card-radius)",
+    boxShadow:
+      workspaceLayoutMode === "workspace_focus"
+        ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
+        : undefined,
+  };
   const workspaceSplitSurfaceProps = workspaceShellEnabled
     ? {
         "data-testid": "workspace-layout-surface",
         "data-workspace-layout-mode": workspaceLayoutMode,
+        "data-workspace-ratio-bucket": workspaceRatioBucket,
+        "data-workspace-dominant": isWorkspaceDominant ? "true" : "false",
         "data-workspace-pane-ratio": workspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-min": minWorkspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-max": maxWorkspacePaneRatio.toFixed(2),
@@ -1822,17 +1842,11 @@ export default function AppShell({
     : {};
   const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
     <div
+      data-testid="workspace-drawer-pane"
+      data-pane-basis={workspacePaneBasis}
+      data-pane-min-width={workspacePaneMinWidth}
       className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
-      style={{
-        padding: "var(--board-edge)",
-        flexBasis: workspacePaneBasis,
-        flexGrow: workspacePaneRatio,
-        flexShrink: 1,
-        minWidth: 0,
-        minHeight: "0",
-        maxHeight: "100%",
-        borderRadius: "var(--card-radius)",
-      }}
+      style={workspaceDrawerPaneStyle}
     >
       <WorkspaceDrawer
         routeContext={workspaceRouteContext}
@@ -2173,6 +2187,11 @@ export default function AppShell({
               >
                 {/* LIST COLUMN (left) */}
                 <div
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-min-width={
+                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                  }
                   className="min-w-0 min-h-0 overflow-visible rounded-[var(--radius)]"
                   style={{
                     padding: "var(--board-edge)",
@@ -2283,6 +2302,11 @@ export default function AppShell({
                 {...workspaceSplitSurfaceProps}
               >
                 <div
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-min-width={
+                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                  }
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
                 >
@@ -2327,6 +2351,11 @@ export default function AppShell({
                 {...workspaceSplitSurfaceProps}
               >
                 <div
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-min-width={
+                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                  }
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
                 >
