@@ -69,11 +69,12 @@ export default function WorkspaceTabs({
     <div
       role="tablist"
       aria-label="Workspace panels"
-      className="flex items-center gap-2 rounded-[var(--radius-micro)] border p-1"
+      data-testid={`${idBase}-tabs`}
+      className="flex items-center gap-1.5 rounded-[var(--radius-micro)] border p-1.5"
       style={{
         borderColor: "var(--panel-border)",
         background:
-          "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+          "color-mix(in oklab, var(--chip-bg) 82%, transparent)",
       }}
     >
       {WORKSPACE_TABS.map((tab, index) => {
@@ -93,12 +94,19 @@ export default function WorkspaceTabs({
             tabIndex={isActive ? 0 : -1}
             data-state={isActive ? "active" : "inactive"}
             data-testid={`${idBase}-tab-${tab.id}`}
-            className="min-w-0 flex-1 rounded-[var(--radius-micro)] px-3 py-2 text-sm transition-colors"
+            className="min-w-0 flex-1 rounded-[var(--radius-micro)] px-3.5 py-2.5 text-sm transition-colors"
             style={{
-              border: isActive ? "1px solid var(--chip-border)" : "1px solid transparent",
-              background: isActive ? "var(--accent)" : "transparent",
+              border: isActive
+                ? "1px solid var(--chip-border)"
+                : "1px solid color-mix(in oklab, var(--chip-border) 32%, transparent)",
+              background: isActive
+                ? "var(--accent)"
+                : "color-mix(in oklab, var(--panel-bg) 62%, transparent)",
               color: isActive ? "var(--text-on-accent)" : "var(--text)",
               fontWeight: isActive ? 600 : 500,
+              boxShadow: isActive
+                ? "inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 2px rgba(0,0,0,0.12)"
+                : undefined,
             }}
             onClick={() => onTabChange(tab.id)}
             onKeyDown={(event) => handleKeyDown(event, index)}
