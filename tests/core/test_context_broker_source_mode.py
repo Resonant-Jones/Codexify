@@ -199,7 +199,7 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
 
     mock_vector_store.search = MagicMock(side_effect=_search)
 
-    _context, trace = await context_broker.assemble(
+    context, trace = await context_broker.assemble(
         thread_id=1,
         query="status",
         depth_mode="normal",
@@ -207,6 +207,9 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
         source_mode="project",
     )
 
+    assert [item["text"] for item in context["semantic"]] == [
+        "project sibling hit"
+    ]
     assert trace["source_mode"] == "project"
     assert trace["widen_reason"] == "low_confidence_thread_hits"
     assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
