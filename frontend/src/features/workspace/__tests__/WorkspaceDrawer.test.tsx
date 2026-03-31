@@ -5,6 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceDrawer from "../components/WorkspaceDrawer";
 import { useWorkspaceUiState } from "../state/useWorkspaceUiState";
+import {
+  BALANCED_SPLIT_MIN_RATIO,
+  DEFAULT_WORKSPACE_PANE_RATIO,
+  MAX_WORKSPACE_PANE_RATIO,
+  MIN_WORKSPACE_PANE_RATIO,
+  WORKSPACE_FOCUS_MIN_RATIO,
+  clampWorkspacePaneRatio,
+  deriveWorkspaceLayoutMode,
+  type WorkspaceLayoutMode,
+} from "../state/useWorkspaceLayoutMode";
 
 vi.mock("@/components/surface/FrameCard", () => ({
   default: ({
@@ -22,10 +32,18 @@ function WorkspaceDrawerHarness({
   routeContext,
   activeThreadId = null,
   onMoveScratchpadToComposer,
+  layoutMode = "balanced_split",
+  paneRatio = DEFAULT_WORKSPACE_PANE_RATIO,
+  minPaneRatio = MIN_WORKSPACE_PANE_RATIO,
+  maxPaneRatio = MAX_WORKSPACE_PANE_RATIO,
 }: {
   routeContext: WorkspaceHarnessRoute;
   activeThreadId?: string | number | null;
   onMoveScratchpadToComposer?: (text: string) => void;
+  layoutMode?: WorkspaceLayoutMode;
+  paneRatio?: number;
+  minPaneRatio?: number;
+  maxPaneRatio?: number;
 }) {
   const { isOpen, activeTab, open, close, setActiveTab } = useWorkspaceUiState({
     routeContext,
@@ -44,6 +62,10 @@ function WorkspaceDrawerHarness({
         routeContext={routeContext}
         isOpen={isOpen}
         activeTab={activeTab}
+        layoutMode={layoutMode}
+        paneRatio={paneRatio}
+        minPaneRatio={minPaneRatio}
+        maxPaneRatio={maxPaneRatio}
         activeThreadId={activeThreadId}
         onMoveScratchpadToComposer={onMoveScratchpadToComposer}
         onOpenChange={(nextOpen) => {
@@ -58,6 +80,35 @@ function WorkspaceDrawerHarness({
     </>
   );
 }
+
+describe("workspace layout mode contract", () => {
+  it("derives layout mode from deterministic thresholds and clamps pane bounds", () => {
+    expect(clampWorkspacePaneRatio(MIN_WORKSPACE_PANE_RATIO - 0.2)).toBe(
+      MIN_WORKSPACE_PANE_RATIO
+    );
+    expect(clampWorkspacePaneRatio(MAX_WORKSPACE_PANE_RATIO + 0.2)).toBe(
+      MAX_WORKSPACE_PANE_RATIO
+    );
+    expect(
+      deriveWorkspaceLayoutMode({
+        isOpen: false,
+        paneRatio: MAX_WORKSPACE_PANE_RATIO,
+      })
+    ).toBe("chat_focus");
+    expect(
+      deriveWorkspaceLayoutMode({
+        isOpen: true,
+        paneRatio: BALANCED_SPLIT_MIN_RATIO,
+      })
+    ).toBe("balanced_split");
+    expect(
+      deriveWorkspaceLayoutMode({
+        isOpen: true,
+        paneRatio: WORKSPACE_FOCUS_MIN_RATIO,
+      })
+    ).toBe("workspace_focus");
+  });
+});
 
 describe("WorkspaceDrawer shell", () => {
   beforeEach(() => {
@@ -176,5 +227,32 @@ describe("WorkspaceDrawer shell", () => {
     expect(onMoveScratchpadToComposer).toHaveBeenCalledWith(
       "Stage this for the composer"
     );
+  });
+
+  it("keeps layout mode stable while active tabs change", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(
+      <WorkspaceDrawerHarness
+        routeContext="dashboard"
+        layoutMode="workspace_focus"
+        paneRatio={MAX_WORKSPACE_PANE_RATIO}
+      />
+    );
+
+    await user.click(screen.getByTestId("workspace-open-button"));
+
+    const drawer = screen.getByTestId("workspace-drawer");
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+    expect(drawer).toHaveAttribute(
+      "data-pane-ratio",
+      MAX_WORKSPACE_PANE_RATIO.toFixed(2)
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Scratchpad" }));
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+
+    await user.click(screen.getByRole("tab", { name: "Inspector" }));
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
   });
 });
