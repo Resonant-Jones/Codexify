@@ -137,22 +137,37 @@ def _depth_block(depth: str) -> str:
 
 def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
     """
-    Optional: lightly describe that RAG context exists without duplicating content.
+    Describe RAG context availability with explicit presence/absence language.
     `_groq_complete` may inject a separate, detailed context system message.
     """
     if not bundle:
         return ""
-    hints = []
-    if bundle.get("semantic"):
-        hints.append(
-            "You may have semantic search context relevant to the query."
-        )
-    if bundle.get("memory"):
-        hints.append("You may have memory search results for this user.")
-    if bundle.get("graph"):
-        hints.append("You may have graph-derived context.")
-    if not hints:
+
+    has_semantic = bool(bundle.get("semantic"))
+    has_memory = bool(bundle.get("memory"))
+    has_graph = bool(bundle.get("graph"))
+
+    if not has_semantic and not has_memory and not has_graph:
         return ""
+
+    hints = []
+    if has_semantic:
+        hints.append("Semantic/doc context is available.")
+    else:
+        hints.append("Semantic/doc context was not retrieved for this turn.")
+
+    if has_memory:
+        hints.append("Personal-memory evidence is available.")
+    else:
+        hints.append(
+            "Personal-memory evidence was not retrieved for this turn."
+        )
+
+    if has_graph:
+        hints.append("Graph context is available.")
+    else:
+        hints.append("Graph context was unavailable for this turn.")
+
     return "Context hints:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
 
 
