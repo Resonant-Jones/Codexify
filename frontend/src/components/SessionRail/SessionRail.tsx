@@ -1,4 +1,4 @@
-import { Bolt, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import React from "react";
 
 import type { SessionTab, TabId } from "@/state/session/types";
@@ -32,7 +32,6 @@ export function SessionRail({
   tabs,
   activeTabId,
   showTabs,
-  isCloud = false,
   onActivateTab,
   onCloseTab,
   onOpenTab,
@@ -40,68 +39,114 @@ export function SessionRail({
   const shouldShowTabs = showTabs ?? tabs.length > 1;
   const canCloseTabs = tabs.length > 1;
   return (
-    <div className="session-rail shrink-0 flex flex-nowrap items-center gap-1.5 px-3 py-2">
+    <div className="session-rail shrink-0 flex flex-nowrap items-center gap-2 px-3 py-2">
       {shouldShowTabs ? (
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <div
-            className="session-rail__tabs-scroll min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
-            style={tabs.length > 2 ? SESSION_RAIL_STYLES.tabsEdgeMask : undefined}
-          >
-            <div className="inline-flex min-w-full items-center gap-1.5">
-              {tabs.map((tab) => {
-                const isActive = tab.tabId === activeTabId;
-                const basis = isActive
-                  ? "var(--cfy-session-tab-active-basis)"
-                  : "var(--cfy-session-tab-inactive-basis)";
-                return (
-                  <div
-                    key={tab.tabId}
-                    className="session-rail__tab-shell inline-flex items-center gap-1 pr-0.5"
-                    data-state={isActive ? "active" : "inactive"}
-                    style={{
-                      flex: "0 0 auto",
-                      flexBasis: basis,
-                      maxWidth: "var(--cfy-session-tab-active-basis)",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="pill-tab session-rail__tab max-w-[220px]"
-                      data-state={isActive ? "active" : "inactive"}
-                      onClick={() => onActivateTab(tab.tabId)}
-                      title={tabLabel(tab)}
-                    >
-                      <span className="truncate inline-flex items-center gap-1">
-                        <span className="truncate">{tabLabel(tab)}</span>
-                        {isActive && isCloud ? (
+        <div
+          className="session-rail__track min-w-0 flex-1 overflow-hidden rounded-[999px] border"
+          data-testid="session-rail-track"
+          style={{
+            borderColor: "var(--panel-border)",
+            background:
+              "color-mix(in oklab, var(--chip-bg) 80%, transparent)",
+          }}
+        >
+          <div className="flex min-w-0 items-center">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div
+                className="session-rail__tabs-scroll min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+                style={tabs.length > 2 ? SESSION_RAIL_STYLES.tabsEdgeMask : undefined}
+              >
+                <div className="inline-flex min-w-full items-center gap-1 px-1.5 py-1">
+                  {tabs.map((tab, index) => {
+                    const isActive = tab.tabId === activeTabId;
+                    return (
+                      <div
+                        key={tab.tabId}
+                        className="session-rail__tab-shell inline-flex min-w-0 items-center"
+                        data-state={isActive ? "active" : "inactive"}
+                        data-variant={isActive ? "pill" : "segment"}
+                        style={{
+                          flex: "0 0 auto",
+                          maxWidth: isActive
+                            ? "var(--cfy-session-tab-active-basis)"
+                            : "var(--cfy-session-tab-inactive-basis)",
+                        }}
+                      >
+                        {index > 0 && !isActive ? (
                           <span
-                            className="inline-flex items-center justify-center rounded-full text-[10px] px-1.5 py-0.5"
-                            aria-label="Cloud mode"
+                            aria-hidden="true"
+                            className="session-rail__divider mx-1.5 h-4 w-px shrink-0"
                             style={{
-                              background: "color-mix(in oklab, var(--accent), transparent 40%)",
-                              color: "var(--accent-strong)",
+                              background:
+                                "color-mix(in oklab, var(--panel-border) 76%, transparent)",
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className="inline-flex min-w-0 items-center"
+                          style={
+                            isActive
+                              ? {
+                                  borderRadius: 999,
+                                  border: "1px solid var(--chip-border)",
+                                  background:
+                                    "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+                                  boxShadow:
+                                    "inset 0 1px 0 rgba(255,255,255,0.16), 0 3px 10px rgba(0,0,0,0.14)",
+                                  padding: "0.25rem 0.375rem 0.25rem 0.625rem",
+                                }
+                              : {
+                                  padding: "0.25rem 0.125rem 0.25rem 0.125rem",
+                                }
+                          }
+                        >
+                          <button
+                            type="button"
+                            className="session-rail__tab block max-w-[220px] truncate px-0 py-1 text-sm font-medium"
+                            data-state={isActive ? "active" : "inactive"}
+                            data-variant={isActive ? "pill" : "segment"}
+                            onClick={() => onActivateTab(tab.tabId)}
+                            title={tabLabel(tab)}
+                            style={{
+                              background: "transparent",
+                              color: isActive ? "var(--text)" : "var(--text-subtle)",
                             }}
                           >
-                            <Bolt className="h-3 w-3" />
-                          </span>
-                        ) : null}
-                      </span>
-                    </button>
-                    {canCloseTabs && (
-                      <button
-                        type="button"
-                        className="session-rail__close inline-flex h-7 w-7 items-center justify-center rounded-full"
-                        onClick={() => onCloseTab(tab.tabId)}
-                        aria-label={`Close ${tabLabel(tab)}`}
-                        title="Close tab"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                            {tabLabel(tab)}
+                          </button>
+                          {canCloseTabs && (
+                            <button
+                              type="button"
+                              className="session-rail__close ml-1 inline-flex h-6 w-6 items-center justify-center rounded-full transition-opacity"
+                              onClick={() => onCloseTab(tab.tabId)}
+                              aria-label={`Close ${tabLabel(tab)}`}
+                              title="Close tab"
+                              style={{
+                                color: isActive
+                                  ? "var(--text-subtle)"
+                                  : "var(--muted)",
+                                opacity: isActive ? 0.78 : 0.56,
+                              }}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
+            <div
+              aria-hidden="true"
+              className="session-rail__endcap mr-1.5 h-8 w-4 shrink-0 rounded-[999px]"
+              data-testid="session-rail-endcap"
+              style={{
+                background:
+                  "color-mix(in oklab, var(--panel-bg) 46%, transparent)",
+              }}
+            />
           </div>
         </div>
       ) : (

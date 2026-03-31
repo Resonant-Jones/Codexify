@@ -15,6 +15,12 @@ import {
   LIVE_EVENT_CONNECTION_STATES,
   RUNTIME_HEALTH_STATUSES,
 } from "@/contracts/runtimeTokens";
+import {
+  DEFAULT_WORKSPACE_PANE_RATIO,
+  MAX_WORKSPACE_PANE_RATIO,
+  MIN_WORKSPACE_PRIMARY_PANE_WIDTH,
+  WORKSPACE_LAYOUT_STORAGE_KEY,
+} from "@/features/workspace/state/useWorkspaceLayoutMode";
 
 const runtimeHealthState = {
   status: RUNTIME_HEALTH_STATUSES.HEALTHY,
@@ -242,6 +248,17 @@ function renderWordmark(themeMode: "light" | "dark") {
   window.localStorage.setItem("cfy.themeMode", themeMode);
   render(<AppShell />);
   return screen.findByRole("button", { name: "Codexify" });
+}
+
+function setWorkspaceLayoutState(paneRatio: number) {
+  window.localStorage.setItem(
+    WORKSPACE_LAYOUT_STORAGE_KEY,
+    JSON.stringify({ paneRatio })
+  );
+}
+
+function readPaneBasis(element: HTMLElement): number {
+  return Number.parseFloat(element.getAttribute("data-pane-basis") ?? "0");
 }
 
 describe("AppShell logo wordmark color contract", () => {
@@ -527,5 +544,159 @@ describe("AppShell gallery demo content", () => {
       screen.queryByRole("img", { name: "Demo gallery item" })
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppShell workspace drawer shell", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it.each(["dashboard", "guardian", "documents"] as const)(
+    "renders the shared workspace drawer from the shell for %s",
+    async (initialView) => {
+      localStorage.setItem("cfy.lastView", initialView);
+
+      render(<AppShell />);
+
+      const toggle = screen.getByTestId("workspace-drawer-toggle");
+      expect(toggle).toBeInTheDocument();
+
+      fireEvent.click(toggle);
+
+      expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
+    }
+  );
+
+  it("resolves supported views to chat_focus while the workspace is closed", () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    setWorkspaceLayoutState(MAX_WORKSPACE_PANE_RATIO);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "chat_focus"
+    );
+    expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+  });
+
+  it("uses balanced_split for open workspace layouts at the default ratio", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setWorkspaceLayoutState(DEFAULT_WORKSPACE_PANE_RATIO);
+
+    render(<AppShell />);
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+
+    const drawer = await screen.findByTestId("workspace-drawer");
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "balanced_split"
+    );
+    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
+    expect(drawer).toHaveAttribute(
+      "data-pane-ratio",
+      DEFAULT_WORKSPACE_PANE_RATIO.toFixed(2)
+    );
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
+      "Balanced split"
+    );
+  });
+
+  it("makes workspace_focus visibly more dominant than balanced_split", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setWorkspaceLayoutState(DEFAULT_WORKSPACE_PANE_RATIO);
+
+    const { unmount } = render(<AppShell />);
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+
+    const balancedPrimaryPane = await screen.findByTestId(
+      "workspace-primary-pane"
+    );
+    const balancedDrawerPane = screen.getByTestId("workspace-drawer-pane");
+    const balancedPrimaryBasis = readPaneBasis(balancedPrimaryPane);
+    const balancedDrawerBasis = readPaneBasis(balancedDrawerPane);
+
+    unmount();
+
+    localStorage.setItem("cfy.lastView", "documents");
+    localStorage.setItem(
+      "cfy.workspace.ui",
+      JSON.stringify({ isOpen: true, activeTab: "inspector" })
+    );
+    setWorkspaceLayoutState(0.95);
+
+    render(<AppShell />);
+
+    const focusPrimaryPane = screen.getByTestId("workspace-primary-pane");
+    const focusDrawerPane = screen.getByTestId("workspace-drawer-pane");
+    const drawer = screen.getByTestId("workspace-drawer");
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "workspace_focus"
+    );
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-dominant",
+      "true"
+    );
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-ratio-bucket",
+      "workspace_first"
+    );
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+    expect(drawer).toHaveAttribute(
+      "data-pane-ratio",
+      MAX_WORKSPACE_PANE_RATIO.toFixed(2)
+    );
+    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
+      "Workspace focus"
+    );
+    expect(readPaneBasis(focusDrawerPane)).toBeGreaterThan(balancedDrawerBasis);
+    expect(readPaneBasis(focusPrimaryPane)).toBeLessThan(balancedPrimaryBasis);
+  });
+
+  it("keeps the chat lane at a readable minimum width in workspace_focus", () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    localStorage.setItem(
+      "cfy.workspace.ui",
+      JSON.stringify({ isOpen: true, activeTab: "scratchpad" })
+    );
+    setWorkspaceLayoutState(MAX_WORKSPACE_PANE_RATIO);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("workspace-primary-pane")).toHaveAttribute(
+      "data-pane-min-width",
+      MIN_WORKSPACE_PRIMARY_PANE_WIDTH
+    );
+  });
+
+  it("does not render the workspace drawer for unsupported views", () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem(
+      "cfy.workspace.ui",
+      JSON.stringify({ isOpen: true, activeTab: "inspector" })
+    );
+
+    render(<AppShell />);
+
+    expect(screen.queryByTestId("workspace-drawer-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
   });
 });
