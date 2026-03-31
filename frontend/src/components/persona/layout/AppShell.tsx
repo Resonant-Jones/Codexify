@@ -31,12 +31,12 @@ import { Input } from "@/components/ui/input";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
-import WorkspacePane from "@/features/workspace/WorkspacePane";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
+import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
@@ -63,6 +63,10 @@ import {
   useWorkspaceState,
   type WorkspaceOpenRequest,
 } from "@/features/workspace/state/useWorkspaceState";
+import {
+  useWorkspaceUiState,
+  type WorkspaceDrawerTab,
+} from "@/features/workspace/state/useWorkspaceUiState";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -89,11 +93,22 @@ injectCssVars();
    ───────────────────────────────────────────────────────────────────────────── */
 type Resolved = "light" | "dark";
 type LayoutMode = "focus" | "zen";
+type AppShellView =
+  | "dashboard"
+  | "documents"
+  | "gallery"
+  | "guardian"
+  | "settings";
+type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
 type AppShellProps = PropsWithChildren<{
   startupLocked?: boolean;
   startupOverlay?: React.ReactNode;
 }>;
+
+function isWorkspaceShellView(view: AppShellView): view is WorkspaceShellView {
+  return view === "dashboard" || view === "documents" || view === "guardian";
+}
 
 function normalizeDoc(raw: any, idx = 0): DocItem {
   const filename =
@@ -761,9 +776,13 @@ export default function AppShell({
      - `wallpaper`: Optional image for the background.
      - We persist the last view and wallpaper for a seamless return experience.
      ───────────────────────────────────────────────────────────────────────────── */
-  const [view, setView] = useState<"dashboard" | "documents" | "gallery" | "guardian" | "settings">(() =>
+  const [view, setView] = useState<AppShellView>(() =>
     (typeof window === "undefined" ? "dashboard" : ((localStorage.getItem("cfy.lastView") as any) || "dashboard"))
   );
+  const workspaceShellEnabled = isWorkspaceShellView(view);
+  const workspaceRouteContext: WorkspaceShellView = workspaceShellEnabled
+    ? view
+    : "dashboard";
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalSaving, setProjectModalSaving] = useState(false);
   const [projectModalName, setProjectModalName] = useState("");
@@ -1318,7 +1337,7 @@ export default function AppShell({
     "--image-grid-cols": "auto-fit",            // Can be set to fixed or responsive
 
     /* === DIMENSION CONSTRAINTS === */
-    "--workspace-w": "24rem",                   // Sidebar fixed width
+    "--workspace-w": "clamp(18rem, 26vw, 24rem)", // Shared workspace drawer width
     "--min-h": "clamp(520px, 70vh, 1000px)",    // Viewport vertical floor
     "--card-height": "clamp(480px, 70vh, 800px)", // Centralized card height
 
@@ -1567,25 +1586,49 @@ export default function AppShell({
     onAnyUpload: () => {},
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
+  const {
+    isOpen: workspaceDrawerOpen,
+    activeTab: workspaceDrawerTab,
+    setActiveTab: setWorkspaceDrawerTab,
+    open: openWorkspaceDrawer,
+    close: closeWorkspaceDrawerUi,
+  } = useWorkspaceUiState({
+    routeContext: workspaceRouteContext,
+  });
+  const handleWorkspaceDrawerTabChange = useCallback(
+    (tab: WorkspaceDrawerTab) => {
+      setWorkspaceDrawerTab(tab);
+    },
+    [setWorkspaceDrawerTab]
+  );
   const handleWorkspaceOpenRequest = useCallback(
     (request: WorkspaceOpenRequest) => {
       const doc = normalizeDoc(request.doc);
       setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
       setDocuments((prev) => dedupeDocItems([doc, ...prev]));
       setView(request.targetView === "guardian" ? "guardian" : "documents");
+      openWorkspaceDrawer("inspector");
     },
-    []
+    [openWorkspaceDrawer]
   );
   const {
-    activeDoc,
-    workspaceOpen,
     openWorkspaceDocument,
-    closeWorkspace,
-    toggleWorkspace,
+    closeWorkspace: closeLegacyWorkspace,
   } = useWorkspaceState({
     normalizeDocument: (doc) => normalizeDoc(doc),
     onOpenRequest: handleWorkspaceOpenRequest,
   });
+  const closeWorkspaceDrawer = useCallback(() => {
+    closeWorkspaceDrawerUi();
+    closeLegacyWorkspace();
+  }, [closeLegacyWorkspace, closeWorkspaceDrawerUi]);
+  const toggleWorkspaceDrawer = useCallback(() => {
+    if (workspaceDrawerOpen) {
+      closeWorkspaceDrawer();
+      return;
+    }
+    openWorkspaceDrawer();
+  }, [closeWorkspaceDrawer, openWorkspaceDrawer, workspaceDrawerOpen]);
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
@@ -1679,16 +1722,12 @@ export default function AppShell({
       : normalizedDoc.title;
     setPrefill(`Let's review "${displayName}".`);
   }, [openWorkspaceDocument]);
-  const openDocFromWorkspace = useCallback((doc: DocumentLike | null) => {
-    if (!doc) return;
-    openDocInThread(doc);
-  }, [openDocInThread]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
       return;
     }
     setPrefill(undefined);
-    closeWorkspace();
+    closeWorkspaceDrawer();
     setView("guardian");
     if (typeof window !== "undefined") {
       try {
@@ -1703,7 +1742,7 @@ export default function AppShell({
       window.history.pushState({}, "", "/chat");
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, [auth, closeWorkspace]);
+  }, [auth, closeWorkspaceDrawer]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
@@ -1713,26 +1752,6 @@ export default function AppShell({
 
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); setView("guardian"); }
-
-  // Memoized layout helper for responsive document/workspace widths using breakpoints
-  const docsLayout = useMemo(() => {
-    if (!workspaceOpen) {
-      return { listFlex: "1 1 0%", workspaceW: "calc(0% - var(--gutter))" };
-    }
-    switch (bp) {
-      case "sm":
-      case "md":
-        // On small screens, keep documents full-width and collapse the workspace column
-        return { listFlex: "1 1 0%", workspaceW: "0%" };
-      case "lg":
-        return { listFlex: "0 0 50%", workspaceW: "calc(50% - var(--gutter))" };
-      case "xl":
-        return { listFlex: "0 0 45%", workspaceW: "calc(55% - var(--gutter))" };
-      case "2xl":
-      default:
-        return { listFlex: "0 0 40%", workspaceW: "calc(60% - var(--gutter))" };
-    }
-  }, [bp, workspaceOpen]);
 
   // Responsive layout helper for Settings view
   const settingsLayout = useMemo(() => {
@@ -1767,6 +1786,34 @@ export default function AppShell({
       }) as React.CSSProperties,
     [bp],
   );
+  const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
+  const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
+    <div
+      className="shrink-0 min-h-0 overflow-visible rounded-[var(--radius)]"
+      style={{
+        padding: "var(--board-edge)",
+        width: "var(--workspace-w)",
+        flex: "0 0 var(--workspace-w)",
+        minHeight: "0",
+        maxHeight: "100%",
+        borderRadius: "var(--card-radius)",
+      }}
+    >
+      <WorkspaceDrawer
+        routeContext={workspaceRouteContext}
+        isOpen={workspaceDrawerOpen}
+        activeTab={workspaceDrawerTab}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) {
+            openWorkspaceDrawer();
+            return;
+          }
+          closeWorkspaceDrawer();
+        }}
+        onActiveTabChange={handleWorkspaceDrawerTabChange}
+      />
+    </div>
+  ) : null;
 
   const runtimeDegraded =
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
@@ -1964,11 +2011,22 @@ export default function AppShell({
           >
             Settings
           </button>
-
-
         </div>
-        {activeRouteThreadId != null && (
-          <div className="flex items-center justify-end">
+        {(workspaceShellEnabled || activeRouteThreadId != null) && (
+          <div className="flex items-center justify-end gap-2">
+            {workspaceShellEnabled && (
+              <button
+                type="button"
+                className="pill-tab"
+                data-state={workspaceDrawerOpen ? "active" : "inactive"}
+                data-testid="workspace-drawer-toggle"
+                aria-pressed={workspaceDrawerOpen}
+                onClick={toggleWorkspaceDrawer}
+              >
+                Workspace
+              </button>
+            )}
+            {activeRouteThreadId != null && (
             <ShareButton
               targetType="thread"
               targetId={activeRouteThreadId}
@@ -1985,6 +2043,7 @@ export default function AppShell({
                   "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
               }}
             />
+            )}
           </div>
         )}
       </div>
@@ -2081,8 +2140,7 @@ export default function AppShell({
                     height: "var(--h, auto)",
                     minHeight: "var(--min-h, 0)",
                     maxHeight: "var(--max-h, none)",
-                    flex: "var(--flex, 1 1 0%)",
-                    ["--flex"]: docsLayout.listFlex,
+                    flex: "1 1 0%",
                     ["--min-h"]: "clamp(520px, 70vh, 1000px)",
                     borderRadius: "var(--card-radius)"
                   }}
@@ -2105,46 +2163,7 @@ export default function AppShell({
                     />
                   </FrameCard>
                 </div>
-
-                {/* WORKSPACE COLUMN (right) */}
-                {workspaceOpen && (
-                  <FrameCard
-                    fill
-                    refractiveFallback
-                    shimmerMode="subtle"
-                    className="shrink-0 overflow-hidden"
-                    style={{
-                      padding: "var(--board-edge)",
-                      width: "var(--w, var(--workspace-w))",
-                      maxWidth: "var(--max-w, none)",
-                      minWidth: "var(--min-w, 0)",
-                      height: "var(--h, auto)",
-                      minHeight: "var(--min-h, 0)",
-                      maxHeight: "var(--max-h, none)",
-                      flex: "var(--flex, 0 0 var(--workspace-w))",
-                      ["--w"]: docsLayout.workspaceW,
-                      ["--flex"]: "0 0 var(--w)",
-                      ["--min-h"]: "clamp(520px, 70vh, 1000px)",
-                    }}
-                  >
-                    <div className="relative h-full w-full min-h-0 overflow-hidden">
-                      <button
-                        onClick={closeWorkspace}
-                        className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
-                        style={{
-                          borderColor: "var(--panel-border)",
-                          color: "var(--muted)",
-                          background: "var(--panel-bg)",
-                        }}
-                        aria-label="Close workspace"
-                        title="Close"
-                      >
-                        ×
-                      </button>
-                      <WorkspacePane activeDoc={activeDoc} onOpenInThread={openDocFromWorkspace} />
-                    </div>
-                  </FrameCard>
-                )}
+                {sharedWorkspaceDrawer}
               </div>
             </div>
           )}
@@ -2212,39 +2231,42 @@ export default function AppShell({
               <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
           )}
-          {!startupLocked && (
+          {!startupLocked && view === "guardian" && (
             <div
-              className="flex-1 h-full w-full min-h-0 isolate flex flex-col"
-              aria-hidden={view !== "guardian"}
-              aria-busy={view === "guardian" ? sessionComposerBlocked : undefined}
-              data-composer-blocked={
-                view === "guardian" && sessionComposerBlocked ? "true" : "false"
-              }
-              hidden={view !== "guardian"}
-              style={{
-                "--frame": "1px",
-                "--bezel": "var(--bezel, 6px)",
-                "--rim": "1px",
-                height: "100%",
-                width: "100%",
-                display: view === "guardian" ? "flex" : "none",
-                flexDirection: "column",
-              } as React.CSSProperties}
+              className="h-full w-full isolate"
+              style={{ "--gutter": "16px" } as React.CSSProperties}
             >
-              <ErrorBoundary>
-                <GuardianChatWithSidebar
-                  key={`guardian-surface-${guardianSurfaceEpoch}`}
-                  guardianName={guardianName}
-                  userName={userName}
-                  prefill={prefill}
-                  onPrefillConsumed={() => setPrefill(undefined)}
-                  onWorkspaceToggle={toggleWorkspace}
-                  workspaceOpen={workspaceOpen}
-                  activeWorkspaceDoc={activeDoc}
-                  onWorkspaceClose={closeWorkspace}
-                  onWorkspaceOpenInThread={openDocFromWorkspace}
-                />
-              </ErrorBoundary>
+              <div className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch">
+                <div className="min-h-0 flex-1">
+                  <div
+                    className="flex h-full w-full min-h-0 isolate flex-col"
+                    aria-busy={sessionComposerBlocked}
+                    data-composer-blocked={
+                      sessionComposerBlocked ? "true" : "false"
+                    }
+                    style={{
+                      "--frame": "1px",
+                      "--bezel": "var(--bezel, 6px)",
+                      "--rim": "1px",
+                    } as React.CSSProperties}
+                  >
+                    <ErrorBoundary>
+                      <GuardianChatWithSidebar
+                        key={`guardian-surface-${guardianSurfaceEpoch}`}
+                        guardianName={guardianName}
+                        userName={userName}
+                        prefill={prefill}
+                        onPrefillConsumed={() => setPrefill(undefined)}
+                        onWorkspaceToggle={toggleWorkspaceDrawer}
+                        workspaceOpen={false}
+                        activeWorkspaceDoc={null}
+                        onWorkspaceClose={closeWorkspaceDrawer}
+                      />
+                    </ErrorBoundary>
+                  </div>
+                </div>
+                {sharedWorkspaceDrawer}
+              </div>
             </div>
           )}
           {!startupLocked && view === "dashboard" && (
@@ -2265,74 +2287,7 @@ export default function AppShell({
                     threadGridRows={dashboardThreadRows}
                   />
                 </div>
-
-                {/* RIGHT COLUMN : workspace drawer */}
-                {workspaceOpen && (
-                  <div
-                    className="rounded-[var(--radius)] shrink-0 overflow-visible"
-                    style={{
-                      padding: "var(--board-edge)",
-                      width: "var(--workspace-w)",
-                      flex: "0 0 var(--workspace-w)",
-                      minHeight: "0",
-                      maxHeight: "100%",
-                      borderRadius: "var(--card-radius)"
-                    }}
-                  >
-                    <div
-                      className="rounded-[var(--radius)]"
-                      style={{
-                        background: "var(--chip-bg)",
-                        padding: "var(--frame)",
-                        border: "var(--bezel, 6px) solid var(--panel-bezel)",
-                        borderRadius: "var(--card-radius)"
-                      }}
-                    >
-                      <div
-                        className="rounded-[var(--radius)]"
-                        style={{
-                          background:
-                            "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))",
-                          padding: "var(--rim)",
-                          borderRadius: "var(--card-radius)"
-                        }}
-                      >
-                        <div className="relative rounded-[var(--radius)] h-full">
-                          <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                            <RefractiveGlassCard
-                              wallpaperUrl={activeWallpaper}
-                              className="w-full h-full rounded-[var(--radius)]"
-                              style={{ background: "transparent", border: "none" }}
-                              intensity={0.006}
-                              aberration={0}
-                            />
-                          </div>
-                          <FrameCard
-                            fill
-                            refractiveFallback
-                            shimmerMode="subtle"
-                            className="relative h-full w-full min-h-0 overflow-hidden"
-                          >
-                            <button
-                              onClick={closeWorkspace}
-                              className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
-                              style={{
-                                borderColor: "var(--panel-border)",
-                                color: "var(--muted)",
-                                background: "var(--panel-bg)",
-                              }}
-                              aria-label="Close workspace"
-                              title="Close"
-                            >
-                              ×
-                            </button>
-                            <WorkspacePane activeDoc={activeDoc} onOpenInThread={openDocFromWorkspace} />
-                          </FrameCard>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {sharedWorkspaceDrawer}
               </div>
             </div>
           )}

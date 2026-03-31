@@ -529,3 +529,52 @@ describe("AppShell gallery demo content", () => {
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
   });
 });
+
+describe("AppShell workspace drawer shell", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it.each(["dashboard", "guardian", "documents"] as const)(
+    "renders the shared workspace drawer from the shell for %s",
+    async (initialView) => {
+      localStorage.setItem("cfy.lastView", initialView);
+
+      render(<AppShell />);
+
+      const toggle = screen.getByTestId("workspace-drawer-toggle");
+      expect(toggle).toBeInTheDocument();
+
+      fireEvent.click(toggle);
+
+      expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
+    }
+  );
+
+  it("does not render the workspace drawer for unsupported views", () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem(
+      "cfy.workspace.ui",
+      JSON.stringify({ isOpen: true, activeTab: "inspector" })
+    );
+
+    render(<AppShell />);
+
+    expect(screen.queryByTestId("workspace-drawer-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+  });
+});
