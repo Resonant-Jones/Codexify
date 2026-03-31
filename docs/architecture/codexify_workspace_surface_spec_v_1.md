@@ -1,5 +1,10 @@
 # Codexify Workspace Surface Spec v1
 
+> Classification: UI/design canon
+> Scope: Workspace behavior, layout role, interaction model, persistence model, and view-specific rules for Dashboard, Guardian, and Documents
+> Not runtime truth: This document does not define deployment/runtime topology, health surfaces, worker behavior, supported-path truth, or infrastructure or operator-truth guarantees
+> Interpretation rule: If this document conflicts with the current runtime KB or short-horizon truth docs, runtime truth wins
+
 ## Purpose
 
 Define Workspace as a persistent, summonable working surface that exists across Dashboard, Guardian, and Documents.
@@ -714,4 +719,3 @@ It should not feel like:
 - a dumping ground for unrelated system features
 
 Codexify wins when Workspace makes the product feel more inhabited, more continuous, and more user-owned without adding structural chaos.
-
