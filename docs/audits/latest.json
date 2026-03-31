@@ -63,8 +63,140 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 19,
+    "commit_count": 16,
     "commits": [
+      {
+        "files": [
+          "docs/architecture/codexify_workspace_surface_spec_v_1.md"
+        ],
+        "sha": "961e9092a06e2dc01226eeced3a9876527832422",
+        "subject": "Workspace Spec"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
+        ],
+        "sha": "0d54ae7a29236f8fa37fc959f50adba6cfaa2fdd",
+        "subject": "fix(chat): relabel active scope as project"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
+        ],
+        "sha": "fde7e2e6ffa625201b89ce42b05729a031d810b5",
+        "subject": "fix(chat): darken thread tiles in dark mode"
+      },
+      {
+        "files": [
+          "frontend/src/App.tsx",
+          "frontend/src/components/documents/DocumentsView.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceState.ts"
+        ],
+        "sha": "8c1d880fb9e1fb2d9beb727b4419027dafb37bbb",
+        "subject": "fix(workspace): unify invocation flow and block recursive mounts"
+      },
+      {
+        "files": [
+          "frontend/src/components/documents/DocumentTile.tsx",
+          "frontend/src/components/media/MediaTile.test.tsx",
+          "prompts.py"
+        ],
+        "sha": "dbd6a7b189b3e71e988e4b34b7122c654bf586a5",
+        "subject": "fix(media): restore document tile layout contract"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/WorkspaceViewer.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx"
+        ],
+        "sha": "1b024d7414dc6c84a885abe2741f82575dcc4b14",
+        "subject": "feat(workspace): add typed preview registry for supported documents"
+      },
+      {
+        "files": [
+          "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
+          "frontend/src/components/dashboard/DashboardView.tsx"
+        ],
+        "sha": "1b83e7c5b744a8e9c87461b302f298a5159ced74",
+        "subject": "refactor(dashboard): auto-hide demo content when real data exists"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx"
+        ],
+        "sha": "4d46923d04d25883f037105327662e3d858f3939",
+        "subject": "refactor(gallery): auto-hide demo content when real data exists"
+      },
+      {
+        "files": [
+          "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
+          "frontend/src/components/documents/DocumentsView.tsx"
+        ],
+        "sha": "a2066e26e5b6604c81a51af09d2d8bd1c14e5568",
+        "subject": "refactor(documents): auto-hide demo content when real data exists"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "tests/routes/test_media_routes.py"
+        ],
+        "sha": "6ebe4b81df24ca25adb9008b5d93b41b2992081f",
+        "subject": "fix(media): unify dashboard and gallery persisted truth"
+      },
+      {
+        "files": [
+          "frontend/src/features/settings/SettingsView.test.tsx",
+          "guardian/server/app.py",
+          "tests/routes/test_imprint_routes.py"
+        ],
+        "sha": "6dc00bb17b0583c96fd758df2bac42688a3e0795",
+        "subject": "fix(settings): restore save route contract"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "tests/routes/test_projects_routes.py"
+        ],
+        "sha": "9aa40796cb03dd166a82c46b0f947b57bb766379",
+        "subject": "fix(projects): restore dashboard create project flow"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/SidebarRoot.tsx",
+          "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
+          "tests/routes/test_projects_routes.py"
+        ],
+        "sha": "2b908467e23a89f733e43566bc0cebeabade959f",
+        "subject": "fix(projects): restore sidebar create project flow"
+      },
+      {
+        "files": [
+          "guardian/routes/health.py",
+          "tests/routes/test_health_endpoints.py"
+        ],
+        "sha": "d531231112e1dcd6188ec0ece9ea35843368118d",
+        "subject": "Fix chat worker heartbeat truth in health endpoint"
+      },
+      {
+        "files": [
+          "docs/audits/daily/morning/2026-03-30-audit.json",
+          "docs/audits/daily/morning/2026-03-30-audit.md",
+          "docs/audits/daily/morning/latest.json",
+          "docs/audits/daily/morning/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
+        ],
+        "sha": "be58a548cfcd94478033b50bb725fe4415f0fcf7",
+        "subject": "Refresh daily morning audit snapshot"
+      },
       {
         "files": [
           "docs/audits/daily/evening/2026-03-29-audit.json",
@@ -76,278 +208,68 @@
         ],
         "sha": "d9bce5e158b9142a2654a251c388d01df5fafedc",
         "subject": "Refresh daily evening audit snapshot"
-      },
-      {
-        "files": [
-          "docs/architecture/2026-03-29-supported-path-proof.md"
-        ],
-        "sha": "e4ea73708ad4e149fef631708bfd79b28c10ef81",
-        "subject": "Add fresh supported-path proof after runtime hardening"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/GuardianChat.tsx"
-        ],
-        "sha": "f155900866a681017ff235aa5d27b5cde8d87648",
-        "subject": "chore(chat): remove guardian header debug box"
-      },
-      {
-        "files": [
-          "frontend/src/components/chat/Composer.tsx",
-          "frontend/src/features/chat/chatLane.ts"
-        ],
-        "sha": "61ff812859cbbc6a33cd2a01d9c6d6a526efcc3c",
-        "subject": "Align chat composer send controls with lane padding"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/chatLane.ts",
-          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx"
-        ],
-        "sha": "e81d8e678cdff211acfb6995d71747cbf7ebd7bd",
-        "subject": "Adjust composer send button inset"
-      },
-      {
-        "files": [
-          "frontend/src/components/media/MediaTile.test.tsx",
-          "frontend/src/components/media/MediaTile.tsx",
-          "frontend/src/components/modals/ImagePreviewModal.tsx",
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/features/chat/components/ChatBubble.tsx",
-          "frontend/src/features/chat/components/__tests__/ChatBubble.test.tsx",
-          "frontend/src/features/dashboard/components/DashboardGallery.test.tsx",
-          "frontend/src/features/dashboard/components/DashboardGallery.tsx",
-          "frontend/src/hooks/useRenderableMediaSrc.ts",
-          "frontend/src/lib/mediaUrl.ts",
-          "frontend/src/test/useRenderableMediaSrc.test.tsx",
-          "frontend/src/tests/media_rendering.spec.tsx",
-          "frontend/src/tests/playwright/desktop-media-contract.spec.ts",
-          "src-tauri/Cargo.lock",
-          "src-tauri/Cargo.toml",
-          "src-tauri/src/commands.rs",
-          "src-tauri/src/lib.rs"
-        ],
-        "sha": "1c06f061988e1b73baf988e4c6bf8bab6ab0511a",
-        "subject": "Route backend media through the desktop fetch contract"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/components/__tests__/Message.execution.test.tsx",
-          "frontend/src/features/chat/useChat.ts",
-          "frontend/src/types/chat.ts",
-          "guardian/tests/workers/test_chat_worker_completion_semantics.py",
-          "guardian/workers/chat_worker.py"
-        ],
-        "sha": "de41700f72a0edc805c45e5f806afe85a6ff1be0",
-        "subject": "fix(stream): enforce content-only streaming contract and drop reasoning channel"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/hooks/useTaskEvents.test.tsx",
-          "frontend/src/features/chat/hooks/useTaskEvents.ts"
-        ],
-        "sha": "bc74e1322ac12ef252eadeb6e315eb20d3803fea",
-        "subject": "Route task event streams through runtime API resolver"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/components/Composer.tsx",
-          "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx"
-        ],
-        "sha": "9622b374cb937ef7d8d7a6adf32ca2eb618066ef",
-        "subject": "Tighten composer empty-state balance"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-          "frontend/src/features/chat/components/__tests__/GuardianActionCenter.test.tsx",
-          "frontend/src/features/chat/components/__tests__/GuardianApprovalInbox.test.tsx",
-          "frontend/src/test/utils/mockTaskEvents.ts"
-        ],
-        "sha": "1d6e0f7d02b6e4e1488058fe3ba8d8a369a035f7",
-        "subject": "test(chat): align frontend tests with event-driven task lifecycle (remove polling assumptions)"
-      },
-      {
-        "files": [
-          "guardian/core/config.py",
-          "guardian/guardian_api.py",
-          "guardian/vector/store.py",
-          "guardian/workers/document_embed_worker.py",
-          "tests/routes/test_retrieve_health_or_mount.py",
-          "tests/vector/test_vector_store_resolution.py",
-          "tests/workers/test_document_embed_worker.py"
-        ],
-        "sha": "018b9f7ab6df5610e4dd8b08d0374c4d70ad507a",
-        "subject": "Unify vector store resolution across backend and workers"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/__tests__/useChat.test.ts",
-          "frontend/src/features/chat/hooks/useTaskEvents.ts",
-          "frontend/src/features/chat/useChat.ts"
-        ],
-        "sha": "cb7dba45741aea45aed18f4321412d127637c671",
-        "subject": "fix(chat): replace polling with resilient task event stream listener"
-      },
-      {
-        "files": [
-          "guardian/core/ai_router.py",
-          "tests/core/test_ai_router.py",
-          "tests/routes/test_health_endpoints.py",
-          "tests/routes/test_llm_catalog.py"
-        ],
-        "sha": "27f721e03e4629fbf1263f2d010f74409ed89278",
-        "subject": "Enforce resolved local model in local execution paths"
-      },
-      {
-        "files": [
-          "guardian/core/ai_router.py",
-          "tests/core/test_ai_router.py",
-          "tests/routes/test_llm_catalog.py"
-        ],
-        "sha": "a918d44f68cab61015310cdaa8aff53e1a218a2d",
-        "subject": "Scope local-model inventory failures to authoritative mode"
-      },
-      {
-        "files": [
-          "guardian/queue/redis_queue.py",
-          "guardian/queue/task_events.py",
-          "guardian/tests/queue/test_task_events.py"
-        ],
-        "sha": "2c1f763ae076d755287b096e6d12432c01505811",
-        "subject": "fix(redis): use queue client + blocking read + backoff for task event streams"
-      },
-      {
-        "files": [
-          "docs/audits/daily/morning/2026-03-29-audit.json",
-          "docs/audits/daily/morning/2026-03-29-audit.md",
-          "docs/audits/daily/morning/latest.json",
-          "docs/audits/daily/morning/latest.md",
-          "docs/audits/latest.json",
-          "docs/audits/latest.md"
-        ],
-        "sha": "c08401a0bfc9a08c18ebbebf0739eb889040073e",
-        "subject": "Refresh daily morning audit snapshot"
-      },
-      {
-        "files": [
-          "docs/architecture/00-current-state.md",
-          "docs/architecture/chat-runtime-gap-analysis.md",
-          "docs/architecture/completion_pipeline.md",
-          "docs/architecture/flows.md",
-          "docs/architecture/tech-debt-and-risks.md"
-        ],
-        "sha": "96dd6704c7aeecffb6034a2c2c96f508ca0199d5",
-        "subject": "docs(runtime): add chat runtime gap analysis and align architecture docs"
-      },
-      {
-        "files": [
-          "docs/architecture/chat-runtime-gap-analysis.md",
-          "docs/architecture/chat-runtime-state-contract.md",
-          "docs/architecture/request-state-machine.md"
-        ],
-        "sha": "613708e64c9222e6fca633e9496df2e39a5f2421",
-        "subject": "Document chat runtime state machine and contract"
-      },
-      {
-        "files": [
-          "docs/architecture/00-current-state.md",
-          "docs/architecture/README.md"
-        ],
-        "sha": "e35d7be068cb3252c6e1a203bfd5907f38c3c925",
-        "subject": "docs: refresh weekly current-state override"
       }
     ],
     "files_changed": [
+      "docs/architecture/codexify_workspace_surface_spec_v_1.md",
+      "frontend/src/components/sidebar/ThreadList.tsx",
+      "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+      "frontend/src/App.tsx",
+      "frontend/src/components/documents/DocumentsView.tsx",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/features/chat/GuardianChat.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceState.ts",
+      "frontend/src/components/documents/DocumentTile.tsx",
+      "frontend/src/components/media/MediaTile.test.tsx",
+      "prompts.py",
+      "frontend/src/features/workspace/WorkspaceViewer.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
+      "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
+      "frontend/src/components/dashboard/DashboardView.tsx",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
+      "tests/routes/test_media_routes.py",
+      "frontend/src/features/settings/SettingsView.test.tsx",
+      "guardian/server/app.py",
+      "tests/routes/test_imprint_routes.py",
+      "tests/routes/test_projects_routes.py",
+      "frontend/src/components/sidebar/SidebarRoot.tsx",
+      "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
+      "guardian/routes/health.py",
+      "tests/routes/test_health_endpoints.py",
+      "docs/audits/daily/morning/2026-03-30-audit.json",
+      "docs/audits/daily/morning/2026-03-30-audit.md",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/daily/morning/latest.md",
+      "docs/audits/latest.json",
+      "docs/audits/latest.md",
       "docs/audits/daily/evening/2026-03-29-audit.json",
       "docs/audits/daily/evening/2026-03-29-audit.md",
       "docs/audits/daily/evening/latest.json",
-      "docs/audits/daily/evening/latest.md",
-      "docs/audits/latest.json",
-      "docs/audits/latest.md",
-      "docs/architecture/2026-03-29-supported-path-proof.md",
-      "frontend/src/features/chat/GuardianChat.tsx",
-      "frontend/src/components/chat/Composer.tsx",
-      "frontend/src/features/chat/chatLane.ts",
-      "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx",
-      "frontend/src/components/media/MediaTile.test.tsx",
-      "frontend/src/components/media/MediaTile.tsx",
-      "frontend/src/components/modals/ImagePreviewModal.tsx",
-      "frontend/src/components/persona/layout/AppShell.tsx",
-      "frontend/src/features/chat/components/ChatBubble.tsx",
-      "frontend/src/features/chat/components/__tests__/ChatBubble.test.tsx",
-      "frontend/src/features/dashboard/components/DashboardGallery.test.tsx",
-      "frontend/src/features/dashboard/components/DashboardGallery.tsx",
-      "frontend/src/hooks/useRenderableMediaSrc.ts",
-      "frontend/src/lib/mediaUrl.ts",
-      "frontend/src/test/useRenderableMediaSrc.test.tsx",
-      "frontend/src/tests/media_rendering.spec.tsx",
-      "frontend/src/tests/playwright/desktop-media-contract.spec.ts",
-      "src-tauri/Cargo.lock",
-      "src-tauri/Cargo.toml",
-      "src-tauri/src/commands.rs",
-      "src-tauri/src/lib.rs",
-      "frontend/src/features/chat/components/__tests__/Message.execution.test.tsx",
-      "frontend/src/features/chat/useChat.ts",
-      "frontend/src/types/chat.ts",
-      "guardian/tests/workers/test_chat_worker_completion_semantics.py",
-      "guardian/workers/chat_worker.py",
-      "frontend/src/features/chat/hooks/useTaskEvents.test.tsx",
-      "frontend/src/features/chat/hooks/useTaskEvents.ts",
-      "frontend/src/features/chat/components/Composer.tsx",
-      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-      "frontend/src/features/chat/components/__tests__/GuardianActionCenter.test.tsx",
-      "frontend/src/features/chat/components/__tests__/GuardianApprovalInbox.test.tsx",
-      "frontend/src/test/utils/mockTaskEvents.ts",
-      "guardian/core/config.py",
-      "guardian/guardian_api.py",
-      "guardian/vector/store.py",
-      "guardian/workers/document_embed_worker.py",
-      "tests/routes/test_retrieve_health_or_mount.py",
-      "tests/vector/test_vector_store_resolution.py",
-      "tests/workers/test_document_embed_worker.py",
-      "frontend/src/features/chat/__tests__/useChat.test.ts",
-      "guardian/core/ai_router.py",
-      "tests/core/test_ai_router.py",
-      "tests/routes/test_health_endpoints.py",
-      "tests/routes/test_llm_catalog.py",
-      "guardian/queue/redis_queue.py",
-      "guardian/queue/task_events.py",
-      "guardian/tests/queue/test_task_events.py",
-      "docs/audits/daily/morning/2026-03-29-audit.json",
-      "docs/audits/daily/morning/2026-03-29-audit.md",
-      "docs/audits/daily/morning/latest.json",
-      "docs/audits/daily/morning/latest.md",
-      "docs/architecture/00-current-state.md",
-      "docs/architecture/chat-runtime-gap-analysis.md",
-      "docs/architecture/completion_pipeline.md",
-      "docs/architecture/flows.md",
-      "docs/architecture/tech-debt-and-risks.md",
-      "docs/architecture/chat-runtime-state-contract.md",
-      "docs/architecture/request-state-machine.md",
-      "docs/architecture/README.md"
+      "docs/audits/daily/evening/latest.md"
     ],
-    "window_end": "2026-03-30T09:00:43.400370-04:00",
+    "window_end": "2026-03-30T21:12:43.498373-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-29T09:00:43.400370-04:00"
+    "window_start": "2026-03-29T21:12:43.498373-04:00"
   },
   "date": "2026-03-30",
-  "generated_at": "2026-03-30T09:00:43.400370-04:00",
+  "generated_at": "2026-03-30T21:12:43.498373-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
     "next_priority": ""
   },
-  "phase": "morning",
+  "phase": "evening",
   "repo": {
     "branch": "main",
     "date": "2026-03-30",
-    "dirty": false,
-    "head": "d9bce5e158b9142a2654a251c388d01df5fafedc",
+    "dirty": true,
+    "head": "961e9092a06e2dc01226eeced3a9876527832422",
     "status_error": "",
-    "status_lines": []
+    "status_lines": [
+      " M prompts.py"
+    ]
   },
   "risk_flags": [
     {
@@ -406,114 +328,63 @@
     "audit": {
       "count": 10,
       "files": [
+        "docs/audits/daily/morning/2026-03-30-audit.json",
+        "docs/audits/daily/morning/2026-03-30-audit.md",
+        "docs/audits/daily/morning/latest.json",
+        "docs/audits/daily/morning/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md",
         "docs/audits/daily/evening/2026-03-29-audit.json",
         "docs/audits/daily/evening/2026-03-29-audit.md",
         "docs/audits/daily/evening/latest.json",
-        "docs/audits/daily/evening/latest.md",
-        "docs/audits/latest.json",
-        "docs/audits/latest.md",
-        "docs/audits/daily/morning/2026-03-29-audit.json",
-        "docs/audits/daily/morning/2026-03-29-audit.md",
-        "docs/audits/daily/morning/latest.json",
-        "docs/audits/daily/morning/latest.md"
-      ]
-    },
-    "chat": {
-      "count": 1,
-      "files": [
-        "guardian/workers/chat_worker.py"
-      ]
-    },
-    "config": {
-      "count": 1,
-      "files": [
-        "guardian/core/config.py"
+        "docs/audits/daily/evening/latest.md"
       ]
     },
     "docs": {
-      "count": 9,
+      "count": 1,
       "files": [
-        "docs/architecture/2026-03-29-supported-path-proof.md",
-        "docs/architecture/00-current-state.md",
-        "docs/architecture/chat-runtime-gap-analysis.md",
-        "docs/architecture/completion_pipeline.md",
-        "docs/architecture/flows.md",
-        "docs/architecture/tech-debt-and-risks.md",
-        "docs/architecture/chat-runtime-state-contract.md",
-        "docs/architecture/request-state-machine.md",
-        "docs/architecture/README.md"
+        "docs/architecture/codexify_workspace_surface_spec_v_1.md"
       ]
     },
     "frontend": {
-      "count": 33,
+      "count": 19,
       "files": [
-        "frontend/src/features/chat/GuardianChat.tsx",
-        "frontend/src/components/chat/Composer.tsx",
-        "frontend/src/features/chat/chatLane.ts",
-        "frontend/src/features/chat/components/__tests__/Composer.draft-sync.test.tsx",
-        "frontend/src/components/media/MediaTile.test.tsx",
-        "frontend/src/components/media/MediaTile.tsx",
-        "frontend/src/components/modals/ImagePreviewModal.tsx",
+        "frontend/src/components/sidebar/ThreadList.tsx",
+        "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+        "frontend/src/App.tsx",
+        "frontend/src/components/documents/DocumentsView.tsx",
         "frontend/src/components/persona/layout/AppShell.tsx",
-        "frontend/src/features/chat/components/ChatBubble.tsx",
-        "frontend/src/features/chat/components/__tests__/ChatBubble.test.tsx",
-        "frontend/src/features/dashboard/components/DashboardGallery.test.tsx",
-        "frontend/src/features/dashboard/components/DashboardGallery.tsx",
-        "frontend/src/hooks/useRenderableMediaSrc.ts",
-        "frontend/src/lib/mediaUrl.ts",
-        "frontend/src/test/useRenderableMediaSrc.test.tsx",
-        "frontend/src/tests/media_rendering.spec.tsx",
-        "frontend/src/tests/playwright/desktop-media-contract.spec.ts",
-        "src-tauri/Cargo.lock",
-        "src-tauri/Cargo.toml",
-        "src-tauri/src/commands.rs",
-        "src-tauri/src/lib.rs",
-        "frontend/src/features/chat/components/__tests__/Message.execution.test.tsx",
-        "frontend/src/features/chat/useChat.ts",
-        "frontend/src/types/chat.ts",
-        "frontend/src/features/chat/hooks/useTaskEvents.test.tsx",
-        "frontend/src/features/chat/hooks/useTaskEvents.ts",
-        "frontend/src/features/chat/components/Composer.tsx",
+        "frontend/src/features/chat/GuardianChat.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceState.ts",
+        "frontend/src/components/documents/DocumentTile.tsx",
+        "frontend/src/components/media/MediaTile.test.tsx",
+        "frontend/src/features/workspace/WorkspaceViewer.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
+        "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
+        "frontend/src/components/dashboard/DashboardView.tsx",
         "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-        "frontend/src/features/chat/components/__tests__/GuardianActionCenter.test.tsx",
-        "frontend/src/features/chat/components/__tests__/GuardianApprovalInbox.test.tsx",
-        "frontend/src/test/utils/mockTaskEvents.ts",
-        "frontend/src/features/chat/__tests__/useChat.test.ts"
-      ]
-    },
-    "ingestion": {
-      "count": 2,
-      "files": [
-        "guardian/workers/document_embed_worker.py",
-        "tests/workers/test_document_embed_worker.py"
-      ]
-    },
-    "providers": {
-      "count": 3,
-      "files": [
-        "guardian/core/ai_router.py",
-        "tests/core/test_ai_router.py",
-        "tests/routes/test_llm_catalog.py"
+        "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
+        "frontend/src/features/settings/SettingsView.test.tsx",
+        "frontend/src/components/sidebar/SidebarRoot.tsx",
+        "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx"
       ]
     },
     "tests": {
-      "count": 5,
+      "count": 4,
       "files": [
-        "guardian/tests/workers/test_chat_worker_completion_semantics.py",
-        "tests/routes/test_retrieve_health_or_mount.py",
-        "tests/vector/test_vector_store_resolution.py",
-        "tests/routes/test_health_endpoints.py",
-        "guardian/tests/queue/test_task_events.py"
+        "tests/routes/test_media_routes.py",
+        "tests/routes/test_imprint_routes.py",
+        "tests/routes/test_projects_routes.py",
+        "tests/routes/test_health_endpoints.py"
       ]
     },
     "unknown": {
-      "count": 4,
+      "count": 3,
       "files": [
-        "guardian/guardian_api.py",
-        "guardian/vector/store.py",
-        "guardian/queue/redis_queue.py",
-        "guardian/queue/task_events.py"
+        "prompts.py",
+        "guardian/server/app.py",
+        "guardian/routes/health.py"
       ]
     }
   }
