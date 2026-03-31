@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat, {
@@ -11,6 +11,7 @@ import {
 } from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
+const fetchLatestRagTraceMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -22,8 +23,13 @@ vi.mock("@/lib/api", () => ({
   buildLlmCatalogPath: () => "/llm/catalog",
   buildChatCompletePath: () => "/chat/complete",
   clearInFlightCompletionTurnId: vi.fn(),
+  fetchLatestRagTrace: fetchLatestRagTraceMock,
   getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
+}));
+
+vi.mock("@/lib/devFlags", () => ({
+  isRagTraceUIEnabled: () => true,
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -63,6 +69,13 @@ vi.mock("@/components/surface/FrameCard", () => ({
   ),
 }));
 
+vi.mock("@/components/ui/sheet", () => ({
+  Sheet: ({ children }: any) => <div>{children}</div>,
+  SheetContent: ({ children }: any) => <div>{children}</div>,
+  SheetHeader: ({ children }: any) => <div>{children}</div>,
+  SheetTitle: ({ children }: any) => <div>{children}</div>,
+}));
+
 vi.mock("@/features/chat/useChat", () => ({
   default: () => ({
     messages: [],
@@ -88,7 +101,6 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
-    refreshSnapshot: vi.fn(),
   }),
 }));
 
@@ -112,6 +124,14 @@ vi.mock("@/components/SessionRail/SessionRail", () => ({
 
 vi.mock("@/imprint/api", () => ({
   fetchSystemPromptSummary: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  markRuntimeRouteUnavailableIfNotFound: vi.fn(),
+  useRuntimeRouteCapability: () => ({
+    ready: true,
+    state: "available",
+  }),
 }));
 
 describe("GuardianChat session-tab binding", () => {
@@ -179,6 +199,66 @@ describe("GuardianChat session-tab binding", () => {
     expect(
       await screen.findByText("New thread ready. Start typing below.")
     ).toBeInTheDocument();
+  });
+
+  it("requests the RAG trace for the active thread and refetches when the active thread changes", async () => {
+    fetchLatestRagTraceMock.mockResolvedValue({ documents: [], graph: [] });
+
+    const { rerender } = render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "2", title: "Thread 2", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Thread 2",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-2" as any}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /view rag trace/i }));
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenCalledWith(2);
+    });
+
+    rerender(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "7", title: "Thread 7", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-7",
+            threadId: "7",
+            pendingThread: false,
+            title: "Thread 7",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-7" as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenLastCalledWith(7);
+    });
   });
 
   it("keeps the composer rail on the shared conversation lane", async () => {

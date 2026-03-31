@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "./SettingsView";
@@ -14,6 +14,8 @@ const mockedApi = vi.hoisted(() => ({
 }));
 
 const mockedUpdatePersonaSettings = vi.hoisted(() => vi.fn());
+const fetchLatestRagTraceMock = vi.hoisted(() => vi.fn());
+const mockedUseContextTrace = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/ui/button", () => ({
   Button: (props: Record<string, unknown>) => (
@@ -47,10 +49,6 @@ vi.mock("@/features/connectors/useConnectors", () => ({
 
 vi.mock("@/features/connectors/ConnectorCard", () => ({
   ConnectorCard: () => null,
-}));
-
-vi.mock("@/features/settings/diagnostics", () => ({
-  MemoryBrowser: () => null,
 }));
 
 vi.mock("@/components/modals/ChatGPTImportModal", () => ({
@@ -87,6 +85,7 @@ vi.mock("@/lib/runtimeConfig", () => ({
 vi.mock("@/lib/api", () => ({
   default: mockedApi,
   clearRuntimeApiKey: vi.fn(),
+  fetchLatestRagTrace: fetchLatestRagTraceMock,
   getAuthToken: vi.fn(() => null),
   getDevApiKey: vi.fn(() => ""),
   readRuntimeApiKey: vi.fn(() => ""),
@@ -108,13 +107,61 @@ vi.mock("@/lib/guardianEventSource", () => ({
   },
 }));
 
+vi.mock("@/state/contextTrace", () => ({
+  useContextTrace: mockedUseContextTrace,
+}));
+
+function renderSettingsView(
+  overrides: Partial<Parameters<typeof SettingsView>[0]> = {}
+) {
+  return render(
+    <SettingsView
+      mode="light"
+      setMode={vi.fn()}
+      guardianName="Guardian"
+      setGuardianName={vi.fn()}
+      userName="User"
+      setUserName={vi.fn()}
+      role="Builder"
+      setRole={vi.fn()}
+      notes="Notes"
+      setNotes={vi.fn()}
+      baseColor="#111827"
+      setBaseColor={vi.fn()}
+      depth={0.3}
+      setDepth={vi.fn()}
+      fade={0.2}
+      setFade={vi.fn()}
+      resolved="light"
+      systemPrompt="Original system prompt"
+      setSystemPrompt={vi.fn()}
+      wallpaper={null}
+      setWallpaper={vi.fn()}
+      extColors={{} as any}
+      setExtColors={vi.fn()}
+      dashboardThreadRows={2}
+      setDashboardThreadRows={vi.fn()}
+      {...overrides}
+    />
+  );
+}
+
 describe("SettingsView save flow", () => {
   beforeEach(() => {
     mockedUpdatePersonaSettings.mockReset();
     mockedApi.get.mockClear();
     mockedApi.post.mockClear();
     mockedApi.delete.mockClear();
+    fetchLatestRagTraceMock.mockReset();
+    mockedUseContextTrace.mockReturnValue({
+      lastDepth: "normal",
+      lastMemory: [],
+      lastSemantic: [],
+      lastThreadId: null,
+      lastTimestamp: null,
+    });
     window.localStorage.clear();
+    window.history.pushState({}, "", "/chat/42");
   });
 
   it("shows success after the system prompt save resolves", async () => {
@@ -127,35 +174,7 @@ describe("SettingsView save flow", () => {
       canClear: false,
     });
 
-    render(
-      <SettingsView
-        mode="light"
-        setMode={vi.fn()}
-        guardianName="Guardian"
-        setGuardianName={vi.fn()}
-        userName="User"
-        setUserName={vi.fn()}
-        role="Builder"
-        setRole={vi.fn()}
-        notes="Notes"
-        setNotes={vi.fn()}
-        baseColor="#111827"
-        setBaseColor={vi.fn()}
-        depth={0.3}
-        setDepth={vi.fn()}
-        fade={0.2}
-        setFade={vi.fn()}
-        resolved="light"
-        systemPrompt="Original system prompt"
-        setSystemPrompt={setSystemPrompt}
-        wallpaper={null}
-        setWallpaper={vi.fn()}
-        extColors={{} as any}
-        setExtColors={vi.fn()}
-        dashboardThreadRows={2}
-        setDashboardThreadRows={vi.fn()}
-      />
-    );
+    renderSettingsView({ setSystemPrompt });
 
     fireEvent.click(screen.getByRole("button", { name: /^system prompt$/i }));
     fireEvent.change(screen.getByDisplayValue("Original system prompt"), {
@@ -173,7 +192,49 @@ describe("SettingsView save flow", () => {
       );
     });
 
-    expect(await screen.findByText("System prompt saved.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Saved locally and synced to runtime persona layer.")
+    ).toBeInTheDocument();
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
+  });
+
+  it("binds diagnostics to the active route thread and refreshes when the active thread changes", async () => {
+    fetchLatestRagTraceMock.mockResolvedValue({ documents: [], graph: [] });
+
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: /^diagnostics$/i }));
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenCalledWith(42);
+    });
+
+    expect(
+      screen.getAllByText(
+        (_, element) =>
+          element?.textContent?.trim() === "Depth: normal • Thread: 42"
+      )
+    ).not.toHaveLength(0);
+    expect(
+      screen.queryByText((_, element) =>
+        Boolean(element?.textContent?.includes("Thread: n/a"))
+      )
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, "", "/chat/84");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenLastCalledWith(84);
+    });
+
+    expect(
+      screen.getAllByText(
+        (_, element) =>
+          element?.textContent?.trim() === "Depth: normal • Thread: 84"
+      )
+    ).not.toHaveLength(0);
   });
 });
