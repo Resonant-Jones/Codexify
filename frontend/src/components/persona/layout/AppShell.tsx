@@ -42,8 +42,11 @@ import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
 import {
+  describeProviderState,
+  PROVIDER_RUNTIME_STATES,
   RUNTIME_HEALTH_FAILURE_KINDS,
   RUNTIME_HEALTH_STATUSES,
+  type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
@@ -1878,6 +1881,14 @@ export default function AppShell({
     runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       ? runtimeHealth.llmDetail
       : null;
+
+  const providerRuntimeState: ProviderRuntimeState =
+    runtimeHealth.backendReachable === false
+      ? PROVIDER_RUNTIME_STATES.OFFLINE
+      : PROVIDER_RUNTIME_STATES.DEGRADED;
+
+  const runtimePresentation = describeProviderState(providerRuntimeState);
+
   const showRuntimeBanner =
     runtimeDegraded &&
     runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
@@ -2114,7 +2125,7 @@ export default function AppShell({
           >
             <div className="flex items-center justify-between gap-3">
               <span className="font-semibold tracking-wide">
-                Runtime degraded
+                {runtimePresentation.title}
               </span>
               <span className="opacity-80">failure: {runtimeFailureKind}</span>
               <span className="opacity-70">
@@ -2123,9 +2134,13 @@ export default function AppShell({
             </div>
             {runtimeDetail ? (
               <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
-                detail: {runtimeDetail}
+                {runtimePresentation.detail} — detail: {runtimeDetail}
               </div>
-            ) : null}
+            ) : (
+              <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
+                {runtimePresentation.detail}
+              </div>
+            )}
           </div>
         </div>
       )}

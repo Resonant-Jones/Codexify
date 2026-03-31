@@ -13,6 +13,11 @@ import {
 import { useTaskEvents, type TaskStreamEvent } from "./hooks/useTaskEvents";
 import api from "@/lib/api";
 import { logOnce } from "@/lib/logging/logOnce";
+import {
+  CHAT_REQUEST_STATES,
+  canTransitionRequestState,
+  type ChatRequestState,
+} from "@/contracts/runtimeTokens";
 import type { ChatExecution, StreamChunk } from "@/types/chat";
 
 export type ChatAttachment = {
@@ -46,6 +51,7 @@ export type CompletionState = {
   activeTaskId: string | null;
   activeThreadId: number | null;
   startedAt: number | null;
+  requestState: ChatRequestState | null;
 };
 
 type CompletionTerminalState = "completed" | "failed" | "cancelled" | "error";
@@ -102,6 +108,7 @@ type CompletionSession = {
   finalSnapshotPromise: Promise<boolean> | null;
   assistantMatchedMessageId: number | null;
   audioReconcileStartedAt: number | null;
+  requestState: ChatRequestState;
 };
 
 type ScheduledRefreshState = {
@@ -734,6 +741,7 @@ export function useChat(options: UseChatOptions = {}) {
         activeTaskId: null,
         activeThreadId: null,
         startedAt: null,
+        requestState: null,
       };
     });
   }, []);
@@ -1211,6 +1219,7 @@ export function useChat(options: UseChatOptions = {}) {
           previous.isCompleting && previous.activeThreadId === threadId
             ? previous.startedAt ?? Date.now()
             : Date.now(),
+        requestState: CHAT_REQUEST_STATES.DISPATCHING,
       }));
       stopCompletionTrackingTimers();
 
@@ -1423,6 +1432,7 @@ export function useChat(options: UseChatOptions = {}) {
         finalSnapshotPromise: null,
         assistantMatchedMessageId: null,
         audioReconcileStartedAt: null,
+        requestState: CHAT_REQUEST_STATES.DISPATCHING,
       };
 
       completionSessionRef.current = session;
@@ -1538,6 +1548,9 @@ export function useChat(options: UseChatOptions = {}) {
         Boolean(current.turnId) && message.turn_id === current.turnId;
 
       if (!(matchedByTask || matchedByTurn)) {
+        if (current.turnId && message.turn_id && message.turn_id !== current.turnId) {
+          current.requestState = CHAT_REQUEST_STATES.ORPHANED;
+        }
         return false;
       }
 
@@ -1587,42 +1600,68 @@ export function useChat(options: UseChatOptions = {}) {
       }
 
       switch (event.type) {
-        case "task.running":
+        case "task.running": {
+          const session = findCurrentSessionByTaskId(currentTaskId);
+          if (session && canTransitionRequestState(session.requestState, CHAT_REQUEST_STATES.STREAMING)) {
+            session.requestState = CHAT_REQUEST_STATES.STREAMING;
+          }
           return;
-        case "task.completed":
+        }
+        case "task.completed": {
           setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.COMPLETED;
+          }
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "completed",
           });
           return;
-        case "task.failed":
+        }
+        case "task.failed": {
           setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.FAILED_RETRYABLE;
+          }
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "failed",
           });
           return;
-        case "task.cancelled":
+        }
+        case "task.cancelled": {
           setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.CANCELLED;
+          }
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "cancelled",
           });
           return;
-        case "completion.error":
+        }
+        case "completion.error": {
           setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.FAILED_FATAL;
+          }
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "error",
           });
           return;
+        }
         default:
           return;
       }
     },
     [
       finalizeCompletionSession,
+      findCurrentSessionByTaskId,
       setActiveStreamTaskId,
       updateCompletionSessionTurnId,
       updateCompletionTaskId,

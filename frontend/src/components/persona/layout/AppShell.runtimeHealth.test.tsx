@@ -194,6 +194,7 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
     runtimeHealthState.failureKind = null;
     runtimeHealthState.llmDetail = null;
+    runtimeHealthState.backendReachable = true;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T12:00:00Z");
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
@@ -220,11 +221,12 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
     runtimeHealthState.failureKind =
       RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE;
+    runtimeHealthState.backendReachable = false;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
 
     render(<AppShell />);
 
-    expect(screen.getByText(/Runtime degraded/i)).toBeInTheDocument();
+    expect(screen.getByText(/Runtime offline/i)).toBeInTheDocument();
     expect(
       screen.getByText(/failure:\s*backend_unreachable/i)
     ).toBeInTheDocument();
@@ -252,7 +254,7 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
-    expect(screen.getByText(/Runtime degraded/i)).toBeInTheDocument();
+    expect(screen.getByText(/Response delayed/i)).toBeInTheDocument();
     expect(
       screen.getByText(/failure:\s*llm_unhealthy/i)
     ).toBeInTheDocument();
