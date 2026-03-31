@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from guardian.cognition.prompts import _rag_hint_block
 from guardian.core import chat_completion_service
 from guardian.tasks.types import ChatCompletionTask
 
@@ -353,3 +354,72 @@ async def test_build_messages_skips_trace_candidate_when_trace_missing(
     await chat_completion_service.build_messages_for_llm(task)
 
     assert persisted == []
+
+
+class TestRagHintBlockTruthfulBoundaryLanguage:
+    def test_semantic_only_bundle_shows_available_not_blanket_non_access(self):
+        bundle = {"semantic": [{"text": "some doc"}]}
+        result = _rag_hint_block(bundle)
+        assert "Semantic/doc context is available." in result
+        assert (
+            "Personal-memory evidence was not retrieved for this turn."
+            in result
+        )
+        assert "Graph context was unavailable for this turn." in result
+        assert "no access" not in result.lower()
+        assert "cannot access" not in result.lower()
+
+    def test_memory_only_bundle_shows_available_memory(self):
+        bundle = {"memory": [{"text": "some memory"}]}
+        result = _rag_hint_block(bundle)
+        assert "Personal-memory evidence is available." in result
+        assert "Semantic/doc context was not retrieved for this turn." in result
+        assert "Graph context was unavailable for this turn." in result
+
+    def test_graph_only_bundle_shows_available_graph(self):
+        bundle = {"graph": [{"text": "some graph"}]}
+        result = _rag_hint_block(bundle)
+        assert "Graph context is available." in result
+        assert "Semantic/doc context was not retrieved for this turn." in result
+        assert (
+            "Personal-memory evidence was not retrieved for this turn."
+            in result
+        )
+
+    def test_all_contexts_available_uses_presence_language(self):
+        bundle = {
+            "semantic": [{"text": "doc"}],
+            "memory": [{"text": "mem"}],
+            "graph": [{"text": "graph"}],
+        }
+        result = _rag_hint_block(bundle)
+        assert "Semantic/doc context is available." in result
+        assert "Personal-memory evidence is available." in result
+        assert "Graph context is available." in result
+
+    def test_empty_bundle_returns_empty_string(self):
+        result = _rag_hint_block({})
+        assert result == ""
+
+    def test_none_bundle_returns_empty_string(self):
+        result = _rag_hint_block(None)
+        assert result == ""
+
+    def test_bundle_with_empty_lists_returns_empty_string(self):
+        result = _rag_hint_block({"semantic": [], "memory": [], "graph": []})
+        assert result == ""
+
+    def test_partial_context_does_not_claim_blanket_non_access(self):
+        bundle = {"semantic": [{"text": "project note"}]}
+        result = _rag_hint_block(bundle)
+        assert "not retrieved" in result
+        assert "was not retrieved" in result
+        assert "available" in result
+        denial_phrases = [
+            "no internal knowledge",
+            "no access to",
+            "cannot access internal",
+            "don't have access to internal",
+        ]
+        for phrase in denial_phrases:
+            assert phrase.lower() not in result.lower()
