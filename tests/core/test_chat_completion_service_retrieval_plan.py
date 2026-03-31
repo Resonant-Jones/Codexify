@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -266,3 +267,89 @@ async def test_emitted_retrieval_plan_values_are_debug_safe_scalars_and_lists(
     assert all(isinstance(item, str) for item in plan["escalation_order"])
     assert isinstance(plan["reasons"], list)
     assert all(isinstance(item, str) for item in plan["reasons"])
+
+
+@pytest.mark.asyncio
+async def test_build_messages_persists_trace_candidate_for_completed_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(
+        monkeypatch,
+        user_content="Summarize the retrieved notes.",
+        trace_payload={
+            "documents": [
+                {
+                    "id": "doc-1",
+                    "title": "note.md",
+                    "score": 0.91,
+                    "snippet": "retrieved note...",
+                }
+            ],
+            "graph": [],
+        },
+    )
+    persisted: list[tuple[int, dict[str, object]]] = []
+    task_id = str(uuid.uuid4())
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_merge_thread_metadata_patch",
+        lambda thread_id, patch: persisted.append((thread_id, dict(patch)))
+        or True,
+    )
+
+    task = ChatCompletionTask(
+        task_id=task_id,
+        thread_id=1,
+        provider="local",
+        model=None,
+    )
+    (
+        _messages,
+        _provider,
+        _model,
+        _bundle,
+        trace,
+    ) = await chat_completion_service.build_messages_for_llm(task)
+
+    assert isinstance(trace, dict)
+    assert persisted
+    persisted_thread_id, patch = persisted[-1]
+    assert persisted_thread_id == 1
+    assert (
+        patch[
+            chat_completion_service.DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY
+        ]
+        == task_id
+    )
+    candidate = patch[
+        chat_completion_service.DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY
+    ]
+    assert isinstance(candidate, dict)
+    assert candidate["task_id"] == task_id
+    assert candidate["thread_id"] == 1
+    assert candidate["trace"] == trace
+
+
+@pytest.mark.asyncio
+async def test_build_messages_skips_trace_candidate_when_trace_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(
+        monkeypatch,
+        user_content="Hello there",
+        trace_payload=None,
+    )
+    persisted: list[tuple[int, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_merge_thread_metadata_patch",
+        lambda thread_id, patch: persisted.append((thread_id, dict(patch)))
+        or True,
+    )
+
+    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    await chat_completion_service.build_messages_for_llm(task)
+
+    assert persisted == []
