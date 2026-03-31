@@ -34,8 +34,16 @@ describe("WorkspaceScratchpadPanel", () => {
 
     render(<WorkspaceScratchpadPanel threadIdentity="thread-1" />);
 
-    const textarea = screen.getByTestId("workspace-scratchpad-textarea");
+    const textarea = screen.getByRole("textbox", { name: "Scratchpad" });
+    expect(textarea).toHaveAttribute(
+      "data-testid",
+      "workspace-scratchpad-textarea"
+    );
+    expect(screen.queryByText(/^Scratchpad$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Autosaves locally per thread/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-scratchpad-thread-scope")).toHaveTextContent(
+      "Thread: thread-1"
+    );
     expect(textarea).toHaveAttribute(
       "placeholder",
       "Stage plaintext notes, prompts, or fragments before moving them into the composer."
