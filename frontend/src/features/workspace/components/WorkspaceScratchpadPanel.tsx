@@ -56,10 +56,11 @@ export default function WorkspaceScratchpadPanel({
     threadIdentity,
   });
   const textareaId = React.useId();
-  const descriptionId = `${textareaId}-description`;
   const statusId = `${textareaId}-status`;
   const [statusMessage, setStatusMessage] = React.useState("");
   const hasContent = text.length > 0;
+  const scratchpadPlaceholder =
+    "Stage plaintext notes, prompts, or fragments before moving them into the composer.";
 
   const handleMoveToComposer = React.useCallback(() => {
     if (!hasContent) return;
@@ -78,8 +79,8 @@ export default function WorkspaceScratchpadPanel({
   }, [clear]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="space-y-1">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
         <label
           htmlFor={textareaId}
           className="text-sm font-semibold"
@@ -87,36 +88,24 @@ export default function WorkspaceScratchpadPanel({
         >
           Scratchpad
         </label>
-        <p
-          id={descriptionId}
-          className="text-xs leading-5"
-          style={{ color: "var(--muted)" }}
+        <div
+          data-testid="workspace-scratchpad-thread-scope"
+          className="text-[11px]"
+          style={{ color: "var(--text-subtle)" }}
         >
-          Plaintext staging area. Autosaves locally per thread and stays separate
-          from the composer draft.
-        </p>
-      </div>
-
-      <div
-        className="rounded-[var(--radius-micro)] border px-3 py-2 text-xs"
-        style={{
-          borderColor: "var(--chip-border)",
-          background: "var(--chip-bg)",
-          color: "var(--text-subtle)",
-        }}
-      >
-        Thread scope: {threadKey}
+          Thread: {threadKey}
+        </div>
       </div>
 
       <Textarea
         id={textareaId}
         data-testid="workspace-scratchpad-textarea"
-        aria-describedby={`${descriptionId} ${statusId}`}
+        aria-describedby={statusId}
         value={text}
         rows={12}
         spellCheck={false}
-        placeholder="Stage plaintext notes, prompts, or fragments here."
-        className="min-h-[14rem] flex-1 resize-none rounded-[var(--radius)] border px-3 py-3 leading-6"
+        placeholder={scratchpadPlaceholder}
+        className="min-h-[14rem] flex-1 resize-none rounded-[var(--radius)] border px-3 py-3 text-sm leading-6"
         style={{
           borderColor: "var(--panel-border)",
           background:
@@ -127,14 +116,16 @@ export default function WorkspaceScratchpadPanel({
         }}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div
+        data-testid="workspace-scratchpad-actions"
+        className="flex flex-wrap items-center justify-center gap-1.5"
+      >
         <button
           type="button"
-          className="rounded-[var(--radius-micro)] border px-3 py-2 text-sm font-medium"
+          className="rounded-[var(--radius-micro)] px-2.5 py-1 text-sm font-medium opacity-80 transition-opacity hover:opacity-100 active:opacity-70 disabled:opacity-35"
           style={{
-            borderColor: "var(--chip-border)",
-            background: "var(--chip-bg)",
             color: "var(--text)",
+            background: "transparent",
           }}
           disabled={!hasContent}
           onClick={handleMoveToComposer}
@@ -143,26 +134,24 @@ export default function WorkspaceScratchpadPanel({
         </button>
         <button
           type="button"
-          className="rounded-[var(--radius-micro)] border px-3 py-2 text-sm font-medium"
+          className="rounded-[var(--radius-micro)] px-2.5 py-1 text-sm font-medium opacity-80 transition-opacity hover:opacity-100 active:opacity-70 disabled:opacity-35"
           style={{
-            borderColor: "var(--chip-border)",
-            background: "var(--chip-bg)",
             color: "var(--text)",
+            background: "transparent",
           }}
           disabled={!hasContent}
           onClick={() => {
             void handleCopyToClipboard();
           }}
         >
-          Copy to clipboard
+          Copy to Clipboard
         </button>
         <button
           type="button"
-          className="rounded-[var(--radius-micro)] border px-3 py-2 text-sm font-medium"
+          className="rounded-[var(--radius-micro)] px-2.5 py-1 text-sm font-medium opacity-80 transition-opacity hover:opacity-100 active:opacity-70 disabled:opacity-35"
           style={{
-            borderColor: "var(--chip-border)",
-            background: "var(--chip-bg)",
             color: "var(--text)",
+            background: "transparent",
           }}
           disabled={!hasContent}
           onClick={handleClear}
@@ -175,8 +164,8 @@ export default function WorkspaceScratchpadPanel({
         id={statusId}
         aria-live="polite"
         data-testid="workspace-scratchpad-status"
-        className="text-xs"
-        style={{ color: "var(--muted)" }}
+        className="text-center text-[11px]"
+        style={{ color: "var(--text-subtle)" }}
       >
         {statusMessage || "Scratchpad stays local to this browser."}
       </div>

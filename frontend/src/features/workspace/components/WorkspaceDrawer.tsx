@@ -113,10 +113,15 @@ export default function WorkspaceDrawer({
         data-pane-ratio-min={minPaneRatio?.toFixed(2)}
         data-pane-ratio-max={maxPaneRatio?.toFixed(2)}
       >
-        <div className="mb-2 flex items-start justify-between gap-3">
-          <div className="min-w-0">
+        <div
+          className="relative mb-3 flex min-h-[3.25rem] items-start justify-center"
+          data-testid="workspace-drawer-header"
+          data-header-layout="centered"
+        >
+          <div className="flex min-w-0 flex-col items-center px-10 text-center">
             <div
-              className="text-sm font-semibold"
+              className="text-[15px] font-semibold"
+              data-testid="workspace-drawer-title"
               style={{ color: "var(--text)" }}
             >
               Workspace
@@ -133,7 +138,7 @@ export default function WorkspaceDrawer({
             type="button"
             aria-label="Close workspace"
             data-testid="workspace-drawer-close"
-            className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-micro)] border text-sm"
+            className="absolute right-0 top-0 flex h-8 w-8 items-center justify-center rounded-[var(--radius-micro)] border text-sm"
             style={{
               borderColor: "var(--panel-border)",
               background: "var(--chip-bg)",
