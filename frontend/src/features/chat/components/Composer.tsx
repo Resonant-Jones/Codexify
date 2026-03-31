@@ -807,7 +807,7 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex shrink-0 items-center justify-center"
+              className="mr-[4px] flex shrink-0 items-center justify-center"
             >
               <Button
                 type="button"

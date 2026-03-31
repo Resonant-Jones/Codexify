@@ -126,7 +126,7 @@ describe("Composer draft sync", () => {
 
     const contentPlane = screen.getByTestId("composer-content-plane");
     const controlsRow = screen.getByTestId("composer-control-row");
-    expect(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS).toBe("pr-[48px]");
+    expect(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS).toBe("pr-[4px]");
     expect(contentPlane).toHaveClass("justify-end", "gap-2");
     expect(controlsRow.className).toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
     expect(controlsRow.className).toContain(CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS);
@@ -144,6 +144,7 @@ describe("Composer draft sync", () => {
 
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass(
+      "mr-[4px]",
       "flex",
       "shrink-0",
       "items-center",
