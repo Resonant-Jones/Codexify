@@ -15,6 +15,11 @@ import {
   LIVE_EVENT_CONNECTION_STATES,
   RUNTIME_HEALTH_STATUSES,
 } from "@/contracts/runtimeTokens";
+import {
+  DEFAULT_WORKSPACE_PANE_RATIO,
+  MAX_WORKSPACE_PANE_RATIO,
+  WORKSPACE_LAYOUT_STORAGE_KEY,
+} from "@/features/workspace/state/useWorkspaceLayoutMode";
 
 const runtimeHealthState = {
   status: RUNTIME_HEALTH_STATUSES.HEALTHY,
@@ -242,6 +247,13 @@ function renderWordmark(themeMode: "light" | "dark") {
   window.localStorage.setItem("cfy.themeMode", themeMode);
   render(<AppShell />);
   return screen.findByRole("button", { name: "Codexify" });
+}
+
+function setWorkspaceLayoutState(paneRatio: number) {
+  window.localStorage.setItem(
+    WORKSPACE_LAYOUT_STORAGE_KEY,
+    JSON.stringify({ paneRatio })
+  );
 }
 
 describe("AppShell logo wordmark color contract", () => {
@@ -564,6 +576,61 @@ describe("AppShell workspace drawer shell", () => {
       expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
     }
   );
+
+  it("resolves supported views to chat_focus while the workspace is closed", () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    setWorkspaceLayoutState(MAX_WORKSPACE_PANE_RATIO);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "chat_focus"
+    );
+    expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+  });
+
+  it("uses balanced_split for open workspace layouts at the default ratio", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setWorkspaceLayoutState(DEFAULT_WORKSPACE_PANE_RATIO);
+
+    render(<AppShell />);
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+
+    const drawer = await screen.findByTestId("workspace-drawer");
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "balanced_split"
+    );
+    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
+    expect(drawer).toHaveAttribute(
+      "data-pane-ratio",
+      DEFAULT_WORKSPACE_PANE_RATIO.toFixed(2)
+    );
+  });
+
+  it("clamps workspace-dominant ratios and resolves them to workspace_focus", () => {
+    localStorage.setItem("cfy.lastView", "documents");
+    localStorage.setItem(
+      "cfy.workspace.ui",
+      JSON.stringify({ isOpen: true, activeTab: "inspector" })
+    );
+    setWorkspaceLayoutState(0.95);
+
+    render(<AppShell />);
+
+    const drawer = screen.getByTestId("workspace-drawer");
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "workspace_focus"
+    );
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+    expect(drawer).toHaveAttribute(
+      "data-pane-ratio",
+      MAX_WORKSPACE_PANE_RATIO.toFixed(2)
+    );
+  });
 
   it("does not render the workspace drawer for unsupported views", () => {
     localStorage.setItem("cfy.lastView", "gallery");

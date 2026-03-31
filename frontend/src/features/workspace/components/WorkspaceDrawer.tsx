@@ -8,11 +8,16 @@ import type {
   WorkspaceDrawerTab,
   WorkspaceRouteContext,
 } from "../state/useWorkspaceUiState";
+import type { WorkspaceLayoutMode } from "../state/useWorkspaceLayoutMode";
 
 type WorkspaceDrawerProps = {
   routeContext: WorkspaceRouteContext;
   isOpen: boolean;
   activeTab: WorkspaceDrawerTab;
+  layoutMode?: WorkspaceLayoutMode;
+  paneRatio?: number;
+  minPaneRatio?: number;
+  maxPaneRatio?: number;
   onOpenChange: (open: boolean) => void;
   onActiveTabChange: (tab: WorkspaceDrawerTab) => void;
   activeThreadId?: string | number | null;
@@ -53,6 +58,10 @@ export default function WorkspaceDrawer({
   routeContext,
   isOpen,
   activeTab,
+  layoutMode = "balanced_split",
+  paneRatio,
+  minPaneRatio,
+  maxPaneRatio,
   onOpenChange,
   onActiveTabChange,
   activeThreadId,
@@ -91,6 +100,10 @@ export default function WorkspaceDrawer({
         className="flex h-full min-h-0 flex-col p-[var(--card-pad)]"
         data-testid="workspace-drawer"
         data-route-context={String(routeContext ?? "")}
+        data-layout-mode={layoutMode}
+        data-pane-ratio={paneRatio?.toFixed(2)}
+        data-pane-ratio-min={minPaneRatio?.toFixed(2)}
+        data-pane-ratio-max={maxPaneRatio?.toFixed(2)}
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">

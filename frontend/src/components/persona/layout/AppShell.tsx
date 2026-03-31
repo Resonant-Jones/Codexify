@@ -67,6 +67,7 @@ import {
   useWorkspaceUiState,
   type WorkspaceDrawerTab,
 } from "@/features/workspace/state/useWorkspaceUiState";
+import { useWorkspaceLayoutMode } from "@/features/workspace/state/useWorkspaceLayoutMode";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -1337,7 +1338,6 @@ export default function AppShell({
     "--image-grid-cols": "auto-fit",            // Can be set to fixed or responsive
 
     /* === DIMENSION CONSTRAINTS === */
-    "--workspace-w": "clamp(18rem, 26vw, 24rem)", // Shared workspace drawer width
     "--min-h": "clamp(520px, 70vh, 1000px)",    // Viewport vertical floor
     "--card-height": "clamp(480px, 70vh, 800px)", // Centralized card height
 
@@ -1595,6 +1595,15 @@ export default function AppShell({
   } = useWorkspaceUiState({
     routeContext: workspaceRouteContext,
   });
+  const {
+    paneRatio: workspacePaneRatio,
+    minPaneRatio: minWorkspacePaneRatio,
+    maxPaneRatio: maxWorkspacePaneRatio,
+    primaryPaneRatio,
+    layoutMode: workspaceLayoutMode,
+  } = useWorkspaceLayoutMode({
+    isOpen: workspaceDrawerOpen,
+  });
   const handleWorkspaceDrawerTabChange = useCallback(
     (tab: WorkspaceDrawerTab) => {
       setWorkspaceDrawerTab(tab);
@@ -1787,13 +1796,39 @@ export default function AppShell({
     [bp],
   );
   const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
+  const workspacePaneBasis = `${(workspacePaneRatio * 100).toFixed(2)}%`;
+  const primaryPaneBasis = `${(primaryPaneRatio * 100).toFixed(2)}%`;
+  const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
+    ? {
+        flexBasis: primaryPaneBasis,
+        flexGrow: primaryPaneRatio,
+        flexShrink: 1,
+        minWidth: 0,
+        minHeight: 0,
+      }
+    : {
+        flex: "1 1 0%",
+        minWidth: 0,
+        minHeight: 0,
+      };
+  const workspaceSplitSurfaceProps = workspaceShellEnabled
+    ? {
+        "data-testid": "workspace-layout-surface",
+        "data-workspace-layout-mode": workspaceLayoutMode,
+        "data-workspace-pane-ratio": workspacePaneRatio.toFixed(2),
+        "data-workspace-pane-ratio-min": minWorkspacePaneRatio.toFixed(2),
+        "data-workspace-pane-ratio-max": maxWorkspacePaneRatio.toFixed(2),
+      }
+    : {};
   const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
     <div
-      className="shrink-0 min-h-0 overflow-visible rounded-[var(--radius)]"
+      className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
       style={{
         padding: "var(--board-edge)",
-        width: "var(--workspace-w)",
-        flex: "0 0 var(--workspace-w)",
+        flexBasis: workspacePaneBasis,
+        flexGrow: workspacePaneRatio,
+        flexShrink: 1,
+        minWidth: 0,
         minHeight: "0",
         maxHeight: "100%",
         borderRadius: "var(--card-radius)",
@@ -1803,6 +1838,10 @@ export default function AppShell({
         routeContext={workspaceRouteContext}
         isOpen={workspaceDrawerOpen}
         activeTab={workspaceDrawerTab}
+        layoutMode={workspaceLayoutMode}
+        paneRatio={workspacePaneRatio}
+        minPaneRatio={minWorkspacePaneRatio}
+        maxPaneRatio={maxWorkspacePaneRatio}
         onOpenChange={(nextOpen) => {
           if (nextOpen) {
             openWorkspaceDrawer();
@@ -2128,10 +2167,13 @@ export default function AppShell({
                 borderRadius: "var(--card-radius)",
               } as React.CSSProperties}
             >
-              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
+              <div
+                className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]"
+                {...workspaceSplitSurfaceProps}
+              >
                 {/* LIST COLUMN (left) */}
                 <div
-                  className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
+                  className="min-w-0 min-h-0 overflow-visible rounded-[var(--radius)]"
                   style={{
                     padding: "var(--board-edge)",
                     width: "var(--w, auto)",
@@ -2140,9 +2182,9 @@ export default function AppShell({
                     height: "var(--h, auto)",
                     minHeight: "var(--min-h, 0)",
                     maxHeight: "var(--max-h, none)",
-                    flex: "1 1 0%",
                     ["--min-h"]: "clamp(520px, 70vh, 1000px)",
-                    borderRadius: "var(--card-radius)"
+                    borderRadius: "var(--card-radius)",
+                    ...workspacePrimaryPaneStyle,
                   }}
                 >
                   <FrameCard
@@ -2236,8 +2278,14 @@ export default function AppShell({
               className="h-full w-full isolate"
               style={{ "--gutter": "16px" } as React.CSSProperties}
             >
-              <div className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch">
-                <div className="min-h-0 flex-1">
+              <div
+                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                {...workspaceSplitSurfaceProps}
+              >
+                <div
+                  className="min-h-0 min-w-0"
+                  style={workspacePrimaryPaneStyle}
+                >
                   <div
                     className="flex h-full w-full min-h-0 isolate flex-col"
                     aria-busy={sessionComposerBlocked}
@@ -2274,8 +2322,14 @@ export default function AppShell({
               className="h-full w-full isolate"
               style={{ "--gutter": "16px" } as React.CSSProperties}
             >
-              <div className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch">
-                <div className="min-h-0 flex-1">
+              <div
+                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                {...workspaceSplitSurfaceProps}
+              >
+                <div
+                  className="min-h-0 min-w-0"
+                  style={workspacePrimaryPaneStyle}
+                >
                   <DashboardView
                     extColors={extColors}
                     gallery={gallery}
