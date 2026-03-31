@@ -75,6 +75,52 @@ def _estimate_tokens(text: str | None) -> int:
     return max(1, length // 4)
 
 
+def _normalize_source_mode(value: Any) -> str:
+    return "personal_knowledge" if value == "personal_knowledge" else "project"
+
+
+def _source_mode_from_origin(origin: Any) -> str:
+    text = str(origin or "").strip()
+    if not text:
+        return "project"
+    for segment in text.split("|")[1:]:
+        key, _, value = segment.partition("=")
+        if key.strip() == "source_mode":
+            return _normalize_source_mode(value.strip())
+    return "project"
+
+
+async def _assemble_context_bundle(
+    broker: ContextBroker,
+    *,
+    thread_id: int,
+    query: str,
+    depth_mode: str,
+    user_id: str,
+    project_id: int | None,
+    source_mode: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    try:
+        return await broker.assemble(
+            thread_id,
+            query=query,
+            depth_mode=depth_mode,
+            user_id=user_id,
+            project_id=project_id,
+            source_mode=source_mode,
+        )
+    except TypeError as exc:
+        error_text = str(exc)
+        if "source_mode" not in error_text and "project_id" not in error_text:
+            raise
+        return await broker.assemble(
+            thread_id,
+            query=query,
+            depth_mode=depth_mode,
+            user_id=user_id,
+        )
+
+
 def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
     target_role = str(role or "").strip().lower()
     for index in range(len(messages) - 1, -1, -1):
@@ -622,6 +668,16 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
+    source_mode = _source_mode_from_origin(getattr(task, "origin", None))
+
+    project_id_for_prompt: int | None = None
+    if thread_info:
+        try:
+            raw_project_id = thread_info.get("project_id")
+            if raw_project_id is not None:
+                project_id_for_prompt = int(raw_project_id)
+        except (TypeError, ValueError):
+            project_id_for_prompt = None
 
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
@@ -633,11 +689,14 @@ async def build_messages_for_llm(
             dependencies._sensors,
             settings=settings,
         )
-        bundle, trace = await broker.assemble(
-            thread_id,
+        bundle, trace = await _assemble_context_bundle(
+            broker,
+            thread_id=thread_id,
             query=latest_message,
             depth_mode=depth,
             user_id=user_for_context,
+            project_id=project_id_for_prompt,
+            source_mode=source_mode,
         )
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
@@ -651,15 +710,6 @@ async def build_messages_for_llm(
 
     messages_for_llm: list[dict[str, str]] = []
     prompt_meta: dict[str, Any] = {}
-
-    project_id_for_prompt: int | None = None
-    if thread_info:
-        try:
-            raw_project_id = thread_info.get("project_id")
-            if raw_project_id is not None:
-                project_id_for_prompt = int(raw_project_id)
-        except (TypeError, ValueError):
-            project_id_for_prompt = None
 
     try:
         if build_guardian_system_prompt:
