@@ -13,20 +13,17 @@ type SessionRailProps = {
   onOpenTab: () => void;
 };
 
-const SESSION_RAIL_STYLES: Record<"tabsEdgeMask", React.CSSProperties> = {
-  tabsEdgeMask: {
-    maskImage:
-      "linear-gradient(to right, transparent 0px, black 14px, black calc(100% - 14px), transparent 100%)",
-    WebkitMaskImage:
-      "linear-gradient(to right, transparent 0px, black 14px, black calc(100% - 14px), transparent 100%)",
-  },
-};
-
 function tabLabel(tab: SessionTab): string {
   if (tab.title && tab.title.trim()) return tab.title.trim();
   if (tab.threadId && tab.threadId.trim()) return `Thread ${tab.threadId.trim()}`;
   return "New Tab";
 }
+
+const RAIL_WRAPPER_CLASSES =
+  "shrink-0 flex flex-nowrap items-center gap-2 px-3 py-2";
+
+const SEGMENT_BASE_CLASSES =
+  "relative inline-flex items-center gap-[0.35rem] px-3 py-2 border-none bg-transparent cursor-pointer select-none transition-colors duration-150 min-w-0";
 
 export function SessionRail({
   tabs,
@@ -37,122 +34,102 @@ export function SessionRail({
   onOpenTab,
 }: SessionRailProps) {
   const shouldShowTabs = showTabs ?? tabs.length > 1;
-  const canCloseTabs = tabs.length > 1;
+
   return (
-    <div className="session-rail shrink-0 flex flex-nowrap items-center gap-2 px-3 py-2">
+    <div className={RAIL_WRAPPER_CLASSES}>
       {shouldShowTabs ? (
         <div
-          className="session-rail__track min-w-0 flex-1 overflow-hidden rounded-[999px] border"
+          className="flex-1 min-w-0 flex items-center"
           data-testid="session-rail-track"
-          style={{
-            borderColor: "var(--panel-border)",
-            background:
-              "color-mix(in oklab, var(--chip-bg) 80%, transparent)",
-          }}
         >
-          <div className="flex min-w-0 items-center">
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <div
-                className="session-rail__tabs-scroll min-w-0 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
-                style={tabs.length > 2 ? SESSION_RAIL_STYLES.tabsEdgeMask : undefined}
-              >
-                <div className="inline-flex min-w-full items-center gap-1 px-1.5 py-1">
-                  {tabs.map((tab, index) => {
-                    const isActive = tab.tabId === activeTabId;
-                    return (
+          <div className="flex min-w-0 items-center overflow-x-auto [scrollbar-width:thin]">
+            <div className="inline-flex min-w-full items-center gap-1 px-1.5 py-1">
+              {tabs.map((tab, index) => {
+                const isActive = tab.tabId === activeTabId;
+
+                return (
+                  <React.Fragment key={tab.tabId}>
+                    {index > 0 && (
                       <div
-                        key={tab.tabId}
-                        className="session-rail__tab-shell inline-flex min-w-0 items-center"
-                        data-state={isActive ? "active" : "inactive"}
-                        data-variant={isActive ? "pill" : "segment"}
+                        className="h-4 w-px shrink-0"
                         style={{
-                          flex: "0 0 auto",
-                          maxWidth: isActive
-                            ? "var(--cfy-session-tab-active-basis)"
-                            : "var(--cfy-session-tab-inactive-basis)",
+                          background:
+                            "color-mix(in oklab, var(--panel-border) 76%, transparent)",
+                        }}
+                        data-testid="session-rail-divider"
+                      />
+                    )}
+                    <div
+                      className={SEGMENT_BASE_CLASSES}
+                      data-state={isActive ? "active" : "inactive"}
+                      data-testid={`session-rail-tab-${tab.tabId}`}
+                      style={
+                        isActive
+                          ? {
+                              color: "var(--text-on-accent)",
+                              background:
+                                "color-mix(in oklab, var(--accent-strong) 12%, transparent)",
+                            }
+                          : {
+                              color: "var(--text)",
+                            }
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate px-0 py-1 text-sm font-medium"
+                        data-state={isActive ? "active" : "inactive"}
+                        onClick={() => onActivateTab(tab.tabId)}
+                        title={tabLabel(tab)}
+                        style={{
+                          background: "transparent",
+                          color: "inherit",
                         }}
                       >
-                        {index > 0 && !isActive ? (
-                          <span
-                            aria-hidden="true"
-                            className="session-rail__divider mx-1.5 h-4 w-px shrink-0"
-                            style={{
-                              background:
-                                "color-mix(in oklab, var(--panel-border) 76%, transparent)",
-                            }}
-                          />
-                        ) : null}
-                        <div
-                          className="inline-flex min-w-0 items-center"
-                          style={
-                            isActive
-                              ? {
-                                  borderRadius: 999,
-                                  border: "1px solid var(--chip-border)",
-                                  background:
-                                    "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-                                  boxShadow:
-                                    "inset 0 1px 0 rgba(255,255,255,0.16), 0 3px 10px rgba(0,0,0,0.14)",
-                                  padding: "0.25rem 0.375rem 0.25rem 0.625rem",
-                                }
-                              : {
-                                  padding: "0.25rem 0.125rem 0.25rem 0.125rem",
-                                }
-                          }
+                        {tabLabel(tab)}
+                      </button>
+                      {isActive && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center w-3.5 h-3.5 p-0 border-none rounded-full bg-transparent cursor-pointer opacity-60 hover:opacity-100 hover:bg-[color-mix(in_oklab,var(--panel-bg),85%,transparent)] transition-opacity duration-150 flex-shrink-0 focus:outline-1 focus:outline-[var(--accent-weak)] focus:outline-offset-1 active:scale-95"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            onCloseTab(tab.tabId);
+                          }}
+                          aria-label={`Close ${tabLabel(tab)}`}
+                          title="Close tab"
+                          style={{
+                            color: "inherit",
+                          }}
                         >
-                          <button
-                            type="button"
-                            className="session-rail__tab block max-w-[220px] truncate px-0 py-1 text-sm font-medium"
-                            data-state={isActive ? "active" : "inactive"}
-                            data-variant={isActive ? "pill" : "segment"}
-                            onClick={() => onActivateTab(tab.tabId)}
-                            title={tabLabel(tab)}
-                            style={{
-                              background: "transparent",
-                              color: isActive ? "var(--text)" : "var(--text-subtle)",
-                            }}
+                          <svg
+                            width="6"
+                            height="6"
+                            viewBox="0 0 6 6"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
                           >
-                            {tabLabel(tab)}
-                          </button>
-                          {canCloseTabs && (
-                            <button
-                              type="button"
-                              className="session-rail__close ml-1 inline-flex h-6 w-6 items-center justify-center rounded-full transition-opacity"
-                              onClick={() => onCloseTab(tab.tabId)}
-                              aria-label={`Close ${tabLabel(tab)}`}
-                              title="Close tab"
-                              style={{
-                                color: isActive
-                                  ? "var(--text-subtle)"
-                                  : "var(--muted)",
-                                opacity: isActive ? 0.78 : 0.56,
-                              }}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                            <path
+                              d="M1 1L5 5M5 1L1 5"
+                              stroke="currentColor"
+                              strokeWidth="1.2"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </React.Fragment>
+                );
+              })}
             </div>
-            <div
-              aria-hidden="true"
-              className="session-rail__endcap mr-1.5 h-8 w-4 shrink-0 rounded-[999px]"
-              data-testid="session-rail-endcap"
-              style={{
-                background:
-                  "color-mix(in oklab, var(--panel-bg) 46%, transparent)",
-              }}
-            />
           </div>
         </div>
       ) : (
         <div className="flex-1" />
       )}
-      <div className="session-rail__tools shrink-0 flex items-center gap-2">
+      <div className="shrink-0 flex items-center gap-2">
         <button
           type="button"
           className="icon-inline session-rail__tool-btn p-2 rounded-md hover:bg-white/10 transition"
