@@ -63,14 +63,81 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 16,
+    "commit_count": 20,
     "commits": [
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts"
+        ],
+        "sha": "8228f4f284bf64531de159afd92b905641cba841",
+        "subject": "feat(workspace): add per-thread scratchpad staging"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceUiState.ts"
+        ],
+        "sha": "93c5b34b66e33c481e8ba5a2f2208c57b863c056",
+        "subject": "feat(workspace): add shell scaffold and persisted tabs"
+      },
+      {
+        "files": [
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md",
+          "prompts.py"
+        ],
+        "sha": "bdb09774fbb5c5ca11faddaefcf60c3870c5d3e7",
+        "subject": "Refresh evening audit snapshot"
+      },
+      {
+        "files": [
+          "docs/audits/daily/evening/2026-03-30-audit.json",
+          "docs/audits/daily/evening/2026-03-30-audit.md"
+        ],
+        "sha": "7f39d88199e6aa6c9f4998ee2028f0347538acf4",
+        "subject": "docs: add evening audit snapshot"
+      },
       {
         "files": [
           "docs/architecture/codexify_workspace_surface_spec_v_1.md"
         ],
         "sha": "961e9092a06e2dc01226eeced3a9876527832422",
         "subject": "Workspace Spec"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+          "frontend/src/contracts/supportedProfileRoutes.ts",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/useAgentRuns.test.tsx",
+          "frontend/src/features/chat/hooks/useAgentRuns.ts",
+          "frontend/src/features/chat/hooks/useGuardianActionCenter.ts",
+          "frontend/src/features/chat/hooks/useGuardianApprovalInbox.ts",
+          "frontend/src/features/connectors/useConnectors.test.tsx",
+          "frontend/src/features/connectors/useConnectors.ts",
+          "frontend/src/features/settings/SettingsView.tsx",
+          "frontend/src/features/settings/__tests__/SettingsView.profile-awareness.test.tsx",
+          "frontend/src/imprint/useImprintZero.ts",
+          "frontend/src/lib/runtimeRouteCapabilities.test.tsx",
+          "frontend/src/lib/runtimeRouteCapabilities.ts",
+          "frontend/src/vitest.config.ts"
+        ],
+        "sha": "e970451c56f8ffb9a50d174bd8dc90938b080a2a",
+        "subject": "Adapt restricted-profile UI to mounted runtime capabilities"
       },
       {
         "files": [
@@ -196,38 +263,55 @@
         ],
         "sha": "be58a548cfcd94478033b50bb725fe4415f0fcf7",
         "subject": "Refresh daily morning audit snapshot"
-      },
-      {
-        "files": [
-          "docs/audits/daily/evening/2026-03-29-audit.json",
-          "docs/audits/daily/evening/2026-03-29-audit.md",
-          "docs/audits/daily/evening/latest.json",
-          "docs/audits/daily/evening/latest.md",
-          "docs/audits/latest.json",
-          "docs/audits/latest.md"
-        ],
-        "sha": "d9bce5e158b9142a2654a251c388d01df5fafedc",
-        "subject": "Refresh daily evening audit snapshot"
       }
     ],
     "files_changed": [
+      "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+      "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceUiState.ts",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/evening/latest.md",
+      "docs/audits/latest.json",
+      "docs/audits/latest.md",
+      "prompts.py",
+      "docs/audits/daily/evening/2026-03-30-audit.json",
+      "docs/audits/daily/evening/2026-03-30-audit.md",
       "docs/architecture/codexify_workspace_surface_spec_v_1.md",
+      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+      "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
+      "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+      "frontend/src/contracts/supportedProfileRoutes.ts",
+      "frontend/src/features/chat/GuardianChat.tsx",
+      "frontend/src/features/chat/__tests__/useAgentRuns.test.tsx",
+      "frontend/src/features/chat/hooks/useAgentRuns.ts",
+      "frontend/src/features/chat/hooks/useGuardianActionCenter.ts",
+      "frontend/src/features/chat/hooks/useGuardianApprovalInbox.ts",
+      "frontend/src/features/connectors/useConnectors.test.tsx",
+      "frontend/src/features/connectors/useConnectors.ts",
+      "frontend/src/features/settings/SettingsView.tsx",
+      "frontend/src/features/settings/__tests__/SettingsView.profile-awareness.test.tsx",
+      "frontend/src/imprint/useImprintZero.ts",
+      "frontend/src/lib/runtimeRouteCapabilities.test.tsx",
+      "frontend/src/lib/runtimeRouteCapabilities.ts",
+      "frontend/src/vitest.config.ts",
       "frontend/src/components/sidebar/ThreadList.tsx",
       "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
       "frontend/src/App.tsx",
       "frontend/src/components/documents/DocumentsView.tsx",
-      "frontend/src/components/persona/layout/AppShell.tsx",
-      "frontend/src/features/chat/GuardianChat.tsx",
       "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
       "frontend/src/features/workspace/state/useWorkspaceState.ts",
       "frontend/src/components/documents/DocumentTile.tsx",
       "frontend/src/components/media/MediaTile.test.tsx",
-      "prompts.py",
       "frontend/src/features/workspace/WorkspaceViewer.tsx",
       "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
       "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
       "frontend/src/components/dashboard/DashboardView.tsx",
-      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
       "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
       "tests/routes/test_media_routes.py",
       "frontend/src/features/settings/SettingsView.test.tsx",
@@ -241,34 +325,28 @@
       "docs/audits/daily/morning/2026-03-30-audit.json",
       "docs/audits/daily/morning/2026-03-30-audit.md",
       "docs/audits/daily/morning/latest.json",
-      "docs/audits/daily/morning/latest.md",
-      "docs/audits/latest.json",
-      "docs/audits/latest.md",
-      "docs/audits/daily/evening/2026-03-29-audit.json",
-      "docs/audits/daily/evening/2026-03-29-audit.md",
-      "docs/audits/daily/evening/latest.json",
-      "docs/audits/daily/evening/latest.md"
+      "docs/audits/daily/morning/latest.md"
     ],
-    "window_end": "2026-03-30T21:12:43.498373-04:00",
+    "window_end": "2026-03-31T09:08:30.872317-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-29T21:12:43.498373-04:00"
+    "window_start": "2026-03-30T09:08:30.872317-04:00"
   },
-  "date": "2026-03-30",
-  "generated_at": "2026-03-30T21:12:43.498373-04:00",
+  "date": "2026-03-31",
+  "generated_at": "2026-03-31T09:08:30.872317-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
     "next_priority": ""
   },
-  "phase": "evening",
+  "phase": "morning",
   "repo": {
-    "branch": "main",
-    "date": "2026-03-30",
+    "branch": "codex/add-workspace-shell-state",
+    "date": "2026-03-31",
     "dirty": true,
-    "head": "961e9092a06e2dc01226eeced3a9876527832422",
+    "head": "8228f4f284bf64531de159afd92b905641cba841",
     "status_error": "",
     "status_lines": [
-      " M prompts.py"
+      " M guardian/cognition/prompts.py"
     ]
   },
   "risk_flags": [
@@ -328,16 +406,16 @@
     "audit": {
       "count": 10,
       "files": [
+        "docs/audits/daily/evening/latest.json",
+        "docs/audits/daily/evening/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md",
+        "docs/audits/daily/evening/2026-03-30-audit.json",
+        "docs/audits/daily/evening/2026-03-30-audit.md",
         "docs/audits/daily/morning/2026-03-30-audit.json",
         "docs/audits/daily/morning/2026-03-30-audit.md",
         "docs/audits/daily/morning/latest.json",
-        "docs/audits/daily/morning/latest.md",
-        "docs/audits/latest.json",
-        "docs/audits/latest.md",
-        "docs/audits/daily/evening/2026-03-29-audit.json",
-        "docs/audits/daily/evening/2026-03-29-audit.md",
-        "docs/audits/daily/evening/latest.json",
-        "docs/audits/daily/evening/latest.md"
+        "docs/audits/daily/morning/latest.md"
       ]
     },
     "docs": {
@@ -347,14 +425,38 @@
       ]
     },
     "frontend": {
-      "count": 19,
+      "count": 42,
       "files": [
+        "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+        "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
+        "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceUiState.ts",
+        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+        "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
+        "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+        "frontend/src/contracts/supportedProfileRoutes.ts",
+        "frontend/src/features/chat/GuardianChat.tsx",
+        "frontend/src/features/chat/__tests__/useAgentRuns.test.tsx",
+        "frontend/src/features/chat/hooks/useAgentRuns.ts",
+        "frontend/src/features/chat/hooks/useGuardianActionCenter.ts",
+        "frontend/src/features/chat/hooks/useGuardianApprovalInbox.ts",
+        "frontend/src/features/connectors/useConnectors.test.tsx",
+        "frontend/src/features/connectors/useConnectors.ts",
+        "frontend/src/features/settings/SettingsView.tsx",
+        "frontend/src/features/settings/__tests__/SettingsView.profile-awareness.test.tsx",
+        "frontend/src/imprint/useImprintZero.ts",
+        "frontend/src/lib/runtimeRouteCapabilities.test.tsx",
+        "frontend/src/lib/runtimeRouteCapabilities.ts",
+        "frontend/src/vitest.config.ts",
         "frontend/src/components/sidebar/ThreadList.tsx",
         "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
         "frontend/src/App.tsx",
         "frontend/src/components/documents/DocumentsView.tsx",
-        "frontend/src/components/persona/layout/AppShell.tsx",
-        "frontend/src/features/chat/GuardianChat.tsx",
         "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
         "frontend/src/features/workspace/state/useWorkspaceState.ts",
         "frontend/src/components/documents/DocumentTile.tsx",
@@ -363,7 +465,6 @@
         "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
         "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
         "frontend/src/components/dashboard/DashboardView.tsx",
-        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
         "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
         "frontend/src/features/settings/SettingsView.test.tsx",
         "frontend/src/components/sidebar/SidebarRoot.tsx",
