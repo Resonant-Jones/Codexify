@@ -4,7 +4,14 @@
  * Hosts the Guardian chat surface and coordinates thread-level UI state,
  * including completion tracking and per-thread turn gating for the composer.
  */
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import {
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useLayoutEffect,
+} from "react";
 import { debounce } from "lodash-es";
 import {
   DropdownMenu,
@@ -82,6 +89,7 @@ const TURN_LOCK_TOAST =
   "Keep typing. Send unlocks when the current reply finishes.";
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
+const DEFAULT_SOURCE_MODE = "project";
 
 export function flattenChatEventPayload(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -104,10 +112,11 @@ export function flattenChatEventPayload(data: unknown): Record<string, unknown> 
  * RAG depth modes: Four lenses of consciousness.
  * - shallow: Breezy, fast, ephemeral awareness
  * - normal: Situational recall + semantic grounding
- * - deep: Rich memory pull + cross-thread resonance
+ * - deep: Rich memory pull with more aggressive recall inside the selected source boundary
  * - diagnostic: System introspection, sensors, trace-level visibility
  */
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
+type SourceMode = "project" | "personal_knowledge";
 
 type LlmHealthStatus = "unknown" | "online" | "offline" | "misconfigured";
 
@@ -145,6 +154,90 @@ type VoiceCapabilities = {
   supported_input_mime: string[];
   limits: { max_upload_bytes: number; max_duration_s: number } | null;
 };
+
+function normalizeSourceMode(value: unknown): SourceMode {
+  return value === "personal_knowledge"
+    ? "personal_knowledge"
+    : DEFAULT_SOURCE_MODE;
+}
+
+function getThreadSourceStorageKey(threadId: number): string {
+  return `cfy.chat.source.thread:${threadId}`;
+}
+
+function getTabSourceStorageKey(tabId: TabId | null | undefined): string {
+  return `cfy.chat.source.tab:${tabId ?? "global"}`;
+}
+
+function readStoredSourceMode(options: {
+  threadId?: number | null;
+  tabId?: TabId | null;
+}): SourceMode {
+  if (typeof window === "undefined") {
+    return DEFAULT_SOURCE_MODE;
+  }
+  try {
+    const threadId = options.threadId;
+    if (typeof threadId === "number" && Number.isFinite(threadId)) {
+      const threadValue = window.localStorage.getItem(
+        getThreadSourceStorageKey(threadId)
+      );
+      if (threadValue != null) {
+        return normalizeSourceMode(threadValue);
+      }
+    }
+    const tabValue = window.localStorage.getItem(
+      getTabSourceStorageKey(options.tabId)
+    );
+    if (tabValue != null) {
+      return normalizeSourceMode(tabValue);
+    }
+  } catch {}
+  return DEFAULT_SOURCE_MODE;
+}
+
+function persistStoredSourceMode(
+  options: { threadId?: number | null; tabId?: TabId | null },
+  mode: SourceMode
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const threadId = options.threadId;
+    if (typeof threadId === "number" && Number.isFinite(threadId)) {
+      window.localStorage.setItem(
+        getThreadSourceStorageKey(threadId),
+        normalizeSourceMode(mode)
+      );
+      return;
+    }
+    window.localStorage.setItem(
+      getTabSourceStorageKey(options.tabId),
+      normalizeSourceMode(mode)
+    );
+  } catch {}
+}
+
+function promoteStoredSourceMode(
+  tabId: TabId | null | undefined,
+  threadId: number
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const threadKey = getThreadSourceStorageKey(threadId);
+    if (window.localStorage.getItem(threadKey) != null) {
+      return;
+    }
+    const tabValue = window.localStorage.getItem(getTabSourceStorageKey(tabId));
+    if (tabValue == null) {
+      return;
+    }
+    window.localStorage.setItem(threadKey, normalizeSourceMode(tabValue));
+  } catch {}
+}
 
 type VoiceCapabilitiesStatus = "loading" | "ready" | "error";
 
@@ -452,6 +545,14 @@ export function GuardianChat({
 }) {
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
+  const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
+    readStoredSourceMode({
+      threadId: Number.isFinite(Number((activeThread as any)?.id))
+        ? Number((activeThread as any)?.id)
+        : null,
+      tabId: activeSessionTabId,
+    })
+  );
   const [ragTraceOpen, setRagTraceOpen] = useState(false);
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
@@ -492,6 +593,7 @@ export function GuardianChat({
   const activeThreadRef = useRef<Thread>(activeThread);
   const effectiveThreadIdRef = useRef<number | null>(null);
   const activeSessionTabIdRef = useRef<TabId | null>(activeSessionTabId);
+  const sourceScopeKeyRef = useRef<string | null>(null);
   const pendingFastRetryRef = useRef<{
     threadId: number;
     providerId: string | null;
@@ -1130,11 +1232,14 @@ export function GuardianChat({
     options: CompletionRequestOptions = {}
   ): Promise<CompletionOutcome> => {
     const selection = resolveCompletionSelection(options);
-    const payload = buildChatCompletionPayload(depth, {
-      providerId: selection.providerId,
-      modelId: selection.modelId,
-      reasoningMode: selection.reasoningMode,
-    });
+    const payload = {
+      ...buildChatCompletionPayload(depth, {
+        providerId: selection.providerId,
+        modelId: selection.modelId,
+        reasoningMode: selection.reasoningMode,
+      }),
+      source_mode: sourceMode,
+    };
     const provisionalTaskId = `pending-${Date.now()}`;
     setCompletionInFlight(tid, true);
     startCompletion(tid, provisionalTaskId);
@@ -1283,16 +1388,40 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
-  const {
-    ready: systemPromptCapabilityReady,
-    state: systemPromptCapability,
-  } = useRuntimeRouteCapability(
-    SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT
+  const sourceScopeKey = useMemo(
+    () =>
+      effectiveThreadId != null
+        ? getThreadSourceStorageKey(effectiveThreadId)
+        : getTabSourceStorageKey(activeSessionTabId),
+    [activeSessionTabId, effectiveThreadId]
   );
 
   useEffect(() => {
     effectiveThreadIdRef.current = effectiveThreadId;
   }, [effectiveThreadId]);
+
+  useLayoutEffect(() => {
+    sourceScopeKeyRef.current = sourceScopeKey;
+    setSourceMode(
+      readStoredSourceMode({
+        threadId: effectiveThreadId,
+        tabId: activeSessionTabId,
+      })
+    );
+  }, [activeSessionTabId, effectiveThreadId, sourceScopeKey]);
+
+  useEffect(() => {
+    if (sourceScopeKeyRef.current !== sourceScopeKey) {
+      return;
+    }
+    persistStoredSourceMode(
+      {
+        threadId: effectiveThreadId,
+        tabId: activeSessionTabId,
+      },
+      sourceMode
+    );
+  }, [activeSessionTabId, effectiveThreadId, sourceMode, sourceScopeKey]);
 
   const refreshPromptCostSummary = useCallback(async (threadId: number | null) => {
     if (!systemPromptCapabilityReady) {
@@ -1905,6 +2034,8 @@ export function GuardianChat({
     const shouldPromoteVisibleThread =
       targetTabId == null || targetTabId === activeSessionTabIdRef.current;
 
+    promoteStoredSourceMode(targetTabId, threadId);
+
     if (shouldPromoteVisibleThread) {
       setCurrentThreadId(threadId);
       setThreadTitle(nextTitle);
@@ -2174,9 +2305,23 @@ export function GuardianChat({
   const depthDescriptions: Record<DepthMode, string> = {
     shallow: "Fast, ephemeral awareness",
     normal: "Situational recall + semantic grounding",
-    deep: "Rich memory + cross-thread resonance",
+    deep: "Rich memory inside the selected source boundary",
     diagnostic: "System introspection + trace visibility",
   };
+  const sourceOptions = [
+    {
+      value: "project",
+      label: "Project",
+      description:
+        "Current thread first, then this project if more context is needed.",
+    },
+    {
+      value: "personal_knowledge",
+      label: "Personal Knowledge",
+      description:
+        "Current thread first, then your broader knowledge across projects.",
+    },
+  ];
 
   const promptCostStatus: PromptCostStatus =
     promptCostSummary?.threshold?.status ?? "unknown";
@@ -2694,6 +2839,9 @@ export function GuardianChat({
                 onInferenceModeChange={(mode) =>
                   onSessionInferenceModeChange?.(mode)
                 }
+                sourceMode={sourceMode}
+                sourceOptions={sourceOptions}
+                onSourceModeChange={setSourceMode}
                 depthMode={depth}
                 depthOptions={depthOptions}
                 onDepthModeChange={setDepth}

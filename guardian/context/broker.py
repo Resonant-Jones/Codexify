@@ -17,6 +17,10 @@ from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 
 logger = logging.getLogger(__name__)
 _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
+_SOURCE_MODE_PROJECT = "project"
+_SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
+_LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
+_THREAD_CANDIDATE_LIMIT = 500
 
 
 def _thread_namespace(thread_id: int) -> str:
@@ -29,6 +33,14 @@ def _coerce_int(value: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return num if num > 0 else None
+
+
+def _normalize_source_mode(value: Any) -> str:
+    return (
+        _SOURCE_MODE_PERSONAL_KNOWLEDGE
+        if value == _SOURCE_MODE_PERSONAL_KNOWLEDGE
+        else _SOURCE_MODE_PROJECT
+    )
 
 
 def _looks_like_json(text: str) -> bool:
@@ -180,6 +192,7 @@ class ContextBroker:
         doc_excerpt_chars: int = 420,
         federated: bool = False,
         user_id: Optional[str] = None,
+        source_mode: str = _SOURCE_MODE_PROJECT,
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Assemble a context bundle for the given thread and query.
 
@@ -188,6 +201,7 @@ class ContextBroker:
             query: Query string for semantic search
             depth_mode: Retrieval depth ("shallow", "normal", "deep", "diagnostic")
             project_id: Optional project scope override for project-library docs
+            source_mode: Retrieval boundary beyond the active thread
             n_messages: Number of recent messages to fetch
             k_semantic: Number of semantic results to fetch
             k_memory: Number of memory results to fetch
@@ -214,6 +228,13 @@ class ContextBroker:
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
+        normalized_source_mode = _normalize_source_mode(source_mode)
+        resolved_project_id = await self._resolve_project_id(
+            thread_id=thread_id, project_id=project_id
+        )
+        resolved_user_id = await self._resolve_user_id(
+            thread_id=thread_id, user_id=user_id
+        )
 
         context: Dict[str, Any] = {}
 
@@ -231,12 +252,20 @@ class ContextBroker:
 
         # Always include semantic search (for all depths except "shallow")
         context["obsidian"] = []
+        semantic_widen_reason = "none"
         if normalized_depth != "shallow":
             try:
-                semantic_thread = await self._search_semantic(
-                    query,
-                    k_semantic,
-                    namespace=_thread_namespace(thread_id),
+                (
+                    semantic_thread,
+                    semantic_widen_reason,
+                ) = await self._search_with_widening(
+                    query=query,
+                    k=k_semantic,
+                    thread_id=thread_id,
+                    user_id=resolved_user_id,
+                    project_id=resolved_project_id,
+                    source_mode=normalized_source_mode,
+                    search_fn=self._search_semantic,
                 )
                 semantic_obsidian: list[dict[str, Any]] = []
                 if self._obsidian_retrieval_enabled():
@@ -266,7 +295,7 @@ class ContextBroker:
             try:
                 scoped_docs = await self.get_scoped_documents(
                     thread_id=thread_id,
-                    project_id=project_id,
+                    project_id=resolved_project_id,
                     k_project_docs=k_project_docs,
                     k_thread_docs=k_thread_docs,
                     doc_excerpt_chars=doc_excerpt_chars,
@@ -282,7 +311,8 @@ class ContextBroker:
         if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
             try:
                 graph_chunks = await self._get_graph_context(
-                    user_id=user_id or "default", thread_id=str(thread_id)
+                    user_id=resolved_user_id or "default",
+                    thread_id=str(thread_id),
                 )
                 context["graph"] = graph_chunks
             except Exception as e:
@@ -292,13 +322,21 @@ class ContextBroker:
                 )
 
         # Include memory search for deep and diagnostic modes
+        memory_widen_reason = "none"
         if normalized_depth in ("deep", "diagnostic"):
             try:
                 if self.memory:
-                    memory = await self._search_memory(
-                        query,
-                        k_memory,
-                        namespace=_thread_namespace(thread_id),
+                    (
+                        memory,
+                        memory_widen_reason,
+                    ) = await self._search_with_widening(
+                        query=query,
+                        k=k_memory,
+                        thread_id=thread_id,
+                        user_id=resolved_user_id,
+                        project_id=resolved_project_id,
+                        source_mode=normalized_source_mode,
+                        search_fn=self._search_memory,
                     )
                     context["memory"] = memory
                 else:
@@ -330,7 +368,8 @@ class ContextBroker:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
 
-        # Build RAG Trace
+        # Keep source-boundary diagnostics stable while source_mode still
+        # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
             "documents": [
                 {
@@ -351,6 +390,10 @@ class ContextBroker:
                 }
                 for item in context.get("graph", [])
             ],
+            "source_mode": normalized_source_mode,
+            "widen_reason": self._merge_widen_reason(
+                semantic_widen_reason, memory_widen_reason
+            ),
         }
 
         try:
@@ -475,7 +518,11 @@ class ContextBroker:
             logger.warning(f"[ContextBroker] MemoryOS retriever failed: {e}")
 
             # Fallback: Use legacy memory_store if available
-            if self.memory and hasattr(self.memory, "search_related"):
+            if (
+                namespace is None
+                and self.memory
+                and hasattr(self.memory, "search_related")
+            ):
                 try:
                     result = self.memory.search_related(query, limit=k)
                     # Handle both sync and async returns
@@ -493,6 +540,293 @@ class ContextBroker:
                     )
 
             return []
+
+    async def _resolve_user_id(
+        self, *, thread_id: int, user_id: Optional[str]
+    ) -> Optional[str]:
+        explicit_user = str(user_id or "").strip()
+        if explicit_user:
+            return explicit_user
+
+        getter = getattr(self.chatlog, "get_chat_thread", None)
+        if not callable(getter):
+            return None
+
+        try:
+            thread = getter(thread_id)
+            if hasattr(thread, "__await__"):
+                thread = await thread
+            if isinstance(thread, dict):
+                resolved_user = str(thread.get("user_id") or "").strip()
+                return resolved_user or None
+        except Exception as exc:
+            logger.debug(
+                "[ContextBroker] Failed to resolve user_id for thread %s: %s",
+                thread_id,
+                exc,
+            )
+        return None
+
+    async def _search_with_widening(
+        self,
+        *,
+        query: str,
+        k: int,
+        thread_id: int,
+        user_id: Optional[str],
+        project_id: Optional[int],
+        source_mode: str,
+        search_fn: Any,
+    ) -> tuple[List[Dict[str, Any]], str]:
+        if k <= 0:
+            return [], "none"
+
+        primary_hits = await search_fn(
+            query,
+            k,
+            namespace=_thread_namespace(thread_id),
+        )
+        widen_reason = self._determine_widen_reason(primary_hits, k)
+        if widen_reason == "none":
+            return primary_hits[:k], "none"
+
+        candidate_threads = await self._list_widening_threads(
+            thread_id=thread_id,
+            user_id=user_id,
+            project_id=project_id,
+            source_mode=source_mode,
+        )
+        if not candidate_threads:
+            return primary_hits[:k], "none"
+
+        merged_hits = self._seed_thread_hits_for_widening(
+            primary_hits,
+            target_count=k,
+            widen_reason=widen_reason,
+        )
+        widened_executed = False
+
+        for thread in candidate_threads:
+            candidate_id = _coerce_int(thread.get("id"))
+            if candidate_id is None:
+                continue
+            remaining_slots = max(k - len(merged_hits), 0)
+            if (
+                remaining_slots <= 0
+                and widen_reason != "low_confidence_thread_hits"
+            ):
+                break
+            request_k = remaining_slots if remaining_slots > 0 else 1
+            hits = await search_fn(
+                query,
+                request_k,
+                namespace=_thread_namespace(candidate_id),
+            )
+            if not hits:
+                continue
+            widened_executed = True
+            merged_hits = self._dedupe_retrieval_items([*merged_hits, *hits])[
+                :k
+            ]
+            if len(merged_hits) >= k:
+                break
+
+        if not widened_executed:
+            return primary_hits[:k], "none"
+
+        effective_widen_reason = (
+            "explicit_personal_knowledge"
+            if _normalize_source_mode(source_mode)
+            == _SOURCE_MODE_PERSONAL_KNOWLEDGE
+            else widen_reason
+        )
+        return merged_hits[:k], effective_widen_reason
+
+    async def _list_widening_threads(
+        self,
+        *,
+        thread_id: int,
+        user_id: Optional[str],
+        project_id: Optional[int],
+        source_mode: str,
+    ) -> List[Dict[str, Any]]:
+        normalized_source_mode = _normalize_source_mode(source_mode)
+        if not user_id:
+            return []
+        if (
+            normalized_source_mode == _SOURCE_MODE_PROJECT
+            and project_id is None
+        ):
+            return []
+
+        list_threads = getattr(self.chatlog, "list_chat_threads", None)
+        if not callable(list_threads):
+            return []
+
+        scoped_project_id = (
+            project_id
+            if normalized_source_mode == _SOURCE_MODE_PROJECT
+            else None
+        )
+        try:
+            threads = list_threads(
+                limit=_THREAD_CANDIDATE_LIMIT,
+                offset=0,
+                user_id=user_id,
+                project_id=scoped_project_id,
+            )
+        except TypeError:
+            try:
+                threads = list_threads(limit=_THREAD_CANDIDATE_LIMIT, offset=0)
+            except TypeError:
+                threads = list_threads()
+        if hasattr(threads, "__await__"):
+            threads = await threads
+        if not isinstance(threads, list):
+            return []
+
+        same_project_threads: List[Dict[str, Any]] = []
+        cross_project_threads: List[Dict[str, Any]] = []
+        for thread in threads:
+            if not self._is_eligible_widening_thread(
+                thread,
+                thread_id=thread_id,
+                user_id=user_id,
+                project_id=project_id,
+                source_mode=normalized_source_mode,
+            ):
+                continue
+            thread_project_id = _coerce_int(thread.get("project_id"))
+            if project_id is not None and thread_project_id == project_id:
+                same_project_threads.append(thread)
+            else:
+                cross_project_threads.append(thread)
+
+        if normalized_source_mode == _SOURCE_MODE_PROJECT:
+            return same_project_threads
+        return same_project_threads + cross_project_threads
+
+    def _is_eligible_widening_thread(
+        self,
+        thread: Any,
+        *,
+        thread_id: int,
+        user_id: str,
+        project_id: Optional[int],
+        source_mode: str,
+    ) -> bool:
+        if not isinstance(thread, dict):
+            return False
+        candidate_id = _coerce_int(thread.get("id"))
+        if candidate_id is None or candidate_id == thread_id:
+            return False
+        candidate_user_id = str(thread.get("user_id") or "").strip()
+        if not candidate_user_id or candidate_user_id != user_id:
+            return False
+        if thread.get("archived_at"):
+            return False
+        if bool(thread.get("exclude_from_identity")):
+            return False
+        if bool(thread.get("modeling_excluded")):
+            return False
+        if _normalize_source_mode(source_mode) == _SOURCE_MODE_PROJECT:
+            return _coerce_int(thread.get("project_id")) == project_id
+        return True
+
+    def _determine_widen_reason(
+        self, hits: List[Dict[str, Any]], target_count: int
+    ) -> str:
+        if target_count <= 0:
+            return "none"
+        limited_hits = list(hits[:target_count])
+        if len(limited_hits) < target_count:
+            return "insufficient_thread_hits"
+        best_score = self._best_numeric_score(limited_hits)
+        if (
+            best_score is not None
+            and best_score < _LOW_CONFIDENCE_SCORE_THRESHOLD
+        ):
+            return "low_confidence_thread_hits"
+        return "none"
+
+    def _seed_thread_hits_for_widening(
+        self,
+        hits: List[Dict[str, Any]],
+        *,
+        target_count: int,
+        widen_reason: str,
+    ) -> List[Dict[str, Any]]:
+        limited_hits = self._dedupe_retrieval_items(hits[:target_count])
+        if (
+            widen_reason == "low_confidence_thread_hits"
+            and target_count > 0
+            and len(limited_hits) >= target_count
+        ):
+            preserve_count = max(target_count - 1, 1)
+            return limited_hits[:preserve_count]
+        return limited_hits[:target_count]
+
+    def _best_numeric_score(
+        self, hits: List[Dict[str, Any]]
+    ) -> Optional[float]:
+        scores: List[float] = []
+        for item in hits:
+            raw_score = item.get("score")
+            try:
+                if isinstance(raw_score, bool):
+                    continue
+                scores.append(float(raw_score))
+            except (TypeError, ValueError):
+                continue
+        if not scores:
+            return None
+        return max(scores)
+
+    def _dedupe_retrieval_items(
+        self, hits: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        deduped: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in hits:
+            key = self._retrieval_item_key(item, len(deduped))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped
+
+    def _retrieval_item_key(
+        self, item: Dict[str, Any], fallback_index: int
+    ) -> str:
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = item.get("meta")
+        if isinstance(metadata, dict):
+            for key in ("source_message_id", "message_id", "id", "chunk_id"):
+                value = metadata.get(key)
+                if value not in (None, ""):
+                    return f"meta:{key}:{value}"
+        item_id = item.get("id")
+        if item_id not in (None, ""):
+            return f"id:{item_id}"
+        text = str(item.get("text") or "").strip()
+        if text:
+            return f"text:{text[:240]}"
+        return f"fallback:{fallback_index}"
+
+    def _merge_widen_reason(self, *reasons: str) -> str:
+        priority = {
+            "none": 0,
+            "insufficient_thread_hits": 1,
+            "low_confidence_thread_hits": 2,
+            "explicit_personal_knowledge": 3,
+        }
+        selected = "none"
+        for reason in reasons:
+            normalized_reason = str(reason or "none")
+            if priority.get(normalized_reason, -1) > priority[selected]:
+                selected = normalized_reason
+        return selected
 
     async def get_scoped_documents(
         self,
