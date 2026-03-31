@@ -7,6 +7,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Volume2 } from "lucide-react";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { Message, MessageAttachment } from "@/types/ui";
 import { resolveMediaSrc } from "@/lib/mediaUrl";
 import ReactMarkdown from "react-markdown";
@@ -289,10 +290,9 @@ const AttachmentTiles = ({
                   className="block w-full text-left"
                   aria-label="Open image"
                 >
-                  <img
+                  <RenderableChatImage
                     src={resolvedSrc}
                     alt="uploaded image"
-                    loading="lazy"
                     className="block w-full h-auto"
                     style={{ maxHeight: 320, objectFit: "cover" }}
                   />
@@ -334,6 +334,49 @@ const AttachmentTiles = ({
     </div>
   );
 };
+
+function RenderableChatImage({
+  src,
+  alt,
+  className,
+  style,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const renderableSrc = useRenderableMediaSrc(src);
+  const [hasLoadError, setHasLoadError] = React.useState(false);
+
+  React.useEffect(() => {
+    setHasLoadError(false);
+  }, [renderableSrc.src]);
+
+  const showImage =
+    renderableSrc.status === "ready" &&
+    !!renderableSrc.src &&
+    !hasLoadError;
+
+  if (!showImage) {
+    return (
+      <div className="flex items-center justify-center h-32 text-xs opacity-70">
+        {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={renderableSrc.src}
+      alt={alt}
+      loading="lazy"
+      className={className}
+      style={style}
+      onError={() => setHasLoadError(true)}
+    />
+  );
+}
 
 export function ChatBubble({
   message,
@@ -438,10 +481,9 @@ export function ChatBubble({
       </a>
     ),
     img: ({ src, alt }: any) => (
-      <img
+      <RenderableChatImage
         src={resolveMediaSrc(String(src ?? ""))}
         alt={alt || "uploaded media"}
-        loading="lazy"
         className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"
         style={{ maxHeight: 320, objectFit: "cover" }}
       />

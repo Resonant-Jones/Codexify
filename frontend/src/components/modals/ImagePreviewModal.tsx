@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 
 type ImagePreviewModalProps = {
   open: boolean;
@@ -13,6 +14,9 @@ export function ImagePreviewModal({
   alt = "Preview image",
   onOpenChange,
 }: ImagePreviewModalProps) {
+  const renderableSrc = useRenderableMediaSrc(src);
+  const [hasLoadError, setHasLoadError] = React.useState(false);
+
   React.useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -23,6 +27,10 @@ export function ImagePreviewModal({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onOpenChange, open]);
+
+  React.useEffect(() => {
+    setHasLoadError(false);
+  }, [renderableSrc.src]);
 
   if (!open || !src) return null;
 
@@ -59,11 +67,20 @@ export function ImagePreviewModal({
           </button>
         </div>
         <div className="flex max-h-[calc(92vh-44px)] items-center justify-center p-3">
-          <img
-            src={src}
-            alt={alt}
-            className="max-h-[calc(92vh-68px)] w-auto max-w-full object-contain"
-          />
+          {renderableSrc.status === "ready" &&
+          !!renderableSrc.src &&
+          !hasLoadError ? (
+            <img
+              src={renderableSrc.src}
+              alt={alt}
+              className="max-h-[calc(92vh-68px)] w-auto max-w-full object-contain"
+              onError={() => setHasLoadError(true)}
+            />
+          ) : (
+            <div className="flex min-h-[200px] w-full items-center justify-center text-sm opacity-75">
+              {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+            </div>
+          )}
         </div>
       </div>
     </div>

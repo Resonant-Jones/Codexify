@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat, {
   flattenChatEventPayload,
@@ -7,7 +7,7 @@ import GuardianChat, {
 import {
   CHAT_LANE_MAX_WIDTH,
   CHAT_LANE_MAX_WIDTH_CLASS,
-  GUARDIAN_SHELL_MAX_WIDTH,
+  GUARDIAN_SHELL_MAX_WIDTH_CLASS,
 } from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
@@ -120,6 +120,10 @@ describe("GuardianChat session-tab binding", () => {
     window.history.pushState({}, "", "/chat/1");
   });
 
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("renders the active tab thread instead of a stale route thread id", async () => {
     render(
       <GuardianChat
@@ -201,30 +205,30 @@ describe("GuardianChat session-tab binding", () => {
       />
     );
 
-    const shell = screen.getByTestId("guardian-shell");
-    expect(shell).toHaveStyle({ maxWidth: `${GUARDIAN_SHELL_MAX_WIDTH}px` });
+    await waitFor(() => {
+      const shell = screen.getByTestId("guardian-shell");
+      expect(shell.className).toContain(GUARDIAN_SHELL_MAX_WIDTH_CLASS);
 
-    const lane = screen.getByTestId("composer-conversation-lane");
-    expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
-    expect(lane.className).toContain(CHAT_LANE_MAX_WIDTH_CLASS);
-    expect(lane.className).toContain("md:max-w-[888px]");
-    expect(screen.getByTestId("composer-shell")).toHaveStyle({
-      maxWidth: `${CHAT_LANE_MAX_WIDTH}px`,
+      const lane = screen.getByTestId("composer-conversation-lane");
+      expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
+      expect(lane.className).toContain(CHAT_LANE_MAX_WIDTH_CLASS);
+
+      const composerShell = screen.getByTestId("composer-shell");
+      expect(composerShell).toHaveStyle({
+        maxWidth: `${CHAT_LANE_MAX_WIDTH}px`,
+      });
+      expect(composerShell.className).toContain(CHAT_LANE_MAX_WIDTH_CLASS);
+      expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
+
+      const nestedRoundedFaces = Array.from(
+        composerShell.querySelectorAll("div")
+      ).filter(
+        (node) =>
+          typeof node.className === "string" &&
+          node.className.includes("rounded-[var(--tile-radius)]")
+      );
+      expect(nestedRoundedFaces).toHaveLength(0);
     });
-    expect(screen.getByTestId("composer-shell").className).toContain(
-      CHAT_LANE_MAX_WIDTH_CLASS
-    );
-    expect(screen.getByTestId("composer-stub")).toBeInTheDocument();
-
-    const composerShell = screen.getByTestId("composer-shell");
-    const nestedRoundedFaces = Array.from(
-      composerShell.querySelectorAll("div")
-    ).filter(
-      (node) =>
-        typeof node.className === "string" &&
-        node.className.includes("rounded-[var(--tile-radius)]")
-    );
-    expect(nestedRoundedFaces).toHaveLength(0);
   });
 });
 
