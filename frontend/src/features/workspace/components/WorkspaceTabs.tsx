@@ -18,6 +18,22 @@ const WORKSPACE_TABS: Array<{
   { id: "inspector", label: "Inspector" },
 ];
 
+const BASE_TAB_CLASSES =
+  "relative inline-flex items-center gap-[0.35rem] px-3 py-2 border-none bg-transparent cursor-pointer select-none transition-colors duration-150 min-w-0";
+
+const ACTIVE_TAB_STYLE = {
+  color: "var(--text-on-accent)",
+  background: "color-mix(in oklab, var(--accent-strong) 12%, transparent)",
+};
+
+const INACTIVE_TAB_STYLE = {
+  color: "var(--text)",
+};
+
+const ACTIVE_TAB_DARK_STYLE = {
+  background: "color-mix(in oklab, var(--accent-strong) 18%, transparent)",
+};
+
 export default function WorkspaceTabs({
   activeTab,
   onTabChange,
@@ -111,17 +127,12 @@ export default function WorkspaceTabs({
               tabIndex={isActive ? 0 : -1}
               data-state={isActive ? "active" : "inactive"}
               data-testid={`${idBase}-tab-${tab.id}`}
-              className="segment-tab"
-              style={
-                {
-                  "--tab-active-text": "var(--text-on-accent)",
-                  "--tab-inactive-text": "var(--text)",
-                } as React.CSSProperties
-              }
+              className={BASE_TAB_CLASSES}
+              style={isActive ? ACTIVE_TAB_STYLE : INACTIVE_TAB_STYLE}
               onClick={() => onTabChange(tab.id)}
               onKeyDown={(event) => handleKeyDown(event, index)}
             >
-              <span className="min-w-0 flex-1 truncate text-[0.875rem]">
+              <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium">
                 {tab.label}
               </span>
               {isActive && onTabClose && (
@@ -129,7 +140,8 @@ export default function WorkspaceTabs({
                   role="button"
                   aria-label={`Close ${tab.label} tab`}
                   data-testid={`${idBase}-tab-${tab.id}-close`}
-                  className="segment-close"
+                  className="inline-flex items-center justify-center w-3.5 h-3.5 p-0 border-none rounded-full bg-transparent cursor-pointer opacity-60 hover:opacity-100 hover:bg-[color-mix(in_oklab,var(--panel-bg),85%,transparent)] transition-opacity duration-150 flex-shrink-0 focus:outline-1 focus:outline-[var(--accent-weak)] focus:outline-offset-1 active:scale-95"
+                  style={{ color: "inherit" }}
                   onClick={(event) => handleCloseClick(event, tab.id)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
