@@ -61,7 +61,7 @@ describe("Composer source selector", () => {
 
     expect(
       screen.getByRole("button", { name: "Select retrieval source" })
-    ).toHaveTextContent("Source: Project");
+    ).toHaveTextContent("Project");
   });
 
   it("shows only Project and Personal Knowledge with the exact descriptions", async () => {
@@ -82,8 +82,8 @@ describe("Composer source selector", () => {
 
     const options = await screen.findAllByRole("menuitem");
     expect(options).toHaveLength(2);
-    expect(screen.getByText("Project")).toBeInTheDocument();
-    expect(screen.getByText("Personal Knowledge")).toBeInTheDocument();
+    expect(options[0]).toHaveTextContent("Project");
+    expect(options[1]).toHaveTextContent("Personal Knowledge");
     expect(
       screen.getByText(
         "Current thread first, then this project if more context is needed."
@@ -125,7 +125,7 @@ describe("Composer source selector", () => {
 
     expect(
       screen.getByRole("button", { name: "Select retrieval source" })
-    ).toHaveTextContent("Source: Personal Knowledge");
+    ).toHaveTextContent("Personal Knowledge");
 
     fireEvent.change(screen.getByPlaceholderText("Write a message…"), {
       target: { value: "Test retrieval source" },
@@ -139,6 +139,6 @@ describe("Composer source selector", () => {
     });
     expect(
       screen.getByRole("button", { name: "Select retrieval source" })
-    ).toHaveTextContent("Source: Personal Knowledge");
+    ).toHaveTextContent("Personal Knowledge");
   });
 });
