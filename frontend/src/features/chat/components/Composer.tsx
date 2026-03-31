@@ -817,7 +817,7 @@ export function Composer({
               <ComposerSelectMenu
                 ariaLabel="Select retrieval source"
                 menuLabel="Source"
-                valueLabel={`Source: ${sourceLabel}`}
+                valueLabel={`${sourceLabel}`}
                 options={sourceOptions}
                 selectedValue={sourceMode}
                 disabled={draftControlsDisabled || sourceOptions.length === 0}
