@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 
+import DocumentTile from "@/components/documents/DocumentTile";
 import PreviewTile from "@/components/ui/PreviewTile";
 
 type MediaBase = {
@@ -18,6 +19,22 @@ type DocumentItem = MediaBase;
 type ImageItem = MediaBase;
 
 type ShelfItem = { kind: "document"; item: DocumentItem } | { kind: "image"; item: ImageItem };
+
+function documentItemToFile(doc: DocumentItem) {
+  const name = doc.filename || "Untitled";
+  const extMatch = name.match(/\.([^.]+)$/);
+  const ext = extMatch ? extMatch[1].toLowerCase() : undefined;
+  return {
+    id: doc.id,
+    name,
+    ext,
+    src_url: doc.src_url,
+    thumb: undefined,
+    type: "file" as const,
+    embeddingStatus: undefined,
+    embeddingError: undefined,
+  };
+}
 
 function asArray<T>(resp: unknown, keys: string[]): T[] {
   if (Array.isArray(resp)) return resp as T[];
@@ -211,23 +228,11 @@ export default function WorkspaceShelfPanel({
   );
 
   const renderDocumentTile = (doc: DocumentItem) => (
-    <PreviewTile
+    <DocumentTile
       key={doc.id}
-      tone="panel"
-      className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0"
+      file={documentItemToFile(doc)}
       onClick={() => handleItemClick({ kind: "document", item: doc })}
-    >
-      <div className="min-h-[112px]">
-        <div
-          className="rounded-[10px] aspect-[4/3] flex items-center justify-center text-[11px] font-semibold"
-          style={{ background: "var(--panel-bg)" }}
-        >
-          {isPdf(doc) ? "PDF" : "DOC"}
-        </div>
-        <div className="mt-2 text-sm font-medium truncate">{titleFor(doc)}</div>
-        <div className="text-xs opacity-70 truncate">&nbsp;</div>
-      </div>
-    </PreviewTile>
+    />
   );
 
   const renderImageTile = (img: ImageItem) => (

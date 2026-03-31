@@ -1,15 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
 
 import FrameCard from "@/components/surface/FrameCard";
 
 import WorkspaceScratchpadPanel from "./WorkspaceScratchpadPanel";
 import WorkspaceShelfPanel from "./WorkspaceShelfPanel";
+import WorkspaceInspectorPanel from "./WorkspaceInspectorPanel";
 import WorkspaceTabs from "./WorkspaceTabs";
 import type {
   WorkspaceDrawerTab,
   WorkspaceRouteContext,
 } from "../state/useWorkspaceUiState";
 import type { WorkspaceLayoutMode } from "../state/useWorkspaceLayoutMode";
+
+type ShelfItem = { kind: "document"; item: { id: string; filename?: string; src_url: string; caption?: string; mime_type?: string; created_at?: string; project_id?: string | number; thread_id?: string | number } } | { kind: "image"; item: { id: string; src_url: string; filename?: string; caption?: string; created_at?: string; project_id?: string | number; thread_id?: string | number } };
 
 type WorkspaceDrawerProps = {
   routeContext: WorkspaceRouteContext;
@@ -61,7 +64,17 @@ export default function WorkspaceDrawer({
   activeThreadId,
   onMoveScratchpadToComposer,
 }: WorkspaceDrawerProps) {
-  if (!isOpen) return null;
+  const [selectedItem, setSelectedItem] = useState<ShelfItem | null>(null);
+
+  const handleShelfItemClick = React.useCallback(
+    (item: ShelfItem) => {
+      if (item.kind === "document") {
+        setSelectedItem(item);
+        onActiveTabChange("inspector");
+      }
+    },
+    [onActiveTabChange]
+  );
 
   const panel = WORKSPACE_PANEL_COPY[activeTab];
   const layoutModeLabel = formatLayoutModeLabel(layoutMode);
@@ -83,6 +96,8 @@ export default function WorkspaceDrawer({
     },
     [onMoveScratchpadToComposer]
   );
+
+  if (!isOpen) return null;
 
   return (
     <FrameCard
@@ -161,6 +176,7 @@ export default function WorkspaceDrawer({
           >
             <WorkspaceShelfPanel
               threadIdentity={resolvedThreadIdentity}
+              onItemClick={handleShelfItemClick}
             />
           </section>
         ) : (
@@ -176,22 +192,7 @@ export default function WorkspaceDrawer({
               color: "var(--text)",
             }}
           >
-            <div className="flex flex-1 min-h-0 flex-col justify-between gap-4">
-              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                {panel}
-              </p>
-
-              <div
-                className="rounded-[var(--radius-micro)] border px-3 py-2 text-xs"
-                style={{
-                  borderColor: "var(--chip-border)",
-                  background: "var(--chip-bg)",
-                  color: "var(--text-subtle)",
-                }}
-              >
-                Phase 1 shell only.
-              </div>
-            </div>
+            <WorkspaceInspectorPanel selectedItem={selectedItem} />
           </section>
         )}
       </div>

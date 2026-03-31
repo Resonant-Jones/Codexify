@@ -21,6 +21,20 @@ vi.mock("@/components/ui/PreviewTile", () => ({
   ),
 }));
 
+vi.mock("@/components/documents/DocumentTile", () => ({
+  default: ({
+    file,
+    onClick,
+  }: {
+    file: { name?: string; ext?: string };
+    onClick?: () => void;
+  }) => (
+    <button type="button" onClick={onClick} data-testid="document-tile">
+      {file?.name || "Untitled"}
+    </button>
+  ),
+}));
+
 function mockFetch(data: unknown) {
   const response = {
     ok: true,
