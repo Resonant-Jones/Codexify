@@ -27,6 +27,20 @@ vi.mock("@/components/surface/FrameCard", () => ({
   }) => <div className={className}>{children}</div>,
 }));
 
+vi.mock("@/components/documents/DocumentTile", () => ({
+  default: ({
+    file,
+    onClick,
+  }: {
+    file: { name?: string; ext?: string };
+    onClick?: () => void;
+  }) => (
+    <button type="button" data-testid="document-tile" onClick={onClick}>
+      {file?.name || "Untitled"}
+    </button>
+  ),
+}));
+
 type WorkspaceHarnessRoute = "dashboard" | "guardian" | "documents";
 
 function WorkspaceDrawerHarness({
@@ -144,7 +158,7 @@ describe("WorkspaceDrawer shell", () => {
     {
       routeContext: "documents" as const,
       expectedLabel: "Inspector",
-      expectedText: "Inspector renderers will plug into this panel in a later phase.",
+      expectedText: "Select a document from the Shelf to preview it here.",
     },
   ])(
     "defaults $routeContext to $expectedLabel",
@@ -160,9 +174,9 @@ describe("WorkspaceDrawer shell", () => {
 
       await user.click(screen.getByTestId("workspace-open-button"));
 
-      expect(screen.getByTestId("workspace-tabs")).toHaveClass("glass-pill");
+      expect(screen.getByTestId("workspace-tabs")).not.toHaveClass("glass-pill");
       expect(screen.getByRole("tab", { name: expectedLabel })).toHaveClass(
-        "pill-tab"
+        "segment-tab"
       );
       expect(screen.getByRole("tab", { name: expectedLabel })).toHaveAttribute(
         "aria-selected",
@@ -193,7 +207,7 @@ describe("WorkspaceDrawer shell", () => {
 
     await user.click(screen.getByRole("tab", { name: "Inspector" }));
     expect(screen.getByRole("tabpanel")).toHaveTextContent(
-      "Inspector renderers will plug into this panel in a later phase."
+      "Select a document from the Shelf to preview it here."
     );
     expect(screen.getAllByText(/^Inspector$/)).toHaveLength(1);
 
@@ -201,7 +215,7 @@ describe("WorkspaceDrawer shell", () => {
     expect(screen.getByRole("tabpanel")).toHaveTextContent(
       "Select a thread or project to see linked items."
     );
-    expect(screen.getAllByText(/^Shelf$/)).toHaveLength(1);
+    expect(screen.getAllByRole("tab", { name: "Shelf" })).toHaveLength(1);
   });
 
   it("renders posture as passive status text while tabs remain the interactive controls", async () => {
@@ -241,7 +255,7 @@ describe("WorkspaceDrawer shell", () => {
     const tablist = screen.getByRole("tablist", { name: "Workspace panels" });
     expect(tablist).toBeInTheDocument();
     expect(screen.getByTestId("workspace-tabs")).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-tabs")).toHaveClass("glass-pill");
+    expect(screen.getByTestId("workspace-tabs")).not.toHaveClass("glass-pill");
     expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
 
@@ -377,5 +391,47 @@ describe("WorkspaceDrawer shell", () => {
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
       "Workspace focus"
     );
+  });
+
+  it("switches to inspector tab when shelf document is clicked", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    const docResponse = {
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          documents: [
+            {
+              id: "doc-1",
+              filename: "test-doc.pdf",
+              src_url: "/media/documents/doc-1.pdf",
+              mime_type: "application/pdf",
+            },
+          ],
+          images: [],
+        }),
+    };
+
+    const globalFetch = vi.fn()
+      .mockResolvedValueOnce(docResponse)
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ images: [] }) });
+    vi.stubGlobal("fetch", globalFetch);
+
+    render(<WorkspaceDrawerHarness routeContext="dashboard" activeThreadId="thread-123" />);
+
+    await user.click(screen.getByTestId("workspace-open-button"));
+
+    expect(screen.getByRole("tab", { name: "Shelf" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+
+    await user.click(await screen.findByTestId("document-tile"));
+
+    expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByRole("tabpanel")).toHaveTextContent(/test-doc.pdf/i);
   });
 });
