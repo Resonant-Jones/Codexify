@@ -138,7 +138,8 @@ describe("WorkspaceDrawer shell", () => {
     {
       routeContext: "guardian" as const,
       expectedLabel: "Scratchpad",
-      expectedText: "Plaintext staging area.",
+      expectedPlaceholder:
+        "Stage plaintext notes, prompts, or fragments before moving them into the composer.",
     },
     {
       routeContext: "documents" as const,
@@ -147,7 +148,12 @@ describe("WorkspaceDrawer shell", () => {
     },
   ])(
     "defaults $routeContext to $expectedLabel",
-    async ({ routeContext, expectedLabel, expectedText }) => {
+    async ({
+      routeContext,
+      expectedLabel,
+      expectedText,
+      expectedPlaceholder,
+    }) => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
       render(<WorkspaceDrawerHarness routeContext={routeContext} />);
@@ -158,7 +164,14 @@ describe("WorkspaceDrawer shell", () => {
         "aria-selected",
         "true"
       );
-      expect(screen.getByRole("tabpanel")).toHaveTextContent(expectedText);
+      if (expectedText) {
+        expect(screen.getByRole("tabpanel")).toHaveTextContent(expectedText);
+      }
+      if (expectedPlaceholder) {
+        expect(
+          screen.getByTestId("workspace-scratchpad-textarea")
+        ).toHaveAttribute("placeholder", expectedPlaceholder);
+      }
     }
   );
 
@@ -198,6 +211,13 @@ describe("WorkspaceDrawer shell", () => {
 
     await user.click(screen.getByTestId("workspace-open-button"));
 
+    expect(screen.getByTestId("workspace-drawer-header")).toHaveAttribute(
+      "data-header-layout",
+      "centered"
+    );
+    expect(screen.getByTestId("workspace-drawer-title")).toHaveTextContent(
+      "Workspace"
+    );
     const posture = screen.getByTestId("workspace-drawer-posture");
     expect(posture.tagName).toBe("P");
     expect(posture).toHaveTextContent("Workspace focus");
@@ -272,19 +292,30 @@ describe("WorkspaceDrawer shell", () => {
     await user.click(screen.getByTestId("workspace-open-button"));
 
     expect(screen.queryByText("Guardian surface")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-drawer-header")).toHaveAttribute(
+      "data-header-layout",
+      "centered"
+    );
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
       "Balanced split"
     );
+    expect(screen.queryByText(/Autosaves locally per thread/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/Plaintext staging area\./i)
-    ).toBeInTheDocument();
+      screen.getByTestId("workspace-scratchpad-textarea")
+    ).toHaveAttribute(
+      "placeholder",
+      "Stage plaintext notes, prompts, or fragments before moving them into the composer."
+    );
     expect(
       screen.getByRole("button", { name: "Move to composer" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Copy to clipboard" })
+      screen.getByRole("button", { name: "Copy to Clipboard" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-scratchpad-status")).toHaveTextContent(
+      "Scratchpad stays local to this browser."
+    );
   });
 
   it("renders distinct visible posture labels for balanced and dominant layouts", async () => {

@@ -35,6 +35,23 @@ describe("WorkspaceScratchpadPanel", () => {
     render(<WorkspaceScratchpadPanel threadIdentity="thread-1" />);
 
     const textarea = screen.getByTestId("workspace-scratchpad-textarea");
+    expect(screen.queryByText(/Autosaves locally per thread/i)).not.toBeInTheDocument();
+    expect(textarea).toHaveAttribute(
+      "placeholder",
+      "Stage plaintext notes, prompts, or fragments before moving them into the composer."
+    );
+    expect(screen.getByTestId("workspace-scratchpad-actions")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Move to composer" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Copy to Clipboard" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-scratchpad-status")).toHaveTextContent(
+      "Scratchpad stays local to this browser."
+    );
+
     await user.type(textarea, "hello");
 
     expect(textarea).toHaveValue("hello");
@@ -136,7 +153,7 @@ describe("WorkspaceScratchpadPanel", () => {
       screen.getByTestId("workspace-scratchpad-textarea"),
       "copy me"
     );
-    await user.click(screen.getByRole("button", { name: "Copy to clipboard" }));
+    await user.click(screen.getByRole("button", { name: "Copy to Clipboard" }));
 
     expect(writeText).toHaveBeenCalledWith("copy me");
   });
