@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useRAGTrace } from "../hooks/useRAGTrace";
+import { fetchLatestRagTrace } from "@/lib/api";
 import { RagDocument, RagGraphNode } from "@/types/rag";
 
 interface RAGTracePanelProps {
@@ -21,16 +21,77 @@ export default function RAGTracePanel({
   onOpenChange,
   threadId,
 }: RAGTracePanelProps) {
-  const { trace, loading, error, fetchTrace } = useRAGTrace(threadId);
-  const [autoFetched, setAutoFetched] = useState(false);
+  const [trace, setTrace] = useState<{
+    documents: RagDocument[];
+    graph: RagGraphNode[];
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
-  // Auto-fetch trace when panel opens
-  useEffect(() => {
-    if (open && threadId && !autoFetched) {
-      fetchTrace();
-      setAutoFetched(true);
+  const fetchTrace = useCallback(async () => {
+    if (threadId == null) {
+      requestIdRef.current += 1;
+      setTrace(null);
+      setLoading(false);
+      setError(null);
+      return;
     }
-  }, [open, threadId, autoFetched, fetchTrace]);
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    setTrace(null);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const payload = await fetchLatestRagTrace(threadId);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      const documents = Array.isArray((payload as { documents?: unknown[] }).documents)
+        ? ((payload as { documents: unknown[] }).documents.filter(
+            (value): value is RagDocument =>
+              Boolean(value) && typeof value === "object"
+          ) as RagDocument[])
+        : [];
+      const graph = Array.isArray((payload as { graph?: unknown[] }).graph)
+        ? ((payload as { graph: unknown[] }).graph.filter(
+            (value): value is RagGraphNode =>
+              Boolean(value) && typeof value === "object"
+          ) as RagGraphNode[])
+        : [];
+
+      setTrace({ documents, graph });
+      setLoading(false);
+      setError(null);
+    } catch (err) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      if (Number((err as { response?: { status?: number } })?.response?.status ?? 0) === 404) {
+        setTrace(null);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
+      setTrace(null);
+      setLoading(false);
+      setError(
+        err instanceof Error ? err.message : "Failed to load RAG trace"
+      );
+    }
+  }, [threadId]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    void fetchTrace();
+  }, [fetchTrace, open]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -39,7 +100,9 @@ export default function RAGTracePanel({
           <SheetTitle className="flex items-center justify-between">
             <span>RAG Trace Debug</span>
             <button
-              onClick={() => fetchTrace()}
+              onClick={() => {
+                void fetchTrace();
+              }}
               disabled={loading}
               className="icon-inline h-8 w-8 p-0 disabled:opacity-50"
               title="Refresh trace"

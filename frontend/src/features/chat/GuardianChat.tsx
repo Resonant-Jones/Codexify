@@ -649,6 +649,10 @@ export function GuardianChat({
   });
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
   const { subscribe } = useLiveEvents({ passive: true });
+  const {
+    ready: systemPromptCapabilityReady,
+    state: systemPromptCapability,
+  } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT);
   const [llmHealth, setLlmHealth] = useState<LlmHealthSnapshot>({
     ok: null,
     status: "unknown",
@@ -1388,6 +1392,7 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+  const ragTraceThreadId = effectiveThreadId;
   const sourceScopeKey = useMemo(
     () =>
       effectiveThreadId != null
@@ -2597,7 +2602,7 @@ export function GuardianChat({
           {ragTraceUiEnabled ? (
             <DropdownMenuItem
               onClick={() => {
-                if (effectiveThreadId == null) {
+                if (ragTraceThreadId == null) {
                   alert("Thread is not persisted yet");
                   return;
                 }
@@ -2949,7 +2954,7 @@ export function GuardianChat({
         <RAGTracePanel
           open={ragTraceOpen}
           onOpenChange={setRagTraceOpen}
-          threadId={effectiveThreadId}
+          threadId={ragTraceThreadId}
         />
       </>
     );
@@ -2970,7 +2975,7 @@ export function GuardianChat({
       <RAGTracePanel
         open={ragTraceOpen}
         onOpenChange={setRagTraceOpen}
-        threadId={effectiveThreadId}
+        threadId={ragTraceThreadId}
       />
     </>
   );

@@ -239,6 +239,14 @@ function getResponseErrorMessage(error: unknown): string | null {
   return null;
 }
 
+function readRouteThreadId(): number | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/chat\/(\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function SettingsView({
   mode,
   setMode,
@@ -306,6 +314,9 @@ export function SettingsView({
   const [uRole, setURole] = useState(role);
   const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
+  const [activeThreadId, setActiveThreadId] = useState<number | null>(() =>
+    readRouteThreadId()
+  );
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
   const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
   const [desktopApiKeyInput, setDesktopApiKeyInput] = useState("");
@@ -338,6 +349,31 @@ export function SettingsView({
   );
   const [systemPromptSyncRetryNeeded, setSystemPromptSyncRetryNeeded] =
     useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const syncActiveThreadId = () => {
+      setActiveThreadId(readRouteThreadId());
+    };
+
+    syncActiveThreadId();
+    window.addEventListener("popstate", syncActiveThreadId);
+    window.addEventListener(
+      "cfy:threads:refresh",
+      syncActiveThreadId as EventListener
+    );
+
+    return () => {
+      window.removeEventListener("popstate", syncActiveThreadId);
+      window.removeEventListener(
+        "cfy:threads:refresh",
+        syncActiveThreadId as EventListener
+      );
+    };
+  }, []);
   const [lastSavedPersonaId, setLastSavedPersonaId] = useState<number | null>(
     null
   );
@@ -1456,7 +1492,7 @@ export function SettingsView({
 
         {tab === "diagnostics" && (
           <div className="space-y-4">
-            <MemoryBrowser />
+            <MemoryBrowser activeThreadId={activeThreadId} />
           </div>
         )}
       </div>
