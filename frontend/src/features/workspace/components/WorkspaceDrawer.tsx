@@ -1,5 +1,8 @@
+import React from "react";
+
 import FrameCard from "@/components/surface/FrameCard";
 
+import WorkspaceScratchpadPanel from "./WorkspaceScratchpadPanel";
 import WorkspaceTabs from "./WorkspaceTabs";
 import type {
   WorkspaceDrawerTab,
@@ -12,6 +15,8 @@ type WorkspaceDrawerProps = {
   activeTab: WorkspaceDrawerTab;
   onOpenChange: (open: boolean) => void;
   onActiveTabChange: (tab: WorkspaceDrawerTab) => void;
+  activeThreadId?: string | number | null;
+  onMoveScratchpadToComposer?: (text: string) => void;
 };
 
 const WORKSPACE_PANEL_COPY: Record<
@@ -38,17 +43,42 @@ function formatRouteContextLabel(routeContext: WorkspaceRouteContext): string {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+function resolveRouteThreadIdentity(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/chat\/([^/]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
 export default function WorkspaceDrawer({
   routeContext,
   isOpen,
   activeTab,
   onOpenChange,
   onActiveTabChange,
+  activeThreadId,
+  onMoveScratchpadToComposer,
 }: WorkspaceDrawerProps) {
   if (!isOpen) return null;
 
   const panel = WORKSPACE_PANEL_COPY[activeTab];
   const idBase = "workspace";
+  const resolvedThreadIdentity =
+    activeThreadId == null ? resolveRouteThreadIdentity() : activeThreadId;
+  const handleMoveScratchpadToComposer = React.useCallback(
+    (text: string) => {
+      if (onMoveScratchpadToComposer) {
+        onMoveScratchpadToComposer(text);
+        return;
+      }
+      if (typeof window === "undefined") return;
+      window.dispatchEvent(
+        new CustomEvent("cfy:composer:prefill", {
+          detail: { text },
+        })
+      );
+    },
+    [onMoveScratchpadToComposer]
+  );
 
   return (
     <FrameCard
@@ -99,41 +129,61 @@ export default function WorkspaceDrawer({
           idBase={idBase}
         />
 
-        <section
-          id={`${idBase}-panel-${activeTab}`}
-          role="tabpanel"
-          aria-labelledby={`${idBase}-tab-${activeTab}`}
-          className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
-          style={{
-            borderColor: "var(--panel-border)",
-            background:
-              "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-            color: "var(--text)",
-          }}
-        >
-          <div className="flex flex-1 min-h-0 flex-col justify-between gap-4">
-            <div className="space-y-2">
-              <h2 className="text-sm font-semibold">{panel.title}</h2>
-              <p
-                className="text-sm leading-6"
-                style={{ color: "var(--muted)" }}
-              >
-                {panel.body}
-              </p>
-            </div>
+        {activeTab === "scratchpad" ? (
+          <section
+            id={`${idBase}-panel-${activeTab}`}
+            role="tabpanel"
+            aria-labelledby={`${idBase}-tab-${activeTab}`}
+            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <WorkspaceScratchpadPanel
+              threadIdentity={resolvedThreadIdentity}
+              onMoveToComposer={handleMoveScratchpadToComposer}
+            />
+          </section>
+        ) : (
+          <section
+            id={`${idBase}-panel-${activeTab}`}
+            role="tabpanel"
+            aria-labelledby={`${idBase}-tab-${activeTab}`}
+            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <div className="flex flex-1 min-h-0 flex-col justify-between gap-4">
+              <div className="space-y-2">
+                <h2 className="text-sm font-semibold">{panel.title}</h2>
+                <p
+                  className="text-sm leading-6"
+                  style={{ color: "var(--muted)" }}
+                >
+                  {panel.body}
+                </p>
+              </div>
 
-            <div
-              className="rounded-[var(--radius-micro)] border px-3 py-2 text-xs"
-              style={{
-                borderColor: "var(--chip-border)",
-                background: "var(--chip-bg)",
-                color: "var(--text-subtle)",
-              }}
-            >
-              Phase 1 shell only.
+              <div
+                className="rounded-[var(--radius-micro)] border px-3 py-2 text-xs"
+                style={{
+                  borderColor: "var(--chip-border)",
+                  background: "var(--chip-bg)",
+                  color: "var(--text-subtle)",
+                }}
+              >
+                Phase 1 shell only.
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
       </div>
     </FrameCard>
   );
