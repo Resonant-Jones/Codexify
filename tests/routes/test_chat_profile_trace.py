@@ -208,3 +208,50 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
     chat._thread_latest_task.pop(thread_two, None)
     chat._rag_traces.pop(thread_one, None)
     chat._rag_traces.pop(thread_two, None)
+
+
+def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
+    monkeypatch,
+):
+    thread_id = 301
+    task_id = str(uuid.uuid4())
+    candidate_trace = {
+        "documents": [
+            {
+                "id": "doc-1",
+                "title": "thread-note.md",
+                "score": 0.92,
+                "snippet": "relevant snippet...",
+            }
+        ],
+        "graph": [],
+        "source_mode": "personal_knowledge",
+        "widen_reason": "explicit_personal_knowledge",
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_fetch_thread_metadata",
+        lambda _thread_id: {
+            DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: task_id,
+            DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY: {
+                "task_id": task_id,
+                "thread_id": thread_id,
+                "trace": candidate_trace,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {"thread_id": thread_id},
+    )
+
+    trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
+
+    assert trace["documents"] == candidate_trace["documents"]
+    assert trace["source_mode"] == "personal_knowledge"
+    assert trace["widen_reason"] == "explicit_personal_knowledge"
+
+    chat._thread_latest_task.pop(thread_id, None)
+    chat._rag_traces.pop(thread_id, None)
