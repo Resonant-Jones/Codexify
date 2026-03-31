@@ -81,6 +81,7 @@ export type ComposerSendOptions = {
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
+type SourceMode = "project" | "personal_knowledge";
 
 type DraftAttachment = {
   id: string;
@@ -171,6 +172,9 @@ export function Composer({
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   inferenceModeOptions = [],
   onInferenceModeChange,
+  sourceMode = "project",
+  sourceOptions = [],
+  onSourceModeChange,
   depthMode = "normal",
   depthOptions = [],
   onDepthModeChange,
@@ -200,6 +204,9 @@ export function Composer({
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
+  sourceMode?: SourceMode;
+  sourceOptions?: ComposerSelectOption[];
+  onSourceModeChange?: (mode: SourceMode) => void;
   depthMode?: DepthMode;
   depthOptions?: Array<{
     value: DepthMode;
@@ -642,6 +649,10 @@ export function Composer({
     inferenceModeOptions.find((option) => option.value === activeInferenceMode)
       ?.label ??
     "Auto";
+  const sourceLabel =
+    sourceOptions.find((option) => option.value === sourceMode)?.label ??
+    sourceOptions[0]?.label ??
+    "Project";
   const handleAttemptSend = () => {
     if (turnLocked) {
       notifyTurnLocked();
@@ -802,6 +813,15 @@ export function Composer({
                 onSelect={(value) =>
                   onInferenceModeChange?.(value as ComposerInferenceMode)
                 }
+              />
+              <ComposerSelectMenu
+                ariaLabel="Select retrieval source"
+                menuLabel="Source"
+                valueLabel={`Source: ${sourceLabel}`}
+                options={sourceOptions}
+                selectedValue={sourceMode}
+                disabled={draftControlsDisabled || sourceOptions.length === 0}
+                onSelect={(value) => onSourceModeChange?.(value as SourceMode)}
               />
             </div>
 
