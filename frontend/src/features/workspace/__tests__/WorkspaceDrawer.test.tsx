@@ -133,7 +133,7 @@ describe("WorkspaceDrawer shell", () => {
     {
       routeContext: "dashboard" as const,
       expectedLabel: "Shelf",
-      expectedText: "Shelf items will appear here in a later phase.",
+      expectedText: "Select a thread or project to see linked items.",
     },
     {
       routeContext: "guardian" as const,
@@ -175,7 +175,7 @@ describe("WorkspaceDrawer shell", () => {
     }
   );
 
-  it("keeps Shelf and Inspector as placeholders while Scratchpad is interactive", async () => {
+  it("keeps Shelf as real panel, Inspector as placeholder while Scratchpad is interactive", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
     render(<WorkspaceDrawerHarness routeContext="dashboard" />);
@@ -194,7 +194,7 @@ describe("WorkspaceDrawer shell", () => {
 
     await user.click(screen.getByRole("tab", { name: "Shelf" }));
     expect(screen.getByRole("tabpanel")).toHaveTextContent(
-      "Shelf items will appear here in a later phase."
+      "Select a thread or project to see linked items."
     );
   });
 

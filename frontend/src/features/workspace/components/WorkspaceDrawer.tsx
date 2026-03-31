@@ -3,6 +3,7 @@ import React from "react";
 import FrameCard from "@/components/surface/FrameCard";
 
 import WorkspaceScratchpadPanel from "./WorkspaceScratchpadPanel";
+import WorkspaceShelfPanel from "./WorkspaceShelfPanel";
 import WorkspaceTabs from "./WorkspaceTabs";
 import type {
   WorkspaceDrawerTab,
@@ -155,6 +156,23 @@ export default function WorkspaceDrawer({
             <WorkspaceScratchpadPanel
               threadIdentity={resolvedThreadIdentity}
               onMoveToComposer={handleMoveScratchpadToComposer}
+            />
+          </section>
+        ) : activeTab === "shelf" ? (
+          <section
+            id={`${idBase}-panel-${activeTab}`}
+            role="tabpanel"
+            aria-labelledby={`${idBase}-tab-${activeTab}`}
+            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <WorkspaceShelfPanel
+              threadIdentity={resolvedThreadIdentity}
             />
           </section>
         ) : (
