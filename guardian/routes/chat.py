@@ -529,6 +529,7 @@ class ChatCompletionRequest(BaseModel):
     reasoning_mode: Optional[str] = None
     system_override: Optional[str] = None
     turn_id: Optional[str] = None
+    source_mode: Optional[str] = "project"
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
@@ -1432,6 +1433,11 @@ def map_internal_depth_mode(
     return requested_depth_raw
 
 
+def normalize_source_mode(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    return "personal_knowledge" if value == "personal_knowledge" else "project"
+
+
 # =========================
 # Chat Threads API
 # =========================
@@ -1758,6 +1764,7 @@ async def chat_complete(
     Enqueue an assistant reply for the given thread and return a task id.
     """
     turn_id = _normalize_turn_id(body.turn_id)
+    source_mode = normalize_source_mode(body.source_mode)
 
     provider = str(
         body.provider
@@ -1918,8 +1925,9 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        # Encode turn_id into origin so it survives dataclass serialization.
-        origin=f"api:chat.complete|turn_id={turn_id}",
+        # Temporary transport bridge: carry turn_id and source_mode via origin
+        # until ChatCompletionTask gains typed fields for both values.
+        origin=f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}",
     )
     task.turn_id = turn_id
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
@@ -2071,6 +2079,7 @@ async def chat_complete(
         "task_id": task_identity,
         "turn_id": turn_id,
         "thread_id": thread_id,
+        "source_mode": source_mode,
         "depth_mode": internal_depth_mode,
         "requested_depth_mode": requested_depth_mode,
         "effective_depth_mode": effective_depth_mode,
