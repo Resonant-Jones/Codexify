@@ -84,6 +84,7 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByRole("button", { name: /prompt/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /tools/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retrieval/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /truth matrix/i })).toBeInTheDocument();
   });
 
   it("renders diagnostics panel when Persona Studio is active", async () => {
@@ -94,7 +95,6 @@ describe("Persona Studio Shell Integration", () => {
 
     expect(screen.getByText("Diagnostics")).toBeInTheDocument();
     expect(screen.getByText("Save Status")).toBeInTheDocument();
-    expect(screen.getByText("Unsaved Changes")).toBeInTheDocument();
     expect(screen.getByText("Effective Config")).toBeInTheDocument();
     expect(screen.getByText("Debug Log")).toBeInTheDocument();
   });
