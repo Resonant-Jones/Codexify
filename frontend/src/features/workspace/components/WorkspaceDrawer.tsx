@@ -10,7 +10,12 @@ import type {
   WorkspaceDrawerTab,
   WorkspaceRouteContext,
 } from "../state/useWorkspaceUiState";
-import type { WorkspaceLayoutMode } from "../state/useWorkspaceLayoutMode";
+import {
+  getNextWorkspaceLayoutMode,
+  getWorkspaceLayoutModeLabel,
+  getWorkspacePaneRatioForLayoutMode,
+  type WorkspaceLayoutMode,
+} from "../state/useWorkspaceLayoutMode";
 
 type ShelfItem = { kind: "document"; item: { id: string; filename?: string; src_url: string; caption?: string; mime_type?: string; created_at?: string; project_id?: string | number; thread_id?: string | number } } | { kind: "image"; item: { id: string; src_url: string; filename?: string; caption?: string; created_at?: string; project_id?: string | number; thread_id?: string | number } };
 
@@ -24,6 +29,7 @@ type WorkspaceDrawerProps = {
   maxPaneRatio?: number;
   onOpenChange: (open: boolean) => void;
   onActiveTabChange: (tab: WorkspaceDrawerTab) => void;
+  onLayoutModeChange?: (layoutMode: WorkspaceLayoutMode) => void;
   activeThreadId?: string | number | null;
   onMoveScratchpadToComposer?: (text: string) => void;
 };
@@ -33,18 +39,6 @@ const WORKSPACE_PANEL_COPY: Record<WorkspaceDrawerTab, string> = {
   scratchpad: "Scratchpad editing lands in Phase 2 with text input and autosave.",
   inspector: "Inspector renderers will plug into this panel in a later phase.",
 };
-
-function formatLayoutModeLabel(layoutMode: WorkspaceLayoutMode): string {
-  switch (layoutMode) {
-    case "workspace_focus":
-      return "Workspace focus";
-    case "balanced_split":
-      return "Balanced split";
-    case "chat_focus":
-    default:
-      return "Chat focus";
-  }
-}
 
 function resolveRouteThreadIdentity(): string | null {
   if (typeof window === "undefined") return null;
@@ -56,11 +50,12 @@ export default function WorkspaceDrawer({
   routeContext,
   isOpen,
   activeTab,
-  layoutMode = "balanced_split",
-  paneRatio,
+  layoutMode = "chat_focus",
+  paneRatio = getWorkspacePaneRatioForLayoutMode(layoutMode),
   minPaneRatio,
   maxPaneRatio,
   onActiveTabChange,
+  onLayoutModeChange,
   activeThreadId,
   onMoveScratchpadToComposer,
 }: WorkspaceDrawerProps) {
@@ -77,7 +72,7 @@ export default function WorkspaceDrawer({
   );
 
   const panel = WORKSPACE_PANEL_COPY[activeTab];
-  const layoutModeLabel = formatLayoutModeLabel(layoutMode);
+  const layoutModeLabel = getWorkspaceLayoutModeLabel(layoutMode);
   const idBase = "workspace";
   const resolvedThreadIdentity =
     activeThreadId == null ? resolveRouteThreadIdentity() : activeThreadId;
@@ -96,6 +91,16 @@ export default function WorkspaceDrawer({
     },
     [onMoveScratchpadToComposer]
   );
+  const handlePostureClick = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (event.detail > 1) return;
+      onLayoutModeChange?.(getNextWorkspaceLayoutMode(layoutMode));
+    },
+    [layoutMode, onLayoutModeChange]
+  );
+  const handlePostureDoubleClick = React.useCallback(() => {
+    onLayoutModeChange?.("chat_focus");
+  }, [onLayoutModeChange]);
 
   if (!isOpen) return null;
 
@@ -128,13 +133,23 @@ export default function WorkspaceDrawer({
           >
             Workspace
           </div>
-          <p
+          <button
             data-testid="workspace-drawer-posture"
-            className="mt-1 text-[11px] font-medium tracking-[0.04em]"
+            className="group relative mt-1 inline-flex cursor-pointer items-center justify-center border-0 bg-transparent px-1 py-0 text-[11px] font-medium tracking-[0.04em] text-[var(--text-subtle)] transition-[color,filter,opacity] duration-200 hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--accent)_45%,transparent)] focus-visible:ring-offset-2"
             style={{ color: "var(--text-subtle)" }}
+            onClick={handlePostureClick}
+            onDoubleClick={handlePostureDoubleClick}
+            title="Click to cycle posture. Double-click to reset to Chat Focus."
+            type="button"
           >
-            {layoutModeLabel}
-          </p>
+            <span className="relative inline-flex items-center justify-center">
+              {layoutModeLabel}
+              <span
+                aria-hidden="true"
+                className="absolute inset-x-0 -bottom-0.5 h-px scale-x-0 bg-[color-mix(in_oklab,var(--accent)_55%,transparent)] opacity-0 shadow-[0_0_8px_color-mix(in_oklab,var(--accent)_45%,transparent)] transition-all duration-200 group-hover:scale-x-100 group-hover:opacity-100 group-focus-visible:scale-x-100 group-focus-visible:opacity-100"
+              />
+            </span>
+          </button>
         </div>
 
         <WorkspaceTabs
