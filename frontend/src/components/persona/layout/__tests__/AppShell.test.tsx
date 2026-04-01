@@ -256,7 +256,7 @@ function setRoutePath(pathname: string) {
 }
 
 function setRouteThread(threadId: number | null) {
-  setRoutePath(threadId == null ? "/dashboard" : `/chat/${threadId}`);
+  setRoutePath(threadId == null ? "/" : `/chat/${threadId}`);
 }
 
 function notifyRouteChange() {
@@ -341,6 +341,16 @@ describe("AppShell logo wordmark color contract", () => {
     render(<AppShell />);
 
     expect(listCodexEntriesSpy).not.toHaveBeenCalled();
+  });
+
+  it("honors the /persona-studio route on initial render", async () => {
+    setRoutePath("/persona-studio");
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByText(/configure runtime persona profiles/i)
+    ).toBeInTheDocument();
   });
 });
 
