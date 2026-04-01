@@ -13,6 +13,10 @@ from fastapi.responses import Response, StreamingResponse
 
 from guardian.core import db
 from guardian.core.auth import AuthenticatedUser, require_user
+from guardian.services.account_export import (
+    ZIP_FILENAME,
+    build_account_export_zip,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +297,33 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
         raise HTTPException(
             status_code=500, detail="Failed to start export"
         ) from exc
+
+
+@router.get(
+    "/account.zip",
+    summary="Download the authenticated user's canonical account export ZIP",
+)
+def export_account_zip(user: AuthenticatedUser = Depends(require_user)):
+    try:
+        payload = build_account_export_zip(db, user)
+    except Exception as exc:
+        logger.exception(
+            "Failed to build account export zip for user %s: %s",
+            user.id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to build account export",
+        ) from exc
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{ZIP_FILENAME}"'
+        },
+    )
 
 
 @router.get(
