@@ -33,6 +33,7 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
@@ -102,7 +103,8 @@ type AppShellView =
   | "documents"
   | "gallery"
   | "guardian"
-  | "settings";
+  | "settings"
+  | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
 type AppShellProps = PropsWithChildren<{
@@ -2078,6 +2080,13 @@ export default function AppShell({
           >
             Settings
           </button>
+          <button
+            className="pill-tab"
+            data-state={view === "personaStudio" ? "active" : "inactive"}
+            onClick={() => setView("personaStudio")}
+          >
+            Persona Studio
+          </button>
         </div>
         {(workspaceShellEnabled || activeRouteThreadId != null) && (
           <div className="flex items-center justify-end gap-2">
@@ -2432,6 +2441,16 @@ export default function AppShell({
                   />
                 </ErrorBoundary>
               </div>
+            </FrameCard>
+          )}
+          {!startupLocked && view === "personaStudio" && (
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+              data-testid="persona-studio-framecard"
+            >
+              <PersonaStudioPage />
             </FrameCard>
           )}
         </div>
