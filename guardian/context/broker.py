@@ -43,6 +43,33 @@ def _normalize_source_mode(value: Any) -> str:
     )
 
 
+def _coerce_graph_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {
+            str(key): _coerce_graph_value(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_coerce_graph_value(item) for item in value]
+
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return isoformat()
+        except Exception:
+            pass
+
+    to_native = getattr(value, "to_native", None)
+    if callable(to_native):
+        try:
+            return _coerce_graph_value(to_native())
+        except Exception:
+            pass
+
+    return str(value)
+
+
 def _looks_like_json(text: str) -> bool:
     s = (text or "").lstrip()
     if not s:
@@ -258,6 +285,7 @@ class ContextBroker:
                 (
                     semantic_thread,
                     semantic_widen_reason,
+                    _semantic_trace,
                 ) = await self._search_with_widening(
                     query=query,
                     k=k_semantic,
@@ -308,9 +336,15 @@ class ContextBroker:
 
         # Optional graph-derived context (explicit flag; deferred for CORE LOOP by default)
         context["graph"] = []
+        graph_trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "disabled",
+            "count": 0,
+        }
         if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
             try:
-                graph_chunks = await self._get_graph_context(
+                graph_chunks, graph_trace = await self._get_graph_context(
                     user_id=resolved_user_id or "default",
                     thread_id=str(thread_id),
                 )
@@ -323,12 +357,25 @@ class ContextBroker:
 
         # Include memory search for deep and diagnostic modes
         memory_widen_reason = "none"
+        memory_trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "depth_not_allowed",
+            "count": 0,
+            "boundary": (
+                "same_user_only"
+                if normalized_source_mode == _SOURCE_MODE_PERSONAL_KNOWLEDGE
+                else "same_user_same_project"
+            ),
+            "source_mode": normalized_source_mode,
+        }
         if normalized_depth in ("deep", "diagnostic"):
             try:
                 if self.memory:
                     (
                         memory,
                         memory_widen_reason,
+                        memory_trace,
                     ) = await self._search_with_widening(
                         query=query,
                         k=k_memory,
@@ -341,9 +388,36 @@ class ContextBroker:
                     context["memory"] = memory
                 else:
                     context["memory"] = []
+                    memory_trace = {
+                        "attempted": False,
+                        "status": "skipped",
+                        "reason": "no_memory_store",
+                        "count": 0,
+                        "boundary": (
+                            "same_user_only"
+                            if normalized_source_mode
+                            == _SOURCE_MODE_PERSONAL_KNOWLEDGE
+                            else "same_user_same_project"
+                        ),
+                        "source_mode": normalized_source_mode,
+                    }
             except Exception as e:
                 logger.warning(f"Failed to fetch memory results: {e}")
                 context["memory"] = []
+                memory_trace = {
+                    "attempted": True,
+                    "status": "failed",
+                    "reason": "retrieval_error",
+                    "error": str(e),
+                    "count": 0,
+                    "boundary": (
+                        "same_user_only"
+                        if normalized_source_mode
+                        == _SOURCE_MODE_PERSONAL_KNOWLEDGE
+                        else "same_user_same_project"
+                    ),
+                    "source_mode": normalized_source_mode,
+                }
 
         # Include sensor snapshot for diagnostic mode only
         if normalized_depth == "diagnostic":
@@ -394,11 +468,13 @@ class ContextBroker:
             "widen_reason": self._merge_widen_reason(
                 semantic_widen_reason, memory_widen_reason
             ),
+            "graph_context": graph_trace,
+            "memory_context": memory_trace,
         }
 
         try:
             logger.info(
-                "[ContextBroker] thread=%s depth=%s messages=%s semantic=%s obsidian=%s docs(project/thread)=%s/%s memory=%s graph=%s",
+                "[ContextBroker] thread=%s depth=%s messages=%s semantic=%s obsidian=%s docs(project/thread)=%s/%s memory=%s(%s) graph=%s(%s)",
                 thread_id,
                 normalized_depth,
                 len(context.get("messages", [])),
@@ -407,7 +483,9 @@ class ContextBroker:
                 len(context.get("docs", {}).get("project", [])),
                 len(context.get("docs", {}).get("thread", [])),
                 len(context.get("memory", [])) if "memory" in context else 0,
+                memory_trace.get("status"),
                 len(context.get("graph", [])),
+                graph_trace.get("status"),
             )
         except Exception:
             pass
@@ -490,56 +568,107 @@ class ContextBroker:
         k: int,
         *,
         namespace: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Search for related memory entries using MemoryOS semantic retriever.
 
         Primary: Uses MemoryOSRetriever for vector-based semantic memory search.
         Fallback: Falls back to legacy memory_store.search_related() if available.
         """
-        try:
-            # Primary: Use MemoryOS semantic retriever for RAG-based memory recall
-            if self.memory_retriever:
-                try:
-                    memory_results = await self.memory_retriever.retrieve(
+        trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "no_retriever",
+            "count": 0,
+        }
+        if self.memory_retriever:
+            try:
+                retrieve_with_trace = getattr(
+                    self.memory_retriever, "retrieve_with_trace", None
+                )
+                if callable(retrieve_with_trace):
+                    memory_results, retriever_trace = await retrieve_with_trace(
                         query,
                         limit=k,
                         namespace=namespace,
                     )
-                except TypeError:
-                    memory_results = await self.memory_retriever.retrieve(
-                        query, limit=k
-                    )
+                else:
+                    try:
+                        memory_results = await self.memory_retriever.retrieve(
+                            query,
+                            limit=k,
+                            namespace=namespace,
+                        )
+                    except TypeError:
+                        memory_results = await self.memory_retriever.retrieve(
+                            query, limit=k
+                        )
+                    retriever_trace = {
+                        "attempted": True,
+                        "status": (
+                            "contributed"
+                            if memory_results
+                            else "attempted_no_hits"
+                        ),
+                        "reason": ("results" if memory_results else "no_hits"),
+                        "count": len(memory_results),
+                    }
+                trace = {"attempted": True, **retriever_trace}
                 logger.debug(
                     f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
                     f"via MemoryOSRetriever"
                 )
-                return memory_results
-        except Exception as e:
-            logger.warning(f"[ContextBroker] MemoryOS retriever failed: {e}")
+                return memory_results, trace
+            except Exception as e:
+                logger.warning(
+                    f"[ContextBroker] MemoryOS retriever failed: {e}"
+                )
+                trace = {
+                    "attempted": True,
+                    "status": "failed",
+                    "reason": "retriever_error",
+                    "error": str(e),
+                    "count": 0,
+                }
 
-            # Fallback: Use legacy memory_store if available
-            if (
-                namespace is None
-                and self.memory
-                and hasattr(self.memory, "search_related")
-            ):
-                try:
-                    result = self.memory.search_related(query, limit=k)
-                    # Handle both sync and async returns
-                    if hasattr(result, "__await__"):
-                        result = await result
-                    if isinstance(result, list):
-                        logger.debug(
-                            f"[ContextBroker] Fallback: Retrieved {len(result)} "
-                            f"results from legacy memory_store"
-                        )
-                        return result
-                except Exception as fallback_error:
-                    logger.warning(
-                        f"[ContextBroker] Legacy memory_store also failed: {fallback_error}"
+        # Fallback: Use legacy memory_store if available.
+        if (
+            namespace is None
+            and self.memory
+            and hasattr(self.memory, "search_related")
+        ):
+            try:
+                result = self.memory.search_related(query, limit=k)
+                if hasattr(result, "__await__"):
+                    result = await result
+                if isinstance(result, list):
+                    trace = {
+                        "attempted": True,
+                        "status": (
+                            "contributed" if result else "attempted_no_hits"
+                        ),
+                        "reason": (
+                            "legacy_results" if result else "legacy_no_hits"
+                        ),
+                        "count": len(result),
+                    }
+                    logger.debug(
+                        f"[ContextBroker] Fallback: Retrieved {len(result)} "
+                        f"results from legacy memory_store"
                     )
+                    return result, trace
+            except Exception as fallback_error:
+                logger.warning(
+                    f"[ContextBroker] Legacy memory_store also failed: {fallback_error}"
+                )
+                trace = {
+                    "attempted": True,
+                    "status": "failed",
+                    "reason": "legacy_retriever_error",
+                    "error": str(fallback_error),
+                    "count": 0,
+                }
 
-            return []
+        return [], trace
 
     async def _resolve_user_id(
         self, *, thread_id: int, user_id: Optional[str]
@@ -567,6 +696,21 @@ class ContextBroker:
             )
         return None
 
+    @staticmethod
+    def _unpack_search_output(
+        result: Any,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        if (
+            isinstance(result, tuple)
+            and len(result) == 2
+            and isinstance(result[1], dict)
+        ):
+            hits = result[0] if isinstance(result[0], list) else []
+            return hits, dict(result[1])
+        if isinstance(result, list):
+            return result, {}
+        return [], {}
+
     async def _search_with_widening(
         self,
         *,
@@ -577,27 +721,110 @@ class ContextBroker:
         project_id: Optional[int],
         source_mode: str,
         search_fn: Any,
-    ) -> tuple[List[Dict[str, Any]], str]:
+    ) -> tuple[List[Dict[str, Any]], str, Dict[str, Any]]:
+        normalized_source_mode = _normalize_source_mode(source_mode)
+        diagnostics: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "not_attempted",
+            "source_mode": normalized_source_mode,
+            "boundary": (
+                "same_user_only"
+                if normalized_source_mode == _SOURCE_MODE_PERSONAL_KNOWLEDGE
+                else "same_user_same_project"
+            ),
+            "primary_hit_count": 0,
+            "candidate_thread_count": 0,
+            "candidate_hit_count": 0,
+            "result_count": 0,
+            "widened": False,
+        }
         if k <= 0:
-            return [], "none"
+            diagnostics["reason"] = "invalid_limit"
+            return [], "none", diagnostics
 
-        primary_hits = await search_fn(
-            query,
-            k,
-            namespace=_thread_namespace(thread_id),
+        try:
+            primary_output = await search_fn(
+                query,
+                k,
+                namespace=_thread_namespace(thread_id),
+            )
+        except Exception as exc:
+            diagnostics.update(
+                attempted=True,
+                status="failed",
+                reason="primary_search_error",
+                error=str(exc),
+            )
+            return [], "none", diagnostics
+
+        primary_hits, search_trace = self._unpack_search_output(primary_output)
+        diagnostics.update(
+            attempted=True,
+            retriever=search_trace,
+            primary_hit_count=len(primary_hits),
         )
+        if search_trace.get("status") == "failed" and not primary_hits:
+            diagnostics.update(
+                status="failed",
+                reason=search_trace.get("reason", "primary_search_error"),
+                error=search_trace.get("error"),
+                result_count=0,
+            )
+            return [], "none", diagnostics
+
         widen_reason = self._determine_widen_reason(primary_hits, k)
         if widen_reason == "none":
-            return primary_hits[:k], "none"
+            diagnostics.update(
+                status="contributed" if primary_hits else "attempted_no_hits",
+                reason=(
+                    "local_hits"
+                    if primary_hits
+                    else search_trace.get("reason", "no_hits")
+                ),
+                result_count=len(primary_hits[:k]),
+                candidate_thread_count=0,
+                widened=False,
+            )
+            return primary_hits[:k], "none", diagnostics
 
         candidate_threads = await self._list_widening_threads(
             thread_id=thread_id,
             user_id=user_id,
             project_id=project_id,
-            source_mode=source_mode,
+            source_mode=normalized_source_mode,
         )
+        diagnostics["candidate_thread_count"] = len(candidate_threads)
         if not candidate_threads:
-            return primary_hits[:k], "none"
+            if primary_hits:
+                diagnostics.update(
+                    status="contributed",
+                    reason="local_hits",
+                    result_count=len(primary_hits[:k]),
+                    widened=False,
+                )
+            else:
+                diagnostics.update(
+                    status=(
+                        "skipped"
+                        if not user_id
+                        or (
+                            normalized_source_mode == _SOURCE_MODE_PROJECT
+                            and project_id is None
+                        )
+                        else "no_eligible_candidates"
+                    ),
+                    reason=(
+                        "boundary_blocked"
+                        if not user_id
+                        or (
+                            normalized_source_mode == _SOURCE_MODE_PROJECT
+                            and project_id is None
+                        )
+                        else "no_eligible_candidates"
+                    ),
+                )
+            return primary_hits[:k], "none", diagnostics
 
         merged_hits = self._seed_thread_hits_for_widening(
             primary_hits,
@@ -605,6 +832,7 @@ class ContextBroker:
             widen_reason=widen_reason,
         )
         widened_executed = False
+        candidate_hit_count = 0
 
         for thread in candidate_threads:
             candidate_id = _coerce_int(thread.get("id"))
@@ -617,30 +845,56 @@ class ContextBroker:
             ):
                 break
             request_k = remaining_slots if remaining_slots > 0 else 1
-            hits = await search_fn(
-                query,
-                request_k,
-                namespace=_thread_namespace(candidate_id),
-            )
+            try:
+                outcome = await search_fn(
+                    query,
+                    request_k,
+                    namespace=_thread_namespace(candidate_id),
+                )
+            except Exception as exc:
+                diagnostics.update(
+                    status="failed",
+                    reason="candidate_search_error",
+                    error=str(exc),
+                )
+                break
+            hits, _candidate_trace = self._unpack_search_output(outcome)
             if not hits:
                 continue
             widened_executed = True
+            candidate_hit_count += len(hits)
             merged_hits = self._dedupe_retrieval_items([*merged_hits, *hits])[
                 :k
             ]
             if len(merged_hits) >= k:
                 break
 
-        if not widened_executed:
-            return primary_hits[:k], "none"
-
+        final_hits = merged_hits[:k] if widened_executed else primary_hits[:k]
         effective_widen_reason = (
             "explicit_personal_knowledge"
-            if _normalize_source_mode(source_mode)
-            == _SOURCE_MODE_PERSONAL_KNOWLEDGE
-            else widen_reason
+            if widened_executed
+            and normalized_source_mode == _SOURCE_MODE_PERSONAL_KNOWLEDGE
+            else (widen_reason if widened_executed else "none")
         )
-        return merged_hits[:k], effective_widen_reason
+        if diagnostics.get("status") == "failed":
+            diagnostics.update(
+                widened=widened_executed,
+                candidate_hit_count=candidate_hit_count,
+                result_count=len(final_hits),
+            )
+            return final_hits, effective_widen_reason, diagnostics
+        diagnostics.update(
+            widened=widened_executed,
+            candidate_hit_count=candidate_hit_count,
+            result_count=len(final_hits),
+            status="contributed" if final_hits else "attempted_no_hits",
+            reason=(
+                "widened"
+                if widened_executed
+                else (search_trace.get("reason") or "candidate_search_no_hits")
+            ),
+        )
+        return final_hits, effective_widen_reason, diagnostics
 
     async def _list_widening_threads(
         self,
@@ -1279,61 +1533,135 @@ class ContextBroker:
 
     async def _get_graph_context(
         self, *, user_id: str, thread_id: Optional[str]
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Fetch lightweight graph context for a thread/user pair."""
+        trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "disabled",
+            "count": 0,
+            "scope": None,
+        }
         try:
+            from neomodel import db as neo_db
+
             from guardian.graph.connection import connect_neo4j
-            from guardian.graph.models import MessageNode, ThreadNode, UserNode
         except Exception as exc:  # pragma: no cover - optional dependency
             logger.debug("[ContextBroker] Graph modules unavailable: %s", exc)
-            return []
+            trace.update(reason="modules_unavailable", error=str(exc))
+            return [], trace
 
         try:
             connect_neo4j()
-            snippets: List[Dict[str, Any]] = []
+            trace["attempted"] = True
 
-            thread = (
-                ThreadNode.nodes.get_or_none(thread_id=str(thread_id))
-                if thread_id
-                else None
-            )
-            if thread and hasattr(thread.messages, "all"):
-                msgs = thread.messages.all()
-                for msg in msgs:
-                    snippet = {
-                        "kind": "graph-fact",
-                        "text": getattr(msg, "content", ""),
-                        "source": "neo4j",
-                        "message_id": getattr(msg, "message_id", ""),
-                    }
-                    try:
-                        sender = msg.user.single()
-                        if sender:
-                            snippet["user_id"] = getattr(
-                                sender, "user_id", None
-                            )
-                    except Exception:
-                        pass
-                    snippets.append(snippet)
-
-            if not snippets and user_id:
-                user = UserNode.nodes.get_or_none(user_id=str(user_id))
-                if user and hasattr(user.messages, "all"):
-                    for msg in user.messages.all():
-                        snippets.append(
-                            {
-                                "kind": "graph-fact",
-                                "text": getattr(msg, "content", ""),
-                                "source": "neo4j",
-                                "message_id": getattr(msg, "message_id", ""),
-                                "user_id": getattr(user, "user_id", None),
+            def _rows_to_snippets(
+                rows: Any, meta: Any, scope: str
+            ) -> List[Dict[str, Any]]:
+                columns = (
+                    [str(column) for column in meta]
+                    if isinstance(meta, (list, tuple))
+                    else []
+                )
+                snippets: List[Dict[str, Any]] = []
+                if not isinstance(rows, list):
+                    return snippets
+                for row in rows:
+                    if isinstance(row, dict):
+                        record = row
+                    elif isinstance(row, (list, tuple)):
+                        if columns:
+                            record = {
+                                columns[idx]: row[idx]
+                                for idx in range(min(len(columns), len(row)))
                             }
-                        )
+                        else:
+                            record = {
+                                str(idx): value for idx, value in enumerate(row)
+                            }
+                    else:
+                        continue
 
-            return snippets
+                    snippet: Dict[str, Any] = {
+                        "kind": "graph-fact",
+                        "text": str(record.get("content") or ""),
+                        "source": "neo4j",
+                        "message_id": str(record.get("message_id") or ""),
+                        "scope": scope,
+                    }
+                    created_at = record.get("created_at")
+                    if created_at not in (None, ""):
+                        snippet["created_at"] = _coerce_graph_value(created_at)
+                    thread_value = record.get("thread_id")
+                    if thread_value not in (None, ""):
+                        snippet["thread_id"] = str(thread_value)
+                    user_value = record.get("user_id")
+                    if user_value not in (None, ""):
+                        snippet["user_id"] = str(user_value)
+                    snippets.append(snippet)
+                return snippets
+
+            if thread_id:
+                rows, meta = neo_db.cypher_query(
+                    """
+                    MATCH (t:ThreadNode {thread_id: $thread_id})
+                    <-[:PART_OF]-(m:MessageNode)
+                    OPTIONAL MATCH (m)-[:SENT_BY]->(u:UserNode)
+                    RETURN m.message_id AS message_id,
+                           m.content AS content,
+                           m.created_at AS created_at,
+                           t.thread_id AS thread_id,
+                           u.user_id AS user_id
+                    ORDER BY m.created_at ASC
+                    """,
+                    {"thread_id": str(thread_id)},
+                )
+                snippets = _rows_to_snippets(rows, meta, "thread")
+                if snippets:
+                    trace.update(
+                        status="contributed",
+                        reason="thread_match",
+                        scope="thread",
+                        count=len(snippets),
+                    )
+                    return snippets, trace
+
+            if user_id:
+                rows, meta = neo_db.cypher_query(
+                    """
+                    MATCH (u:UserNode {user_id: $user_id})
+                    <-[:SENT_BY]-(m:MessageNode)
+                    OPTIONAL MATCH (m)-[:PART_OF]->(t:ThreadNode)
+                    RETURN m.message_id AS message_id,
+                           m.content AS content,
+                           m.created_at AS created_at,
+                           t.thread_id AS thread_id,
+                           u.user_id AS user_id
+                    ORDER BY m.created_at ASC
+                    """,
+                    {"user_id": str(user_id)},
+                )
+                snippets = _rows_to_snippets(rows, meta, "user")
+                if snippets:
+                    trace.update(
+                        status="contributed",
+                        reason="user_match",
+                        scope="user",
+                        count=len(snippets),
+                    )
+                    return snippets, trace
+
+            trace.update(status="empty", reason="no_rows")
+            return [], trace
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Graph context unavailable; proceeding without it: %s",
                 exc,
             )
-            return []
+            trace.update(
+                attempted=True,
+                status="failed",
+                reason="query_error",
+                error=str(exc),
+            )
+            return [], trace
