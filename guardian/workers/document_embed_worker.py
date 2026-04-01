@@ -19,6 +19,7 @@ from guardian.queue.document_embed_queue import (
     dequeue_document_embed,
 )
 from guardian.services.document_chunking import chunk_document_text
+from guardian.vector.store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,22 @@ def _build_chunk_metadata(
     ]
 
 
+def _write_document_chunks(
+    vector_writer: Any,
+    chunk_texts: list[str],
+    chunk_metas: list[dict[str, Any]],
+) -> None:
+    if hasattr(vector_writer, "add_texts"):
+        vector_writer.add_texts(
+            [
+                {"text": text, "meta": meta}
+                for text, meta in zip(chunk_texts, chunk_metas)
+            ]
+        )
+        return
+    vector_writer.embed_and_index(chunk_texts, metadatas=chunk_metas)
+
+
 def process_document_embed_task(
     payload: dict[str, Any] | None,
     *,
@@ -154,11 +171,9 @@ def process_document_embed_task(
     error: str | None = None
     try:
         if embedder_factory is None:
-            from guardian.runtime.embed.embedder import CodexifyEmbedder
-
-            embedder = CodexifyEmbedder(store="chroma")
+            vector_writer = VectorStore()
         else:
-            embedder = embedder_factory()
+            vector_writer = embedder_factory()
 
         chunks = chunk_document_text(parsed_text)
         chunk_texts = [chunk.text for chunk in chunks]
@@ -166,7 +181,7 @@ def process_document_embed_task(
             raise ValueError("no_chunks")
 
         chunk_metas = _build_chunk_metadata(doc, chunks)
-        embedder.embed_and_index(chunk_texts, metadatas=chunk_metas)
+        _write_document_chunks(vector_writer, chunk_texts, chunk_metas)
         status = "ready"
         error = None
         logger.info(
@@ -196,9 +211,7 @@ def process_document_embed_task(
 
 def run_forever() -> None:
     try:
-        from guardian.runtime.embed.embedder import CodexifyEmbedder
-
-        shared_embedder = CodexifyEmbedder(store="chroma")
+        shared_vector_store = VectorStore()
     except Exception as exc:
         logger.error(
             "[document-embed] %s",
@@ -213,7 +226,7 @@ def run_forever() -> None:
         )
         raise SystemExit(1) from exc
 
-    shared_factory = lambda: shared_embedder
+    shared_factory = lambda: shared_vector_store
     logger.info("[document-embed] worker started queue=%s", QUEUE_NAME)
     while True:
         try:

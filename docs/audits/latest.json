@@ -63,88 +63,276 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 5,
+    "commit_count": 20,
     "commits": [
       {
         "files": [
-          "guardian/queue/redis_queue.py",
-          "guardian/tests/queue/test_redis_queue_clients.py",
-          "scripts/agent_task_worker.py"
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts"
         ],
-        "sha": "3614726a20ffbbc65575d99352f9832deddf4272",
-        "subject": "fix(redis): enforce queue client usage for blocking operations"
+        "sha": "8228f4f284bf64531de159afd92b905641cba841",
+        "subject": "feat(workspace): add per-thread scratchpad staging"
       },
       {
         "files": [
-          "guardian/queue/redis_queue.py",
-          "guardian/routes/chat.py",
-          "guardian/routes/health.py",
-          "guardian/routes/ui_session.py"
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceUiState.ts"
         ],
-        "sha": "9e1fcdfd304c9c2ebc02bfce58d67c61a064329c",
-        "subject": "fix(backend): enforce redis fail-fast and 503 degradation contract"
+        "sha": "93c5b34b66e33c481e8ba5a2f2208c57b863c056",
+        "subject": "feat(workspace): add shell scaffold and persisted tabs"
       },
       {
         "files": [
-          "docs/architecture/router-decision-table.md",
-          "guardian/context/retrieval_router_policy.py",
-          "tests/context/test_retrieval_router_policy.py"
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md",
+          "prompts.py"
         ],
-        "sha": "ab07c419d71a1f4728daaa11a2391755e6cbd01f",
-        "subject": "Add canonical retrieval router policy scaffold"
+        "sha": "bdb09774fbb5c5ca11faddaefcf60c3870c5d3e7",
+        "subject": "Refresh evening audit snapshot"
       },
       {
         "files": [
+          "docs/audits/daily/evening/2026-03-30-audit.json",
+          "docs/audits/daily/evening/2026-03-30-audit.md"
+        ],
+        "sha": "7f39d88199e6aa6c9f4998ee2028f0347538acf4",
+        "subject": "docs: add evening audit snapshot"
+      },
+      {
+        "files": [
+          "docs/architecture/codexify_workspace_surface_spec_v_1.md"
+        ],
+        "sha": "961e9092a06e2dc01226eeced3a9876527832422",
+        "subject": "Workspace Spec"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+          "frontend/src/contracts/supportedProfileRoutes.ts",
           "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/hooks/useLiveEvents.ts",
-          "frontend/src/lib/events/types.ts",
-          "frontend/src/lib/liveEventsHub.ts",
-          "frontend/src/test/live-events-singleton.test.tsx"
+          "frontend/src/features/chat/__tests__/useAgentRuns.test.tsx",
+          "frontend/src/features/chat/hooks/useAgentRuns.ts",
+          "frontend/src/features/chat/hooks/useGuardianActionCenter.ts",
+          "frontend/src/features/chat/hooks/useGuardianApprovalInbox.ts",
+          "frontend/src/features/connectors/useConnectors.test.tsx",
+          "frontend/src/features/connectors/useConnectors.ts",
+          "frontend/src/features/settings/SettingsView.tsx",
+          "frontend/src/features/settings/__tests__/SettingsView.profile-awareness.test.tsx",
+          "frontend/src/imprint/useImprintZero.ts",
+          "frontend/src/lib/runtimeRouteCapabilities.test.tsx",
+          "frontend/src/lib/runtimeRouteCapabilities.ts",
+          "frontend/src/vitest.config.ts"
         ],
-        "sha": "ac53cba414251542c0c130fdac7c6d2407988bf0",
-        "subject": "Introduce canonical LiveEvent normalization"
+        "sha": "e970451c56f8ffb9a50d174bd8dc90938b080a2a",
+        "subject": "Adapt restricted-profile UI to mounted runtime capabilities"
       },
       {
         "files": [
-          "docs/audits/daily/morning/2026-03-27-audit.json",
-          "docs/audits/daily/morning/2026-03-27-audit.md",
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
+        ],
+        "sha": "0d54ae7a29236f8fa37fc959f50adba6cfaa2fdd",
+        "subject": "fix(chat): relabel active scope as project"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
+        ],
+        "sha": "fde7e2e6ffa625201b89ce42b05729a031d810b5",
+        "subject": "fix(chat): darken thread tiles in dark mode"
+      },
+      {
+        "files": [
+          "frontend/src/App.tsx",
+          "frontend/src/components/documents/DocumentsView.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceState.ts"
+        ],
+        "sha": "8c1d880fb9e1fb2d9beb727b4419027dafb37bbb",
+        "subject": "fix(workspace): unify invocation flow and block recursive mounts"
+      },
+      {
+        "files": [
+          "frontend/src/components/documents/DocumentTile.tsx",
+          "frontend/src/components/media/MediaTile.test.tsx",
+          "prompts.py"
+        ],
+        "sha": "dbd6a7b189b3e71e988e4b34b7122c654bf586a5",
+        "subject": "fix(media): restore document tile layout contract"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/WorkspaceViewer.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx"
+        ],
+        "sha": "1b024d7414dc6c84a885abe2741f82575dcc4b14",
+        "subject": "feat(workspace): add typed preview registry for supported documents"
+      },
+      {
+        "files": [
+          "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
+          "frontend/src/components/dashboard/DashboardView.tsx"
+        ],
+        "sha": "1b83e7c5b744a8e9c87461b302f298a5159ced74",
+        "subject": "refactor(dashboard): auto-hide demo content when real data exists"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx"
+        ],
+        "sha": "4d46923d04d25883f037105327662e3d858f3939",
+        "subject": "refactor(gallery): auto-hide demo content when real data exists"
+      },
+      {
+        "files": [
+          "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
+          "frontend/src/components/documents/DocumentsView.tsx"
+        ],
+        "sha": "a2066e26e5b6604c81a51af09d2d8bd1c14e5568",
+        "subject": "refactor(documents): auto-hide demo content when real data exists"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "tests/routes/test_media_routes.py"
+        ],
+        "sha": "6ebe4b81df24ca25adb9008b5d93b41b2992081f",
+        "subject": "fix(media): unify dashboard and gallery persisted truth"
+      },
+      {
+        "files": [
+          "frontend/src/features/settings/SettingsView.test.tsx",
+          "guardian/server/app.py",
+          "tests/routes/test_imprint_routes.py"
+        ],
+        "sha": "6dc00bb17b0583c96fd758df2bac42688a3e0795",
+        "subject": "fix(settings): restore save route contract"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "tests/routes/test_projects_routes.py"
+        ],
+        "sha": "9aa40796cb03dd166a82c46b0f947b57bb766379",
+        "subject": "fix(projects): restore dashboard create project flow"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/SidebarRoot.tsx",
+          "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
+          "tests/routes/test_projects_routes.py"
+        ],
+        "sha": "2b908467e23a89f733e43566bc0cebeabade959f",
+        "subject": "fix(projects): restore sidebar create project flow"
+      },
+      {
+        "files": [
+          "guardian/routes/health.py",
+          "tests/routes/test_health_endpoints.py"
+        ],
+        "sha": "d531231112e1dcd6188ec0ece9ea35843368118d",
+        "subject": "Fix chat worker heartbeat truth in health endpoint"
+      },
+      {
+        "files": [
+          "docs/audits/daily/morning/2026-03-30-audit.json",
+          "docs/audits/daily/morning/2026-03-30-audit.md",
           "docs/audits/daily/morning/latest.json",
           "docs/audits/daily/morning/latest.md",
           "docs/audits/latest.json",
           "docs/audits/latest.md"
         ],
-        "sha": "9319ecda6a9ef8360f0a16455b81e77e6acccb44",
-        "subject": "Weekly and Daily Audit Reports"
+        "sha": "be58a548cfcd94478033b50bb725fe4415f0fcf7",
+        "subject": "Refresh daily morning audit snapshot"
       }
     ],
     "files_changed": [
-      "guardian/queue/redis_queue.py",
-      "guardian/tests/queue/test_redis_queue_clients.py",
-      "scripts/agent_task_worker.py",
-      "guardian/routes/chat.py",
-      "guardian/routes/health.py",
-      "guardian/routes/ui_session.py",
-      "docs/architecture/router-decision-table.md",
-      "guardian/context/retrieval_router_policy.py",
-      "tests/context/test_retrieval_router_policy.py",
-      "frontend/src/features/chat/GuardianChat.tsx",
-      "frontend/src/hooks/useLiveEvents.ts",
-      "frontend/src/lib/events/types.ts",
-      "frontend/src/lib/liveEventsHub.ts",
-      "frontend/src/test/live-events-singleton.test.tsx",
-      "docs/audits/daily/morning/2026-03-27-audit.json",
-      "docs/audits/daily/morning/2026-03-27-audit.md",
-      "docs/audits/daily/morning/latest.json",
-      "docs/audits/daily/morning/latest.md",
+      "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+      "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceUiState.ts",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/evening/latest.md",
       "docs/audits/latest.json",
-      "docs/audits/latest.md"
+      "docs/audits/latest.md",
+      "prompts.py",
+      "docs/audits/daily/evening/2026-03-30-audit.json",
+      "docs/audits/daily/evening/2026-03-30-audit.md",
+      "docs/architecture/codexify_workspace_surface_spec_v_1.md",
+      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+      "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
+      "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+      "frontend/src/contracts/supportedProfileRoutes.ts",
+      "frontend/src/features/chat/GuardianChat.tsx",
+      "frontend/src/features/chat/__tests__/useAgentRuns.test.tsx",
+      "frontend/src/features/chat/hooks/useAgentRuns.ts",
+      "frontend/src/features/chat/hooks/useGuardianActionCenter.ts",
+      "frontend/src/features/chat/hooks/useGuardianApprovalInbox.ts",
+      "frontend/src/features/connectors/useConnectors.test.tsx",
+      "frontend/src/features/connectors/useConnectors.ts",
+      "frontend/src/features/settings/SettingsView.tsx",
+      "frontend/src/features/settings/__tests__/SettingsView.profile-awareness.test.tsx",
+      "frontend/src/imprint/useImprintZero.ts",
+      "frontend/src/lib/runtimeRouteCapabilities.test.tsx",
+      "frontend/src/lib/runtimeRouteCapabilities.ts",
+      "frontend/src/vitest.config.ts",
+      "frontend/src/components/sidebar/ThreadList.tsx",
+      "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+      "frontend/src/App.tsx",
+      "frontend/src/components/documents/DocumentsView.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceState.ts",
+      "frontend/src/components/documents/DocumentTile.tsx",
+      "frontend/src/components/media/MediaTile.test.tsx",
+      "frontend/src/features/workspace/WorkspaceViewer.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
+      "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
+      "frontend/src/components/dashboard/DashboardView.tsx",
+      "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
+      "tests/routes/test_media_routes.py",
+      "frontend/src/features/settings/SettingsView.test.tsx",
+      "guardian/server/app.py",
+      "tests/routes/test_imprint_routes.py",
+      "tests/routes/test_projects_routes.py",
+      "frontend/src/components/sidebar/SidebarRoot.tsx",
+      "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
+      "guardian/routes/health.py",
+      "tests/routes/test_health_endpoints.py",
+      "docs/audits/daily/morning/2026-03-30-audit.json",
+      "docs/audits/daily/morning/2026-03-30-audit.md",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/daily/morning/latest.md"
     ],
-    "window_end": "2026-03-28T09:00:45.003565-04:00",
+    "window_end": "2026-03-31T09:08:30.872317-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-27T09:00:45.003565-04:00"
+    "window_start": "2026-03-30T09:08:30.872317-04:00"
   },
-  "date": "2026-03-28",
-  "generated_at": "2026-03-28T09:00:45.003565-04:00",
+  "date": "2026-03-31",
+  "generated_at": "2026-03-31T09:08:30.872317-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -152,12 +340,14 @@
   },
   "phase": "morning",
   "repo": {
-    "branch": "main",
-    "date": "2026-03-28",
-    "dirty": false,
-    "head": "3614726a20ffbbc65575d99352f9832deddf4272",
+    "branch": "codex/add-workspace-shell-state",
+    "date": "2026-03-31",
+    "dirty": true,
+    "head": "8228f4f284bf64531de159afd92b905641cba841",
     "status_error": "",
-    "status_lines": []
+    "status_lines": [
+      " M guardian/cognition/prompts.py"
+    ]
   },
   "risk_flags": [
     {
@@ -214,53 +404,88 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 6,
+      "count": 10,
       "files": [
-        "docs/audits/daily/morning/2026-03-27-audit.json",
-        "docs/audits/daily/morning/2026-03-27-audit.md",
-        "docs/audits/daily/morning/latest.json",
-        "docs/audits/daily/morning/latest.md",
+        "docs/audits/daily/evening/latest.json",
+        "docs/audits/daily/evening/latest.md",
         "docs/audits/latest.json",
-        "docs/audits/latest.md"
-      ]
-    },
-    "chat": {
-      "count": 1,
-      "files": [
-        "guardian/routes/chat.py"
+        "docs/audits/latest.md",
+        "docs/audits/daily/evening/2026-03-30-audit.json",
+        "docs/audits/daily/evening/2026-03-30-audit.md",
+        "docs/audits/daily/morning/2026-03-30-audit.json",
+        "docs/audits/daily/morning/2026-03-30-audit.md",
+        "docs/audits/daily/morning/latest.json",
+        "docs/audits/daily/morning/latest.md"
       ]
     },
     "docs": {
       "count": 1,
       "files": [
-        "docs/architecture/router-decision-table.md"
+        "docs/architecture/codexify_workspace_surface_spec_v_1.md"
       ]
     },
     "frontend": {
-      "count": 5,
+      "count": 42,
       "files": [
+        "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+        "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
+        "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceUiState.ts",
+        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+        "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
+        "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+        "frontend/src/contracts/supportedProfileRoutes.ts",
         "frontend/src/features/chat/GuardianChat.tsx",
-        "frontend/src/hooks/useLiveEvents.ts",
-        "frontend/src/lib/events/types.ts",
-        "frontend/src/lib/liveEventsHub.ts",
-        "frontend/src/test/live-events-singleton.test.tsx"
+        "frontend/src/features/chat/__tests__/useAgentRuns.test.tsx",
+        "frontend/src/features/chat/hooks/useAgentRuns.ts",
+        "frontend/src/features/chat/hooks/useGuardianActionCenter.ts",
+        "frontend/src/features/chat/hooks/useGuardianApprovalInbox.ts",
+        "frontend/src/features/connectors/useConnectors.test.tsx",
+        "frontend/src/features/connectors/useConnectors.ts",
+        "frontend/src/features/settings/SettingsView.tsx",
+        "frontend/src/features/settings/__tests__/SettingsView.profile-awareness.test.tsx",
+        "frontend/src/imprint/useImprintZero.ts",
+        "frontend/src/lib/runtimeRouteCapabilities.test.tsx",
+        "frontend/src/lib/runtimeRouteCapabilities.ts",
+        "frontend/src/vitest.config.ts",
+        "frontend/src/components/sidebar/ThreadList.tsx",
+        "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+        "frontend/src/App.tsx",
+        "frontend/src/components/documents/DocumentsView.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceState.ts",
+        "frontend/src/components/documents/DocumentTile.tsx",
+        "frontend/src/components/media/MediaTile.test.tsx",
+        "frontend/src/features/workspace/WorkspaceViewer.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
+        "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
+        "frontend/src/components/dashboard/DashboardView.tsx",
+        "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
+        "frontend/src/features/settings/SettingsView.test.tsx",
+        "frontend/src/components/sidebar/SidebarRoot.tsx",
+        "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx"
       ]
     },
     "tests": {
-      "count": 2,
+      "count": 4,
       "files": [
-        "guardian/tests/queue/test_redis_queue_clients.py",
-        "tests/context/test_retrieval_router_policy.py"
+        "tests/routes/test_media_routes.py",
+        "tests/routes/test_imprint_routes.py",
+        "tests/routes/test_projects_routes.py",
+        "tests/routes/test_health_endpoints.py"
       ]
     },
     "unknown": {
-      "count": 5,
+      "count": 3,
       "files": [
-        "guardian/queue/redis_queue.py",
-        "scripts/agent_task_worker.py",
-        "guardian/routes/health.py",
-        "guardian/routes/ui_session.py",
-        "guardian/context/retrieval_router_policy.py"
+        "prompts.py",
+        "guardian/server/app.py",
+        "guardian/routes/health.py"
       ]
     }
   }

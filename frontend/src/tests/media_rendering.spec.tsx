@@ -1,9 +1,24 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+const runtimeState = vi.hoisted(() => ({
+  invokeTauriCommandMock: vi.fn(),
+  tauriRuntime: false,
+}));
+
 vi.mock("@/lib/runtimeConfig", () => ({
   resolveBackendUrl: (path: string) =>
     `http://backend.test${path.startsWith("/") ? path : `/${path}`}`,
+  getRuntimeConfigSync: () => ({
+    mode: runtimeState.tauriRuntime ? "tauri" : "web",
+    backendBaseUrl: "http://backend.test",
+    apiBaseUrl: "http://backend.test/api",
+    sseUrl: "http://backend.test/api/events",
+    sharePublicBaseUrl: "http://share.test",
+    authMode: "local",
+  }),
+  isTauriRuntime: () => runtimeState.tauriRuntime,
+  invokeTauriCommand: runtimeState.invokeTauriCommandMock,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -24,16 +39,54 @@ vi.mock("@/components/modals/ImageGenModal", () => ({
 import DashboardView from "@/components/dashboard/DashboardView";
 import GalleryGrid from "@/components/gallery/GalleryGrid";
 import MediaTile from "@/components/media/MediaTile";
-import { resolveMediaAssetSrc } from "@/lib/mediaUrl";
+import {
+  extractBackendMediaPath,
+  normalizeMediaUrl,
+  resolveMediaAssetSrc,
+  resolveMediaSrc,
+} from "@/lib/mediaUrl";
 
 describe("media rendering", () => {
-  it("prefers src_url as the canonical image asset field", () => {
+  it("normalizes signed /media URLs while preserving query and hash", () => {
+    expect(resolveMediaSrc("/media/images/right.png?sig=abc123&download=1#viewer")).toBe(
+      "http://backend.test/media/images/right.png?sig=abc123&download=1#viewer"
+    );
+  });
+
+  it("normalizes relative media URLs without a leading slash", () => {
+    expect(resolveMediaSrc("media/images/right.png?sig=abc123#viewer")).toBe(
+      "http://backend.test/media/images/right.png?sig=abc123#viewer"
+    );
+  });
+
+  it("does not rewrite non-media absolute URLs", () => {
+    expect(resolveMediaSrc("https://cdn.example.com/image.png?sig=abc123#viewer")).toBe(
+      "https://cdn.example.com/image.png?sig=abc123#viewer"
+    );
+  });
+
+  it("extracts canonical backend media paths from relative and signed backend URLs", () => {
+    expect(extractBackendMediaPath("/media/images/right.png?sig=abc123#viewer")).toBe(
+      "/media/images/right.png"
+    );
+    expect(
+      extractBackendMediaPath("http://backend.test/media/images/right.png?sig=abc123#viewer")
+    ).toBe("/media/images/right.png");
+    expect(
+      extractBackendMediaPath("https://cdn.example.com/media/images/right.png?sig=abc123")
+    ).toBeNull();
+  });
+
+  it("keeps compatibility callers routed through the shared helper", () => {
+    expect(normalizeMediaUrl("media/images/compat.png?sig=keep#pane")).toBe(
+      "http://backend.test/media/images/compat.png?sig=keep#pane"
+    );
     expect(
       resolveMediaAssetSrc({
-        src_url: "/media/images/right.png",
+        src_url: "/media/images/right.png?sig=keep#pane",
         url: "/media/images/wrong.png",
       })
-    ).toBe("http://backend.test/media/images/right.png");
+    ).toBe("http://backend.test/media/images/right.png?sig=keep#pane");
   });
 
   it("renders gallery images through the shared normalized media path", () => {
@@ -42,7 +95,7 @@ describe("media rendering", () => {
         items={[
           {
             id: "gallery-1",
-            src: "/media/images/gallery.png",
+            src: "/media/images/gallery.png?sig=gallery#focus",
             prompt: "Gallery image",
           },
         ]}
@@ -52,7 +105,7 @@ describe("media rendering", () => {
 
     expect(screen.getByRole("img", { name: "Gallery image" })).toHaveAttribute(
       "src",
-      "http://backend.test/media/images/gallery.png"
+      "http://backend.test/media/images/gallery.png?sig=gallery#focus"
     );
     expect(container.querySelector(".codexifyMediaGrid--gallery")).toBeTruthy();
   });
@@ -73,7 +126,7 @@ describe("media rendering", () => {
         }}
         gallery={[
           {
-            src: "/media/images/dashboard.png",
+            src: "/media/images/dashboard.png?sig=dashboard#panel",
             prompt: "Dashboard image",
           },
         ]}
@@ -88,7 +141,10 @@ describe("media rendering", () => {
 
     expect(
       screen.getByRole("img", { name: "Dashboard image" })
-    ).toHaveAttribute("src", "http://backend.test/media/images/dashboard.png");
+    ).toHaveAttribute(
+      "src",
+      "http://backend.test/media/images/dashboard.png?sig=dashboard#panel"
+    );
   });
 
   it("renders every dashboard image without truncating the list", () => {

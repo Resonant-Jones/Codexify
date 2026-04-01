@@ -133,6 +133,13 @@ UI
   - The current code does not return a literal `accepted_degraded` string in the route payload, but the runtime now distinguishes this operational case from a cleanly observed acceptance.
   - In other words: acceptance can be real while observability is degraded.
 
+## Contract Alignment Note
+
+- This current queue-backed pipeline already distinguishes acceptance, execution, and terminal visibility as separate truths.
+- In this file, acceptance means lock acquisition plus enqueue, execution means the worker has started the completion attempt, and terminal visibility means a terminal task event and/or durable assistant persistence evidence is observable.
+- `docs/architecture/chat-runtime-contract.md` adds the frontend/shared-runtime contract for ambiguity this file does not resolve on its own, including slow local-model warmup, first-token wait ambiguity, orphaned or replayed attempts, and stable message identity versus per-attempt request identity.
+- That contract is normative for shared-runtime/frontend interpretation. This file remains a description of the currently scanned backend path, not a claim that every contract state is already emitted literally today.
+
 ## What Redis Is Doing In This Path
 
 - chat task queue: `codexify:queue:chat`

@@ -5,3 +5,8 @@ export type ChatExecution = {
   final_model: string;
   fallback_triggered: boolean;
 };
+
+export type StreamChunk = {
+  content?: string;
+  // Public contract is content-only. Do not add reasoning/thinking here.
+};

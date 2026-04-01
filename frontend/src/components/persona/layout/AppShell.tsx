@@ -31,19 +31,22 @@ import { Input } from "@/components/ui/input";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
-import WorkspacePane from "@/features/workspace/WorkspacePane";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
+import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
 import {
+  describeProviderState,
+  PROVIDER_RUNTIME_STATES,
   RUNTIME_HEALTH_FAILURE_KINDS,
   RUNTIME_HEALTH_STATUSES,
+  type ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
@@ -52,10 +55,22 @@ import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import ContextMenu from "@/components/ui/ContextMenu";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { ShareButton } from "@/components/ShareButton";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { useRuntimeRouteCapability } from "@/lib/runtimeRouteCapabilities";
+import {
+  useWorkspaceState,
+  type WorkspaceOpenRequest,
+} from "@/features/workspace/state/useWorkspaceState";
+import {
+  useWorkspaceUiState,
+  type WorkspaceDrawerTab,
+} from "@/features/workspace/state/useWorkspaceUiState";
+import { useWorkspaceLayoutMode } from "@/features/workspace/state/useWorkspaceLayoutMode";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -82,11 +97,22 @@ injectCssVars();
    ───────────────────────────────────────────────────────────────────────────── */
 type Resolved = "light" | "dark";
 type LayoutMode = "focus" | "zen";
+type AppShellView =
+  | "dashboard"
+  | "documents"
+  | "gallery"
+  | "guardian"
+  | "settings";
+type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
 type AppShellProps = PropsWithChildren<{
   startupLocked?: boolean;
   startupOverlay?: React.ReactNode;
 }>;
+
+function isWorkspaceShellView(view: AppShellView): view is WorkspaceShellView {
+  return view === "dashboard" || view === "documents" || view === "guardian";
+}
 
 function normalizeDoc(raw: any, idx = 0): DocItem {
   const filename =
@@ -228,7 +254,17 @@ function normalizeGallerySrc(value: unknown): string {
   return normalizeMediaUrl(trimmed);
 }
 
+function isTransientFailedGalleryItem(raw: any): boolean {
+  const candidate = raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url;
+  return (
+    Boolean(raw?.mock) &&
+    typeof candidate === "string" &&
+    candidate.trim().toLowerCase().startsWith("data:")
+  );
+}
+
 function normalizeGalleryItem(raw: any): GalleryItem | null {
+  if (isTransientFailedGalleryItem(raw)) return null;
   const src = normalizeGallerySrc(
     raw?.src ?? raw?.src_url ?? raw?.srcUrl ?? raw?.url
   );
@@ -242,6 +278,43 @@ function normalizeGalleryItem(raw: any): GalleryItem | null {
     prompt,
     mock: Boolean(raw?.mock),
   };
+}
+
+function AppShellGalleryImage({
+  src,
+  alt,
+}: {
+  src: string;
+  alt: string;
+}) {
+  const renderableSrc = useRenderableMediaSrc(src);
+  const [hasLoadError, setHasLoadError] = useState(false);
+
+  useEffect(() => {
+    setHasLoadError(false);
+  }, [renderableSrc.src]);
+
+  const showImage =
+    renderableSrc.status === "ready" &&
+    !!renderableSrc.src &&
+    !hasLoadError;
+
+  if (!showImage) {
+    return (
+      <div className="absolute inset-0 grid place-items-center text-xs opacity-70">
+        {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={renderableSrc.src}
+      alt={alt}
+      className="absolute inset-0 h-full w-full object-cover"
+      onError={() => setHasLoadError(true)}
+    />
+  );
 }
 
 function normalizeInterceptPath(url: unknown): string {
@@ -311,6 +384,23 @@ function normalizeProjectName(value: unknown): string {
 function isDefaultProjectAlias(value: unknown): boolean {
   const normalized = normalizeProjectName(value);
   return normalized === "general" || normalized === "loose threads";
+}
+
+async function createProjectApi(payload: { name: string; icon: string }) {
+  const paths = ["/api/projects", "/projects"];
+  let lastErr: any = null;
+  for (const path of paths) {
+    try {
+      return await api.post(path, payload);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error("Project create route unavailable");
 }
 
 function findDefaultProjectId(projects: any[]): number | null {
@@ -425,6 +515,10 @@ export default function AppShell({
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
   const { lastEvent } = useLiveEvents();
   const runtimeHealth = useRuntimeHealth();
+  const {
+    ready: codexCapabilityReady,
+    state: codexCapability,
+  } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.CODEX);
   const [guardianSurfaceEpoch, setGuardianSurfaceEpoch] = useState(0);
   const [sessionComposerBlocked, setSessionComposerBlocked] = useState<boolean>(
     () => SessionSpine.getRegisteredSpine()?.isComposerBlocked() ?? false
@@ -686,10 +780,13 @@ export default function AppShell({
      - `wallpaper`: Optional image for the background.
      - We persist the last view and wallpaper for a seamless return experience.
      ───────────────────────────────────────────────────────────────────────────── */
-  const [view, setView] = useState<"dashboard" | "documents" | "gallery" | "guardian" | "settings">(() =>
+  const [view, setView] = useState<AppShellView>(() =>
     (typeof window === "undefined" ? "dashboard" : ((localStorage.getItem("cfy.lastView") as any) || "dashboard"))
   );
-  const [workspaceOpen, setWorkspaceOpen] = useState<boolean>(false);
+  const workspaceShellEnabled = isWorkspaceShellView(view);
+  const workspaceRouteContext: WorkspaceShellView = workspaceShellEnabled
+    ? view
+    : "dashboard";
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalSaving, setProjectModalSaving] = useState(false);
   const [projectModalName, setProjectModalName] = useState("");
@@ -734,15 +831,10 @@ export default function AppShell({
       setProjectModalError(null);
       const iconValue = projectModalIcon.trim() || "📁";
       try {
-        // Backend projects routes are mounted at `/projects` (not under `/api`).
-        // Our Axios instance is typically configured with a base of `/api`, so using
-        // a relative URL like "/projects" would become "/api/projects" and 404.
-        // Use an absolute URL to bypass the base prefix while keeping Axios interceptors.
-        const projectsUrl =
-          typeof window !== "undefined"
-            ? `${window.location.origin}/projects`
-            : "/projects";
-        const response = await api.post(projectsUrl, { name: trimmedName, icon: iconValue });
+        const response = await createProjectApi({
+          name: trimmedName,
+          icon: iconValue,
+        });
         try {
           window.dispatchEvent(
             new CustomEvent("cfy:projects:refresh", {
@@ -786,7 +878,7 @@ export default function AppShell({
      - `documents`: List of available document items, with types and colors.
      - `gallery`: List of images for the gallery view.
      - `activeDoc`: Which document is open in the workspace.
-     - `openDocInPlace`: Helper to open a doc and reveal the workspace pane.
+     - Workspace open/close state now flows through the shared invocation hook.
      ───────────────────────────────────────────────────────────────────────────── */
   const defaultDocs: DocItem[] = [
     normalizeDoc({ id: "mock-covenant", name: "Covenant", ext: "pdf", mock: true }),
@@ -1003,6 +1095,17 @@ export default function AppShell({
         cancelled = true;
       };
     }
+    if (!codexCapabilityReady) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (codexCapability === "unavailable") {
+      setCodexEntries([]);
+      return () => {
+        cancelled = true;
+      };
+    }
     (async () => {
       try {
         const entries = await listCodexEntries();
@@ -1014,7 +1117,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [startupLocked]);
+  }, [codexCapability, codexCapabilityReady, startupLocked]);
   const codexDocs = useMemo<DocItem[]>(() => {
     if (!Array.isArray(codexEntries)) return [];
     return codexEntries.map((e, idx) => ({
@@ -1238,7 +1341,6 @@ export default function AppShell({
     "--image-grid-cols": "auto-fit",            // Can be set to fixed or responsive
 
     /* === DIMENSION CONSTRAINTS === */
-    "--workspace-w": "24rem",                   // Sidebar fixed width
     "--min-h": "clamp(520px, 70vh, 1000px)",    // Viewport vertical floor
     "--card-height": "clamp(480px, 70vh, 800px)", // Centralized card height
 
@@ -1487,12 +1589,72 @@ export default function AppShell({
     onAnyUpload: () => {},
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
-  const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
-  const [hideMocks, setHideMocks] = useState<boolean>(() => (typeof window !== "undefined" ? localStorage.getItem("cfy.hideMocks") === "true" : false));
+  const {
+    isOpen: workspaceDrawerOpen,
+    activeTab: workspaceDrawerTab,
+    setActiveTab: setWorkspaceDrawerTab,
+    open: openWorkspaceDrawer,
+    close: closeWorkspaceDrawerUi,
+  } = useWorkspaceUiState({
+    routeContext: workspaceRouteContext,
+  });
+  const {
+    paneRatio: workspacePaneRatio,
+    minPaneRatio: minWorkspacePaneRatio,
+    maxPaneRatio: maxWorkspacePaneRatio,
+    primaryPaneRatio,
+    workspacePaneBasis,
+    primaryPaneBasis,
+    primaryPaneMinWidth,
+    workspacePaneMinWidth,
+    layoutMode: workspaceLayoutMode,
+    isWorkspaceDominant,
+    ratioBucket: workspaceRatioBucket,
+  } = useWorkspaceLayoutMode({
+    isOpen: workspaceDrawerOpen,
+  });
+  const handleWorkspaceDrawerTabChange = useCallback(
+    (tab: WorkspaceDrawerTab) => {
+      setWorkspaceDrawerTab(tab);
+    },
+    [setWorkspaceDrawerTab]
+  );
+  const handleWorkspaceOpenRequest = useCallback(
+    (request: WorkspaceOpenRequest) => {
+      const doc = normalizeDoc(request.doc);
+      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
+      setDocuments((prev) => dedupeDocItems([doc, ...prev]));
+      setView(request.targetView === "guardian" ? "guardian" : "documents");
+      openWorkspaceDrawer("inspector");
+    },
+    [openWorkspaceDrawer]
+  );
+  const {
+    openWorkspaceDocument,
+    closeWorkspace: closeLegacyWorkspace,
+  } = useWorkspaceState({
+    normalizeDocument: (doc) => normalizeDoc(doc),
+    onOpenRequest: handleWorkspaceOpenRequest,
+  });
+  const closeWorkspaceDrawer = useCallback(() => {
+    closeWorkspaceDrawerUi();
+    closeLegacyWorkspace();
+  }, [closeLegacyWorkspace, closeWorkspaceDrawerUi]);
+  const toggleWorkspaceDrawer = useCallback(() => {
+    if (workspaceDrawerOpen) {
+      closeWorkspaceDrawer();
+      return;
+    }
+    openWorkspaceDrawer();
+  }, [closeWorkspaceDrawer, openWorkspaceDrawer, workspaceDrawerOpen]);
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
   const [showImgGenDashboard, setShowImgGenDashboard] = useState(false);
+  const galleryItemsToRender = useMemo(() => {
+    const realGallery = gallery.filter((item) => !item.mock);
+    return realGallery.length > 0 ? realGallery : gallery;
+  }, [gallery]);
 
   // Lightweight local vision captioner: analyze colors and aspect ratio
   async function localDescribeImage(src: string): Promise<string> {
@@ -1566,53 +1728,24 @@ export default function AppShell({
     try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Image prompt generated" } })); } catch {}
     setVisionBusySrc(null);
   }
-  // Helper to open a document and reveal the workspace
-  const openDocInPlace = (doc: DocumentLike) => {
-    setActiveDoc(doc);
-    setWorkspaceOpen(true);
-    setView("documents");
-  };
-  const openDocInThread = (doc: DocumentLike) => {
-    setActiveDoc(doc);
-    setWorkspaceOpen(true);
-    setView("guardian");
-    const displayName = doc.ext ? `${doc.title}.${doc.ext}` : doc.title;
+  const openDocInThread = useCallback((doc: DocumentLike) => {
+    const normalizedDoc = normalizeDoc(doc);
+    const didOpen = openWorkspaceDocument(normalizedDoc, {
+      source: "documents",
+      targetView: "guardian",
+    });
+    if (!didOpen) return;
+    const displayName = normalizedDoc.ext
+      ? `${normalizedDoc.title}.${normalizedDoc.ext}`
+      : normalizedDoc.title;
     setPrefill(`Let's review "${displayName}".`);
-  };
-  const toggleWorkspace = useCallback(() => {
-    setWorkspaceOpen((prev) => !prev);
-  }, []);
-  const closeWorkspace = useCallback(() => {
-    setWorkspaceOpen(false);
-  }, []);
-  const openDocFromWorkspace = (doc: DocumentLike | null) => {
-    if (!doc) return;
-    openDocInThread(doc);
-  };
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onOpen = (e: Event) => {
-      const detail = (e as CustomEvent).detail || {};
-      const raw = detail.doc ?? detail;
-      if (!raw) return;
-      const doc = normalizeDoc(raw);
-      setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
-      setDocuments((prev) => dedupeDocItems([doc, ...prev]));
-      openDocInPlace(doc);
-    };
-    window.addEventListener("cfy:documents:open", onOpen as EventListener);
-    return () =>
-      window.removeEventListener(
-        "cfy:documents:open",
-        onOpen as EventListener
-      );
-  }, [openDocInPlace, normalizeDoc]);
+  }, [openWorkspaceDocument]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
       return;
     }
     setPrefill(undefined);
-    setWorkspaceOpen(false);
+    closeWorkspaceDrawer();
     setView("guardian");
     if (typeof window !== "undefined") {
       try {
@@ -1627,7 +1760,7 @@ export default function AppShell({
       window.history.pushState({}, "", "/chat");
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, [auth]);
+  }, [auth, closeWorkspaceDrawer]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
@@ -1637,26 +1770,6 @@ export default function AppShell({
 
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); setView("guardian"); }
-
-  // Memoized layout helper for responsive document/workspace widths using breakpoints
-  const docsLayout = useMemo(() => {
-    if (!workspaceOpen) {
-      return { listFlex: "1 1 0%", workspaceW: "calc(0% - var(--gutter))" };
-    }
-    switch (bp) {
-      case "sm":
-      case "md":
-        // On small screens, keep documents full-width and collapse the workspace column
-        return { listFlex: "1 1 0%", workspaceW: "0%" };
-      case "lg":
-        return { listFlex: "0 0 50%", workspaceW: "calc(50% - var(--gutter))" };
-      case "xl":
-        return { listFlex: "0 0 45%", workspaceW: "calc(55% - var(--gutter))" };
-      case "2xl":
-      default:
-        return { listFlex: "0 0 40%", workspaceW: "calc(60% - var(--gutter))" };
-    }
-  }, [bp, workspaceOpen]);
 
   // Responsive layout helper for Settings view
   const settingsLayout = useMemo(() => {
@@ -1691,6 +1804,72 @@ export default function AppShell({
       }) as React.CSSProperties,
     [bp],
   );
+  const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
+  const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
+    ? {
+        flexBasis: primaryPaneBasis,
+        flexGrow: primaryPaneRatio,
+        flexShrink: 1,
+        minWidth: primaryPaneMinWidth,
+        minHeight: 0,
+      }
+    : {
+        flex: "1 1 0%",
+        minWidth: 0,
+        minHeight: 0,
+      };
+  const workspaceDrawerPaneStyle: React.CSSProperties = {
+    padding: "var(--board-edge)",
+    flexBasis: workspacePaneBasis,
+    flexGrow: workspacePaneRatio,
+    flexShrink: 1,
+    minWidth: workspacePaneMinWidth,
+    minHeight: "0",
+    maxHeight: "100%",
+    borderRadius: "var(--card-radius)",
+    boxShadow:
+      workspaceLayoutMode === "workspace_focus"
+        ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
+        : undefined,
+  };
+  const workspaceSplitSurfaceProps = workspaceShellEnabled
+    ? {
+        "data-testid": "workspace-layout-surface",
+        "data-workspace-layout-mode": workspaceLayoutMode,
+        "data-workspace-ratio-bucket": workspaceRatioBucket,
+        "data-workspace-dominant": isWorkspaceDominant ? "true" : "false",
+        "data-workspace-pane-ratio": workspacePaneRatio.toFixed(2),
+        "data-workspace-pane-ratio-min": minWorkspacePaneRatio.toFixed(2),
+        "data-workspace-pane-ratio-max": maxWorkspacePaneRatio.toFixed(2),
+      }
+    : {};
+  const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
+    <div
+      data-testid="workspace-drawer-pane"
+      data-pane-basis={workspacePaneBasis}
+      data-pane-min-width={workspacePaneMinWidth}
+      className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
+      style={workspaceDrawerPaneStyle}
+    >
+      <WorkspaceDrawer
+        routeContext={workspaceRouteContext}
+        isOpen={workspaceDrawerOpen}
+        activeTab={workspaceDrawerTab}
+        layoutMode={workspaceLayoutMode}
+        paneRatio={workspacePaneRatio}
+        minPaneRatio={minWorkspacePaneRatio}
+        maxPaneRatio={maxWorkspacePaneRatio}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) {
+            openWorkspaceDrawer();
+            return;
+          }
+          closeWorkspaceDrawer();
+        }}
+        onActiveTabChange={handleWorkspaceDrawerTabChange}
+      />
+    </div>
+  ) : null;
 
   const runtimeDegraded =
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
@@ -1702,6 +1881,14 @@ export default function AppShell({
     runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       ? runtimeHealth.llmDetail
       : null;
+
+  const providerRuntimeState: ProviderRuntimeState =
+    runtimeHealth.backendReachable === false
+      ? PROVIDER_RUNTIME_STATES.OFFLINE
+      : PROVIDER_RUNTIME_STATES.DEGRADED;
+
+  const runtimePresentation = describeProviderState(providerRuntimeState);
+
   const showRuntimeBanner =
     runtimeDegraded &&
     runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
@@ -1888,11 +2075,22 @@ export default function AppShell({
           >
             Settings
           </button>
-
-
         </div>
-        {activeRouteThreadId != null && (
-          <div className="flex items-center justify-end">
+        {(workspaceShellEnabled || activeRouteThreadId != null) && (
+          <div className="flex items-center justify-end gap-2">
+            {workspaceShellEnabled && (
+              <button
+                type="button"
+                className="pill-tab"
+                data-state={workspaceDrawerOpen ? "active" : "inactive"}
+                data-testid="workspace-drawer-toggle"
+                aria-pressed={workspaceDrawerOpen}
+                onClick={toggleWorkspaceDrawer}
+              >
+                Workspace
+              </button>
+            )}
+            {activeRouteThreadId != null && (
             <ShareButton
               targetType="thread"
               targetId={activeRouteThreadId}
@@ -1909,6 +2107,7 @@ export default function AppShell({
                   "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
               }}
             />
+            )}
           </div>
         )}
       </div>
@@ -1926,7 +2125,7 @@ export default function AppShell({
           >
             <div className="flex items-center justify-between gap-3">
               <span className="font-semibold tracking-wide">
-                Runtime degraded
+                {runtimePresentation.title}
               </span>
               <span className="opacity-80">failure: {runtimeFailureKind}</span>
               <span className="opacity-70">
@@ -1935,9 +2134,13 @@ export default function AppShell({
             </div>
             {runtimeDetail ? (
               <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
-                detail: {runtimeDetail}
+                {runtimePresentation.detail} — detail: {runtimeDetail}
               </div>
-            ) : null}
+            ) : (
+              <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
+                {runtimePresentation.detail}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1993,10 +2196,18 @@ export default function AppShell({
                 borderRadius: "var(--card-radius)",
               } as React.CSSProperties}
             >
-              <div className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]">
+              <div
+                className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]"
+                {...workspaceSplitSurfaceProps}
+              >
                 {/* LIST COLUMN (left) */}
                 <div
-                  className="min-w-0 flex-1 min-h-0 overflow-visible rounded-[var(--radius)]"
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-min-width={
+                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                  }
+                  className="min-w-0 min-h-0 overflow-visible rounded-[var(--radius)]"
                   style={{
                     padding: "var(--board-edge)",
                     width: "var(--w, auto)",
@@ -2005,10 +2216,9 @@ export default function AppShell({
                     height: "var(--h, auto)",
                     minHeight: "var(--min-h, 0)",
                     maxHeight: "var(--max-h, none)",
-                    flex: "var(--flex, 1 1 0%)",
-                    ["--flex"]: docsLayout.listFlex,
                     ["--min-h"]: "clamp(520px, 70vh, 1000px)",
-                    borderRadius: "var(--card-radius)"
+                    borderRadius: "var(--card-radius)",
+                    ...workspacePrimaryPaneStyle,
                   }}
                 >
                   <FrameCard
@@ -2020,7 +2230,6 @@ export default function AppShell({
                     <DocumentsView
                       documents={allDocuments}
                       extColors={extColors}
-                      onDocumentClick={openDocInPlace}
                       onOpenInThread={openDocInThread}
                       onDeleteDocument={deleteDocument}
                       defaultProjectId={generalProjectId}
@@ -2030,46 +2239,7 @@ export default function AppShell({
                     />
                   </FrameCard>
                 </div>
-
-                {/* WORKSPACE COLUMN (right) */}
-                {workspaceOpen && (
-                  <FrameCard
-                    fill
-                    refractiveFallback
-                    shimmerMode="subtle"
-                    className="shrink-0 overflow-hidden"
-                    style={{
-                      padding: "var(--board-edge)",
-                      width: "var(--w, var(--workspace-w))",
-                      maxWidth: "var(--max-w, none)",
-                      minWidth: "var(--min-w, 0)",
-                      height: "var(--h, auto)",
-                      minHeight: "var(--min-h, 0)",
-                      maxHeight: "var(--max-h, none)",
-                      flex: "var(--flex, 0 0 var(--workspace-w))",
-                      ["--w"]: docsLayout.workspaceW,
-                      ["--flex"]: "0 0 var(--w)",
-                      ["--min-h"]: "clamp(520px, 70vh, 1000px)",
-                    }}
-                  >
-                    <div className="relative h-full w-full min-h-0 overflow-hidden">
-                      <button
-                        onClick={closeWorkspace}
-                        className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
-                        style={{
-                          borderColor: "var(--panel-border)",
-                          color: "var(--muted)",
-                          background: "var(--panel-bg)",
-                        }}
-                        aria-label="Close workspace"
-                        title="Close"
-                      >
-                        ×
-                      </button>
-                      <WorkspacePane activeDoc={activeDoc} onOpenInThread={openDocFromWorkspace} />
-                    </div>
-                  </FrameCard>
-                )}
+                {sharedWorkspaceDrawer}
               </div>
             </div>
           )}
@@ -2089,7 +2259,7 @@ export default function AppShell({
                     onDrop={galleryUploader.onDrop}
                     onDragOver={galleryUploader.onDragOver}
                   >
-                    {(hideMocks ? gallery.filter(g => !g.mock) : gallery).map((g, i) => {
+                    {galleryItemsToRender.map((g, i) => {
                       const resolvedSrc = normalizeGallerySrc(g.src) || g.src;
                       return (
                       <div
@@ -2104,7 +2274,7 @@ export default function AppShell({
                         }}
                         onContextMenu={(e) => { e.preventDefault(); setGalleryMenu({ x: e.clientX, y: e.clientY, src: resolvedSrc }); }}
                       >
-                        <img src={resolvedSrc} alt={g.prompt} className="absolute inset-0 h-full w-full object-cover" />
+                        <AppShellGalleryImage src={resolvedSrc} alt={g.prompt} />
                         {visionBusySrc === resolvedSrc && (
                           <div className="absolute inset-0 grid place-items-center bg-black/40">
                             <div className="h-6 w-6 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
@@ -2131,51 +2301,59 @@ export default function AppShell({
                     <div>Drag & drop images or documents here, or</div>
                     <button type="button" className="underline" onClick={galleryUploader.pick}>Choose files</button>
                     <button type="button" className="underline ml-2" onClick={() => setShowImgGenGallery(true)}>Generate Image</button>
-                    <div className="ml-auto flex items-center gap-2">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={hideMocks} onChange={(e) => { setHideMocks(e.target.checked); try { localStorage.setItem("cfy.hideMocks", String(e.target.checked)); } catch {} }} />
-                        Hide Mock Items
-                      </label>
-                    </div>
                   </div>
                 </div>
               </FrameCard>
               <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
           )}
-          {!startupLocked && (
+          {!startupLocked && view === "guardian" && (
             <div
-              className="flex-1 h-full w-full min-h-0 isolate flex flex-col"
-              aria-hidden={view !== "guardian"}
-              aria-busy={view === "guardian" ? sessionComposerBlocked : undefined}
-              data-composer-blocked={
-                view === "guardian" && sessionComposerBlocked ? "true" : "false"
-              }
-              hidden={view !== "guardian"}
-              style={{
-                "--frame": "1px",
-                "--bezel": "var(--bezel, 6px)",
-                "--rim": "1px",
-                height: "100%",
-                width: "100%",
-                display: view === "guardian" ? "flex" : "none",
-                flexDirection: "column",
-              } as React.CSSProperties}
+              className="h-full w-full isolate"
+              style={{ "--gutter": "16px" } as React.CSSProperties}
             >
-              <ErrorBoundary>
-                <GuardianChatWithSidebar
-                  key={`guardian-surface-${guardianSurfaceEpoch}`}
-                  guardianName={guardianName}
-                  userName={userName}
-                  prefill={prefill}
-                  onPrefillConsumed={() => setPrefill(undefined)}
-                  onWorkspaceToggle={toggleWorkspace}
-                  workspaceOpen={workspaceOpen}
-                  activeWorkspaceDoc={activeDoc}
-                  onWorkspaceClose={closeWorkspace}
-                  onWorkspaceOpenInThread={openDocFromWorkspace}
-                />
-              </ErrorBoundary>
+              <div
+                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                {...workspaceSplitSurfaceProps}
+              >
+                <div
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-min-width={
+                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                  }
+                  className="min-h-0 min-w-0"
+                  style={workspacePrimaryPaneStyle}
+                >
+                  <div
+                    className="flex h-full w-full min-h-0 isolate flex-col"
+                    aria-busy={sessionComposerBlocked}
+                    data-composer-blocked={
+                      sessionComposerBlocked ? "true" : "false"
+                    }
+                    style={{
+                      "--frame": "1px",
+                      "--bezel": "var(--bezel, 6px)",
+                      "--rim": "1px",
+                    } as React.CSSProperties}
+                  >
+                    <ErrorBoundary>
+                      <GuardianChatWithSidebar
+                        key={`guardian-surface-${guardianSurfaceEpoch}`}
+                        guardianName={guardianName}
+                        userName={userName}
+                        prefill={prefill}
+                        onPrefillConsumed={() => setPrefill(undefined)}
+                        onWorkspaceToggle={toggleWorkspaceDrawer}
+                        workspaceOpen={false}
+                        activeWorkspaceDoc={null}
+                        onWorkspaceClose={closeWorkspaceDrawer}
+                      />
+                    </ErrorBoundary>
+                  </div>
+                </div>
+                {sharedWorkspaceDrawer}
+              </div>
             </div>
           )}
           {!startupLocked && view === "dashboard" && (
@@ -2183,8 +2361,19 @@ export default function AppShell({
               className="h-full w-full isolate"
               style={{ "--gutter": "16px" } as React.CSSProperties}
             >
-              <div className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch">
-                <div className="min-h-0 flex-1">
+              <div
+                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                {...workspaceSplitSurfaceProps}
+              >
+                <div
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-min-width={
+                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                  }
+                  className="min-h-0 min-w-0"
+                  style={workspacePrimaryPaneStyle}
+                >
                   <DashboardView
                     extColors={extColors}
                     gallery={gallery}
@@ -2196,74 +2385,7 @@ export default function AppShell({
                     threadGridRows={dashboardThreadRows}
                   />
                 </div>
-
-                {/* RIGHT COLUMN : workspace drawer */}
-                {workspaceOpen && (
-                  <div
-                    className="rounded-[var(--radius)] shrink-0 overflow-visible"
-                    style={{
-                      padding: "var(--board-edge)",
-                      width: "var(--workspace-w)",
-                      flex: "0 0 var(--workspace-w)",
-                      minHeight: "0",
-                      maxHeight: "100%",
-                      borderRadius: "var(--card-radius)"
-                    }}
-                  >
-                    <div
-                      className="rounded-[var(--radius)]"
-                      style={{
-                        background: "var(--chip-bg)",
-                        padding: "var(--frame)",
-                        border: "var(--bezel, 6px) solid var(--panel-bezel)",
-                        borderRadius: "var(--card-radius)"
-                      }}
-                    >
-                      <div
-                        className="rounded-[var(--radius)]"
-                        style={{
-                          background:
-                            "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00))",
-                          padding: "var(--rim)",
-                          borderRadius: "var(--card-radius)"
-                        }}
-                      >
-                        <div className="relative rounded-[var(--radius)] h-full">
-                          <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--radius)] pointer-events-none">
-                            <RefractiveGlassCard
-                              wallpaperUrl={activeWallpaper}
-                              className="w-full h-full rounded-[var(--radius)]"
-                              style={{ background: "transparent", border: "none" }}
-                              intensity={0.006}
-                              aberration={0}
-                            />
-                          </div>
-                          <FrameCard
-                            fill
-                            refractiveFallback
-                            shimmerMode="subtle"
-                            className="relative h-full w-full min-h-0 overflow-hidden"
-                          >
-                            <button
-                              onClick={closeWorkspace}
-                              className="absolute top-2 right-2 z-10 h-6 w-6 rounded-full border text-xs flex items-center justify-center hover:opacity-90"
-                              style={{
-                                borderColor: "var(--panel-border)",
-                                color: "var(--muted)",
-                                background: "var(--panel-bg)",
-                              }}
-                              aria-label="Close workspace"
-                              title="Close"
-                            >
-                              ×
-                            </button>
-                            <WorkspacePane activeDoc={activeDoc} onOpenInThread={openDocFromWorkspace} />
-                          </FrameCard>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {sharedWorkspaceDrawer}
               </div>
             </div>
           )}
@@ -2410,7 +2532,6 @@ export default function AppShell({
                 }}}));
               } catch {}
             }}] : []),
-            { label: hideMocks ? "Show Mock Items" : "Hide Mock Items", onClick: () => { const v = !hideMocks; setHideMocks(v); try { localStorage.setItem("cfy.hideMocks", String(v)); } catch {} } },
           ]}
         />
       )}

@@ -82,8 +82,7 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
   }, [previewUrl]);
 
   const isPdf = useMemo(() => {
-    if (!previewUrl) return false;
-    return previewUrl.toLowerCase().includes(".pdf") || previewUrl.toLowerCase().startsWith("data:application/pdf");
+    return previewUrl ? isPdfMediaUrl(previewUrl) : false;
   }, [previewUrl]);
   const [codexEntry, setCodexEntry] = useState<CodexEntry | null>(null);
   const [loading, setLoading] = useState(false);

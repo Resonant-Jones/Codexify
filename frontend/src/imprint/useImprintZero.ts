@@ -14,7 +14,12 @@ import {
 
 type ProposalState = ImprintProposal | null;
 
-export function useImprintZero() {
+type UseImprintZeroOptions = {
+  enabled?: boolean;
+};
+
+export function useImprintZero(options: UseImprintZeroOptions = {}) {
+  const enabled = options.enabled ?? true;
   const [status, setStatus] = useState<ImprintStatus | null>(null);
   const [proposal, setProposal] = useState<ProposalState>(null);
   const [loading, setLoading] = useState(false);
@@ -22,6 +27,7 @@ export function useImprintZero() {
   const [systemDocs, setSystemDocs] = useState<Array<{ id: number; title: string; scope: string; enabled: boolean; token_estimate: number }>>([]);
 
   const refreshStatus = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     setError(null);
     try {
@@ -32,9 +38,10 @@ export function useImprintZero() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   const propose = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     setError(null);
     try {
@@ -45,19 +52,21 @@ export function useImprintZero() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   const refreshSystemPromptSummary = useCallback(async () => {
+    if (!enabled) return;
     try {
       const data = await fetchSystemPromptSummary();
       setStatus((prev) => ({ ...(prev || {}), system_prompt_meta: data }));
     } catch (e) {
       // ignore summary errors; not fatal
     }
-  }, []);
+  }, [enabled]);
 
   const accept = useCallback(
     async (personaOverride?: string) => {
+      if (!enabled) return null;
       if (!proposal) return null;
       setLoading(true);
       setError(null);
@@ -72,10 +81,11 @@ export function useImprintZero() {
         setLoading(false);
       }
     },
-    [proposal, refreshStatus, refreshSystemPromptSummary]
+    [enabled, proposal, refreshStatus, refreshSystemPromptSummary]
   );
 
   const reject = useCallback(async () => {
+    if (!enabled) return;
     if (!proposal) return;
     setLoading(true);
     setError(null);
@@ -87,19 +97,21 @@ export function useImprintZero() {
     } finally {
       setLoading(false);
     }
-  }, [proposal]);
+  }, [enabled, proposal]);
 
   const refreshSystemDocs = useCallback(async () => {
+    if (!enabled) return;
     try {
       const data = await fetchSystemDocs();
       setSystemDocs(data?.docs || []);
     } catch (e) {
       // ignore errors
     }
-  }, []);
+  }, [enabled]);
 
   const updatePersona = useCallback(
     async (body: string) => {
+      if (!enabled) return;
       setLoading(true);
       setError(null);
       try {
@@ -112,28 +124,37 @@ export function useImprintZero() {
         setLoading(false);
       }
     },
-    [refreshStatus, refreshSystemPromptSummary]
+    [enabled, refreshStatus, refreshSystemPromptSummary]
   );
 
   const toggleSystemDoc = useCallback(
-    async (docId: number, enabled: boolean) => {
+    async (docId: number, nextEnabled: boolean) => {
+      if (!enabled) return;
       try {
-        await toggleSystemDocApi(docId, enabled);
+        await toggleSystemDocApi(docId, nextEnabled);
         await refreshSystemDocs();
         await refreshSystemPromptSummary();
       } catch (e: any) {
         setError(e?.message || "Failed to toggle system doc");
       }
     },
-    [refreshSystemDocs, refreshSystemPromptSummary]
+    [enabled, refreshSystemDocs, refreshSystemPromptSummary]
   );
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus(null);
+      setProposal(null);
+      setLoading(false);
+      setError(null);
+      setSystemDocs([]);
+      return;
+    }
     void refreshStatus().then(() => {
       void refreshSystemPromptSummary();
       void refreshSystemDocs();
     });
-  }, [refreshStatus, refreshSystemDocs, refreshSystemPromptSummary]);
+  }, [enabled, refreshStatus, refreshSystemDocs, refreshSystemPromptSummary]);
 
   const hasLargePrompt = useMemo(() => {
     const meta = status?.system_prompt_meta;

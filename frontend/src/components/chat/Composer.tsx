@@ -30,6 +30,11 @@ import { Send, Sparkles, ImagePlus, Paperclip, Plus, X, FileText } from "lucide-
 import { ModelProvider } from "@/Providers/ModelProvider";
 import api from "@/lib/api";
 
+import {
+  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
+  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+} from "@/features/chat/chatLane";
+
 /**
  * Read a CSS variable from the document root with a fallback.
  * This utility is server-safe (returns fallback if `window` is undefined).
@@ -432,7 +437,7 @@ export function Composer({
     <ModelProvider>
       <div
         data-composer-root
-        className="w-full max-w-none mx-0 flex items-end gap-2 rounded-2xl border px-[var(--composer-pad-x,12px)] py-[var(--composer-pad-y,12px)]"
+        className="w-full max-w-none mx-0 flex items-end gap-2 rounded-2xl border px-[var(--composer-pad-x,12px)] py-[var(--composer-pad-y,12px)] pr-[max(var(--composer-pad-x,12px),16px)]"
         style={{
           margin: 0,
           background: bg,
@@ -500,7 +505,10 @@ export function Composer({
         }}
       />
 
-      <div data-send-wrap className="shrink-0 m-0 flex gap-2">
+      <div
+        data-send-wrap
+        className={`shrink-0 m-0 flex gap-2 ${CHAT_COMPOSER_SEND_EDGE_INSET_CLASS} ${CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS}`}
+      >
         {/* Hidden file inputs (triggered by the attachment buttons) */}
         <input
           ref={imageInputRef}

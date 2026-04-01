@@ -1,7 +1,10 @@
 import json
+import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -228,3 +231,60 @@ def test_system_docs_toggle():
             "/api/system_docs/toggle", json={"doc_id": 5, "enabled": False}
         )
     assert resp.status_code == 200
+
+
+def test_server_app_mounts_persona_save_route(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    sys.modules.setdefault(
+        "notion_client", types.SimpleNamespace(Client=object)
+    )
+
+    from fastapi import APIRouter
+
+    tools_stub = types.ModuleType("guardian.server.tools_api")
+    tools_stub.router = APIRouter()
+    sys.modules["guardian.server.tools_api"] = tools_stub
+
+    persona_obj = SimpleNamespace(
+        id=11,
+        body="Saved prompt",
+        source="user",
+        is_active=True,
+        created_at="2026-03-30T12:00:00Z",
+    )
+
+    monkeypatch.setattr(
+        imprint_routes.user_settings_store,
+        "get_user_settings",
+        lambda _user_id: {
+            "memory_mode": "light",
+            "diary_requires_unlock": False,
+            "allow_sensitive_modeling": False,
+        },
+        raising=True,
+    )
+
+    with (
+        patch.object(
+            imprint_routes.persona_store,
+            "set_persona",
+            return_value=persona_obj,
+        ),
+        patch.object(
+            imprint_routes.user_settings_store,
+            "set_system_prompt",
+            return_value=None,
+            create=True,
+        ),
+    ):
+        from guardian.server.app import app
+
+        client = TestClient(app)
+        resp = client.post(
+            "/api/imprint/persona", json={"body": "Saved prompt"}
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["id"] == persona_obj.id
+    assert resp.json()["body"] == "Saved prompt"

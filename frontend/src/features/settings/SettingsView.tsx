@@ -31,7 +31,17 @@ import {
   setRuntimeApiKey,
 } from "@/lib/api";
 import { updatePersonaSettings } from "@/features/settings/api/persona";
+import {
+  SUPPORTED_PROFILE_ROUTE_LABELS,
+  type RuntimeRouteCapabilityState,
+} from "@/contracts/supportedProfileRoutes";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
+import {
+  ensureRuntimeRouteCapabilitiesLoaded,
+  getRuntimeRouteCapabilityState,
+  markRuntimeRouteUnavailableIfNotFound,
+  useRuntimeRouteCapabilities,
+} from "@/lib/runtimeRouteCapabilities";
 import type { RuntimeConfig } from "@/lib/runtimeConfig";
 
 type ImportRuntimeStatus =
@@ -196,6 +206,47 @@ function normalizeTaskEventStatus(
   return null;
 }
 
+function getResponseErrorMessage(error: unknown): string | null {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response
+  ) {
+    const response = error.response as {
+      data?: { detail?: unknown; error?: unknown };
+    };
+    if (
+      typeof response.data?.detail === "string" &&
+      response.data.detail.trim()
+    ) {
+      return response.data.detail;
+    }
+    if (
+      typeof response.data?.error === "string" &&
+      response.data.error.trim()
+    ) {
+      return response.data.error;
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return null;
+}
+
+function readRouteThreadId(): number | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/chat\/(\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function SettingsView({
   mode,
   setMode,
@@ -263,6 +314,9 @@ export function SettingsView({
   const [uRole, setURole] = useState(role);
   const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
+  const [activeThreadId, setActiveThreadId] = useState<number | null>(() =>
+    readRouteThreadId()
+  );
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
   const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
   const [desktopApiKeyInput, setDesktopApiKeyInput] = useState("");
@@ -285,14 +339,55 @@ export function SettingsView({
   const shouldShowImportStatusPanel = importStatus !== "idle" && !importPanelHidden;
   const importElapsed = formatElapsed(importStartedAt, importNow);
   const [systemPromptSaveStatus, setSystemPromptSaveStatus] = useState<
-    "idle" | "saving" | "saved" | "error"
+    "idle" | "saving" | "success" | "warning" | "error"
   >("idle");
+  const [systemPromptSaveMessage, setSystemPromptSaveMessage] = useState<
+    string | null
+  >(null);
   const [systemPromptSaveError, setSystemPromptSaveError] = useState<string | null>(
     null
   );
+  const [systemPromptSyncRetryNeeded, setSystemPromptSyncRetryNeeded] =
+    useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const syncActiveThreadId = () => {
+      setActiveThreadId(readRouteThreadId());
+    };
+
+    syncActiveThreadId();
+    window.addEventListener("popstate", syncActiveThreadId);
+    window.addEventListener(
+      "cfy:threads:refresh",
+      syncActiveThreadId as EventListener
+    );
+
+    return () => {
+      window.removeEventListener("popstate", syncActiveThreadId);
+      window.removeEventListener(
+        "cfy:threads:refresh",
+        syncActiveThreadId as EventListener
+      );
+    };
+  }, []);
   const [lastSavedPersonaId, setLastSavedPersonaId] = useState<number | null>(
     null
   );
+  const {
+    ready: runtimeCapabilitiesReady,
+    states: runtimeRouteStates,
+  } = useRuntimeRouteCapabilities([
+    SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT,
+    SUPPORTED_PROFILE_ROUTE_LABELS.CONNECTORS,
+  ]);
+  const imprintCapability =
+    runtimeRouteStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] ?? "unknown";
+  const connectorsCapability =
+    runtimeRouteStates[SUPPORTED_PROFILE_ROUTE_LABELS.CONNECTORS] ?? "unknown";
 
   function resetImportStatus() {
     setImportTaskId(null);
@@ -323,8 +418,9 @@ export function SettingsView({
   useEffect(() => setMemo(notes), [notes]);
   useEffect(() => {
     setSystemPromptSaveStatus("idle");
+    setSystemPromptSaveMessage(null);
     setSystemPromptSaveError(null);
-  }, [prompt]);
+  }, [memo, name, prompt, uName, uRole]);
   useEffect(() => {
     if (!desktopMode) return;
     const settings = getDesktopConnectionSettings();
@@ -617,13 +713,18 @@ export function SettingsView({
   }, []);
 
   async function handleSave() {
-    const dirty = prompt !== systemPrompt;
+    const localDirty =
+      name !== guardianName ||
+      uName !== userName ||
+      uRole !== role ||
+      memo !== notes ||
+      prompt !== systemPrompt;
     const userId = (uName || userName || "default").trim() || "default";
     const personaId = lastSavedPersonaId;
     console.log("[SystemPrompt] Save clicked", {
       value: prompt,
       length: prompt?.length,
-      dirty,
+      dirty: localDirty,
       userId,
       personaId,
     });
@@ -631,9 +732,14 @@ export function SettingsView({
     setUserName(uName);
     setRole(uRole);
     setNotes(memo);
+    setSystemPrompt(prompt);
 
-    if (!dirty) {
-      setSystemPromptSaveStatus("saved");
+    const shouldAttemptPersonaSync =
+      prompt !== systemPrompt || systemPromptSyncRetryNeeded;
+
+    if (!localDirty && !shouldAttemptPersonaSync) {
+      setSystemPromptSaveStatus("success");
+      setSystemPromptSaveMessage("Saved locally.");
       return;
     }
 
@@ -650,41 +756,58 @@ export function SettingsView({
     console.log("[SystemPrompt] Persist payload", payload);
 
     setSystemPromptSaveStatus("saving");
+    setSystemPromptSaveMessage(null);
     setSystemPromptSaveError(null);
+    if (!shouldAttemptPersonaSync) {
+      setSystemPromptSaveStatus("success");
+      setSystemPromptSaveMessage("Saved locally.");
+      return;
+    }
+
+    await ensureRuntimeRouteCapabilitiesLoaded();
+    const resolvedImprintCapability: RuntimeRouteCapabilityState =
+      getRuntimeRouteCapabilityState(SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT);
+
+    if (resolvedImprintCapability === "unavailable") {
+      setSystemPromptSyncRetryNeeded(false);
+      setSystemPromptSaveStatus("warning");
+      setSystemPromptSaveMessage(
+        "Saved locally. Not synced to runtime persona layer in this profile."
+      );
+      return;
+    }
+
     try {
       const response = await updatePersonaSettings(payload);
       console.log("[SystemPrompt] Save response", response);
-      setSystemPrompt(prompt);
       setLastSavedPersonaId(response.id);
-      setSystemPromptSaveStatus("saved");
+      setSystemPromptSyncRetryNeeded(false);
+      setSystemPromptSaveStatus("success");
+      setSystemPromptSaveMessage(
+        "Saved locally and synced to runtime persona layer."
+      );
     } catch (error) {
       console.error("[SystemPrompt] Save failed", error);
-      setSystemPromptSaveStatus("error");
       if (
-        error &&
-        typeof error === "object" &&
-        "response" in error &&
-        error.response &&
-        typeof error.response === "object" &&
-        "data" in error.response
+        markRuntimeRouteUnavailableIfNotFound(
+          SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT,
+          error
+        )
       ) {
-        const response = error.response as {
-          data?: { detail?: unknown; error?: unknown };
-        };
-        if (typeof response.data?.detail === "string" && response.data.detail.trim()) {
-          setSystemPromptSaveError(response.data.detail);
-          return;
-        }
-        if (typeof response.data?.error === "string" && response.data.error.trim()) {
-          setSystemPromptSaveError(response.data.error);
-          return;
-        }
-      }
-      if (error instanceof Error && error.message.trim()) {
-        setSystemPromptSaveError(error.message);
+        setSystemPromptSyncRetryNeeded(false);
+        setSystemPromptSaveStatus("warning");
+        setSystemPromptSaveMessage(
+          "Saved locally. Not synced to runtime persona layer in this profile."
+        );
         return;
       }
-      setSystemPromptSaveError("Failed to save system prompt.");
+
+      setSystemPromptSyncRetryNeeded(true);
+      setSystemPromptSaveStatus("warning");
+      setSystemPromptSaveMessage("Saved locally. Persona sync failed.");
+      setSystemPromptSaveError(
+        getResponseErrorMessage(error) ?? "Persona sync failed."
+      );
     }
   }
 
@@ -826,7 +949,19 @@ export function SettingsView({
     window.location.href = exportUrl;
   }
 
-  const { connectors, updateConnector, loading, error, authorizeOAuth, testConnector, syncConnector } = useConnectors();
+  const connectorsEnabled =
+    tab === "connectors" &&
+    runtimeCapabilitiesReady &&
+    connectorsCapability !== "unavailable";
+  const {
+    connectors,
+    updateConnector,
+    loading,
+    error,
+    authorizeOAuth,
+    testConnector,
+    syncConnector,
+  } = useConnectors({ enabled: connectorsEnabled });
 
   return (
     <div className="w-full" style={{ color: "var(--text)" }}>
@@ -879,6 +1014,11 @@ export function SettingsView({
             <div className="space-y-1">
               <div className="text-sm font-medium">System Prompt</div>
               <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
+              <div className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
+                {imprintCapability === "unavailable"
+                  ? "This prompt is saved locally in the current runtime profile. Runtime persona sync is unavailable here."
+                  : "This prompt is always saved locally. When the current runtime profile supports it, it is also synced to the runtime persona layer."}
+              </div>
             </div>
             <div className="space-y-1">
               <div className="text-sm font-medium">Notes</div>
@@ -894,9 +1034,17 @@ export function SettingsView({
                 >
                   {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
                 </Button>
-                {systemPromptSaveStatus === "saved" && (
-                  <span className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
-                    System prompt saved.
+                {systemPromptSaveMessage && (
+                  <span
+                    className="text-xs opacity-70"
+                    style={{
+                      color:
+                        systemPromptSaveStatus === "warning"
+                          ? "rgb(245, 158, 11)"
+                          : "var(--muted)",
+                    }}
+                  >
+                    {systemPromptSaveMessage}
                   </span>
                 )}
               </div>
@@ -1032,9 +1180,23 @@ export function SettingsView({
 
         {tab === "connectors" && (
           <div className="space-y-4">
+            {runtimeCapabilitiesReady &&
+              connectorsCapability === "unavailable" && (
+                <div className="text-sm opacity-70">
+                  Connectors are unavailable in this runtime profile.
+                </div>
+              )}
+            {!runtimeCapabilitiesReady && (
+              <div className="text-sm opacity-70">
+                Checking connector availability…
+              </div>
+            )}
             {loading && <div className="text-sm opacity-70">Loading connectors…</div>}
             {error && <div className="text-sm text-red-500">{error}</div>}
-            {Array.isArray(connectors) && connectors.length > 0 ? (
+            {runtimeCapabilitiesReady &&
+            connectorsCapability !== "unavailable" &&
+            Array.isArray(connectors) &&
+            connectors.length > 0 ? (
               connectors.map((connector) => (
                 <ConnectorCard
                   key={connector.id}
@@ -1046,7 +1208,10 @@ export function SettingsView({
                 />
               ))
             ) : (
-              !loading && !error && (
+              runtimeCapabilitiesReady &&
+              connectorsCapability !== "unavailable" &&
+              !loading &&
+              !error && (
                 <div className="text-sm opacity-70">No connectors available</div>
               )
             )}
@@ -1327,7 +1492,7 @@ export function SettingsView({
 
         {tab === "diagnostics" && (
           <div className="space-y-4">
-            <MemoryBrowser />
+            <MemoryBrowser activeThreadId={activeThreadId} />
           </div>
         )}
       </div>
