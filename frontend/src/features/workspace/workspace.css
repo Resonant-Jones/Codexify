@@ -36,11 +36,24 @@
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  overflow: auto;
-  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 12px;
   background: var(--panel-bg);
   color: var(--text);
+}
+
+.codexifyWorkspacePreviewSurface {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  padding: 12px;
+  background: color-mix(in oklab, var(--panel-bg) 94%, transparent);
 }
 
 .codexifyWorkspaceViewer--embed {
@@ -57,7 +70,10 @@
 
 .codexifyWorkspaceViewer iframe,
 .codexifyWorkspaceViewer embed,
-.codexifyWorkspaceViewer object {
+.codexifyWorkspaceViewer object,
+.codexifyWorkspaceMediaPreview iframe,
+.codexifyWorkspaceMediaPreview embed,
+.codexifyWorkspaceMediaPreview object {
   width: 100%;
   height: 100%;
   border: 0;
@@ -87,18 +103,47 @@
   text-decoration: underline;
 }
 
-.codexifyWorkspaceCodexHeader {
+.codexifyWorkspaceMetadata {
+  flex: 0 0 auto;
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 0.75rem;
-  margin-bottom: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 2px 2px;
 }
 
-.codexifyWorkspaceCodexTitle {
+.codexifyWorkspaceMetadataHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.codexifyWorkspaceMetadataTitle {
   font-size: 0.875rem;
   font-weight: 600;
+  color: var(--text);
+}
+
+.codexifyWorkspaceMetadataGrid {
+  display: grid;
+  gap: 0.5rem 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin: 0;
+}
+
+.codexifyWorkspaceMetadataItem dt {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.codexifyWorkspaceMetadataItem dd {
+  margin: 0.15rem 0 0;
+  color: var(--text);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }
 
 .codexifyWorkspaceError {
@@ -115,4 +160,52 @@
 
 .codexifyWorkspaceMarkdown {
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.codexifyWorkspacePlaintext {
+  margin: 0;
+  width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace;
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.codexifyWorkspaceState {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.35rem;
+  color: var(--muted);
+}
+
+.codexifyWorkspaceState--muted {
+  color: var(--muted);
+}
+
+.codexifyWorkspaceState--error {
+  color: rgb(248 113 113);
+}
+
+.codexifyWorkspaceStateTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.codexifyWorkspaceState--error .codexifyWorkspaceStateTitle {
+  color: rgb(248 113 113);
+}
+
+.codexifyWorkspaceMediaPreview {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

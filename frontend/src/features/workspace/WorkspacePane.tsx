@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { DocumentLike } from "@/types/documents";
 import { Button } from "@/components/ui/button";
 import { getCodexEntry, getCodexExportUrl, CodexEntry } from "@/api/codex";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import WorkspaceViewer from "./WorkspaceViewer";
 import "./workspace.css";
 
@@ -10,26 +11,74 @@ type WorkspacePaneProps = {
   onOpenInThread?: (doc: DocumentLike | null) => void;
 };
 
-export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePaneProps) {
-  const resolvePreviewUrl = useCallback((): string | null => {
-    if (!activeDoc) return null;
-    // DocumentLike varies across the app; tolerate several common shapes.
-    const anyDoc: any = activeDoc as any;
-    const url =
-      (typeof anyDoc.src_url === "string" && anyDoc.src_url) ||
-      (typeof anyDoc.srcUrl === "string" && anyDoc.srcUrl) ||
-      (typeof anyDoc.url === "string" && anyDoc.url) ||
-      (typeof anyDoc.src === "string" && anyDoc.src) ||
-      null;
-    return url && url.trim() ? url : null;
-  }, [activeDoc]);
+function readDocString(doc: DocumentLike | null | undefined, fields: string[]): string | null {
+  if (!doc) return null;
+  const anyDoc = doc as Record<string, unknown>;
+  for (const field of fields) {
+    const value = anyDoc[field];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return value;
+  }
+  return null;
+}
 
-  const previewUrl = resolvePreviewUrl();
+function resolvePreviewUrl(doc: DocumentLike | null | undefined): string | null {
+  if (!doc) return null;
+  const anyDoc = doc as Record<string, unknown>;
+  const url =
+    readDocString(doc, ["src_url", "srcUrl", "url", "src"]) ||
+    (typeof anyDoc.previewUrl === "string" && anyDoc.previewUrl.trim()
+      ? anyDoc.previewUrl
+      : null);
+  if (!url) return null;
+  const normalized = normalizeMediaUrl(url);
+  return normalized || null;
+}
+
+function resolvePreviewText(doc: DocumentLike | null | undefined): string | null {
+  return readDocString(doc, [
+    "content",
+    "body",
+    "text",
+    "snippet",
+    "parsed_text",
+    "parsedText",
+    "markdown",
+    "preview",
+    "rawText",
+  ]);
+}
+
+function resolvePreviewMimeType(doc: DocumentLike | null | undefined): string | null {
+  return readDocString(doc, [
+    "mime_type",
+    "mimeType",
+    "content_type",
+    "contentType",
+  ]);
+}
+
+export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePaneProps) {
+  const previewUrl = useMemo(() => resolvePreviewUrl(activeDoc), [activeDoc]);
+  const previewText = useMemo(() => resolvePreviewText(activeDoc), [activeDoc]);
+  const previewMimeType = useMemo(
+    () => resolvePreviewMimeType(activeDoc),
+    [activeDoc]
+  );
 
   const isImage = useMemo(() => {
     if (!previewUrl) return false;
     const u = previewUrl.toLowerCase();
-    return u.endsWith(".png") || u.endsWith(".jpg") || u.endsWith(".jpeg") || u.endsWith(".webp") || u.startsWith("data:image/");
+    return (
+      u.endsWith(".png") ||
+      u.endsWith(".jpg") ||
+      u.endsWith(".jpeg") ||
+      u.endsWith(".webp") ||
+      u.endsWith(".gif") ||
+      u.endsWith(".svg") ||
+      u.startsWith("data:image/")
+    );
   }, [previewUrl]);
 
   const isPdf = useMemo(() => {
@@ -113,6 +162,8 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
       <WorkspaceViewer
         activeDoc={activeDoc}
         previewUrl={previewUrl}
+        previewText={previewText}
+        previewMimeType={previewMimeType}
         isImage={isImage}
         isPdf={isPdf}
         codexEntry={codexEntry}
