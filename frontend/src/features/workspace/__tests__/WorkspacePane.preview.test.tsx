@@ -174,6 +174,27 @@ describe("WorkspacePane preview surface", () => {
     expect(screen.getByTestId("workspace-metadata")).toHaveTextContent("Text (.txt)");
   });
 
+  it("detects signed image preview URLs using the parsed pathname", () => {
+    render(
+      <WorkspacePane
+        activeDoc={buildDocument({
+          id: "doc-img",
+          title: "Signed Photo",
+          ext: "jpg",
+          type: "file",
+          src_url: "https://cdn.example.com/assets/photo.jpg?sig=abc123#page=1",
+        })}
+      />
+    );
+
+    const previewSurface = screen.getByTestId("workspace-preview-surface");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(previewSurface).toHaveAttribute("data-state", "image");
+    expect(screen.getByRole("img", { name: "Signed Photo" })).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-metadata")).toHaveTextContent("Image");
+  });
+
   it("shows an explicit fallback for unsupported file types", () => {
     render(
       <WorkspacePane
