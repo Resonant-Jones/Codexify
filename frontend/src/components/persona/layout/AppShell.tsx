@@ -1610,8 +1610,10 @@ export default function AppShell({
     layoutMode: workspaceLayoutMode,
     isWorkspaceDominant,
     ratioBucket: workspaceRatioBucket,
+    setLayoutMode: setWorkspaceLayoutMode,
   } = useWorkspaceLayoutMode({
     isOpen: workspaceDrawerOpen,
+    activeThreadId: activeRouteThreadId,
   });
   const handleWorkspaceDrawerTabChange = useCallback(
     (tab: WorkspaceDrawerTab) => {
@@ -1867,6 +1869,7 @@ export default function AppShell({
           closeWorkspaceDrawer();
         }}
         onActiveTabChange={handleWorkspaceDrawerTabChange}
+        onLayoutModeChange={setWorkspaceLayoutMode}
       />
     </div>
   ) : null;
