@@ -4,15 +4,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import ApprovalsPanel from "@/features/commandCenter/components/ApprovalsPanel";
 import RunDetailDrawer from "@/features/commandCenter/components/RunDetailDrawer";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
 import type {
-  CommandCenterConnectionState,
   CommandCenterHealthItem,
   CommandCenterRun,
 } from "@/features/commandCenter/types";
+import {
+  describeRuntimeStatusPresentation,
+  type RuntimeStatusTone,
+} from "@/contracts/runtimeTokens";
 
 type CommandCenterPageProps = {
   enabled: boolean;
@@ -54,7 +56,7 @@ function formatTimestamp(value: number | null): string {
   return new Date(value).toLocaleString();
 }
 
-type BadgeTone = "active" | "attention" | "danger" | "info" | "neutral" | "subtle";
+type BadgeTone = RuntimeStatusTone;
 
 const sectionSurfaceStyle: React.CSSProperties = {
   background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
@@ -116,49 +118,6 @@ function badgeToneStyle(tone: BadgeTone): React.CSSProperties {
   }
 }
 
-function statusBadgeToneForConnection(
-  connectionState: CommandCenterConnectionState,
-  unauthorized: boolean
-): BadgeTone {
-  if (unauthorized) return "attention";
-  switch (connectionState) {
-    case "open":
-      return "active";
-    case "connecting":
-      return "info";
-    case "error":
-      return "danger";
-    default:
-      return "subtle";
-  }
-}
-
-function statusBadgeToneForHealth(status: CommandCenterHealthItem["status"]): BadgeTone {
-  switch (status) {
-    case "OK":
-      return "active";
-    case "FAIL":
-      return "danger";
-    default:
-      return "subtle";
-  }
-}
-
-function statusBadgeToneForRun(status: CommandCenterRun["status"]): BadgeTone {
-  switch (status) {
-    case "running":
-      return "info";
-    case "succeeded":
-      return "active";
-    case "failed":
-      return "danger";
-    case "needs_attention":
-      return "attention";
-    default:
-      return "subtle";
-  }
-}
-
 function BadgePill({
   ariaLabel,
   children,
@@ -178,6 +137,31 @@ function BadgePill({
     >
       {children}
     </Badge>
+  );
+}
+
+function StatusPill({
+  ariaLabelPrefix,
+  fallbackStatus,
+  status,
+}: {
+  ariaLabelPrefix?: string;
+  fallbackStatus?: string;
+  status: string | null | undefined;
+}) {
+  const presentation = describeRuntimeStatusPresentation(
+    firstString(status, fallbackStatus)
+  );
+
+  return (
+    <BadgePill
+      ariaLabel={
+        ariaLabelPrefix ? `${ariaLabelPrefix} ${presentation.label}` : presentation.label
+      }
+      tone={presentation.tone}
+    >
+      {presentation.label}
+    </BadgePill>
   );
 }
 
@@ -274,17 +258,6 @@ function getRunEventType(run: CommandCenterRun): string {
   );
 }
 
-function formatStatusLabel(value: string): string {
-  return value.replace(/_/g, " ");
-}
-
-function getServiceStatusLabel(
-  connectionState: CommandCenterConnectionState,
-  unauthorized: boolean
-): string {
-  return unauthorized ? "unauthorized" : connectionState;
-}
-
 function countUnknownItems(
   healthItems: CommandCenterHealthItem[],
   runs: CommandCenterRun[]
@@ -307,7 +280,6 @@ function SummaryStrip({
   runs: CommandCenterRun[];
   unauthorized: boolean;
 }) {
-  const serviceStatus = getServiceStatusLabel(connectionState, unauthorized);
   const unknownCount = countUnknownItems(healthItems, runs);
 
   return (
@@ -339,12 +311,10 @@ function SummaryStrip({
               : "Current transport state from the live stream."
           }
         >
-          <BadgePill
-            ariaLabel={`Service status ${serviceStatus}`}
-            tone={statusBadgeToneForConnection(connectionState, unauthorized)}
-          >
-            {serviceStatus}
-          </BadgePill>
+          <StatusPill
+            ariaLabelPrefix="Service status"
+            status={unauthorized ? "unauthorized" : connectionState}
+          />
         </SummaryTile>
 
         <SummaryTile
@@ -452,12 +422,10 @@ function HealthStrip({
                     {item.endpoint}
                   </div>
                 </div>
-                <BadgePill
-                  aria-label={`${item.label} status ${item.status}`}
-                  tone={statusBadgeToneForHealth(item.status)}
-                >
-                  {item.status}
-                </BadgePill>
+                <StatusPill
+                  ariaLabelPrefix={`${item.label} status`}
+                  status={item.status}
+                />
               </div>
 
               <details className="text-xs" style={{ color: "var(--muted)" }}>
@@ -592,12 +560,10 @@ function RunFeed({
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-start gap-2">
-                      <BadgePill
-                        ariaLabel={`${runLabel} status ${run.status}`}
-                        tone={statusBadgeToneForRun(run.status)}
-                      >
-                        {formatStatusLabel(run.status)}
-                      </BadgePill>
+                      <StatusPill
+                        ariaLabelPrefix={`${runLabel} status`}
+                        status={run.status}
+                      />
                       <Button
                         type="button"
                         variant="ghost"
@@ -681,6 +647,127 @@ function RunFeed({
   );
 }
 
+function ApprovalsPanelSection({
+  approvals,
+  onSelectRun,
+  selectedRunKey,
+}: {
+  approvals: Array<{
+    key: string;
+    label: string;
+    receivedAt: number;
+    runId: string | null;
+    runKey: string | null;
+    status: string | null;
+    summary: string;
+    taskId: string | null;
+  }>;
+  onSelectRun: (runKey: string | null) => void;
+  selectedRunKey: string | null;
+}) {
+  return (
+    <Card
+      className="bezel-none rounded-2xl border"
+      style={{
+        background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <CardHeader className="space-y-1">
+        <CardTitle className="text-base" style={{ color: "var(--text)" }}>
+          Approvals
+        </CardTitle>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>
+          Escalation-facing events filtered from the same global SSE stream.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {approvals.length === 0 ? (
+          <div
+            className="rounded-xl border px-4 py-5 text-sm"
+            style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+          >
+            No approval or clarification events detected yet.
+          </div>
+        ) : (
+          approvals.map((approval) => {
+            const selectable = Boolean(approval.runKey);
+            const selected =
+              selectable && approval.runKey != null && approval.runKey === selectedRunKey;
+            const status = approval.status ?? "attention";
+
+            return (
+              <button
+                key={approval.key}
+                type="button"
+                className="w-full text-left"
+                onClick={() => onSelectRun(approval.runKey)}
+                disabled={!selectable}
+              >
+                <Card
+                  className={`bezel-none rounded-xl border transition-colors ${
+                    selected ? "ring-1 ring-[var(--accent)]" : ""
+                  }`}
+                  style={{
+                    background:
+                      "color-mix(in srgb, rgba(250, 204, 21, 0.08) 80%, var(--panel-bg))",
+                    borderColor: selected ? "var(--accent)" : "var(--panel-border)",
+                    opacity: selectable ? 1 : 0.72,
+                  }}
+                >
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                          {approval.label}
+                        </div>
+                        <div className="text-xs" style={{ color: "var(--muted)" }}>
+                          {approval.summary}
+                        </div>
+                      </div>
+                      <StatusPill
+                        ariaLabelPrefix={`${approval.label} status`}
+                        status={status}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
+                      <span
+                        className="rounded-full border px-2 py-1"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        Task: {approval.taskId ?? "—"}
+                      </span>
+                      <span
+                        className="rounded-full border px-2 py-1"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        Run: {approval.runId ?? "—"}
+                      </span>
+                      <span
+                        className="rounded-full border px-2 py-1"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        Seen: {new Date(approval.receivedAt).toLocaleString()}
+                      </span>
+                      <span
+                        className="rounded-full border px-2 py-1"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        {selectable ? "Selectable" : "No run selection available"}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function CommandCenterPage({
   enabled,
 }: CommandCenterPageProps) {
@@ -696,7 +783,6 @@ export default function CommandCenterPage({
     enabled,
   });
   const [selectedRunKey, setSelectedRunKey] = React.useState<string | null>(null);
-  const serviceStatus = getServiceStatusLabel(connectionState, unauthorized);
 
   const selectedRun = React.useMemo<CommandCenterRun | null>(
     () => {
@@ -770,12 +856,10 @@ export default function CommandCenterPage({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              <BadgePill
-                ariaLabel={`Service status ${serviceStatus}`}
-                tone={statusBadgeToneForConnection(connectionState, unauthorized)}
-              >
-                {serviceStatus}
-              </BadgePill>
+              <StatusPill
+                ariaLabelPrefix="Service status"
+                status={unauthorized ? "unauthorized" : connectionState}
+              />
               <BadgePill tone="subtle">Last event: {formatTimestamp(lastEventAt)}</BadgePill>
               {connectionDetail ? <BadgePill tone="subtle">{connectionDetail}</BadgePill> : null}
             </div>
@@ -804,7 +888,7 @@ export default function CommandCenterPage({
             selectedRunKey={selectedRunKey}
           />
           <div className="space-y-5 self-start">
-            <ApprovalsPanel
+            <ApprovalsPanelSection
               approvals={approvals}
               onSelectRun={(runKey) => {
                 if (runKey) setSelectedRunKey(runKey);

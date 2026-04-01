@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import CommandCenterPage from "../CommandCenterPage";
+import { describeRuntimeStatusPresentation } from "@/contracts/runtimeTokens";
 
 import type {
+  CommandCenterApproval,
   CommandCenterHealthItem,
   CommandCenterRun,
 } from "@/features/commandCenter/types";
@@ -115,33 +117,58 @@ const mockedRuns: CommandCenterRun[] = [
   },
 ];
 
+const mockedApprovals: CommandCenterApproval[] = [
+  {
+    event: {
+      eventId: "approval-evt-1",
+      json: { message: "Need clarification" },
+      kind: "approval.requested",
+      raw: '{"message":"Need clarification"}',
+      receivedAt: Date.parse("2026-04-01T15:57:00Z"),
+      runId: "run-bravo",
+      sseType: "message",
+      status: "attention",
+      summary: "Need clarification",
+      taskId: "task-bravo",
+      type: "approval.requested",
+    },
+    key: "approval-1",
+    label: "Need clarification",
+    receivedAt: Date.parse("2026-04-01T15:57:00Z"),
+    runId: "run-bravo",
+    runKey: "run-bravo",
+    status: "attention",
+    summary: "Need clarification",
+    taskId: "task-bravo",
+  },
+  {
+    event: {
+      eventId: "approval-evt-2",
+      json: { message: "Escalation pending" },
+      kind: "approval.requested",
+      raw: '{"message":"Escalation pending"}',
+      receivedAt: Date.parse("2026-04-01T15:56:30Z"),
+      runId: "run-alpha",
+      sseType: "message",
+      status: "mystery_signal",
+      summary: "Escalation pending",
+      taskId: "task-alpha",
+      type: "approval.requested",
+    },
+    key: "approval-2",
+    label: "Escalation pending",
+    receivedAt: Date.parse("2026-04-01T15:56:30Z"),
+    runId: "run-alpha",
+    runKey: "run-alpha",
+    status: "mystery_signal",
+    summary: "Escalation pending",
+    taskId: "task-alpha",
+  },
+];
+
 vi.mock("../hooks/useCommandCenterEvents", () => ({
   default: () => ({
-    approvals: [
-      {
-        event: {
-          eventId: "approval-evt-1",
-          json: { message: "Need clarification" },
-          kind: "approval.requested",
-          raw: '{"message":"Need clarification"}',
-          receivedAt: Date.parse("2026-04-01T15:57:00Z"),
-          runId: "run-bravo",
-          sseType: "message",
-          status: "attention",
-          summary: "Need clarification",
-          taskId: "task-bravo",
-          type: "approval.requested",
-        },
-        key: "approval-1",
-        label: "Need clarification",
-        receivedAt: Date.parse("2026-04-01T15:57:00Z"),
-        runId: "run-bravo",
-        runKey: "run-bravo",
-        status: "attention",
-        summary: "Need clarification",
-        taskId: "task-bravo",
-      },
-    ],
+    approvals: mockedApprovals,
     connectionDetail: "Listening to /api/events",
     connectionState: "open",
     events: [],
@@ -170,6 +197,33 @@ beforeEach(() => {
 });
 
 describe("CommandCenterPage", () => {
+  it("uses the canonical runtime status presentation map", () => {
+    const samples = [
+      ["healthy", { label: "healthy", tone: "active", isFallback: false }],
+      ["degraded", { label: "degraded", tone: "attention", isFallback: false }],
+      ["unknown", { label: "unknown", tone: "subtle", isFallback: false }],
+      ["active", { label: "active", tone: "active", isFallback: false }],
+      ["stale", { label: "stale", tone: "attention", isFallback: false }],
+      ["offline", { label: "offline", tone: "danger", isFallback: false }],
+      ["online", { label: "online", tone: "active", isFallback: false }],
+      ["running", { label: "running", tone: "info", isFallback: false }],
+      ["queued", { label: "queued", tone: "neutral", isFallback: false }],
+      ["OK", { label: "OK", tone: "active", isFallback: false }],
+      ["FAIL", { label: "FAIL", tone: "danger", isFallback: false }],
+      ["UNKNOWN", { label: "UNKNOWN", tone: "subtle", isFallback: false }],
+    ] as const;
+
+    for (const [status, expected] of samples) {
+      expect(describeRuntimeStatusPresentation(status)).toMatchObject(expected);
+    }
+
+    expect(describeRuntimeStatusPresentation("mystery_signal")).toMatchObject({
+      label: "mystery signal",
+      tone: "subtle",
+      isFallback: true,
+    });
+  });
+
   it("renders a signal-first hierarchy for operators", () => {
     render(<CommandCenterPage enabled />);
 
@@ -215,6 +269,8 @@ describe("CommandCenterPage", () => {
       within(runsFeed).getByRole("button", { name: /open details for no classification yet/i })
     ).toBeInTheDocument();
     expect(within(runsFeed).getAllByText("Inspect event details").length).toBeGreaterThan(0);
+    expect(screen.getByText("attention")).toBeInTheDocument();
+    expect(screen.getByText("mystery signal")).toBeInTheDocument();
 
     fireEvent.click(
       within(runsFeed).getByRole("button", { name: /open details for processing alpha/i })
