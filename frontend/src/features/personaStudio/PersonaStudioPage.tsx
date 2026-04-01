@@ -4,229 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-
-type PersonaProfile = {
-  id: string;
-  name: string;
-  description: string;
-  isDefault?: boolean;
-};
-
-type ModelSettings = {
-  provider: string;
-  model: string;
-  temperature: number;
-  topK: number;
-  topP: number;
-  maxTokens: number;
-};
-
-type VoiceSettings = {
-  enabled: boolean;
-  provider: string;
-  voicePreset: string;
-  speed: number;
-  wakeWord: string;
-  interruptible: boolean;
-};
-
-type PromptSettings = {
-  systemPrompt: string;
-  styleNotes: string;
-  directives: string;
-};
-
-type ToolsSettings = {
-  pinnedTools: string[];
-  allowedTools: string[];
-  skills: string[];
-  permissions: {
-    web: boolean;
-    email: boolean;
-    calendar: boolean;
-    cli: boolean;
-    filesystem: boolean;
-  };
-};
-
-type RetrievalSettings = {
-  enabled: boolean;
-  mode: string;
-  topK: number;
-  rerank: boolean;
-};
-
-type PersonaConfig = {
-  identity: {
-    name: string;
-    description: string;
-  };
-  model: ModelSettings;
-  voice: VoiceSettings;
-  prompt: PromptSettings;
-  tools: ToolsSettings;
-  permissions: ToolsSettings;
-  retrieval: RetrievalSettings;
-};
-
-const MOCK_PROFILES: PersonaProfile[] = [
-  {
-    id: "profile-1",
-    name: "Guardian Default",
-    description: "Default guardian persona for general assistance",
-    isDefault: true,
-  },
-  {
-    id: "profile-2",
-    name: "Code Assistant",
-    description: "Specialized for code review and programming tasks",
-  },
-  {
-    id: "profile-3",
-    name: "Research Partner",
-    description: "Focused on research and information synthesis",
-  },
-];
-
-const MOCK_CONFIG: Record<string, PersonaConfig> = {
-  "profile-1": {
-    identity: {
-      name: "Guardian Default",
-      description: "Default guardian persona for general assistance",
-    },
-    model: {
-      provider: "openai",
-      model: "gpt-4o",
-      temperature: 0.7,
-      topK: 40,
-      topP: 0.95,
-      maxTokens: 4096,
-    },
-    voice: {
-      enabled: true,
-      provider: "elevenlabs",
-      voicePreset: "rachel",
-      speed: 1.0,
-      wakeWord: "Hey Guardian",
-      interruptible: true,
-    },
-    prompt: {
-      systemPrompt: "You are a Guardian, a partner in thought. Your primary goal is to foster the user's autonomy and creativity.",
-      styleNotes: "Use a warm, encouraging tone. Favor questions over statements when appropriate.",
-      directives: "Always prioritize user privacy. Never share sensitive information without explicit permission.",
-    },
-    tools: {
-      pinnedTools: ["web-search", "calculator", "code-interpreter"],
-      allowedTools: ["web-search", "calculator", "code-interpreter", "file-reader"],
-      skills: ["critical-thinking", "creative-brainstorming"],
-      permissions: {
-        web: true,
-        email: false,
-        calendar: false,
-        cli: false,
-        filesystem: true,
-      },
-    },
-    retrieval: {
-      enabled: true,
-      mode: "hybrid",
-      topK: 10,
-      rerank: true,
-    },
-  },
-  "profile-2": {
-    identity: {
-      name: "Code Assistant",
-      description: "Specialized for code review and programming tasks",
-    },
-    model: {
-      provider: "anthropic",
-      model: "claude-sonnet-4-20250514",
-      temperature: 0.3,
-      topK: 20,
-      topP: 0.9,
-      maxTokens: 8192,
-    },
-    voice: {
-      enabled: false,
-      provider: "elevenlabs",
-      voicePreset: "matt",
-      speed: 1.0,
-      wakeWord: "",
-      interruptible: true,
-    },
-    prompt: {
-      systemPrompt: "You are an expert code assistant. Provide clear, concise, and accurate code solutions with explanation.",
-      styleNotes: "Be precise and technical. Include code examples where helpful.",
-      directives: "Always verify code syntax before presenting. Flag potential security issues.",
-    },
-    tools: {
-      pinnedTools: ["code-interpreter", "git", "terminal"],
-      allowedTools: ["code-interpreter", "git", "terminal", "web-search", "file-reader"],
-      skills: ["code-review", "debugging", "architecture-design"],
-      permissions: {
-        web: true,
-        email: false,
-        calendar: false,
-        cli: true,
-        filesystem: true,
-      },
-    },
-    retrieval: {
-      enabled: true,
-      mode: "semantic",
-      topK: 5,
-      rerank: false,
-    },
-  },
-  "profile-3": {
-    identity: {
-      name: "Research Partner",
-      description: "Focused on research and information synthesis",
-    },
-    model: {
-      provider: "openai",
-      model: "gpt-4-turbo",
-      temperature: 0.5,
-      topK: 60,
-      topP: 0.97,
-      maxTokens: 16384,
-    },
-    voice: {
-      enabled: true,
-      provider: "elevenlabs",
-      voicePreset: "aria",
-      speed: 0.9,
-      wakeWord: "Hey Research",
-      interruptible: true,
-    },
-    prompt: {
-      systemPrompt: "You are a research partner specializing in information synthesis and critical analysis.",
-      styleNotes: "Present information in organized, cited format. Distinguish between facts and interpretations.",
-      directives: "Cite sources when available. Clearly state uncertainty when information is incomplete.",
-    },
-    tools: {
-      pinnedTools: ["web-search", "academic-search", "note-taking"],
-      allowedTools: ["web-search", "academic-search", "note-taking", "calculator"],
-      skills: ["literature-review", "meta-analysis", "synthesis"],
-      permissions: {
-        web: true,
-        email: false,
-        calendar: false,
-        cli: false,
-        filesystem: true,
-      },
-    },
-    retrieval: {
-      enabled: true,
-      mode: "hybrid",
-      topK: 20,
-      rerank: true,
-    },
-  },
-};
-
-type EditorTab = "identity" | "model" | "voice" | "prompt" | "tools" | "retrieval";
+import {
+  type PersonaConfig,
+  type PersonaProfileDraft,
+  type ToolsSettings,
+  usePersonaStudioLocalDraftState,
+} from "./personaStudioStore";
 
 function TabButton({
   active,
@@ -922,36 +705,55 @@ function RetrievalEditor({
   );
 }
 
+function buildDebugLog(
+  profile: PersonaProfileDraft | null,
+  config: PersonaConfig | null
+): string[] {
+  if (!profile || !config) {
+    return [
+      "[PersonaStudio] Initialized local draft store",
+      "[PersonaStudio] Waiting for profile selection",
+      "[Config] No profile selected",
+    ];
+  }
+
+  return [
+    "[PersonaStudio] Initialized local draft store",
+    `[PersonaStudio] Selected profile: ${profile.id}`,
+    `[PersonaStudio] Profile loaded: ${profile.name}`,
+    `[Config] Model: ${config.model.provider}/${config.model.model}`,
+    `[Config] Temperature: ${config.model.temperature}`,
+    `[Config] Voice: ${config.voice.enabled ? config.voice.provider : "disabled"}`,
+    `[Config] Retrieval: ${config.retrieval.enabled ? config.retrieval.mode : "disabled"}`,
+  ];
+}
+
 function DiagnosticsPanel({
   profile,
   config,
   isDirty,
-  saveStatus,
+  hasSavedVersion,
 }: {
-  profile: PersonaProfile | null;
+  profile: PersonaProfileDraft | null;
   config: PersonaConfig | null;
   isDirty: boolean;
-  saveStatus: "idle" | "saving" | "saved" | "error";
+  hasSavedVersion: boolean;
 }) {
-  const [debugLog, setDebugLog] = React.useState<string[]>([
-    "[PersonaStudio] Initialized mock persona engine",
-    "[PersonaStudio] Loaded profile list: 3 profiles",
-    "[PersonaStudio] Selected profile: guardian-default",
-    "[Config] Model provider: openai",
-    "[Config] Temperature: 0.7",
-  ]);
+  const [debugLog, setDebugLog] = React.useState<string[]>(() =>
+    buildDebugLog(profile, config)
+  );
 
   React.useEffect(() => {
-    if (!profile || !config) return;
-    const logs = [
-      `[PersonaStudio] Profile loaded: ${profile.name}`,
-      `[Config] Model: ${config.model.provider}/${config.model.model}`,
-      `[Config] Temperature: ${config.model.temperature}`,
-      `[Config] Voice: ${config.voice.enabled ? config.voice.provider : "disabled"}`,
-      `[Config] Retrieval: ${config.retrieval.enabled ? config.retrieval.mode : "disabled"}`,
-    ];
-    setDebugLog(logs);
+    setDebugLog(buildDebugLog(profile, config));
   }, [profile, config]);
+
+  const saveStatusLabel = isDirty
+    ? "Unsaved Draft"
+    : hasSavedVersion
+      ? "Saved Locally"
+      : "Seed Draft";
+
+  const saveStatusTone = isDirty ? "warning" : hasSavedVersion ? "saved" : "seed";
 
   return (
     <div className="space-y-4 h-full flex flex-col">
@@ -966,19 +768,19 @@ function DiagnosticsPanel({
               className="text-xs"
               style={{
                 borderColor:
-                  saveStatus === "saved"
+                  saveStatusTone === "saved"
                     ? "rgba(34, 197, 94, 0.35)"
-                    : saveStatus === "error"
-                      ? "rgba(239, 68, 68, 0.35)"
+                    : saveStatusTone === "warning"
+                      ? "rgba(234, 179, 8, 0.35)"
                       : "var(--panel-border)",
-                background: saveStatus === "saved"
+                background: saveStatusTone === "saved"
                   ? "rgba(34, 197, 94, 0.12)"
-                  : saveStatus === "error"
-                    ? "rgba(239, 68, 68, 0.12)"
+                  : saveStatusTone === "warning"
+                    ? "rgba(234, 179, 8, 0.12)"
                     : "transparent",
               }}
             >
-              {saveStatus === "idle" ? "No changes" : saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Error"}
+              {saveStatusLabel}
             </Badge>
           </div>
 
@@ -1033,63 +835,49 @@ function DiagnosticsPanel({
           ))}
         </div>
       </div>
+
     </div>
   );
 }
 
 export default function PersonaStudioPage() {
-  const [selectedProfileId, setSelectedProfileId] = React.useState<string>(
-    MOCK_PROFILES[0].id
-  );
-  const [activeTab, setActiveTab] = React.useState<EditorTab>("identity");
-  const [configs, setConfigs] = React.useState<Record<string, PersonaConfig>>(MOCK_CONFIG);
-  const [isDirty, setIsDirty] = React.useState(false);
-  const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle");
+  const {
+    profiles,
+    selectedProfileId,
+    activeTab,
+    selectedProfile,
+    isDirty,
+    hasSavedVersion,
+    setSelectedProfileId,
+    setActiveTab,
+    updateSelectedProfile,
+    saveSelectedProfile,
+    saveSelectedProfileAsNew,
+    resetSelectedProfile,
+    resetAllLocalPersonaStudioData,
+  } = usePersonaStudioLocalDraftState();
 
-  const selectedProfile = MOCK_PROFILES.find((p) => p.id === selectedProfileId) || null;
-  const currentConfig = configs[selectedProfileId] || null;
+  const currentConfig = selectedProfile?.config || null;
 
   const handleConfigChange = (newConfig: PersonaConfig) => {
-    setConfigs((prev) => ({
-      ...prev,
-      [selectedProfileId]: newConfig,
+    updateSelectedProfile((currentProfile) => ({
+      ...currentProfile,
+      name: newConfig.identity.name,
+      description: newConfig.identity.description,
+      config: newConfig,
     }));
-    setIsDirty(true);
-    setSaveStatus("idle");
   };
 
   const handleSave = () => {
-    setSaveStatus("saving");
-    setTimeout(() => {
-      setSaveStatus("saved");
-      setIsDirty(false);
-    }, 500);
+    saveSelectedProfile();
   };
 
   const handleSaveAsNew = () => {
-    const newId = `profile-${Date.now()}`;
-    const newProfile: PersonaProfile = {
-      id: newId,
-      name: `${currentConfig?.identity.name || "Persona"} (Copy)`,
-      description: currentConfig?.identity.description || "",
-    };
-    MOCK_PROFILES.push(newProfile);
-    setConfigs((prev) => ({
-      ...prev,
-      [newId]: JSON.parse(JSON.stringify(currentConfig)),
-    }));
-    setSelectedProfileId(newId);
-    setSaveStatus("saved");
-    setIsDirty(false);
+    saveSelectedProfileAsNew();
   };
 
   const handleReset = () => {
-    setConfigs((prev) => ({
-      ...prev,
-      [selectedProfileId]: JSON.parse(JSON.stringify(MOCK_CONFIG[selectedProfileId])),
-    }));
-    setIsDirty(false);
-    setSaveStatus("idle");
+    resetSelectedProfile();
   };
 
   return (
@@ -1114,16 +902,12 @@ export default function PersonaStudioPage() {
               <CardTitle className="text-base">Profiles</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {MOCK_PROFILES.map((profile) => (
+              {profiles.map((profile) => (
                 <button
                   key={profile.id}
                   type="button"
                   onClick={() => {
-                    if (profile.id !== selectedProfileId) {
-                      setSelectedProfileId(profile.id);
-                      setIsDirty(false);
-                      setSaveStatus("idle");
-                    }
+                    setSelectedProfileId(profile.id);
                   }}
                   className={`w-full text-left p-3 rounded-xl transition-colors ${
                     profile.id === selectedProfileId
@@ -1247,9 +1031,9 @@ export default function PersonaStudioPage() {
                 <Button
                   type="button"
                   onClick={handleSave}
-                  disabled={!isDirty || saveStatus === "saving"}
+                  disabled={!isDirty}
                 >
-                  {saveStatus === "saving" ? "Saving..." : "Save"}
+                  Save
                 </Button>
                 <Button
                   type="button"
@@ -1267,6 +1051,17 @@ export default function PersonaStudioPage() {
                 >
                   Reset
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetAllLocalPersonaStudioData}
+                  className="whitespace-nowrap"
+                  aria-label="Reset All Local Persona Studio Data"
+                  title="Reset All Local Persona Studio Data"
+                >
+                  Reset All Data
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -1283,7 +1078,7 @@ export default function PersonaStudioPage() {
                 profile={selectedProfile}
                 config={currentConfig}
                 isDirty={isDirty}
-                saveStatus={saveStatus}
+                hasSavedVersion={hasSavedVersion}
               />
             </CardContent>
           </Card>
