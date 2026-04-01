@@ -5,7 +5,9 @@ import WorkspacePane from "../WorkspacePane";
 import type { DocumentLike } from "@/types/documents";
 
 function buildDocument(
-  overrides: Partial<DocumentLike> & Pick<DocumentLike, "title" | "ext" | "type">
+  overrides: Partial<DocumentLike> &
+    Pick<DocumentLike, "title" | "ext" | "type"> &
+    Record<string, unknown>
 ): DocumentLike {
   return {
     id: overrides.id ?? "doc-1",
@@ -41,10 +43,11 @@ describe("WorkspacePane preview surface", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders actual markdown content for a previewable document", async () => {
+  it("renders markdown previews with the chat markdown contract", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      text: async () => "# Project Plan\n\n- Scope\n- Verify",
+      text: async () =>
+        "# Rendered Notes\n\n- Scope\n- Verify\n\nThis is **important**.\n\n```ts\nconst answer = 42;\n```",
     } as Response);
 
     render(
@@ -64,48 +67,41 @@ describe("WorkspacePane preview surface", () => {
 
     await waitFor(() => {
       expect(
-        within(previewSurface).getByRole("heading", { name: "Project Plan" })
+        within(previewSurface).getByRole("heading", { name: "Rendered Notes" })
       ).toBeInTheDocument();
     });
 
     expect(within(previewSurface).getByText("Scope")).toBeInTheDocument();
+    expect(within(previewSurface).getByText("Verify")).toBeInTheDocument();
+    expect(within(previewSurface).getByText("important")).toBeInTheDocument();
+    expect(within(previewSurface).getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(previewSurface.querySelector(".codexifyCodeBlock")).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(within(metadataSurface).getByText("Markdown (.md)")).toBeInTheDocument();
+    expect(within(previewSurface).queryByText("Markdown (.md)")).not.toBeInTheDocument();
   });
 
-  it("keeps metadata secondary to the preview surface", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      text: async () => "# Release Notes\n\nDocument body.",
-    } as Response);
-
+  it("renders text-like documents as actual content", () => {
     render(
       <WorkspacePane
         activeDoc={buildDocument({
-          id: "doc-release",
-          title: "Release Notes",
-          ext: "md",
+          id: "doc-txt",
+          title: "Session Notes",
+          ext: "txt",
           type: "file",
-          src_url: "/media/documents/release-notes.md",
+          content: "First line\n*literal stars*",
         })}
       />
     );
 
     const previewSurface = screen.getByTestId("workspace-preview-surface");
-    const metadataSurface = screen.getByTestId("workspace-metadata");
+    const previewContent = within(previewSurface).getByTestId("workspace-preview-content");
 
-    await waitFor(() => {
-      expect(
-        within(previewSurface).getByRole("heading", { name: "Release Notes" })
-      ).toBeInTheDocument();
-    });
-
-    expect(within(previewSurface).queryByText("Markdown (.md)")).not.toBeInTheDocument();
-    expect(within(metadataSurface).getByText("Markdown (.md)")).toBeInTheDocument();
-    expect(
-      previewSurface.compareDocumentPosition(metadataSurface) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(previewSurface).toHaveAttribute("data-state", "text");
+    expect(previewContent).toHaveTextContent("First line");
+    expect(previewContent).toHaveTextContent("*literal stars*");
+    expect(screen.getByTestId("workspace-metadata")).toHaveTextContent("Text (.txt)");
   });
 
   it("shows an explicit fallback for unsupported file types", () => {
@@ -149,7 +145,7 @@ describe("WorkspacePane preview surface", () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       text: async () =>
-        `# Long Notes\n\n${Array.from({ length: 80 }, (_, index) => `Line ${index + 1}`).join("\n")}`,
+        `# Long Notes\n\n${Array.from({ length: 80 }, (_, index) => `Line ${index + 1}`).join("\n")}\n\n\`\`\`ts\nconst answer = 42;\n\`\`\``,
     } as Response);
 
     render(
@@ -172,6 +168,7 @@ describe("WorkspacePane preview surface", () => {
       ).toBeInTheDocument();
     });
 
+    expect(previewSurface).toHaveAttribute("data-state", "markdown");
     expect(previewSurface.style.overflow).toBe("auto");
     expect(previewSurface.style.minHeight).toBe("0");
   });
