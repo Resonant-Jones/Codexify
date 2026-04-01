@@ -195,6 +195,9 @@ describe("WorkspacePane preview surface", () => {
       "data-state",
       "unsupported"
     );
+    expect(
+      screen.getByRole("link", { name: "Open source asset in a new tab" })
+    ).toHaveAttribute("target", "_blank");
     expect(screen.getByTestId("workspace-metadata")).toHaveTextContent(
       "Unsupported (.zip)"
     );
