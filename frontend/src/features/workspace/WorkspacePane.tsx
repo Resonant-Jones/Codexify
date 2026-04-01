@@ -32,21 +32,31 @@ function resolvePreviewUrl(doc: DocumentLike | null | undefined): string | null 
       ? anyDoc.previewUrl
       : null);
   if (!url) return null;
-  const normalized = normalizeMediaUrl(url);
-  return normalized || null;
+  return url;
 }
 
 function resolvePreviewText(doc: DocumentLike | null | undefined): string | null {
   return readDocString(doc, [
     "content",
     "body",
+    "body_markdown",
+    "bodyMarkdown",
     "text",
+    "text_content",
+    "textContent",
+    "plain_text",
+    "plainText",
     "snippet",
     "parsed_text",
     "parsedText",
     "markdown",
     "preview",
     "rawText",
+    "raw_text",
+    "markdown_text",
+    "markdownText",
+    "preview_text",
+    "previewText",
   ]);
 }
 

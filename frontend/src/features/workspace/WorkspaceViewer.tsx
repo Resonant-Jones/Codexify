@@ -3,7 +3,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodexEntry } from "@/api/codex";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
-import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { resolveMediaSrc } from "@/lib/mediaUrl";
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 import { DocumentLike } from "@/types/documents";
 
 type WorkspaceViewerProps = {
@@ -34,8 +35,6 @@ const TEXT_EXTENSIONS = new Set([
   "txt",
   "text",
   "log",
-  "csv",
-  "tsv",
   "json",
   "jsonl",
   "yaml",
@@ -77,6 +76,242 @@ const TEXT_EXTENSIONS = new Set([
   "patch",
   "diff",
 ]);
+
+type MarkdownCodeBlockProps = {
+  code: string;
+  label: string;
+};
+
+const MarkdownCodeBlock = ({ code, label }: MarkdownCodeBlockProps) => {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = React.useRef<number | null>(null);
+
+  const copyWithFallback = async (text: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fall through to the legacy copy path below.
+      }
+    }
+
+    if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        return document.execCommand("copy");
+      } catch {
+        return false;
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+
+    return false;
+  };
+
+  const handleCopy = async () => {
+    const ok = await copyWithFallback(code);
+    if (!ok) return;
+    setCopied(true);
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = window.setTimeout(() => {
+      setCopied(false);
+      timeoutRef.current = null;
+    }, 1000);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="codexifyCodeBlock">
+      <div className="codexifyCodeBlockHeader">
+        <div className="codexifyCodeBlockLabel">
+          <span className="codexifyCodeBlockAccent" aria-hidden="true" />
+          <span>{label}</span>
+        </div>
+        <button type="button" className="codexifyCodeBlockCopy" onClick={handleCopy}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <div className="codexifyCodeBlockBody">
+        <pre className="codexifyCodeBlockPre">
+          <code className="codexifyCodeBlockCode">{code}</code>
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+type ExtractedPreCode = {
+  code: string;
+  className?: string;
+};
+
+const extractPreCodeFromNode = (node: any): ExtractedPreCode | null => {
+  const codeNode = node?.children?.[0];
+  if (!codeNode || codeNode.tagName !== "code") return null;
+  const codeChildren = codeNode.children;
+  if (!Array.isArray(codeChildren)) return null;
+  let text = "";
+  for (const child of codeChildren) {
+    if (!child || child.type !== "text" || typeof child.value !== "string") return null;
+    text += child.value;
+  }
+  const classNameProp = codeNode.properties?.className;
+  const className =
+    Array.isArray(classNameProp)
+      ? classNameProp.join(" ")
+      : typeof classNameProp === "string"
+        ? classNameProp
+        : undefined;
+  return { code: text, className };
+};
+
+const extractPreCodeFromChildren = (children: React.ReactNode): ExtractedPreCode | null => {
+  const childArray = React.Children.toArray(children);
+  if (childArray.length === 0) return null;
+  const firstChild = childArray[0];
+  if (!React.isValidElement(firstChild) || firstChild.type !== "code") return null;
+  const codeChildren = (firstChild.props as { children?: React.ReactNode }).children;
+  if (typeof codeChildren === "string") {
+    return {
+      code: codeChildren,
+      className: (firstChild.props as { className?: string }).className,
+    };
+  }
+  if (
+    Array.isArray(codeChildren) &&
+    codeChildren.every((node) => typeof node === "string" || typeof node === "number")
+  ) {
+    return {
+      code: codeChildren.join(""),
+      className: (firstChild.props as { className?: string }).className,
+    };
+  }
+  return null;
+};
+
+const extractPreCode = (node: any, children: React.ReactNode): ExtractedPreCode | null => {
+  return extractPreCodeFromNode(node) ?? extractPreCodeFromChildren(children);
+};
+
+const normalizeLanguageLabel = (className?: string) => {
+  const match = className?.match(/language-([a-z0-9]+)/i);
+  const raw = match?.[1]?.toLowerCase();
+  if (!raw) return "CODE";
+  if (raw === "ts") return "TS";
+  if (raw === "tsx") return "TSX";
+  if (raw === "python") return "PYTHON";
+  return raw.toUpperCase();
+};
+
+const markdownComponents = {
+  code({ inline, className, children, ...props }: any) {
+    if (inline) {
+      return (
+        <code className="rounded bg-black/10 dark:bg-black/30 px-1 py-0.5" {...props}>
+          {children}
+        </code>
+      );
+    }
+
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children, node }: any) => {
+    const extracted = extractPreCode(node, children);
+    if (!extracted) {
+      return (
+        <pre className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
+          {children}
+        </pre>
+      );
+    }
+
+    const label = normalizeLanguageLabel(extracted.className);
+    return <MarkdownCodeBlock code={extracted.code} label={label} />;
+  },
+  p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
+  ul: ({ children }: any) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
+  ol: ({ children }: any) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+  a: ({ href, children }: any) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-500 hover:underline"
+    >
+      {children}
+    </a>
+  ),
+  img: ({ src, alt }: any) => (
+    <img
+      src={resolveMediaSrc(src) || src || undefined}
+      alt={alt || "uploaded media"}
+      loading="lazy"
+      className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"
+      style={{ maxHeight: 320, objectFit: "cover" }}
+    />
+  ),
+};
+
+function isTrustedPreviewUrl(previewUrl: string | null | undefined): boolean {
+  const trimmed = typeof previewUrl === "string" ? previewUrl.trim() : "";
+  if (!trimmed) return false;
+
+  if (!/^https?:\/\//i.test(trimmed) && !trimmed.startsWith("//")) {
+    return true;
+  }
+
+  try {
+    const runtimeConfig = getRuntimeConfigSync();
+    const backendOrigin = runtimeConfig.backendBaseUrl
+      ? new URL(runtimeConfig.backendBaseUrl, window.location.origin).origin
+      : window.location.origin;
+    const resolvedUrl = new URL(trimmed, window.location.href);
+    return resolvedUrl.origin === backendOrigin;
+  } catch {
+    return false;
+  }
+}
+
+function buildPreviewFetchInit(
+  previewUrl: string,
+  signal: AbortSignal
+): RequestInit {
+  if (isTrustedPreviewUrl(previewUrl)) {
+    return buildAuthenticatedFetchInit(
+      { method: "GET", signal },
+      { forceApiKey: true }
+    );
+  }
+
+  return {
+    method: "GET",
+    signal,
+    credentials: "omit",
+  };
+}
 
 function readStringField(
   source: Record<string, unknown> | null | undefined,
@@ -135,7 +370,6 @@ function resolveDocumentMimeType(
       "contentType",
     ])?.toLowerCase() ?? ""
   );
-}
 
 function resolveInlinePreviewText(
   doc: DocumentLike | null | undefined
@@ -144,12 +378,23 @@ function resolveInlinePreviewText(
   return readStringField(doc as Record<string, unknown>, [
     "content",
     "body",
+    "body_markdown",
+    "bodyMarkdown",
     "text",
+    "text_content",
+    "textContent",
+    "plain_text",
+    "plainText",
     "parsed_text",
     "parsedText",
     "markdown",
     "preview",
     "rawText",
+    "raw_text",
+    "markdown_text",
+    "markdownText",
+    "preview_text",
+    "previewText",
     "snippet",
   ]);
 }
@@ -169,8 +414,15 @@ function buildSourceLabel(
   previewKind: PreviewKind
 ): string {
   if (activeDoc?.type === "codex_entry") return "Codex entry body";
-  if (previewText) return "Inline text";
-  if (fetchedText) return previewUrl ? "Remote document source" : "Loaded preview text";
+  if (previewText) {
+    return previewKind === "markdown" ? "Inline markdown" : "Inline text";
+  }
+  if (fetchedText) {
+    if (previewKind === "markdown") {
+      return previewUrl ? "Remote markdown source" : "Loaded markdown text";
+    }
+    return previewUrl ? "Remote document source" : "Loaded preview text";
+  }
   if (previewUrl) {
     if (previewKind === "image" || previewKind === "pdf") {
       return "Embedded asset";
@@ -209,7 +461,6 @@ function buildPreviewKind(options: {
     mimeType.includes("xml") ||
     mimeType.includes("yaml") ||
     mimeType.includes("toml") ||
-    mimeType.includes("csv") ||
     mimeType.includes("javascript") ||
     mimeType.includes("typescript") ||
     mimeType.includes("sql");
@@ -259,7 +510,7 @@ export default function WorkspaceViewer({
   const sourceText = activeDoc?.type === "codex_entry" ? codexBody : inlinePreviewText;
   const needsRemoteText = (previewKind === "markdown" || previewKind === "text") && !sourceText;
   const normalizedPreviewUrl = useMemo(
-    () => (previewUrl ? normalizeMediaUrl(previewUrl) : ""),
+    () => (previewUrl ? resolveMediaSrc(previewUrl) : ""),
     [previewUrl]
   );
 
@@ -284,13 +535,7 @@ export default function WorkspaceViewer({
 
     setFetchPhase("loading");
 
-    fetch(
-      normalizedPreviewUrl,
-      buildAuthenticatedFetchInit(
-        { method: "GET", signal: controller.signal },
-        { forceApiKey: true }
-      )
-    )
+    fetch(normalizedPreviewUrl, buildPreviewFetchInit(normalizedPreviewUrl, controller.signal))
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`Preview request failed (${response.status})`);
@@ -312,11 +557,28 @@ export default function WorkspaceViewer({
       cancelled = true;
       controller.abort();
     };
-  }, [needsRemoteText, normalizedPreviewUrl]);
+  }, [
+    activeDoc?.id,
+    activeDoc?.type,
+    needsRemoteText,
+    normalizedPreviewUrl,
+    previewKind,
+  ]);
 
   const resolvedText = sourceText ?? fetchedText;
   const title = activeDoc?.title || activeDoc?.name || "Untitled document";
   const extension = resolveDocumentExtension(activeDoc);
+  const renderedText = useMemo(() => {
+    if (extension !== "json" || !resolvedText) {
+      return resolvedText;
+    }
+
+    try {
+      return JSON.stringify(JSON.parse(resolvedText), null, 2);
+    } catch {
+      return resolvedText;
+    }
+  }, [extension, resolvedText]);
   const createdAt = formatDate(
     activeDoc?.createdAt ?? (activeDoc as any)?.created_at ?? codexEntry?.created_at ?? null
   );
@@ -468,10 +730,12 @@ export default function WorkspaceViewer({
 
       return (
         <div
-          className="prose prose-sm max-w-none dark:prose-invert codexifyWorkspaceMarkdown"
+          className="text-sm leading-relaxed prose prose-sm max-w-none break-words dark:prose-invert codexifyWorkspaceMarkdown"
           data-testid="workspace-preview-content"
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{resolvedText}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {renderedText || ""}
+          </ReactMarkdown>
         </div>
       );
     }
@@ -506,20 +770,32 @@ export default function WorkspaceViewer({
           className="codexifyWorkspacePlaintext"
           data-testid="workspace-preview-content"
         >
-          {resolvedText}
+          {renderedText}
         </pre>
       );
     }
 
     return (
       <PreviewMessage
-        title="Preview unavailable for this file type"
+        title="This file type does not have an inline preview yet."
         hint="Metadata is still available below."
         tone="muted"
         detail={
           normalizedPreviewUrl || previewUrl
             ? "Open the source asset in a new tab if you need the raw file."
             : undefined
+        }
+        action={
+          normalizedPreviewUrl || previewUrl ? (
+            <a
+              href={normalizedPreviewUrl || previewUrl || undefined}
+              className="codexifyWorkspaceLink"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Open in a new tab
+            </a>
+          ) : undefined
         }
       />
     );
@@ -569,11 +845,13 @@ function PreviewMessage({
   title,
   hint,
   detail,
+  action,
   tone = "default",
 }: {
   title: string;
   hint?: string;
   detail?: string;
+  action?: React.ReactNode;
   tone?: "default" | "muted" | "error";
 }) {
   return (
@@ -581,6 +859,7 @@ function PreviewMessage({
       <div className="codexifyWorkspaceStateTitle">{title}</div>
       {hint && <div className="codexifyWorkspaceHint">{hint}</div>}
       {detail && <div className="codexifyWorkspaceHint">{detail}</div>}
+      {action}
     </div>
   );
 }
