@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { DocumentLike } from "@/types/documents";
 import { Button } from "@/components/ui/button";
 import { getCodexEntry, getCodexExportUrl, CodexEntry } from "@/api/codex";
-import { isImageMediaUrl, isPdfMediaUrl } from "@/lib/mediaUrl";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import WorkspaceViewer from "./WorkspaceViewer";
 import "./workspace.css";
 
@@ -78,7 +78,17 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
   );
 
   const isImage = useMemo(() => {
-    return previewUrl ? isImageMediaUrl(previewUrl) : false;
+    if (!previewUrl) return false;
+    const u = previewUrl.toLowerCase();
+    return (
+      u.endsWith(".png") ||
+      u.endsWith(".jpg") ||
+      u.endsWith(".jpeg") ||
+      u.endsWith(".webp") ||
+      u.endsWith(".gif") ||
+      u.endsWith(".svg") ||
+      u.startsWith("data:image/")
+    );
   }, [previewUrl]);
 
   const isPdf = useMemo(() => {
