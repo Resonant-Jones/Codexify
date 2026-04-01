@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -81,6 +82,213 @@ def _namespaces(mock_vector_store):
         call.kwargs.get("namespace")
         for call in mock_vector_store.search.call_args_list
     ]
+
+
+def _matrix_hit(
+    *,
+    hit_id: str,
+    text: str,
+    filename: str,
+    score: float,
+    thread_id: int,
+    project_id: int,
+    user_id: str,
+) -> dict[str, Any]:
+    return {
+        "id": hit_id,
+        "text": text,
+        "metadata": {
+            "filename": filename,
+            "message_id": hit_id,
+            "thread_id": thread_id,
+            "project_id": project_id,
+            "source_thread_id": str(thread_id),
+            "user_id": user_id,
+        },
+        "score": score,
+    }
+
+
+def _trace_document(hit: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(hit["id"]),
+        "title": str(hit["metadata"]["filename"]),
+        "score": float(hit["score"]),
+        "snippet": f"{str(hit['text'])[:100]}...",
+    }
+
+
+ALPHA_HIT = _matrix_hit(
+    hit_id="doc-alpha",
+    text="aurora-lattice-sentinel-alpha",
+    filename="project-a-thread-1.md",
+    score=0.98,
+    thread_id=1,
+    project_id=11,
+    user_id="user-1",
+)
+BETA_HIT = _matrix_hit(
+    hit_id="doc-beta",
+    text="frontend-rim-bezel-sentinel-beta",
+    filename="project-b-thread-3.md",
+    score=0.91,
+    thread_id=3,
+    project_id=22,
+    user_id="user-1",
+)
+DECOY_HIT = _matrix_hit(
+    hit_id="doc-decoy",
+    text="static-cinder-sentinel-decoy",
+    filename="project-a-decoy.md",
+    score=0.44,
+    thread_id=2,
+    project_id=11,
+    user_id="user-1",
+)
+OMEGA_HIT = _matrix_hit(
+    hit_id="doc-omega",
+    text="cross-user-phantom-sentinel-omega",
+    filename="cross-user-thread-6.md",
+    score=0.96,
+    thread_id=6,
+    project_id=11,
+    user_id="user-2",
+)
+
+MATRIX_RESULTS: dict[str, dict[str, list[dict[str, Any]]]] = {
+    "thread:1": {
+        "aurora-lattice-sentinel-alpha": [ALPHA_HIT],
+        "frontend-rim-bezel-sentinel-beta": [],
+        "void-horizon-sentinel-zeta": [],
+        "cross-user-phantom-sentinel-omega": [],
+    },
+    "thread:2": {
+        "aurora-lattice-sentinel-alpha": [],
+        "frontend-rim-bezel-sentinel-beta": [],
+        "void-horizon-sentinel-zeta": [],
+        "cross-user-phantom-sentinel-omega": [],
+        "static-cinder-sentinel-decoy": [DECOY_HIT],
+    },
+    "thread:3": {
+        "aurora-lattice-sentinel-alpha": [],
+        "frontend-rim-bezel-sentinel-beta": [BETA_HIT],
+        "void-horizon-sentinel-zeta": [],
+        "cross-user-phantom-sentinel-omega": [],
+    },
+    "thread:6": {
+        "cross-user-phantom-sentinel-omega": [OMEGA_HIT],
+    },
+}
+
+MATRIX_CASES = [
+    pytest.param(
+        {
+            "test_case_id": "project-local-success",
+            "query": "aurora-lattice-sentinel-alpha",
+            "source_mode": "project",
+            "expected_hits": [ALPHA_HIT],
+            "expected_excluded": [
+                BETA_HIT["text"],
+                DECOY_HIT["text"],
+                OMEGA_HIT["text"],
+            ],
+            "expected_namespaces": ["thread:1"],
+            "expected_widen_reason": "none",
+        },
+        id="project-local-success",
+    ),
+    pytest.param(
+        {
+            "test_case_id": "personal-knowledge-widening-success",
+            "query": "frontend-rim-bezel-sentinel-beta",
+            "source_mode": "personal_knowledge",
+            "expected_hits": [BETA_HIT],
+            "expected_excluded": [
+                ALPHA_HIT["text"],
+                DECOY_HIT["text"],
+                OMEGA_HIT["text"],
+            ],
+            "expected_namespaces": ["thread:1", "thread:2", "thread:3"],
+            "expected_widen_reason": "explicit_personal_knowledge",
+        },
+        id="personal-knowledge-widening-success",
+    ),
+    pytest.param(
+        {
+            "test_case_id": "truthful-empty-result",
+            "query": "void-horizon-sentinel-zeta",
+            "source_mode": "project",
+            "expected_hits": [],
+            "expected_excluded": [
+                ALPHA_HIT["text"],
+                BETA_HIT["text"],
+                DECOY_HIT["text"],
+                OMEGA_HIT["text"],
+            ],
+            "expected_namespaces": ["thread:1", "thread:2"],
+            "expected_widen_reason": "insufficient_thread_hits",
+        },
+        id="truthful-empty-result",
+    ),
+    pytest.param(
+        {
+            "test_case_id": "no-cross-user-bleed",
+            "query": "cross-user-phantom-sentinel-omega",
+            "source_mode": "personal_knowledge",
+            "expected_hits": [],
+            "expected_excluded": [OMEGA_HIT["text"]],
+            "expected_namespaces": ["thread:1", "thread:2", "thread:3"],
+            "expected_widen_reason": "insufficient_thread_hits",
+        },
+        id="no-cross-user-bleed",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", MATRIX_CASES)
+async def test_deterministic_retrieval_matrix_proves_boundary_model(
+    context_broker, mock_vector_store, case
+):
+    def _search(query, k, namespace=None):
+        hits = MATRIX_RESULTS.get(namespace or "", {}).get(query, [])
+        return [
+            {
+                "id": hit["id"],
+                "text": hit["text"],
+                "metadata": dict(hit["metadata"]),
+                "score": hit["score"],
+            }
+            for hit in hits[:k]
+        ]
+
+    mock_vector_store.search = MagicMock(side_effect=_search)
+
+    context, trace = await context_broker.assemble(
+        thread_id=1,
+        query=case["query"],
+        depth_mode="normal",
+        k_semantic=1,
+        source_mode=case["source_mode"],
+    )
+
+    expected_docs = [_trace_document(hit) for hit in case["expected_hits"]]
+    actual_texts = [item["text"] for item in context["semantic"]]
+
+    assert trace["thread_id"] == 1
+    assert trace["project_id"] == 11
+    assert trace["depth_mode"] == "normal"
+    assert trace["source_mode"] == case["source_mode"]
+    assert trace["widen_reason"] == case["expected_widen_reason"]
+    assert _namespaces(mock_vector_store) == case["expected_namespaces"]
+    assert actual_texts == [hit["text"] for hit in case["expected_hits"]]
+    assert trace["documents"] == expected_docs
+
+    for excluded in case["expected_excluded"]:
+        assert excluded not in actual_texts
+        assert excluded not in " ".join(
+            doc["snippet"] for doc in trace["documents"]
+        )
 
 
 @pytest.mark.asyncio

@@ -2725,6 +2725,12 @@ def get_latest_rag_trace(
     if payload_summary is not None:
         trace["payload_summary"] = payload_summary
 
+    trace.setdefault("thread_id", thread_id)
+    trace.setdefault("project_id", None)
+    trace.setdefault("depth_mode", None)
+    trace.setdefault("source_mode", None)
+    trace.setdefault("widen_reason", "none")
+
     if resolve_thread_system_profile and (
         profile_debug["active_profile_id"] is None
         or profile_debug["provider_override"] is None
