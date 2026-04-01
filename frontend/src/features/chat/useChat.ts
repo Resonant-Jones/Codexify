@@ -493,16 +493,18 @@ function collapseAssistantTurnDuplicates(messages: ChatMessage[]): ChatMessage[]
   if (messages.length < 2) return messages;
   const seenTurns = new Set<string>();
   const next: ChatMessage[] = [];
-  for (const message of messages) {
-    if (!isAssistantWithTurnId(message)) {
-      next.push(message);
-      continue;
+  // Keep the newest assistant row per turn because completion refreshes can
+  // briefly surface a placeholder before the persisted final response lands.
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (isAssistantWithTurnId(message)) {
+      const turnId = message.turn_id as string;
+      if (seenTurns.has(turnId)) continue;
+      seenTurns.add(turnId);
     }
-    const turnId = message.turn_id as string;
-    if (seenTurns.has(turnId)) continue;
-    seenTurns.add(turnId);
     next.push(message);
   }
+  next.reverse();
   return next;
 }
 
@@ -789,20 +791,22 @@ export function useChat(options: UseChatOptions = {}) {
       );
       if (!assistants.length) return null;
 
+      if (session.turnId) {
+        const byTurn = [...assistants]
+          .reverse()
+          .find(
+            (candidate) =>
+              candidate.turn_id === session.turnId &&
+              candidate.id > session.baselineLatestAssistantId
+          );
+        if (byTurn) return byTurn;
+      }
+
       if (session.assistantMatchedMessageId != null) {
         const byId = assistants.find(
           (candidate) => candidate.id === session.assistantMatchedMessageId
         );
         if (byId) return byId;
-      }
-
-      if (session.turnId) {
-        const byTurn = assistants.find(
-          (candidate) =>
-            candidate.turn_id === session.turnId &&
-            candidate.id > session.baselineLatestAssistantId
-        );
-        if (byTurn) return byTurn;
       }
 
       if (session.taskTerminalState != null) {
