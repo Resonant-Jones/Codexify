@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspacePane from "../WorkspacePane";
+import { setRuntimeApiKey } from "@/lib/api";
 import type { DocumentLike } from "@/types/documents";
 
 function buildDocument(
@@ -40,7 +41,76 @@ describe("WorkspacePane preview surface", () => {
   });
 
   afterEach(() => {
+    setRuntimeApiKey(null);
     vi.restoreAllMocks();
+  });
+
+  it("does not attach auth headers to arbitrary external preview URLs", async () => {
+    setRuntimeApiKey("preview-secret");
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: async () => "# External Preview\n\nFetched from a third-party origin.",
+    } as Response);
+
+    render(
+      <WorkspacePane
+        activeDoc={buildDocument({
+          id: "doc-external",
+          title: "External Notes",
+          ext: "md",
+          type: "file",
+          src_url: "https://example.com/external-notes.md",
+        })}
+      />
+    );
+
+    const previewSurface = screen.getByTestId("workspace-preview-surface");
+
+    await waitFor(() => {
+      expect(
+        within(previewSurface).getByRole("heading", { name: "External Preview" })
+      ).toBeInTheDocument();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init).toMatchObject({ credentials: "omit" });
+    const headers = init?.headers as Record<string, string> | undefined;
+    expect(headers?.["X-API-Key"]).toBeUndefined();
+    expect(headers?.Authorization).toBeUndefined();
+  });
+
+  it("keeps auth headers for trusted backend preview URLs", async () => {
+    setRuntimeApiKey("preview-secret");
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: async () => "# Backend Preview\n\nFetched from the trusted backend origin.",
+    } as Response);
+
+    render(
+      <WorkspacePane
+        activeDoc={buildDocument({
+          id: "doc-backend",
+          title: "Backend Notes",
+          ext: "md",
+          type: "file",
+          src_url: "/media/documents/backend-notes.md",
+        })}
+      />
+    );
+
+    const previewSurface = screen.getByTestId("workspace-preview-surface");
+
+    await waitFor(() => {
+      expect(
+        within(previewSurface).getByRole("heading", { name: "Backend Preview" })
+      ).toBeInTheDocument();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const headers = init?.headers as Record<string, string> | undefined;
+    expect(headers?.["X-API-Key"]).toBe("preview-secret");
   });
 
   it("renders markdown previews with the chat markdown contract", async () => {

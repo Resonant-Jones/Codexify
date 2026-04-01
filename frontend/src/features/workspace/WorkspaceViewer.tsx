@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { CodexEntry } from "@/api/codex";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 import { DocumentLike } from "@/types/documents";
 
 type WorkspaceViewerProps = {
@@ -276,6 +277,44 @@ const markdownComponents = {
   ),
 };
 
+function isTrustedPreviewUrl(previewUrl: string | null | undefined): boolean {
+  const trimmed = typeof previewUrl === "string" ? previewUrl.trim() : "";
+  if (!trimmed) return false;
+
+  if (!/^https?:\/\//i.test(trimmed) && !trimmed.startsWith("//")) {
+    return true;
+  }
+
+  try {
+    const runtimeConfig = getRuntimeConfigSync();
+    const backendOrigin = runtimeConfig.backendBaseUrl
+      ? new URL(runtimeConfig.backendBaseUrl, window.location.origin).origin
+      : window.location.origin;
+    const resolvedUrl = new URL(trimmed, window.location.href);
+    return resolvedUrl.origin === backendOrigin;
+  } catch {
+    return false;
+  }
+}
+
+function buildPreviewFetchInit(
+  previewUrl: string,
+  signal: AbortSignal
+): RequestInit {
+  if (isTrustedPreviewUrl(previewUrl)) {
+    return buildAuthenticatedFetchInit(
+      { method: "GET", signal },
+      { forceApiKey: true }
+    );
+  }
+
+  return {
+    method: "GET",
+    signal,
+    credentials: "omit",
+  };
+}
+
 function readStringField(
   source: Record<string, unknown> | null | undefined,
   fields: string[]
@@ -500,13 +539,7 @@ export default function WorkspaceViewer({
 
     setFetchPhase("loading");
 
-    fetch(
-      normalizedPreviewUrl,
-      buildAuthenticatedFetchInit(
-        { method: "GET", signal: controller.signal },
-        { forceApiKey: true }
-      )
-    )
+    fetch(normalizedPreviewUrl, buildPreviewFetchInit(normalizedPreviewUrl, controller.signal))
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`Preview request failed (${response.status})`);
