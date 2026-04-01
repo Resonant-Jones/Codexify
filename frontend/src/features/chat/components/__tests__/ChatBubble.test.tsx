@@ -119,14 +119,14 @@ describe("ChatBubble", () => {
     );
   });
 
-  it("renders markdown images from relative /media sources", () => {
+  it("renders assistant markdown images from relative /media sources", () => {
     render(
       <ChatBubble
-        isGuardian={false}
+        isGuardian
         message={{
           id: "msg-3",
-          authorId: "me",
-          authorName: "You",
+          authorId: "bot",
+          authorName: "Guardian",
           content: "![Chat image](/media/images/chat-inline.jpg?sig=inline#viewer)",
           createdAt: Date.now(),
         }}
@@ -139,14 +139,14 @@ describe("ChatBubble", () => {
     );
   });
 
-  it("renders markdown images from relative media sources without a leading slash", () => {
+  it("renders assistant markdown images from relative media sources without a leading slash", () => {
     render(
       <ChatBubble
-        isGuardian={false}
+        isGuardian
         message={{
           id: "msg-4",
-          authorId: "me",
-          authorName: "You",
+          authorId: "bot",
+          authorName: "Guardian",
           content: "![Relative chat image](media/images/chat-inline-2.jpg?sig=inline2#viewer)",
           createdAt: Date.now(),
         }}
@@ -159,14 +159,14 @@ describe("ChatBubble", () => {
     );
   });
 
-  it("leaves external markdown image URLs untouched", () => {
+  it("leaves external assistant markdown image URLs untouched", () => {
     render(
       <ChatBubble
-        isGuardian={false}
+        isGuardian
         message={{
           id: "msg-5",
-          authorId: "me",
-          authorName: "You",
+          authorId: "bot",
+          authorName: "Guardian",
           content: "![External image](https://cdn.example.com/image.jpg?x=1#hero)",
           createdAt: Date.now(),
         }}
@@ -177,5 +177,47 @@ describe("ChatBubble", () => {
       "src",
       "https://cdn.example.com/image.jpg?x=1#hero"
     );
+  });
+
+  it("renders assistant fenced code blocks with rich code UI", () => {
+    render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "msg-6",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: "```ts\nconst total = 1;\n```",
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(screen.getByText("TS")).toBeInTheDocument();
+    expect(screen.getByText("const total = 1;")).toBeInTheDocument();
+  });
+
+  it("renders user multiline code as plaintext without copy affordances", () => {
+    const pastedCode = "function demo() {\n  const total = 1;\n  return total;\n}";
+
+    const { container } = render(
+      <ChatBubble
+        isGuardian={false}
+        message={{
+          id: "msg-7",
+          authorId: "me",
+          authorName: "You",
+          content: pastedCode,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    const plainText = container.querySelector(".whitespace-pre-wrap");
+    expect(plainText).not.toBeNull();
+    expect(plainText?.textContent).toBe(pastedCode);
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+    expect(container.querySelector(".codexifyCodeBlock")).not.toBeInTheDocument();
   });
 });
