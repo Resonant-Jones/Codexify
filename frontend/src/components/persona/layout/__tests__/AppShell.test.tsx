@@ -6,6 +6,7 @@ import {
   waitFor,
   act,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -16,10 +17,10 @@ import {
   RUNTIME_HEALTH_STATUSES,
 } from "@/contracts/runtimeTokens";
 import {
-  DEFAULT_WORKSPACE_PANE_RATIO,
-  MAX_WORKSPACE_PANE_RATIO,
   MIN_WORKSPACE_PRIMARY_PANE_WIDTH,
-  WORKSPACE_LAYOUT_STORAGE_KEY,
+  getWorkspaceLayoutStorageKeyForThread,
+  getWorkspacePaneRatioForLayoutMode,
+  type WorkspaceLayoutMode,
 } from "@/features/workspace/state/useWorkspaceLayoutMode";
 
 const runtimeHealthState = {
@@ -250,10 +251,25 @@ function renderWordmark(themeMode: "light" | "dark") {
   return screen.findByRole("button", { name: "Codexify" });
 }
 
-function setWorkspaceLayoutState(paneRatio: number) {
+function setRoutePath(pathname: string) {
+  window.history.pushState({}, "", pathname);
+}
+
+function setRouteThread(threadId: number | null) {
+  setRoutePath(threadId == null ? "/dashboard" : `/chat/${threadId}`);
+}
+
+function notifyRouteChange() {
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function setWorkspaceThreadPosture(
+  threadId: number | string | null,
+  layoutMode: WorkspaceLayoutMode
+) {
   window.localStorage.setItem(
-    WORKSPACE_LAYOUT_STORAGE_KEY,
-    JSON.stringify({ paneRatio })
+    getWorkspaceLayoutStorageKeyForThread(threadId),
+    layoutMode
   );
 }
 
@@ -267,6 +283,7 @@ describe("AppShell logo wordmark color contract", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    setRouteThread(null);
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
     listCodexEntriesSpy.mockClear();
@@ -333,6 +350,7 @@ describe("AppShell dashboard create project flow", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    setRouteThread(null);
     localStorage.setItem("cfy.lastView", "dashboard");
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
@@ -383,6 +401,7 @@ describe("AppShell shared gallery persistence truth", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    setRouteThread(null);
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
     listCodexEntriesSpy.mockClear();
@@ -483,6 +502,7 @@ describe("AppShell gallery demo content", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    setRouteThread(null);
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
     listCodexEntriesSpy.mockClear();
@@ -553,6 +573,7 @@ describe("AppShell workspace drawer shell", () => {
     uploaderState.configs = [];
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    setRouteThread(null);
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
     listCodexEntriesSpy.mockClear();
@@ -567,7 +588,7 @@ describe("AppShell workspace drawer shell", () => {
   });
 
   it.each(["dashboard", "guardian", "documents"] as const)(
-    "renders the shared workspace drawer from the shell for %s",
+    "renders the shared workspace drawer from the shell for %s and keeps open/close behavior intact",
     async (initialView) => {
       localStorage.setItem("cfy.lastView", initialView);
 
@@ -579,12 +600,16 @@ describe("AppShell workspace drawer shell", () => {
       fireEvent.click(toggle);
 
       expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
+
+      fireEvent.click(toggle);
+      expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
     }
   );
 
   it("resolves supported views to chat_focus while the workspace is closed", () => {
     localStorage.setItem("cfy.lastView", "dashboard");
-    setWorkspaceLayoutState(MAX_WORKSPACE_PANE_RATIO);
+    setRouteThread(101);
+    setWorkspaceThreadPosture(101, "workspace_focus");
 
     render(<AppShell />);
 
@@ -595,62 +620,56 @@ describe("AppShell workspace drawer shell", () => {
     expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
   });
 
-  it("uses balanced_split for open workspace layouts at the default ratio", async () => {
+  it("defaults to Chat Focus and cycles the centered posture control through the preset states", async () => {
+    const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "guardian");
-    setWorkspaceLayoutState(DEFAULT_WORKSPACE_PANE_RATIO);
+    setRouteThread(101);
 
     render(<AppShell />);
 
     fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
 
     const drawer = await screen.findByTestId("workspace-drawer");
+    const posture = screen.getByTestId("workspace-drawer-posture");
+    const primaryPane = screen.getByTestId("workspace-primary-pane");
+    const drawerPane = screen.getByTestId("workspace-drawer-pane");
+    const chatPrimaryBasis = readPaneBasis(primaryPane);
+    const chatDrawerBasis = readPaneBasis(drawerPane);
+
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "chat_focus"
+    );
+    expect(drawer).toHaveAttribute("data-layout-mode", "chat_focus");
+    expect(drawer).toHaveAttribute("data-layout-label", "Chat Focus");
+    expect(posture).toHaveTextContent("Chat Focus");
+    expect(primaryPane).toHaveAttribute(
+      "data-pane-min-width",
+      MIN_WORKSPACE_PRIMARY_PANE_WIDTH
+    );
+
+    await user.click(posture);
+
+    expect(posture).toHaveTextContent("Balanced Split");
+    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
+    expect(drawer).toHaveAttribute("data-layout-label", "Balanced Split");
+    expect(drawer).toHaveAttribute(
+      "data-pane-ratio",
+      getWorkspacePaneRatioForLayoutMode("balanced_split").toFixed(2)
+    );
     expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
       "data-workspace-layout-mode",
       "balanced_split"
     );
-    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
-    expect(drawer).toHaveAttribute(
-      "data-pane-ratio",
-      DEFAULT_WORKSPACE_PANE_RATIO.toFixed(2)
-    );
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Balanced split"
+      "Balanced Split"
     );
-  });
 
-  it("makes workspace_focus visibly more dominant than balanced_split", async () => {
-    localStorage.setItem("cfy.lastView", "guardian");
-    setWorkspaceLayoutState(DEFAULT_WORKSPACE_PANE_RATIO);
+    await user.click(posture);
 
-    const { unmount } = render(<AppShell />);
-
-    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
-
-    const balancedPrimaryPane = await screen.findByTestId(
-      "workspace-primary-pane"
-    );
-    const balancedDrawerPane = screen.getByTestId("workspace-drawer-pane");
-    const balancedPrimaryBasis = readPaneBasis(balancedPrimaryPane);
-    const balancedDrawerBasis = readPaneBasis(balancedDrawerPane);
-
-    unmount();
-
-    localStorage.setItem("cfy.lastView", "documents");
-    localStorage.setItem(
-      "cfy.workspace.ui",
-      JSON.stringify({ isOpen: true, activeTab: "inspector" })
-    );
-    setWorkspaceLayoutState(0.95);
-
-    render(<AppShell />);
-
-    const focusPrimaryPane = screen.getByTestId("workspace-primary-pane");
-    const focusDrawerPane = screen.getByTestId("workspace-drawer-pane");
-    const drawer = screen.getByTestId("workspace-drawer");
-    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
-      "data-workspace-layout-mode",
-      "workspace_focus"
-    );
+    expect(posture).toHaveTextContent("Workspace Focus");
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+    expect(drawer).toHaveAttribute("data-layout-label", "Workspace Focus");
     expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
       "data-workspace-dominant",
       "true"
@@ -659,40 +678,86 @@ describe("AppShell workspace drawer shell", () => {
       "data-workspace-ratio-bucket",
       "workspace_first"
     );
-    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
     expect(drawer).toHaveAttribute(
       "data-pane-ratio",
-      MAX_WORKSPACE_PANE_RATIO.toFixed(2)
+      getWorkspacePaneRatioForLayoutMode("workspace_focus").toFixed(2)
     );
-    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace focus"
-    );
-    expect(readPaneBasis(focusDrawerPane)).toBeGreaterThan(balancedDrawerBasis);
-    expect(readPaneBasis(focusPrimaryPane)).toBeLessThan(balancedPrimaryBasis);
-  });
-
-  it("keeps the chat lane at a readable minimum width in workspace_focus", () => {
-    localStorage.setItem("cfy.lastView", "guardian");
-    localStorage.setItem(
-      "cfy.workspace.ui",
-      JSON.stringify({ isOpen: true, activeTab: "scratchpad" })
-    );
-    setWorkspaceLayoutState(MAX_WORKSPACE_PANE_RATIO);
-
-    render(<AppShell />);
-
-    expect(screen.getByTestId("workspace-primary-pane")).toHaveAttribute(
+    expect(readPaneBasis(drawerPane)).toBeGreaterThan(chatDrawerBasis);
+    expect(readPaneBasis(primaryPane)).toBeLessThan(chatPrimaryBasis);
+    expect(primaryPane).toHaveAttribute(
       "data-pane-min-width",
       MIN_WORKSPACE_PRIMARY_PANE_WIDTH
     );
+
+    await user.dblClick(posture);
+
+    expect(posture).toHaveTextContent("Chat Focus");
+    expect(drawer).toHaveAttribute("data-layout-mode", "chat_focus");
+    expect(drawer).toHaveAttribute("data-layout-label", "Chat Focus");
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "chat_focus"
+    );
+  });
+
+  it("persists posture per thread and restores the saved posture when switching routes", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(101);
+
+    render(<AppShell />);
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+
+    const drawer = await screen.findByTestId("workspace-drawer");
+    const posture = screen.getByTestId("workspace-drawer-posture");
+
+    await user.click(posture);
+    await user.click(posture);
+
+    expect(
+      localStorage.getItem(getWorkspaceLayoutStorageKeyForThread(101))
+    ).toBe("workspace_focus");
+
+    act(() => {
+      setRouteThread(202);
+      notifyRouteChange();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+        "data-layout-mode",
+        "chat_focus"
+      );
+      expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
+        "Chat Focus"
+      );
+    });
+
+    await user.click(screen.getByTestId("workspace-drawer-posture"));
+    expect(
+      localStorage.getItem(getWorkspaceLayoutStorageKeyForThread(202))
+    ).toBe("balanced_split");
+
+    act(() => {
+      setRouteThread(101);
+      notifyRouteChange();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+        "data-layout-mode",
+        "workspace_focus"
+      );
+      expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
+        "Workspace Focus"
+      );
+    });
   });
 
   it("does not render the workspace drawer for unsupported views", () => {
     localStorage.setItem("cfy.lastView", "gallery");
-    localStorage.setItem(
-      "cfy.workspace.ui",
-      JSON.stringify({ isOpen: true, activeTab: "inspector" })
-    );
+    setRouteThread(null);
 
     render(<AppShell />);
 

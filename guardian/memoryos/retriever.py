@@ -131,6 +131,10 @@ class MemoryOSRetriever:
     def _parse_timestamp(value: Any) -> datetime | None:
         if not value:
             return None
+        normalized = MemoryOSRetriever._coerce_timestamp_value(value)
+        if normalized is None:
+            return None
+        value = normalized
         if isinstance(value, datetime):
             if value.tzinfo is None:
                 return value.replace(tzinfo=timezone.utc)
@@ -149,11 +153,57 @@ class MemoryOSRetriever:
             return None
 
     @staticmethod
+    def _coerce_timestamp_value(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+
+        to_native = getattr(value, "to_native", None)
+        if callable(to_native):
+            try:
+                return to_native()
+            except Exception:
+                pass
+
+        isoformat = getattr(value, "isoformat", None)
+        if callable(isoformat):
+            try:
+                return isoformat()
+            except Exception:
+                pass
+
+        return value
+
+    @staticmethod
+    def _normalize_metadata_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): MemoryOSRetriever._normalize_metadata_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [
+                MemoryOSRetriever._normalize_metadata_value(item)
+                for item in value
+            ]
+        if isinstance(value, tuple):
+            return [
+                MemoryOSRetriever._normalize_metadata_value(item)
+                for item in value
+            ]
+        return MemoryOSRetriever._coerce_timestamp_value(value)
+
+    @staticmethod
     def _extract_metadata(item: dict[str, Any]) -> dict[str, Any]:
         if isinstance(item.get("meta"), dict):
-            return dict(item["meta"])
+            return MemoryOSRetriever._normalize_metadata_value(
+                dict(item["meta"])
+            )
         if isinstance(item.get("metadata"), dict):
-            return dict(item["metadata"])
+            return MemoryOSRetriever._normalize_metadata_value(
+                dict(item["metadata"])
+            )
         return {}
 
     @staticmethod
@@ -412,12 +462,12 @@ class MemoryOSRetriever:
             item.pop("_semantic_rank", None)
         return ordered
 
-    async def retrieve(
+    async def _retrieve_with_trace(
         self,
         query: str,
         limit: int = 5,
         namespace: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Retrieve semantically similar documents for a given query.
 
         This method:
@@ -443,11 +493,19 @@ class MemoryOSRetriever:
 
             Returns empty list if vector store is empty or on error.
         """
+        trace: dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "empty_query",
+            "candidate_k": 0,
+            "semantic_candidate_count": 0,
+            "result_count": 0,
+        }
         if not query or not query.strip():
             logger.debug(
                 "[MemoryOSRetriever] Empty query, returning empty results"
             )
-            return []
+            return [], trace
 
         start_time = time.time()
 
@@ -455,6 +513,8 @@ class MemoryOSRetriever:
             # Call vector store search (handles embedding generation internally)
             # VectorStore.search() returns [{text, meta, score}]
             candidate_k = max(limit * 3, limit + 5)
+            trace["attempted"] = True
+            trace["candidate_k"] = candidate_k
             try:
                 results = self.vector_store.search(
                     query,
@@ -470,10 +530,15 @@ class MemoryOSRetriever:
 
             # Ensure results is a list
             if not isinstance(results, list):
+                trace.update(
+                    status="failed",
+                    reason="non_list_results",
+                    result_count=0,
+                )
                 logger.warning(
                     f"[MemoryOSRetriever] Vector store returned non-list: {type(results)}"
                 )
-                return []
+                return [], trace
 
             # Normalize semantic hits first, then stitch neighbors and return
             # deterministic chronological ordering.
@@ -487,18 +552,52 @@ class MemoryOSRetriever:
             ordered = self._stitch_and_sort(selected)
 
             elapsed_ms = (time.time() - start_time) * 1000
+            trace.update(
+                status="contributed" if ordered else "attempted_no_hits",
+                reason="results" if ordered else "no_hits",
+                semantic_candidate_count=len(standardized),
+                selected_count=len(selected),
+                result_count=len(ordered),
+                elapsed_ms=elapsed_ms,
+            )
             logger.debug(
                 f"[MemoryOSRetriever] Retrieved {len(standardized)} results "
                 f"for query '{query[:50]}...' in {elapsed_ms:.2f}ms"
             )
 
-            return ordered
+            return ordered, trace
 
         except Exception as e:
+            trace.update(
+                status="failed",
+                reason="search_failed",
+                error=str(e),
+            )
             logger.warning(
                 f"[MemoryOSRetriever] Search failed: {e}", exc_info=True
             )
-            return []
+            return [], trace
+
+    async def retrieve(
+        self,
+        query: str,
+        limit: int = 5,
+        namespace: str | None = None,
+    ) -> list[dict[str, Any]]:
+        results, _trace = await self._retrieve_with_trace(
+            query, limit=limit, namespace=namespace
+        )
+        return results
+
+    async def retrieve_with_trace(
+        self,
+        query: str,
+        limit: int = 5,
+        namespace: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        return await self._retrieve_with_trace(
+            query, limit=limit, namespace=namespace
+        )
 
     def retrieve_context(
         self, user_query: str, user_id: str

@@ -7,13 +7,15 @@ import WorkspaceDrawer from "../components/WorkspaceDrawer";
 import { useWorkspaceUiState } from "../state/useWorkspaceUiState";
 import {
   BALANCED_SPLIT_MIN_RATIO,
-  DEFAULT_WORKSPACE_PANE_RATIO,
+  BALANCED_SPLIT_WORKSPACE_PANE_RATIO,
   MAX_WORKSPACE_PANE_RATIO,
   MIN_WORKSPACE_PANE_RATIO,
   WORKSPACE_FOCUS_MIN_RATIO,
   clampWorkspacePaneRatio,
   deriveWorkspaceLayoutMode,
+  getNextWorkspaceLayoutMode,
   getWorkspaceLayoutRatioBucket,
+  getWorkspacePaneRatioForLayoutMode,
   type WorkspaceLayoutMode,
 } from "../state/useWorkspaceLayoutMode";
 
@@ -47,29 +49,37 @@ function WorkspaceDrawerHarness({
   routeContext,
   activeThreadId = null,
   onMoveScratchpadToComposer,
-  layoutMode = "balanced_split",
-  paneRatio = DEFAULT_WORKSPACE_PANE_RATIO,
+  initialLayoutMode = "chat_focus",
   minPaneRatio = MIN_WORKSPACE_PANE_RATIO,
   maxPaneRatio = MAX_WORKSPACE_PANE_RATIO,
 }: {
   routeContext: WorkspaceHarnessRoute;
   activeThreadId?: string | number | null;
   onMoveScratchpadToComposer?: (text: string) => void;
-  layoutMode?: WorkspaceLayoutMode;
-  paneRatio?: number;
+  initialLayoutMode?: WorkspaceLayoutMode;
   minPaneRatio?: number;
   maxPaneRatio?: number;
 }) {
   const { isOpen, activeTab, open, close, setActiveTab } = useWorkspaceUiState({
     routeContext,
   });
+  const [layoutMode, setLayoutMode] = React.useState<WorkspaceLayoutMode>(
+    initialLayoutMode
+  );
+  const paneRatio = getWorkspacePaneRatioForLayoutMode(layoutMode);
 
   return (
     <>
       <button
         type="button"
         data-testid="workspace-open-button"
-        onClick={() => open()}
+        onClick={() => {
+          if (isOpen) {
+            close();
+            return;
+          }
+          open();
+        }}
       >
         Open workspace
       </button>
@@ -83,6 +93,7 @@ function WorkspaceDrawerHarness({
         maxPaneRatio={maxPaneRatio}
         activeThreadId={activeThreadId}
         onMoveScratchpadToComposer={onMoveScratchpadToComposer}
+        onLayoutModeChange={setLayoutMode}
         onOpenChange={(nextOpen) => {
           if (nextOpen) {
             open();
@@ -113,6 +124,12 @@ describe("workspace layout mode contract", () => {
     expect(
       deriveWorkspaceLayoutMode({
         isOpen: true,
+        paneRatio: MIN_WORKSPACE_PANE_RATIO,
+      })
+    ).toBe("chat_focus");
+    expect(
+      deriveWorkspaceLayoutMode({
+        isOpen: true,
         paneRatio: BALANCED_SPLIT_MIN_RATIO,
       })
     ).toBe("balanced_split");
@@ -127,6 +144,20 @@ describe("workspace layout mode contract", () => {
     expect(getWorkspaceLayoutRatioBucket("workspace_focus")).toBe(
       "workspace_first"
     );
+    expect(getWorkspacePaneRatioForLayoutMode("chat_focus")).toBe(
+      MIN_WORKSPACE_PANE_RATIO
+    );
+    expect(getWorkspacePaneRatioForLayoutMode("balanced_split")).toBe(
+      BALANCED_SPLIT_WORKSPACE_PANE_RATIO
+    );
+    expect(getWorkspacePaneRatioForLayoutMode("workspace_focus")).toBe(
+      MAX_WORKSPACE_PANE_RATIO
+    );
+    expect(getNextWorkspaceLayoutMode("chat_focus")).toBe("balanced_split");
+    expect(getNextWorkspaceLayoutMode("balanced_split")).toBe(
+      "workspace_focus"
+    );
+    expect(getNextWorkspaceLayoutMode("workspace_focus")).toBe("chat_focus");
   });
 });
 
@@ -174,10 +205,6 @@ describe("WorkspaceDrawer shell", () => {
 
       await user.click(screen.getByTestId("workspace-open-button"));
 
-      expect(screen.getByTestId("workspace-tabs")).not.toHaveClass("glass-pill");
-      expect(screen.getByRole("tab", { name: expectedLabel })).toHaveClass(
-        "segment-tab"
-      );
       expect(screen.getByRole("tab", { name: expectedLabel })).toHaveAttribute(
         "aria-selected",
         "true"
@@ -190,6 +217,9 @@ describe("WorkspaceDrawer shell", () => {
           screen.getByTestId("workspace-scratchpad-textarea")
         ).toHaveAttribute("placeholder", expectedPlaceholder);
       }
+
+      await user.click(screen.getByTestId("workspace-open-button"));
+      expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
     }
   );
 
@@ -218,16 +248,10 @@ describe("WorkspaceDrawer shell", () => {
     expect(screen.getAllByRole("tab", { name: "Shelf" })).toHaveLength(1);
   });
 
-  it("renders posture as passive status text while tabs remain the interactive controls", async () => {
+  it("renders posture as a quiet button that cycles and resets the layout mode", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
-    render(
-      <WorkspaceDrawerHarness
-        routeContext="documents"
-        layoutMode="workspace_focus"
-        paneRatio={MAX_WORKSPACE_PANE_RATIO}
-      />
-    );
+    render(<WorkspaceDrawerHarness routeContext="documents" />);
 
     await user.click(screen.getByTestId("workspace-open-button"));
 
@@ -239,23 +263,56 @@ describe("WorkspaceDrawer shell", () => {
       "Workspace"
     );
     const posture = screen.getByTestId("workspace-drawer-posture");
-    expect(posture.tagName).toBe("P");
-    expect(posture).toHaveTextContent("Workspace focus");
+    expect(posture.tagName).toBe("BUTTON");
+    expect(posture).toHaveTextContent("Chat Focus");
+    expect(posture).toHaveClass("cursor-pointer");
+    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+      "data-layout-mode",
+      "chat_focus"
+    );
+    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+      "data-layout-label",
+      "Chat Focus"
+    );
+
+    await user.click(posture);
+    expect(posture).toHaveTextContent("Balanced Split");
+    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+      "data-layout-mode",
+      "balanced_split"
+    );
+
+    await user.click(posture);
+    expect(posture).toHaveTextContent("Workspace Focus");
+    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+      "data-layout-mode",
+      "workspace_focus"
+    );
+
+    await user.click(posture);
+    expect(posture).toHaveTextContent("Chat Focus");
+    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+      "data-layout-mode",
+      "chat_focus"
+    );
+
+    await user.dblClick(posture);
+    expect(posture).toHaveTextContent("Chat Focus");
+    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+      "data-layout-mode",
+      "chat_focus"
+    );
     expect(
       screen.queryByRole("button", { name: "Close workspace" })
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId("workspace-drawer-close")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Workspace focus" })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("tab", { name: "Workspace focus" })
+      screen.queryByRole("button", { name: "Workspace Focus" })
     ).not.toBeInTheDocument();
 
     const tablist = screen.getByRole("tablist", { name: "Workspace panels" });
     expect(tablist).toBeInTheDocument();
     expect(screen.getByTestId("workspace-tabs")).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-tabs")).not.toHaveClass("glass-pill");
     expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
 
@@ -296,7 +353,7 @@ describe("WorkspaceDrawer shell", () => {
       "centered"
     );
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Balanced split"
+      "Chat Focus"
     );
     expect(screen.queryByTestId("workspace-drawer-close")).not.toBeInTheDocument();
     expect(screen.queryByText(/Autosaves locally per thread/i)).not.toBeInTheDocument();
@@ -319,51 +376,13 @@ describe("WorkspaceDrawer shell", () => {
     );
   });
 
-  it("renders distinct visible posture labels for balanced and dominant layouts", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const { rerender } = render(
-      <WorkspaceDrawerHarness
-        routeContext="documents"
-        layoutMode="balanced_split"
-        paneRatio={DEFAULT_WORKSPACE_PANE_RATIO}
-      />
-    );
-
-    await user.click(screen.getByTestId("workspace-open-button"));
-
-    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
-      "data-layout-label",
-      "Balanced split"
-    );
-    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Balanced split"
-    );
-
-    rerender(
-      <WorkspaceDrawerHarness
-        routeContext="documents"
-        layoutMode="workspace_focus"
-        paneRatio={MAX_WORKSPACE_PANE_RATIO}
-      />
-    );
-
-    expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
-      "data-layout-label",
-      "Workspace focus"
-    );
-    expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace focus"
-    );
-  });
-
   it("keeps layout mode stable while active tabs change", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
     render(
       <WorkspaceDrawerHarness
         routeContext="dashboard"
-        layoutMode="workspace_focus"
-        paneRatio={MAX_WORKSPACE_PANE_RATIO}
+        initialLayoutMode="workspace_focus"
       />
     );
 
@@ -371,25 +390,25 @@ describe("WorkspaceDrawer shell", () => {
 
     const drawer = screen.getByTestId("workspace-drawer");
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
-    expect(drawer).toHaveAttribute("data-layout-label", "Workspace focus");
+    expect(drawer).toHaveAttribute("data-layout-label", "Workspace Focus");
     expect(drawer).toHaveAttribute(
       "data-pane-ratio",
       MAX_WORKSPACE_PANE_RATIO.toFixed(2)
     );
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace focus"
+      "Workspace Focus"
     );
 
     await user.click(screen.getByRole("tab", { name: "Scratchpad" }));
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace focus"
+      "Workspace Focus"
     );
 
     await user.click(screen.getByRole("tab", { name: "Inspector" }));
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
     expect(screen.getByTestId("workspace-drawer-posture")).toHaveTextContent(
-      "Workspace focus"
+      "Workspace Focus"
     );
   });
 
