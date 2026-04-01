@@ -371,6 +371,9 @@ class ContextBroker:
         # Keep source-boundary diagnostics stable while source_mode still
         # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
+            "thread_id": thread_id,
+            "project_id": resolved_project_id,
+            "depth_mode": normalized_depth,
             "documents": [
                 {
                     "id": str(item.get("id", "")),
@@ -632,7 +635,7 @@ class ContextBroker:
                 break
 
         if not widened_executed:
-            return primary_hits[:k], "none"
+            return primary_hits[:k], widen_reason
 
         effective_widen_reason = (
             "explicit_personal_knowledge"

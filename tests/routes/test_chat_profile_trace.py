@@ -150,6 +150,11 @@ def test_rag_trace_remains_empty_without_completed_evidence(monkeypatch):
 
     assert trace["documents"] == []
     assert trace["graph"] == []
+    assert trace["thread_id"] == thread_id
+    assert trace["project_id"] is None
+    assert trace["depth_mode"] is None
+    assert trace["source_mode"] is None
+    assert trace["widen_reason"] == "none"
 
     chat._thread_latest_task.pop(thread_id, None)
     chat._rag_traces.pop(thread_id, None)
@@ -216,6 +221,9 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
     thread_id = 301
     task_id = str(uuid.uuid4())
     candidate_trace = {
+        "thread_id": thread_id,
+        "project_id": 11,
+        "depth_mode": "normal",
         "documents": [
             {
                 "id": "doc-1",
@@ -250,6 +258,9 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
     trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
 
     assert trace["documents"] == candidate_trace["documents"]
+    assert trace["thread_id"] == thread_id
+    assert trace["project_id"] == 11
+    assert trace["depth_mode"] == "normal"
     assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
 
