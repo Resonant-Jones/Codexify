@@ -63,198 +63,387 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 16,
+    "commit_count": 32,
     "commits": [
       {
         "files": [
-          "docs/architecture/codexify_workspace_surface_spec_v_1.md"
+          "backend/rag/embedder.py",
+          "docker-compose.yml",
+          "guardian/core/config.py",
+          "guardian/workers/document_embed_worker.py",
+          "tests/backend/rag/test_embedder.py",
+          "tests/workers/test_document_embed_worker.py"
         ],
-        "sha": "961e9092a06e2dc01226eeced3a9876527832422",
-        "subject": "Workspace Spec"
+        "sha": "a7d9f8200ceba78358df9a21ef4eaffe811ce3d1",
+        "subject": "fix(embed): complete document embed lifecycle and terminal status handling"
       },
       {
         "files": [
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
+          "docs/architecture/2026-03-31-supported-path-proof.md"
         ],
-        "sha": "0d54ae7a29236f8fa37fc959f50adba6cfaa2fdd",
-        "subject": "fix(chat): relabel active scope as project"
+        "sha": "f0596e1dee48ad14c280765c4884b7c6c511bab2",
+        "subject": "docs(proof): add fresh supported-path proof for runtime contract behavior"
       },
       {
         "files": [
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
+          "frontend/src/components/SessionRail/SessionRail.tsx",
+          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx"
         ],
-        "sha": "fde7e2e6ffa625201b89ce42b05729a031d810b5",
-        "subject": "fix(chat): darken thread tiles in dark mode"
+        "sha": "5318886dd69d11835494da0a850ab4ddcbe7bc03",
+        "subject": "fix(chat): apply segmented styling to session rail"
       },
       {
         "files": [
-          "frontend/src/App.tsx",
-          "frontend/src/components/documents/DocumentsView.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/index.css"
+        ],
+        "sha": "72ebb44110c520351332b8144ca581cb597bc6f5",
+        "subject": "refactor(workspace): localize session rail styles"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
           "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/features/chat/useChat.ts"
+        ],
+        "sha": "902112ce544731be139ee2a345a693050115afcb",
+        "subject": "feat(chat): implement frontend runtime contract for provider and request state"
+      },
+      {
+        "files": [
+          "guardian/cognition/prompts.py",
+          "tests/core/test_chat_completion_service_retrieval_plan.py"
+        ],
+        "sha": "5880120e7a7bcefbc79a80925eb95a7e2e831990",
+        "subject": "fix(chat): make retrieval boundary language truthful"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/index.css"
+        ],
+        "sha": "d5abf63535791b32918c021ae0a9b4e6904afed0",
+        "subject": "refactor(workspace): enforce segmented session rail tabs"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
+          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
+        ],
+        "sha": "8f7d6f6e0f29f721c6ee120bd13214cb1cafabea",
+        "subject": "feat(workspace): connect shelf documents to inspector"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
+        ],
+        "sha": "1b33c01b9d3d4cb948a212f3d1b72013820b38ae",
+        "subject": "feat(workspace): wire shelf to thread and project artifacts"
+      },
+      {
+        "files": [
+          "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
+          "tests/routes/test_chat_profile_trace.py"
+        ],
+        "sha": "0d0bc059869b75ac03809b739da6dd8ce0b48e72",
+        "subject": "docs(chat): add end-to-end rag trace proof"
+      },
+      {
+        "files": [
+          "guardian/core/chat_completion_service.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_chat_completion_service_retrieval_plan.py",
+          "tests/routes/test_chat_profile_trace.py"
+        ],
+        "sha": "9e8bd6d8dc29550cae4875bcce7b63631a4696be",
+        "subject": "fix(chat): restore latest rag trace persistence"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+        ],
+        "sha": "6be727c355e50859e9f14d35acc82370f3065fb4",
+        "subject": "refactor(workspace): strengthen tab switcher hierarchy"
+      },
+      {
+        "files": [
+          "guardian/cognition/prompts.py"
+        ],
+        "sha": "bfd2046060d649a2e146a26fbefbba1c22944b5d",
+        "subject": "Refine Guardian base prompt for co-creative companion behavior"
+      },
+      {
+        "files": [
           "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
-          "frontend/src/features/workspace/state/useWorkspaceState.ts"
-        ],
-        "sha": "8c1d880fb9e1fb2d9beb727b4419027dafb37bbb",
-        "subject": "fix(workspace): unify invocation flow and block recursive mounts"
-      },
-      {
-        "files": [
-          "frontend/src/components/documents/DocumentTile.tsx",
-          "frontend/src/components/media/MediaTile.test.tsx",
-          "prompts.py"
-        ],
-        "sha": "dbd6a7b189b3e71e988e4b34b7122c654bf586a5",
-        "subject": "fix(media): restore document tile layout contract"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/WorkspaceViewer.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx"
-        ],
-        "sha": "1b024d7414dc6c84a885abe2741f82575dcc4b14",
-        "subject": "feat(workspace): add typed preview registry for supported documents"
-      },
-      {
-        "files": [
-          "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
-          "frontend/src/components/dashboard/DashboardView.tsx"
-        ],
-        "sha": "1b83e7c5b744a8e9c87461b302f298a5159ced74",
-        "subject": "refactor(dashboard): auto-hide demo content when real data exists"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx"
-        ],
-        "sha": "4d46923d04d25883f037105327662e3d858f3939",
-        "subject": "refactor(gallery): auto-hide demo content when real data exists"
-      },
-      {
-        "files": [
-          "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
-          "frontend/src/components/documents/DocumentsView.tsx"
-        ],
-        "sha": "a2066e26e5b6604c81a51af09d2d8bd1c14e5568",
-        "subject": "refactor(documents): auto-hide demo content when real data exists"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-          "tests/routes/test_media_routes.py"
-        ],
-        "sha": "6ebe4b81df24ca25adb9008b5d93b41b2992081f",
-        "subject": "fix(media): unify dashboard and gallery persisted truth"
-      },
-      {
-        "files": [
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/panels/RAGTracePanel.tsx",
           "frontend/src/features/settings/SettingsView.test.tsx",
-          "guardian/server/app.py",
-          "tests/routes/test_imprint_routes.py"
+          "frontend/src/features/settings/SettingsView.tsx",
+          "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx"
         ],
-        "sha": "6dc00bb17b0583c96fd758df2bac42688a3e0795",
-        "subject": "fix(settings): restore save route contract"
+        "sha": "368afb1b41b3b5b032cdce9e958994575ba46df6",
+        "subject": "fix(diagnostics): bind rag trace surfaces to active thread"
       },
       {
         "files": [
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-          "tests/routes/test_projects_routes.py"
+          "frontend/src/package.json"
         ],
-        "sha": "9aa40796cb03dd166a82c46b0f947b57bb766379",
-        "subject": "fix(projects): restore dashboard create project flow"
+        "sha": "37c2162c2bff89b1a20046ca426f0228c20276ea",
+        "subject": "Force Vite re-optimization on frontend dev startup"
       },
       {
         "files": [
-          "frontend/src/components/sidebar/SidebarRoot.tsx",
-          "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
-          "tests/routes/test_projects_routes.py"
+          "frontend/src/components/SessionRail/SessionRail.tsx",
+          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx"
         ],
-        "sha": "2b908467e23a89f733e43566bc0cebeabade959f",
-        "subject": "fix(projects): restore sidebar create project flow"
+        "sha": "2ea451bc13a2526cb06de4164af0a3a39a5f2f64",
+        "subject": "refactor(shell): simplify session rail visual hierarchy"
       },
       {
         "files": [
-          "guardian/routes/health.py",
-          "tests/routes/test_health_endpoints.py"
+          "guardian/context/broker.py",
+          "tests/core/test_context_broker_source_mode.py"
         ],
-        "sha": "d531231112e1dcd6188ec0ece9ea35843368118d",
-        "subject": "Fix chat worker heartbeat truth in health endpoint"
+        "sha": "a90b2c33f4ad9a3babe09ded27a21efa78fff267",
+        "subject": "fix(chat): replace weak local hit during widening"
       },
       {
         "files": [
-          "docs/audits/daily/morning/2026-03-30-audit.json",
-          "docs/audits/daily/morning/2026-03-30-audit.md",
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx"
+        ],
+        "sha": "e64dec215ea9aa290f721c3d930ffe29e1a74395",
+        "subject": "fix(chat): simplify source selector trigger label"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx"
+        ],
+        "sha": "06af0f2351b0f140487e0a02b08b45696bdb1c5d",
+        "subject": "fix(workspace): remove redundant internal close button"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+        ],
+        "sha": "727f8f0918be6674c8c2733218bdbbb158817b1d",
+        "subject": "refactor(workspace): polish header and scratchpad layout"
+      },
+      {
+        "files": [
           "docs/audits/daily/morning/latest.json",
           "docs/audits/daily/morning/latest.md",
           "docs/audits/latest.json",
           "docs/audits/latest.md"
         ],
-        "sha": "be58a548cfcd94478033b50bb725fe4415f0fcf7",
-        "subject": "Refresh daily morning audit snapshot"
+        "sha": "85da3a91874857400f88c83b50d9c07fc4536f86",
+        "subject": "Refresh latest audit reports"
       },
       {
         "files": [
-          "docs/audits/daily/evening/2026-03-29-audit.json",
-          "docs/audits/daily/evening/2026-03-29-audit.md",
+          "docs/architecture/2026-03-31-source-selector-proof.md",
+          "guardian/context/broker.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_chat_completion_service_source_mode_fallback.py",
+          "tests/core/test_context_broker_source_mode.py",
+          "tests/routes/test_chat_source_mode.py"
+        ],
+        "sha": "e2539f35eaa319c8f337561f2b47ed00e4778c3f",
+        "subject": "test(chat): harden source selector proof and fallback behavior"
+      },
+      {
+        "files": [
+          "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
+          "frontend/src/components/ui/dropdown-menu.tsx",
+          "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+          "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx"
+        ],
+        "sha": "0c35af4239c51f36640c8e87322dc00abc371d82",
+        "subject": "fix(ui): constrain model menu and open upward"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
+          "guardian/context/broker.py",
+          "guardian/core/chat_completion_service.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_context_broker_source_mode.py",
+          "tests/routes/test_chat_source_mode.py"
+        ],
+        "sha": "61c696b92e1c15ab6fea85ac725c2cce279b75c3",
+        "subject": "feat(chat): add source selector for retrieval boundary"
+      },
+      {
+        "files": [
+          "docs/architecture/runtime-protocol-token-contract.md"
+        ],
+        "sha": "757fc402acf42d3ea57f0629bcc5c9737481332a",
+        "subject": "docs(runtime): expand protocol token contract to include provider and request lifecycle domains"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+        ],
+        "sha": "afec57d252d210da38167975fd75688c8b430a04",
+        "subject": "fix(workspace): clean up posture header affordances"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+        ],
+        "sha": "45eb65e5457fc55128b192cc9e409908345e7303",
+        "subject": "feat(workspace): make workspace focus visually dominant"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+        ],
+        "sha": "03f128bc50135c278042e8e534c95d485660e204",
+        "subject": "feat(workspace): add layout mode state contract"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts"
+        ],
+        "sha": "8228f4f284bf64531de159afd92b905641cba841",
+        "subject": "feat(workspace): add per-thread scratchpad staging"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceUiState.ts"
+        ],
+        "sha": "93c5b34b66e33c481e8ba5a2f2208c57b863c056",
+        "subject": "feat(workspace): add shell scaffold and persisted tabs"
+      },
+      {
+        "files": [
           "docs/audits/daily/evening/latest.json",
           "docs/audits/daily/evening/latest.md",
           "docs/audits/latest.json",
-          "docs/audits/latest.md"
+          "docs/audits/latest.md",
+          "prompts.py"
         ],
-        "sha": "d9bce5e158b9142a2654a251c388d01df5fafedc",
-        "subject": "Refresh daily evening audit snapshot"
+        "sha": "bdb09774fbb5c5ca11faddaefcf60c3870c5d3e7",
+        "subject": "Refresh evening audit snapshot"
+      },
+      {
+        "files": [
+          "docs/audits/daily/evening/2026-03-30-audit.json",
+          "docs/audits/daily/evening/2026-03-30-audit.md"
+        ],
+        "sha": "7f39d88199e6aa6c9f4998ee2028f0347538acf4",
+        "subject": "docs: add evening audit snapshot"
       }
     ],
     "files_changed": [
-      "docs/architecture/codexify_workspace_surface_spec_v_1.md",
-      "frontend/src/components/sidebar/ThreadList.tsx",
-      "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-      "frontend/src/App.tsx",
-      "frontend/src/components/documents/DocumentsView.tsx",
+      "backend/rag/embedder.py",
+      "docker-compose.yml",
+      "guardian/core/config.py",
+      "guardian/workers/document_embed_worker.py",
+      "tests/backend/rag/test_embedder.py",
+      "tests/workers/test_document_embed_worker.py",
+      "docs/architecture/2026-03-31-supported-path-proof.md",
+      "frontend/src/components/SessionRail/SessionRail.tsx",
+      "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
+      "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+      "frontend/src/index.css",
+      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
       "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/features/chat/useChat.ts",
+      "guardian/cognition/prompts.py",
+      "tests/core/test_chat_completion_service_retrieval_plan.py",
+      "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+      "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
+      "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
+      "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
+      "tests/routes/test_chat_profile_trace.py",
+      "guardian/core/chat_completion_service.py",
+      "guardian/routes/chat.py",
+      "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
       "frontend/src/features/chat/GuardianChat.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
-      "frontend/src/features/workspace/state/useWorkspaceState.ts",
-      "frontend/src/components/documents/DocumentTile.tsx",
-      "frontend/src/components/media/MediaTile.test.tsx",
-      "prompts.py",
-      "frontend/src/features/workspace/WorkspaceViewer.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
-      "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
-      "frontend/src/components/dashboard/DashboardView.tsx",
-      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-      "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
-      "tests/routes/test_media_routes.py",
+      "frontend/src/features/chat/panels/RAGTracePanel.tsx",
       "frontend/src/features/settings/SettingsView.test.tsx",
-      "guardian/server/app.py",
-      "tests/routes/test_imprint_routes.py",
-      "tests/routes/test_projects_routes.py",
-      "frontend/src/components/sidebar/SidebarRoot.tsx",
-      "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx",
-      "guardian/routes/health.py",
-      "tests/routes/test_health_endpoints.py",
-      "docs/audits/daily/morning/2026-03-30-audit.json",
-      "docs/audits/daily/morning/2026-03-30-audit.md",
+      "frontend/src/features/settings/SettingsView.tsx",
+      "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
+      "frontend/src/package.json",
+      "guardian/context/broker.py",
+      "tests/core/test_context_broker_source_mode.py",
+      "frontend/src/features/chat/components/Composer.tsx",
+      "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
       "docs/audits/daily/morning/latest.json",
       "docs/audits/daily/morning/latest.md",
       "docs/audits/latest.json",
       "docs/audits/latest.md",
-      "docs/audits/daily/evening/2026-03-29-audit.json",
-      "docs/audits/daily/evening/2026-03-29-audit.md",
+      "docs/architecture/2026-03-31-source-selector-proof.md",
+      "tests/core/test_chat_completion_service_source_mode_fallback.py",
+      "tests/routes/test_chat_source_mode.py",
+      "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
+      "frontend/src/components/ui/dropdown-menu.tsx",
+      "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+      "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
+      "docs/architecture/runtime-protocol-token-contract.md",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts",
+      "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
+      "frontend/src/features/workspace/state/useWorkspaceUiState.ts",
       "docs/audits/daily/evening/latest.json",
-      "docs/audits/daily/evening/latest.md"
+      "docs/audits/daily/evening/latest.md",
+      "prompts.py",
+      "docs/audits/daily/evening/2026-03-30-audit.json",
+      "docs/audits/daily/evening/2026-03-30-audit.md"
     ],
-    "window_end": "2026-03-30T21:12:43.498373-04:00",
+    "window_end": "2026-03-31T21:00:42.372575-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-29T21:12:43.498373-04:00"
+    "window_start": "2026-03-30T21:00:42.372575-04:00"
   },
-  "date": "2026-03-30",
-  "generated_at": "2026-03-30T21:12:43.498373-04:00",
+  "date": "2026-03-31",
+  "generated_at": "2026-03-31T21:00:42.372575-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -263,12 +452,14 @@
   "phase": "evening",
   "repo": {
     "branch": "main",
-    "date": "2026-03-30",
+    "date": "2026-03-31",
     "dirty": true,
-    "head": "961e9092a06e2dc01226eeced3a9876527832422",
+    "head": "a7d9f8200ceba78358df9a21ef4eaffe811ce3d1",
     "status_error": "",
     "status_lines": [
-      " M prompts.py"
+      " M frontend/src/contracts/runtimeTokens.ts",
+      " M frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+      " M frontend/src/main.tsx"
     ]
   },
   "risk_flags": [
@@ -326,65 +517,109 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 10,
+      "count": 8,
       "files": [
-        "docs/audits/daily/morning/2026-03-30-audit.json",
-        "docs/audits/daily/morning/2026-03-30-audit.md",
         "docs/audits/daily/morning/latest.json",
         "docs/audits/daily/morning/latest.md",
         "docs/audits/latest.json",
         "docs/audits/latest.md",
-        "docs/audits/daily/evening/2026-03-29-audit.json",
-        "docs/audits/daily/evening/2026-03-29-audit.md",
         "docs/audits/daily/evening/latest.json",
-        "docs/audits/daily/evening/latest.md"
+        "docs/audits/daily/evening/latest.md",
+        "docs/audits/daily/evening/2026-03-30-audit.json",
+        "docs/audits/daily/evening/2026-03-30-audit.md"
+      ]
+    },
+    "chat": {
+      "count": 1,
+      "files": [
+        "guardian/routes/chat.py"
+      ]
+    },
+    "config": {
+      "count": 1,
+      "files": [
+        "guardian/core/config.py"
       ]
     },
     "docs": {
-      "count": 1,
+      "count": 4,
       "files": [
-        "docs/architecture/codexify_workspace_surface_spec_v_1.md"
+        "docs/architecture/2026-03-31-supported-path-proof.md",
+        "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
+        "docs/architecture/2026-03-31-source-selector-proof.md",
+        "docs/architecture/runtime-protocol-token-contract.md"
       ]
     },
     "frontend": {
-      "count": 19,
+      "count": 33,
       "files": [
-        "frontend/src/components/sidebar/ThreadList.tsx",
-        "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-        "frontend/src/App.tsx",
-        "frontend/src/components/documents/DocumentsView.tsx",
+        "frontend/src/components/SessionRail/SessionRail.tsx",
+        "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
+        "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+        "frontend/src/index.css",
+        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
         "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/features/chat/useChat.ts",
+        "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+        "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
+        "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
         "frontend/src/features/chat/GuardianChat.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceInvocation.test.tsx",
-        "frontend/src/features/workspace/state/useWorkspaceState.ts",
-        "frontend/src/components/documents/DocumentTile.tsx",
-        "frontend/src/components/media/MediaTile.test.tsx",
-        "frontend/src/features/workspace/WorkspaceViewer.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspacePreview.test.tsx",
-        "frontend/src/components/dashboard/DashboardView.demo-state.test.tsx",
-        "frontend/src/components/dashboard/DashboardView.tsx",
-        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-        "frontend/src/components/documents/DocumentsView.demo-state.test.tsx",
+        "frontend/src/features/chat/panels/RAGTracePanel.tsx",
         "frontend/src/features/settings/SettingsView.test.tsx",
-        "frontend/src/components/sidebar/SidebarRoot.tsx",
-        "frontend/src/components/sidebar/__tests__/CreateProjectModal.test.tsx"
+        "frontend/src/features/settings/SettingsView.tsx",
+        "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
+        "frontend/src/package.json",
+        "frontend/src/features/chat/components/Composer.tsx",
+        "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
+        "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
+        "frontend/src/components/ui/dropdown-menu.tsx",
+        "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+        "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
+        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts",
+        "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
+        "frontend/src/features/workspace/state/useWorkspaceUiState.ts"
+      ]
+    },
+    "infra": {
+      "count": 1,
+      "files": [
+        "docker-compose.yml"
+      ]
+    },
+    "ingestion": {
+      "count": 2,
+      "files": [
+        "guardian/workers/document_embed_worker.py",
+        "tests/workers/test_document_embed_worker.py"
       ]
     },
     "tests": {
-      "count": 4,
+      "count": 6,
       "files": [
-        "tests/routes/test_media_routes.py",
-        "tests/routes/test_imprint_routes.py",
-        "tests/routes/test_projects_routes.py",
-        "tests/routes/test_health_endpoints.py"
+        "tests/backend/rag/test_embedder.py",
+        "tests/core/test_chat_completion_service_retrieval_plan.py",
+        "tests/routes/test_chat_profile_trace.py",
+        "tests/core/test_context_broker_source_mode.py",
+        "tests/core/test_chat_completion_service_source_mode_fallback.py",
+        "tests/routes/test_chat_source_mode.py"
       ]
     },
     "unknown": {
-      "count": 3,
+      "count": 5,
       "files": [
-        "prompts.py",
-        "guardian/server/app.py",
-        "guardian/routes/health.py"
+        "backend/rag/embedder.py",
+        "guardian/cognition/prompts.py",
+        "guardian/core/chat_completion_service.py",
+        "guardian/context/broker.py",
+        "prompts.py"
       ]
     }
   }
