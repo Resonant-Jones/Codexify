@@ -2,6 +2,7 @@
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +39,18 @@ CLOUD_LLM_PROVIDERS = frozenset(
     for provider in ROUTER_SUPPORTED_LLM_PROVIDERS
     if provider != "local"
 )
+VECTOR_STORE_BACKEND_CHROMA = "chroma"
+VECTOR_STORE_BACKEND_FAISS = "faiss"
+SUPPORTED_VECTOR_STORE_BACKENDS: tuple[str, ...] = (
+    VECTOR_STORE_BACKEND_CHROMA,
+    VECTOR_STORE_BACKEND_FAISS,
+)
+DEFAULT_VECTOR_STORE_BACKEND = VECTOR_STORE_BACKEND_CHROMA
+DEFAULT_VECTOR_STORE_CHROMA_PATH = "./.chroma"
+DEFAULT_VECTOR_STORE_COLLECTION = "codexify_vault_supported"
+VECTOR_STORE_PROOF_STATUS_READY = "ready"
+VECTOR_STORE_PROOF_STATUS_UNPROVEN = "unproven"
+VECTOR_STORE_PROOF_STATUS_MISMATCH = "mismatch"
 
 
 def _normalize_model_setting(value: str | None) -> str:
@@ -128,6 +141,25 @@ class Settings(BaseSettings):
         description=(
             "Embedding model identifier passed to the selected EMBEDDER_PROVIDER. "
             "Set via environment variables; no default model is assumed."
+        ),
+    )
+    CODEXIFY_VECTOR_STORE: str = Field(
+        default=DEFAULT_VECTOR_STORE_BACKEND,
+        description=(
+            "Canonical vector-store backend shared by backend retrieval and "
+            "document embedding workers. Supported values: chroma, faiss."
+        ),
+    )
+    CODEXIFY_CHROMA_PATH: str = Field(
+        default=DEFAULT_VECTOR_STORE_CHROMA_PATH,
+        description=(
+            "Persistent Chroma path for the canonical vector-store runtime."
+        ),
+    )
+    CODEXIFY_COLLECTION: str = Field(
+        default=DEFAULT_VECTOR_STORE_COLLECTION,
+        description=(
+            "Collection name for the canonical Chroma vector-store runtime."
         ),
     )
     LLM_FALLBACK_ORDER: list[str] = Field(
@@ -532,6 +564,69 @@ class Settings(BaseSettings):
 
 # Create a singleton instance that can be imported across the application
 settings = Settings()
+
+
+@dataclass(frozen=True)
+class VectorStoreRuntimeConfig:
+    backend: str
+    chroma_path: str
+    collection: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "backend": self.backend,
+            "chroma_path": self.chroma_path,
+            "collection": self.collection,
+        }
+
+
+def _normalize_vector_store_backend(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in SUPPORTED_VECTOR_STORE_BACKENDS:
+        return normalized
+    if normalized:
+        logger.warning(
+            "[config] invalid CODEXIFY_VECTOR_STORE=%s; defaulting to %s",
+            normalized,
+            DEFAULT_VECTOR_STORE_BACKEND,
+        )
+    return DEFAULT_VECTOR_STORE_BACKEND
+
+
+def _normalize_vector_store_text(value: str | None, default: str) -> str:
+    normalized = str(value or "").strip()
+    return normalized or default
+
+
+def _resolve_vector_store_path(value: str | None) -> str:
+    raw = _normalize_vector_store_text(value, DEFAULT_VECTOR_STORE_CHROMA_PATH)
+    return str(Path(raw).expanduser().resolve())
+
+
+def resolve_vector_store_runtime(
+    settings_obj: Settings | None = None,
+) -> VectorStoreRuntimeConfig:
+    runtime_settings = settings_obj or settings
+
+    backend = _normalize_vector_store_backend(
+        os.getenv("CODEXIFY_VECTOR_STORE")
+        or getattr(runtime_settings, "CODEXIFY_VECTOR_STORE", None)
+    )
+    chroma_path = _resolve_vector_store_path(
+        os.getenv("CODEXIFY_CHROMA_PATH")
+        or getattr(runtime_settings, "CODEXIFY_CHROMA_PATH", None)
+    )
+    collection = _normalize_vector_store_text(
+        os.getenv("CODEXIFY_COLLECTION")
+        or getattr(runtime_settings, "CODEXIFY_COLLECTION", None),
+        DEFAULT_VECTOR_STORE_COLLECTION,
+    )
+    return VectorStoreRuntimeConfig(
+        backend=backend,
+        chroma_path=chroma_path,
+        collection=collection,
+    )
+
 
 CLOUD_LLM_PROVIDERS = frozenset(
     provider

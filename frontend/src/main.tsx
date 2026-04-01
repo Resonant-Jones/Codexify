@@ -1,19 +1,19 @@
 import "./index.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
+
 import App from "./App";
 import { configureGC } from "./dcw-services/gc";
-import { GuardianAPI } from "./lib/guardianApi";
+import { refreshApiBaseUrl, setRuntimeApiKey } from "./lib/api";
 import { resolveAuthStateOnBoot } from "./lib/authState";
+import { GuardianAPI } from "./lib/guardianApi";
 import {
+  getRuntimeConfigSync,
   initRuntimeConfig,
   invokeTauriCommand,
   isTauriRuntime,
 } from "./lib/runtimeConfig";
-import {
-  refreshApiBaseUrl,
-  setRuntimeApiKey,
-} from "./lib/api";
+import { injectCssVars } from "./theme";
 
 ;(window as any).GuardianAPI = GuardianAPI;
 
@@ -21,10 +21,6 @@ declare global {
   interface Window {
     __GC_ENV__?: any;
   }
-}
-
-function getComputedStyleVar(name: string, el: Element = document.documentElement) {
-  return getComputedStyle(el).getPropertyValue(name).trim();
 }
 
 declare global {
@@ -39,6 +35,8 @@ if (typeof window !== "undefined") {
     el: Element = document.documentElement
   ) => getComputedStyle(el).getPropertyValue(name).trim();
 }
+
+injectCssVars();
 
 function readDevApiKey(): string {
   if (!import.meta.env.DEV) return "";
@@ -70,16 +68,19 @@ function renderApp(): void {
 }
 
 async function bootstrap(): Promise<void> {
-  const runtimeConfig = await initRuntimeConfig();
-  refreshApiBaseUrl();
-
-  const devApiKey = readDevApiKey();
-  configureGC({ base: runtimeConfig.apiBaseUrl, token: devApiKey || undefined });
-
-  await hydrateDesktopApiKey();
-  resolveAuthStateOnBoot();
-
   try {
+    const runtimeConfig = await initRuntimeConfig();
+    refreshApiBaseUrl();
+
+    const devApiKey = readDevApiKey();
+    configureGC({
+      base: runtimeConfig.apiBaseUrl,
+      token: devApiKey || undefined,
+    });
+
+    await hydrateDesktopApiKey();
+    resolveAuthStateOnBoot();
+
     (window as any).__GC_ENV__ = {
       mode: import.meta.env.MODE,
       runtimeMode: runtimeConfig.mode,
@@ -97,23 +98,30 @@ async function bootstrap(): Promise<void> {
       keyPresent: (window as any).__GC_ENV__?.keyPresent,
       guardianDevKeyPresent: (window as any).__GC_ENV__?.guardianDevKeyPresent,
     });
-  } catch (err) {
-    console.warn("[gc] env snapshot failed", err);
-  }
 
-  if (!devApiKey && import.meta.env.DEV) {
-    console.info(
-      "[gc] Dev API key override disabled. Provide VITE_GUARDIAN_DEV_API_KEY only when needed for local-safe auth."
-    );
-  } else if (devApiKey) {
-    const masked = String(devApiKey);
-    console.info("[gc] Backend configured:", {
-      base: runtimeConfig.apiBaseUrl,
-      key: `${masked.slice(0, 4)}…${masked.slice(-4)}`,
-    });
+    if (!devApiKey && import.meta.env.DEV) {
+      console.info(
+        "[gc] Dev API key override disabled. Provide VITE_GUARDIAN_DEV_API_KEY only when needed for local-safe auth."
+      );
+    } else if (devApiKey) {
+      const masked = String(devApiKey);
+      console.info("[gc] Backend configured:", {
+        base: runtimeConfig.apiBaseUrl,
+        key: `${masked.slice(0, 4)}…${masked.slice(-4)}`,
+      });
+    }
+  } catch (error) {
+    console.error("[gc] bootstrap failed", error);
   }
-
-  renderApp();
 }
+
+// Render immediately so a slow or failed bootstrap never leaves the window blank.
+const initialRuntimeConfig = getRuntimeConfigSync();
+configureGC({
+  base: initialRuntimeConfig.apiBaseUrl,
+  token: readDevApiKey() || undefined,
+});
+resolveAuthStateOnBoot();
+renderApp();
 
 void bootstrap();

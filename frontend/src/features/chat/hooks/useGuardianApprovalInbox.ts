@@ -45,9 +45,11 @@ export function useGuardianApprovalInbox(
   context: GuardianApprovalInboxContext = {}
 ): UseGuardianApprovalInboxResult {
   const { threadId } = context;
-  const { data: agentRuns, loading: agentRunsLoading } = useAgentRuns(
-    threadId ?? null
-  );
+  const {
+    data: agentRuns,
+    loading: agentRunsLoading,
+    capabilityState: agentRunsCapabilityState,
+  } = useAgentRuns(threadId ?? null);
   const [baseSnapshot, setBaseSnapshot] =
     useState<GuardianApprovalInboxSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,7 +59,9 @@ export function useGuardianApprovalInbox(
   const snapshot = useMemo(() => {
     if (!baseSnapshot) return null;
     const runSections = buildGuardianApprovalRunSections(
-      threadId != null ? agentRuns : null,
+      threadId != null && agentRunsCapabilityState !== "unavailable"
+        ? agentRuns
+        : null,
       baseSnapshot.awaitingApprovals
     );
     return {
@@ -67,7 +71,7 @@ export function useGuardianApprovalInbox(
       escalatedItems: runSections.escalatedItems,
       clarificationNeeded: runSections.clarificationNeeded,
     };
-  }, [agentRuns, baseSnapshot, threadId]);
+  }, [agentRuns, agentRunsCapabilityState, baseSnapshot, threadId]);
 
   const reload = useCallback(async () => {
     setLoading(true);

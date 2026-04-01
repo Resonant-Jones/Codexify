@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { DocumentLike } from "@/types/documents";
 import { Button } from "@/components/ui/button";
 import { getCodexEntry, getCodexExportUrl, CodexEntry } from "@/api/codex";
-import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { isImageMediaUrl, isPdfMediaUrl } from "@/lib/mediaUrl";
 import WorkspaceViewer from "./WorkspaceViewer";
 import "./workspace.css";
 
@@ -32,8 +32,7 @@ function resolvePreviewUrl(doc: DocumentLike | null | undefined): string | null 
       ? anyDoc.previewUrl
       : null);
   if (!url) return null;
-  const normalized = normalizeMediaUrl(url);
-  return normalized || null;
+  return url;
 }
 
 function resolvePreviewText(doc: DocumentLike | null | undefined): string | null {
@@ -61,22 +60,6 @@ function resolvePreviewText(doc: DocumentLike | null | undefined): string | null
   ]);
 }
 
-function resolvePreviewUrlPath(previewUrl: string | null | undefined): string {
-  const trimmed = typeof previewUrl === "string" ? previewUrl.trim() : "";
-  if (!trimmed) return "";
-  if (/^(?:data:|blob:)/i.test(trimmed)) return trimmed.toLowerCase();
-
-  try {
-    const base =
-      typeof window !== "undefined" && window.location?.href
-        ? window.location.href
-        : "http://localhost";
-    return new URL(trimmed, base).pathname.toLowerCase();
-  } catch {
-    return trimmed.split(/[?#]/)[0].toLowerCase();
-  }
-}
-
 function resolvePreviewMimeType(doc: DocumentLike | null | undefined): string | null {
   return readDocString(doc, [
     "mime_type",
@@ -95,24 +78,11 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
   );
 
   const isImage = useMemo(() => {
-    if (!previewUrl) return false;
-    const u = previewUrl.toLowerCase();
-    const path = resolvePreviewUrlPath(previewUrl);
-    return (
-      path.endsWith(".png") ||
-      path.endsWith(".jpg") ||
-      path.endsWith(".jpeg") ||
-      path.endsWith(".webp") ||
-      path.endsWith(".gif") ||
-      path.endsWith(".svg") ||
-      u.startsWith("data:image/")
-    );
+    return previewUrl ? isImageMediaUrl(previewUrl) : false;
   }, [previewUrl]);
 
   const isPdf = useMemo(() => {
-    if (!previewUrl) return false;
-    const u = previewUrl.toLowerCase();
-    return resolvePreviewUrlPath(previewUrl).endsWith(".pdf") || u.startsWith("data:application/pdf");
+    return previewUrl ? isPdfMediaUrl(previewUrl) : false;
   }, [previewUrl]);
   const [codexEntry, setCodexEntry] = useState<CodexEntry | null>(null);
   const [loading, setLoading] = useState(false);

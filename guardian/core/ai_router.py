@@ -11,7 +11,10 @@ from requests import exceptions as req_exc
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.core.event_contracts import _coerce_text
-from guardian.core.provider_registry import default_model_for_provider
+from guardian.core.provider_registry import (
+    default_model_for_provider,
+    normalize_model_id,
+)
 from guardian.core.provider_registry import (
     normalize_provider as normalize_registry_provider,
 )
@@ -28,6 +31,9 @@ _DEFAULT_MINIMAX_BASE = "https://api.minimax.io/v1"
 _DEFAULT_ALIBABA_BASE = "https://coding-intl.dashscope.aliyuncs.com/v1"
 _DEFAULT_LOCAL_DOCKER_FALLBACK_BASE = "http://host.docker.internal:11434"
 _LOCAL_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+LOCAL_MODEL_RESOLUTION_ERROR = "local_model_resolution_error"
+LOCAL_MODEL_MISSING_FAILURE_KIND = "local_model_missing"
+LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND = "local_model_unavailable"
 
 
 @dataclass(frozen=True)
@@ -101,6 +107,71 @@ class LocalEndpointCandidate:
     base_url: str
     label: str
     source: str
+
+
+@dataclass(frozen=True)
+class LocalModelResolution:
+    model: str | None
+    source: str | None
+    strict: bool
+    requested_model: str | None = None
+    failure_kind: str | None = None
+    message: str | None = None
+    endpoint_resolution: dict[str, Any] | None = None
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.model) and not self.failure_kind
+
+    def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "strict": self.strict,
+            "source": self.source,
+            "model": self.model,
+        }
+        if self.requested_model:
+            payload["requested_model"] = self.requested_model
+        if self.failure_kind:
+            payload["failure_kind"] = self.failure_kind
+            payload["error"] = LOCAL_MODEL_RESOLUTION_ERROR
+        if self.message:
+            payload["message"] = self.message
+        if self.endpoint_resolution is not None:
+            payload["endpoint_resolution"] = dict(self.endpoint_resolution)
+        return payload
+
+    def error_detail(
+        self,
+        *,
+        attempted_endpoints: list[str] | None = None,
+        endpoint_resolution: dict[str, Any] | None = None,
+        failure_kind: str | None = None,
+        message: str | None = None,
+    ) -> dict[str, Any]:
+        detail: dict[str, Any] = {
+            "error": LOCAL_MODEL_RESOLUTION_ERROR,
+            "provider": "local",
+            "failure_kind": (
+                str(failure_kind or self.failure_kind or "").strip()
+                or LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND
+            ),
+            "message": (
+                str(message or self.message or "").strip()
+                or "Local model resolution failed"
+            ),
+        }
+        if self.model:
+            detail["model"] = self.model
+        if self.source:
+            detail["configured_source"] = self.source
+        if self.requested_model:
+            detail["requested_model"] = self.requested_model
+        resolved_endpoint = endpoint_resolution or self.endpoint_resolution
+        if resolved_endpoint is not None:
+            detail["endpoint_resolution"] = dict(resolved_endpoint)
+        if attempted_endpoints:
+            detail["attempted_endpoints"] = list(attempted_endpoints)
+        return detail
 
 
 def _normalize_provider(provider: Optional[str]) -> str:
@@ -496,6 +567,162 @@ def _default_model_for_provider(provider: str, settings: Settings) -> str:
     return default_model_for_provider(provider, settings)
 
 
+def _local_chat_model_is_authoritative(settings: Settings) -> bool:
+    if bool(getattr(settings, "CODEXIFY_LOCAL_ONLY_MODE", False)):
+        return True
+
+    from guardian.core.supported_profile import get_active_supported_profile
+
+    manifest = get_active_supported_profile()
+    if manifest is None:
+        return False
+    return (
+        _normalize_provider(manifest.provider_contract.get("LLM_PROVIDER"))
+        == "local"
+    )
+
+
+def _local_execution_model_candidates(
+    settings: Settings,
+    *,
+    requested_model: str | None = None,
+) -> tuple[list[tuple[str, str]], bool]:
+    strict = _local_chat_model_is_authoritative(settings)
+    raw_candidates: tuple[tuple[str, Any], ...]
+    if strict:
+        raw_candidates = (
+            ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
+        )
+    else:
+        raw_candidates = (
+            ("requested_model", requested_model),
+            ("LOCAL_LLM_MODEL", getattr(settings, "LOCAL_LLM_MODEL", None)),
+            (
+                "DEFAULT_LOCAL_MODEL",
+                getattr(settings, "DEFAULT_LOCAL_MODEL", None),
+            ),
+            ("LLM_MODEL", getattr(settings, "LLM_MODEL", None)),
+            ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
+        )
+
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for source, candidate in raw_candidates:
+        normalized = normalize_model_id(candidate)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append((normalized, source))
+    return candidates, strict
+
+
+def _configured_local_model_resolution(
+    settings: Settings,
+) -> tuple[str, str | None, bool]:
+    candidates, strict = _local_execution_model_candidates(settings)
+    if candidates:
+        model, source = candidates[0]
+        return model, source, strict
+    return "", "LOCAL_CHAT_MODEL" if strict else None, strict
+
+
+def resolve_local_execution_model(
+    *,
+    settings: Optional[Settings] = None,
+    requested_model: str | None = None,
+    validate_availability: bool = False,
+    discovered_model_names: list[str] | None = None,
+    endpoint_resolution: dict[str, Any] | None = None,
+    timeout_seconds: float | None = None,
+    request_get: Any = None,
+) -> LocalModelResolution:
+    resolved = _resolve_settings(settings)
+    requested = normalize_model_id(requested_model)
+    candidates, strict = _local_execution_model_candidates(
+        resolved,
+        requested_model=requested_model,
+    )
+    if not candidates:
+        source_name = "LOCAL_CHAT_MODEL" if strict else "local_model"
+        return LocalModelResolution(
+            model=None,
+            source=source_name,
+            strict=strict,
+            requested_model=requested or None,
+            failure_kind=LOCAL_MODEL_MISSING_FAILURE_KIND,
+            message=(
+                f"{source_name} is not configured for local chat execution"
+            ),
+            endpoint_resolution=endpoint_resolution,
+        )
+    configured_model, source = candidates[0]
+
+    resolved_endpoint = endpoint_resolution
+    names = list(discovered_model_names or [])
+    if validate_availability and resolved_endpoint is None:
+        names, resolved_endpoint = discover_local_model_inventory(
+            resolved,
+            timeout_seconds=timeout_seconds or 1.5,
+            request_get=request_get,
+        )
+
+    if (
+        validate_availability
+        and resolved_endpoint is not None
+        and str(resolved_endpoint.get("state") or "").strip() == "available"
+    ):
+        available_models = {
+            normalized
+            for normalized in (
+                normalize_model_id(item) for item in (names or [])
+            )
+            if normalized
+        }
+        if strict and configured_model not in available_models:
+            return LocalModelResolution(
+                model=configured_model,
+                source=source,
+                strict=strict,
+                requested_model=requested or None,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message=(
+                    f"Configured local chat model '{configured_model}' from "
+                    f"{source} is not advertised by the reachable local runtime"
+                ),
+                endpoint_resolution=resolved_endpoint,
+            )
+        if not strict:
+            for candidate_model, candidate_source in candidates:
+                if candidate_model in available_models:
+                    return LocalModelResolution(
+                        model=candidate_model,
+                        source=candidate_source,
+                        strict=strict,
+                        requested_model=requested or None,
+                        endpoint_resolution=resolved_endpoint,
+                    )
+            return LocalModelResolution(
+                model=configured_model,
+                source=source,
+                strict=strict,
+                requested_model=requested or None,
+                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                message=(
+                    "No runnable local model was found among the requested "
+                    "or configured local candidates"
+                ),
+                endpoint_resolution=resolved_endpoint,
+            )
+
+    return LocalModelResolution(
+        model=configured_model,
+        source=source,
+        strict=strict,
+        requested_model=requested or None,
+        endpoint_resolution=resolved_endpoint,
+    )
+
+
 def _provider_failure_detail(
     *,
     provider: str,
@@ -580,6 +807,30 @@ def chat_with_ai(
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
     target_model = model or _default_model_for_provider(provider_name, settings)
+    local_model_resolution: LocalModelResolution | None = None
+
+    if provider_name == "local":
+        strict_local_chat = _local_chat_model_is_authoritative(settings)
+        authoritative_model = normalize_model_id(
+            getattr(settings, "LOCAL_CHAT_MODEL", None)
+        )
+        requested_model = normalize_model_id(target_model)
+        local_model_resolution = resolve_local_execution_model(
+            settings=settings,
+            requested_model=target_model,
+            validate_availability=bool(
+                strict_local_chat
+                and authoritative_model
+                and authoritative_model != requested_model
+            ),
+        )
+        if not local_model_resolution.ok:
+            raise HTTPException(
+                status_code=400,
+                detail=local_model_resolution.error_detail(),
+            )
+        if local_model_resolution.strict or not target_model:
+            target_model = local_model_resolution.model
 
     if not target_model:
         raise HTTPException(
@@ -841,6 +1092,12 @@ def _summarize_local_attempt_failures(failures: list[str]) -> str:
     return f"{head}; ... ({len(failures) - limit} more)"
 
 
+def _all_local_attempt_failures_are_404(failures: list[str]) -> bool:
+    return bool(failures) and all(
+        "(HTTP 404" in failure for failure in failures
+    )
+
+
 def _parse_local_catalog_payload(payload: Any) -> list[str]:
     names: list[str] = []
     if not isinstance(payload, dict):
@@ -934,10 +1191,8 @@ def discover_local_model_inventory(
         deduped.append(clean)
 
     if not deduped:
-        fallback = (
-            str(getattr(settings, "LOCAL_LLM_MODEL", "") or "").strip()
-            or str(getattr(settings, "DEFAULT_LOCAL_MODEL", "") or "").strip()
-            or str(getattr(settings, "LLM_MODEL", "") or "").strip()
+        fallback, _source, _strict = _configured_local_model_resolution(
+            settings
         )
         if fallback:
             deduped = [fallback]
@@ -976,6 +1231,16 @@ def call_local(
     log_exceptions: bool = True,
 ):
     settings = _resolve_settings(settings)
+    local_model_resolution = resolve_local_execution_model(
+        settings=settings,
+        requested_model=model,
+    )
+    if not local_model_resolution.ok:
+        raise HTTPException(
+            status_code=400,
+            detail=local_model_resolution.error_detail(),
+        )
+    model = local_model_resolution.model or model
     runtime_policy = resolve_local_runtime_policy(
         model, settings=settings, timeout=timeout
     )
@@ -1116,6 +1381,31 @@ def call_local(
             model=model,
             runtime_policy=runtime_policy,
         )
+    elif local_model_resolution.strict and _all_local_attempt_failures_are_404(
+        attempt_failures
+    ):
+        endpoint_resolution = describe_local_endpoint_resolution(
+            settings,
+            attempted_base_urls=base_urls,
+            state="degraded",
+            failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+            reason=_summarize_local_attempt_failures(attempt_failures),
+        )
+        detail_payload = local_model_resolution.error_detail(
+            attempted_endpoints=attempt_failures,
+            endpoint_resolution=endpoint_resolution,
+            failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+            message=(
+                f"Configured local chat model '{model}' from "
+                f"{local_model_resolution.source} could not be executed; "
+                "all supported local endpoints returned HTTP 404"
+            ),
+        )
+        if log_exceptions:
+            logger.error(detail_payload["message"])
+        else:
+            logger.warning(detail_payload["message"])
+        raise HTTPException(status_code=502, detail=detail_payload)
     else:
         detail = f"Local inference request failed for model '{model}'."
 
@@ -1139,6 +1429,16 @@ def stream_local(
     temperature: Optional[float] = None,
 ):
     settings = _resolve_settings(settings)
+    local_model_resolution = resolve_local_execution_model(
+        settings=settings,
+        requested_model=model,
+    )
+    if not local_model_resolution.ok:
+        raise HTTPException(
+            status_code=400,
+            detail=local_model_resolution.error_detail(),
+        )
+    model = local_model_resolution.model or model
     runtime_policy = resolve_local_runtime_policy(model, settings=settings)
     adapted_messages, _ = apply_local_reasoning_directive(
         messages or [],
@@ -1247,6 +1547,30 @@ def stream_local(
                     last_transport_error,
                     model=model,
                     runtime_policy=runtime_policy,
+                )
+            elif (
+                local_model_resolution.strict
+                and _all_local_attempt_failures_are_404(attempt_failures)
+            ):
+                endpoint_resolution = describe_local_endpoint_resolution(
+                    settings,
+                    attempted_base_urls=base_urls,
+                    state="degraded",
+                    failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                    reason=_summarize_local_attempt_failures(attempt_failures),
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=local_model_resolution.error_detail(
+                        attempted_endpoints=attempt_failures,
+                        endpoint_resolution=endpoint_resolution,
+                        failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                        message=(
+                            f"Configured local chat model '{model}' from "
+                            f"{local_model_resolution.source} could not be executed; "
+                            "all supported local endpoints returned HTTP 404"
+                        ),
+                    ),
                 )
             else:
                 detail = f"Local inference request failed for model '{model}'."

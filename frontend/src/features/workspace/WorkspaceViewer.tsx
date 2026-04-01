@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodexEntry } from "@/api/codex";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
-import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { resolveMediaSrc } from "@/lib/mediaUrl";
 import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 import { DocumentLike } from "@/types/documents";
 
@@ -35,8 +35,6 @@ const TEXT_EXTENSIONS = new Set([
   "txt",
   "text",
   "log",
-  "csv",
-  "tsv",
   "json",
   "jsonl",
   "yaml",
@@ -268,7 +266,7 @@ const markdownComponents = {
   ),
   img: ({ src, alt }: any) => (
     <img
-      src={normalizeMediaUrl(src) || src || undefined}
+      src={resolveMediaSrc(src) || src || undefined}
       alt={alt || "uploaded media"}
       loading="lazy"
       className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"
@@ -464,7 +462,6 @@ function buildPreviewKind(options: {
     mimeType.includes("xml") ||
     mimeType.includes("yaml") ||
     mimeType.includes("toml") ||
-    mimeType.includes("csv") ||
     mimeType.includes("javascript") ||
     mimeType.includes("typescript") ||
     mimeType.includes("sql");
@@ -514,7 +511,7 @@ export default function WorkspaceViewer({
   const sourceText = activeDoc?.type === "codex_entry" ? codexBody : inlinePreviewText;
   const needsRemoteText = (previewKind === "markdown" || previewKind === "text") && !sourceText;
   const normalizedPreviewUrl = useMemo(
-    () => (previewUrl ? normalizeMediaUrl(previewUrl) : ""),
+    () => (previewUrl ? resolveMediaSrc(previewUrl) : ""),
     [previewUrl]
   );
 
@@ -561,11 +558,28 @@ export default function WorkspaceViewer({
       cancelled = true;
       controller.abort();
     };
-  }, [needsRemoteText, normalizedPreviewUrl]);
+  }, [
+    activeDoc?.id,
+    activeDoc?.type,
+    needsRemoteText,
+    normalizedPreviewUrl,
+    previewKind,
+  ]);
 
   const resolvedText = sourceText ?? fetchedText;
   const title = activeDoc?.title || activeDoc?.name || "Untitled document";
   const extension = resolveDocumentExtension(activeDoc);
+  const renderedText = useMemo(() => {
+    if (extension !== "json" || !resolvedText) {
+      return resolvedText;
+    }
+
+    try {
+      return JSON.stringify(JSON.parse(resolvedText), null, 2);
+    } catch {
+      return resolvedText;
+    }
+  }, [extension, resolvedText]);
   const createdAt = formatDate(
     activeDoc?.createdAt ?? (activeDoc as any)?.created_at ?? codexEntry?.created_at ?? null
   );
@@ -721,7 +735,7 @@ export default function WorkspaceViewer({
           data-testid="workspace-preview-content"
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {resolvedText}
+            {renderedText || ""}
           </ReactMarkdown>
         </div>
       );
@@ -757,14 +771,14 @@ export default function WorkspaceViewer({
           className="codexifyWorkspacePlaintext"
           data-testid="workspace-preview-content"
         >
-          {resolvedText}
+          {renderedText}
         </pre>
       );
     }
 
     return (
       <PreviewMessage
-        title="Preview unavailable for this file type"
+        title="This file type does not have an inline preview yet."
         hint="Metadata is still available below."
         tone="muted"
         detail={
@@ -780,7 +794,7 @@ export default function WorkspaceViewer({
               target="_blank"
               rel="noreferrer noopener"
             >
-              Open source asset in a new tab
+              Open in a new tab
             </a>
           ) : undefined
         }

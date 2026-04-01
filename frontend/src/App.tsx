@@ -48,6 +48,10 @@ import {
 } from "./lib/runtimeBootstrap";
 import EventsConsole from "./pages/EventsConsole";
 import { SharePage } from "./pages/SharePage";
+import {
+  requestWorkspaceOpen,
+  shouldBlockNestedWorkspaceShell,
+} from "./features/workspace/state/useWorkspaceState";
 
 /**
  * App entry with a gated UI Playground ("Tune Rack").
@@ -307,6 +311,21 @@ function WelcomeScreen({ onEnter }: { onEnter: () => void }) {
   );
 }
 
+function WorkspaceRecursionGuard() {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center p-6 text-sm"
+      data-testid="workspace-recursion-guard"
+      style={{
+        background: "linear-gradient(180deg, #0b1220, #0f172a)",
+        color: "#e5e7eb",
+      }}
+    >
+      Embedded workspace previews are blocked to prevent recursive shell mounts.
+    </div>
+  );
+}
+
 function DevTuneGate() {
   const [Mod, setMod] = React.useState<React.ComponentType | null>(null);
   const [error, setError] = React.useState<Error | null>(null);
@@ -452,13 +471,10 @@ export default function App() {
         } catch {
           // ignore
         }
-        try {
-          window.dispatchEvent(
-            new CustomEvent("cfy:documents:open", { detail: { doc } })
-          );
-        } catch {
-          // ignore
-        }
+        requestWorkspaceOpen(
+          { doc, source: "generated-document", targetView: "documents" },
+          { source: "generated-document", targetView: "documents" }
+        );
         try {
           window.dispatchEvent(
             new CustomEvent("cfy:toast", {
@@ -1019,7 +1035,6 @@ export default function App() {
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
-  const appShell = <AppShell />;
 
   if (tuneRoute) {
     return <DevTuneGate />;
@@ -1041,6 +1056,9 @@ export default function App() {
     if (shareToken) {
       return <SharePage token={shareToken} />;
     }
+  }
+  if (shouldBlockNestedWorkspaceShell()) {
+    return <WorkspaceRecursionGuard />;
   }
   if (startupLocked) {
     if (bootstrapPhase === "welcome") {
@@ -1066,7 +1084,7 @@ export default function App() {
 
   return (
     <>
-      {appShell}
+      <AppShell />
       <div className="fixed bottom-6 right-6 z-[1200]">
         <Button
           type="button"

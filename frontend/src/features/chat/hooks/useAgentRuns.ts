@@ -4,6 +4,11 @@ import {
   fetchAgentRuns,
   type AgentRunResponse,
 } from "../api/actionCenter";
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import {
+  markRuntimeRouteUnavailableIfNotFound,
+  useRuntimeRouteCapability,
+} from "@/lib/runtimeRouteCapabilities";
 
 type AgentRunsEntry = {
   data: AgentRunResponse[];
@@ -218,12 +223,20 @@ async function fetchAgentRunsForThread(threadId: string) {
         count: entry.data.length,
       });
     } catch (err) {
-      entry.error = err;
-
-      console.error("[chat-fetch] agent-runs:error", {
-        threadId,
-        err,
-      });
+      if (
+        markRuntimeRouteUnavailableIfNotFound(
+          SUPPORTED_PROFILE_ROUTE_LABELS.AGENT_ORCHESTRATION_CHAT,
+          err
+        )
+      ) {
+        entry.error = null;
+      } else {
+        entry.error = err;
+        console.error("[chat-fetch] agent-runs:error", {
+          threadId,
+          err,
+        });
+      }
     } finally {
       entry.loading = false;
       entry.inFlight = undefined;
@@ -237,6 +250,12 @@ async function fetchAgentRunsForThread(threadId: string) {
 export function useAgentRuns(threadId: number | null) {
   const [, forceRender] = useState(0);
   const threadKey = threadId == null ? null : String(threadId);
+  const {
+    ready: capabilityReady,
+    state: capabilityState,
+  } = useRuntimeRouteCapability(
+    SUPPORTED_PROFILE_ROUTE_LABELS.AGENT_ORCHESTRATION_CHAT
+  );
 
   useEffect(() => {
     if (!threadKey) return;
@@ -253,17 +272,20 @@ export function useAgentRuns(threadId: number | null) {
 
   useEffect(() => {
     if (!threadKey) return;
+    if (!capabilityReady) return;
+    if (capabilityState === "unavailable") return;
     if (typeof document !== "undefined" && document.hidden) return;
     const entry = getOrCreateEntry(threadKey);
     if (!entry.data.length) {
       void fetchAgentRunsForThread(threadKey);
     }
-  }, [threadKey]);
+  }, [capabilityReady, capabilityState, threadKey]);
 
   const entry = threadKey ? getOrCreateEntry(threadKey) : null;
 
   return {
     data: entry?.data ?? [],
+    capabilityState,
     loading: entry?.loading ?? false,
     error: entry?.error ?? null,
     refetch: () => (threadKey ? fetchAgentRunsForThread(threadKey) : undefined),

@@ -81,6 +81,7 @@ export type ComposerSendOptions = {
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
+type SourceMode = "project" | "personal_knowledge";
 
 type DraftAttachment = {
   id: string;
@@ -171,6 +172,9 @@ export function Composer({
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   inferenceModeOptions = [],
   onInferenceModeChange,
+  sourceMode = "project",
+  sourceOptions = [],
+  onSourceModeChange,
   depthMode = "normal",
   depthOptions = [],
   onDepthModeChange,
@@ -200,6 +204,9 @@ export function Composer({
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
+  sourceMode?: SourceMode;
+  sourceOptions?: ComposerSelectOption[];
+  onSourceModeChange?: (mode: SourceMode) => void;
   depthMode?: DepthMode;
   depthOptions?: Array<{
     value: DepthMode;
@@ -642,6 +649,10 @@ export function Composer({
     inferenceModeOptions.find((option) => option.value === activeInferenceMode)
       ?.label ??
     "Auto";
+  const sourceLabel =
+    sourceOptions.find((option) => option.value === sourceMode)?.label ??
+    sourceOptions[0]?.label ??
+    "Project";
   const handleAttemptSend = () => {
     if (turnLocked) {
       notifyTurnLocked();
@@ -660,7 +671,7 @@ export function Composer({
       >
         <div
           data-testid="composer-content-plane"
-          className="flex min-h-0 flex-1 flex-col gap-3 px-[var(--composer-pad-x,12px)]"
+          className="flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
         >
           <Textarea
             ref={ref}
@@ -741,7 +752,7 @@ export function Composer({
             className={cn(
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
               CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
-              "mt-auto flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)] pb-[6px]"
+              "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
           >
             <div
@@ -802,6 +813,15 @@ export function Composer({
                 onSelect={(value) =>
                   onInferenceModeChange?.(value as ComposerInferenceMode)
                 }
+              />
+              <ComposerSelectMenu
+                ariaLabel="Select retrieval source"
+                menuLabel="Source"
+                valueLabel={`${sourceLabel}`}
+                options={sourceOptions}
+                selectedValue={sourceMode}
+                disabled={draftControlsDisabled || sourceOptions.length === 0}
+                onSelect={(value) => onSourceModeChange?.(value as SourceMode)}
               />
             </div>
 

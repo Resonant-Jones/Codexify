@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+from guardian.cognition.prompts import _rag_hint_block
 from guardian.core import chat_completion_service
 from guardian.tasks.types import ChatCompletionTask
 
@@ -266,3 +268,158 @@ async def test_emitted_retrieval_plan_values_are_debug_safe_scalars_and_lists(
     assert all(isinstance(item, str) for item in plan["escalation_order"])
     assert isinstance(plan["reasons"], list)
     assert all(isinstance(item, str) for item in plan["reasons"])
+
+
+@pytest.mark.asyncio
+async def test_build_messages_persists_trace_candidate_for_completed_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(
+        monkeypatch,
+        user_content="Summarize the retrieved notes.",
+        trace_payload={
+            "documents": [
+                {
+                    "id": "doc-1",
+                    "title": "note.md",
+                    "score": 0.91,
+                    "snippet": "retrieved note...",
+                }
+            ],
+            "graph": [],
+        },
+    )
+    persisted: list[tuple[int, dict[str, object]]] = []
+    task_id = str(uuid.uuid4())
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_merge_thread_metadata_patch",
+        lambda thread_id, patch: persisted.append((thread_id, dict(patch)))
+        or True,
+    )
+
+    task = ChatCompletionTask(
+        task_id=task_id,
+        thread_id=1,
+        provider="local",
+        model=None,
+    )
+    (
+        _messages,
+        _provider,
+        _model,
+        _bundle,
+        trace,
+    ) = await chat_completion_service.build_messages_for_llm(task)
+
+    assert isinstance(trace, dict)
+    assert persisted
+    persisted_thread_id, patch = persisted[-1]
+    assert persisted_thread_id == 1
+    assert (
+        patch[
+            chat_completion_service.DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY
+        ]
+        == task_id
+    )
+    candidate = patch[
+        chat_completion_service.DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY
+    ]
+    assert isinstance(candidate, dict)
+    assert candidate["task_id"] == task_id
+    assert candidate["thread_id"] == 1
+    assert candidate["trace"] == trace
+
+
+@pytest.mark.asyncio
+async def test_build_messages_skips_trace_candidate_when_trace_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(
+        monkeypatch,
+        user_content="Hello there",
+        trace_payload=None,
+    )
+    persisted: list[tuple[int, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_merge_thread_metadata_patch",
+        lambda thread_id, patch: persisted.append((thread_id, dict(patch)))
+        or True,
+    )
+
+    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    await chat_completion_service.build_messages_for_llm(task)
+
+    assert persisted == []
+
+
+class TestRagHintBlockTruthfulBoundaryLanguage:
+    def test_semantic_only_bundle_shows_available_not_blanket_non_access(self):
+        bundle = {"semantic": [{"text": "some doc"}]}
+        result = _rag_hint_block(bundle)
+        assert "Semantic/doc context is available." in result
+        assert (
+            "Personal-memory evidence was not retrieved for this turn."
+            in result
+        )
+        assert "Graph context was unavailable for this turn." in result
+        assert "no access" not in result.lower()
+        assert "cannot access" not in result.lower()
+
+    def test_memory_only_bundle_shows_available_memory(self):
+        bundle = {"memory": [{"text": "some memory"}]}
+        result = _rag_hint_block(bundle)
+        assert "Personal-memory evidence is available." in result
+        assert "Semantic/doc context was not retrieved for this turn." in result
+        assert "Graph context was unavailable for this turn." in result
+
+    def test_graph_only_bundle_shows_available_graph(self):
+        bundle = {"graph": [{"text": "some graph"}]}
+        result = _rag_hint_block(bundle)
+        assert "Graph context is available." in result
+        assert "Semantic/doc context was not retrieved for this turn." in result
+        assert (
+            "Personal-memory evidence was not retrieved for this turn."
+            in result
+        )
+
+    def test_all_contexts_available_uses_presence_language(self):
+        bundle = {
+            "semantic": [{"text": "doc"}],
+            "memory": [{"text": "mem"}],
+            "graph": [{"text": "graph"}],
+        }
+        result = _rag_hint_block(bundle)
+        assert "Semantic/doc context is available." in result
+        assert "Personal-memory evidence is available." in result
+        assert "Graph context is available." in result
+
+    def test_empty_bundle_returns_empty_string(self):
+        result = _rag_hint_block({})
+        assert result == ""
+
+    def test_none_bundle_returns_empty_string(self):
+        result = _rag_hint_block(None)
+        assert result == ""
+
+    def test_bundle_with_empty_lists_returns_empty_string(self):
+        result = _rag_hint_block({"semantic": [], "memory": [], "graph": []})
+        assert result == ""
+
+    def test_partial_context_does_not_claim_blanket_non_access(self):
+        bundle = {"semantic": [{"text": "project note"}]}
+        result = _rag_hint_block(bundle)
+        assert "not retrieved" in result
+        assert "was not retrieved" in result
+        assert "available" in result
+        denial_phrases = [
+            "no internal knowledge",
+            "no access to",
+            "cannot access internal",
+            "don't have access to internal",
+        ]
+        for phrase in denial_phrases:
+            assert phrase.lower() not in result.lower()

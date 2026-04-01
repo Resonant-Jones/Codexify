@@ -11,6 +11,12 @@ import {
   useAgentRuns,
 } from "@/features/chat/hooks/useAgentRuns";
 
+const routeCapabilityState = vi.hoisted(() => ({
+  ready: true,
+  state: "available" as const,
+  markNotFound: false,
+}));
+
 vi.mock("@/features/chat/api/actionCenter", async () => {
   const actual = await vi.importActual<
     typeof import("@/features/chat/api/actionCenter")
@@ -20,6 +26,16 @@ vi.mock("@/features/chat/api/actionCenter", async () => {
     fetchAgentRuns: vi.fn(),
   };
 });
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  useRuntimeRouteCapability: () => ({
+    ready: routeCapabilityState.ready,
+    state: routeCapabilityState.state,
+    mounted: [],
+    declared: {},
+  }),
+  markRuntimeRouteUnavailableIfNotFound: vi.fn(() => routeCapabilityState.markNotFound),
+}));
 
 const fetchAgentRunsMock = vi.mocked(fetchAgentRuns);
 
@@ -38,6 +54,9 @@ describe("useAgentRuns", () => {
     __resetAgentRunsStoreForTests();
     vi.clearAllMocks();
     fetchAgentRunsMock.mockResolvedValue([]);
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    routeCapabilityState.markNotFound = false;
   });
 
   it("skips fallback fetch when live events already hydrated the thread store", async () => {
@@ -146,5 +165,35 @@ describe("useAgentRuns", () => {
       status: "running",
       thread_id: 703,
     });
+  });
+
+  it("does not probe agent-runs when the route is unavailable", async () => {
+    routeCapabilityState.state = "unavailable";
+
+    const { result } = renderHook(() => useAgentRuns(704));
+
+    await waitFor(() => {
+      expect(result.current.capabilityState).toBe("unavailable");
+    });
+
+    expect(fetchAgentRunsMock).not.toHaveBeenCalled();
+  });
+
+  it("downgrades 404 failures without leaving an error in the hook state", async () => {
+    routeCapabilityState.state = "unknown";
+    routeCapabilityState.markNotFound = true;
+    fetchAgentRunsMock.mockRejectedValue({ response: { status: 404 } });
+
+    const { result } = renderHook(() => useAgentRuns(705));
+
+    await waitFor(() => {
+      expect(fetchAgentRunsMock).toHaveBeenCalledWith(705);
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.error).toBeNull();
   });
 });

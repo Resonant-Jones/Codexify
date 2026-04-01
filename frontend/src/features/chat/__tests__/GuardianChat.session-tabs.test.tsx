@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat, {
@@ -11,6 +11,7 @@ import {
 } from "@/features/chat/chatLane";
 
 const chatViewSpy = vi.hoisted(() => vi.fn());
+const fetchLatestRagTraceMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -22,8 +23,13 @@ vi.mock("@/lib/api", () => ({
   buildLlmCatalogPath: () => "/llm/catalog",
   buildChatCompletePath: () => "/chat/complete",
   clearInFlightCompletionTurnId: vi.fn(),
+  fetchLatestRagTrace: fetchLatestRagTraceMock,
   getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
+}));
+
+vi.mock("@/lib/devFlags", () => ({
+  isRagTraceUIEnabled: () => true,
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -63,6 +69,13 @@ vi.mock("@/components/surface/FrameCard", () => ({
   ),
 }));
 
+vi.mock("@/components/ui/sheet", () => ({
+  Sheet: ({ children }: any) => <div>{children}</div>,
+  SheetContent: ({ children }: any) => <div>{children}</div>,
+  SheetHeader: ({ children }: any) => <div>{children}</div>,
+  SheetTitle: ({ children }: any) => <div>{children}</div>,
+}));
+
 vi.mock("@/features/chat/useChat", () => ({
   default: () => ({
     messages: [],
@@ -88,7 +101,6 @@ vi.mock("@/features/chat/useChat", () => ({
     handleIncomingAssistantMessage: vi.fn(() => false),
     isCompletionInFlight: vi.fn(() => false),
     setCompletionInFlight: vi.fn(),
-    refreshSnapshot: vi.fn(),
   }),
 }));
 
@@ -106,17 +118,50 @@ vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
   default: () => null,
 }));
 
+const sessionRailSpy = vi.fn();
+
 vi.mock("@/components/SessionRail/SessionRail", () => ({
-  default: () => null,
+  default: (props: any) => {
+    sessionRailSpy(props);
+    return (
+      <div data-testid="session-rail-mock" data-has-tabs={props.tabs?.length > 0}>
+        {props.tabs?.map((tab: any) => (
+          <div
+            key={tab.tabId}
+            data-tab-id={tab.tabId}
+            data-is-active={tab.tabId === props.activeTabId}
+            data-testid={`mock-session-tab-${tab.tabId}`}
+          >
+            <span data-testid={`mock-tab-label-${tab.tabId}`}>{tab.title}</span>
+            {tab.tabId === props.activeTabId && (
+              <button
+                data-testid={`mock-tab-close-${tab.tabId}`}
+                onClick={() => props.onCloseTab?.(tab.tabId)}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/imprint/api", () => ({
   fetchSystemPromptSummary: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  markRuntimeRouteUnavailableIfNotFound: vi.fn(),
+  useRuntimeRouteCapability: () => ({
+    ready: true,
+    state: "available",
+  }),
+}));
+
 describe("GuardianChat session-tab binding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionRailSpy.mockClear();
     window.history.pushState({}, "", "/chat/1");
   });
 
@@ -181,6 +226,66 @@ describe("GuardianChat session-tab binding", () => {
     ).toBeInTheDocument();
   });
 
+  it("requests the RAG trace for the active thread and refetches when the active thread changes", async () => {
+    fetchLatestRagTraceMock.mockResolvedValue({ documents: [], graph: [] });
+
+    const { rerender } = render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "2", title: "Thread 2", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Thread 2",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-2" as any}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /view rag trace/i }));
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenCalledWith(2);
+    });
+
+    rerender(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "7", title: "Thread 7", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-7",
+            threadId: "7",
+            pendingThread: false,
+            title: "Thread 7",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-7" as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenLastCalledWith(7);
+    });
+  });
+
   it("keeps the composer rail on the shared conversation lane", async () => {
     render(
       <GuardianChat
@@ -228,6 +333,168 @@ describe("GuardianChat session-tab binding", () => {
           node.className.includes("rounded-[var(--tile-radius)]")
       );
       expect(nestedRoundedFaces).toHaveLength(0);
+    });
+  });
+});
+
+describe("GuardianChat session rail segmented strip behavior", () => {
+  it("passes session tabs to the SessionRail component", async () => {
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "1", title: "Thread 1", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            threadId: "1",
+            pendingThread: false,
+            title: "Alpha",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Beta",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(sessionRailSpy).toHaveBeenCalled();
+      const props = sessionRailSpy.mock.calls[0][0];
+      expect(props.tabs).toHaveLength(2);
+      expect(props.activeTabId).toBe("tab-1");
+    });
+  });
+
+  it("close button is only rendered on the active session tab", async () => {
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "1", title: "Thread 1", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            threadId: "1",
+            pendingThread: false,
+            title: "Alpha",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Beta",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    await waitFor(() => {
+      const activeTabCloseButton = screen.queryByTestId("mock-tab-close-tab-1");
+      const inactiveTabCloseButton = screen.queryByTestId("mock-tab-close-tab-2");
+
+      expect(activeTabCloseButton).toBeInTheDocument();
+      expect(inactiveTabCloseButton).not.toBeInTheDocument();
+    });
+  });
+
+  it("calls onCloseTab when the active tab close button is clicked", async () => {
+    const onSessionTabClose = vi.fn();
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "1", title: "Thread 1", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        onSessionTabClose={onSessionTabClose}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            threadId: "1",
+            pendingThread: false,
+            title: "Alpha",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    await waitFor(() => {
+      const closeButton = screen.getByTestId("mock-tab-close-tab-1");
+      closeButton.click();
+    });
+
+    expect(onSessionTabClose).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("session rail is rendered with tabs when multiple sessions exist", async () => {
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "1", title: "Thread 1", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            threadId: "1",
+            pendingThread: false,
+            title: "Alpha",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Beta",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    await waitFor(() => {
+      const railMock = screen.getByTestId("session-rail-mock");
+      expect(railMock).toHaveAttribute("data-has-tabs", "true");
     });
   });
 });

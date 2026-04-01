@@ -3,6 +3,7 @@ from __future__ import annotations
 import requests
 from fastapi.testclient import TestClient
 
+from guardian.core.ai_router import stream_local
 from guardian.core.config import get_settings
 from guardian.guardian_api import app
 
@@ -14,6 +15,20 @@ class _MockResponse:
 
     def json(self) -> dict:
         return self._payload
+
+
+class _MockStreamingResponse:
+    def __init__(self, lines: list[bytes], status_code: int = 200) -> None:
+        self._lines = lines
+        self.status_code = status_code
+        self.closed = False
+
+    def iter_lines(self, decode_unicode: bool = False):
+        _ = decode_unicode
+        yield from self._lines
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def _mock_local_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
@@ -90,6 +105,30 @@ def _mock_groq_model_index(url: str, *args, **kwargs) -> _MockResponse:
     )
 
 
+def _mock_groq_model_index_classifier_miss(
+    url: str, *args, **kwargs
+) -> _MockResponse:
+    assert url == "https://api.groq.com/openai/v1/models"
+    headers = kwargs.get("headers") or {}
+    assert headers.get("Authorization") == "Bearer test-groq-key"
+    return _MockResponse(
+        {
+            "data": [
+                {
+                    "id": "llama-3.3-70b-versatile",
+                    "name": "Llama 3.3 70B",
+                    "supports_chat": False,
+                },
+                {
+                    "id": "moonshotai/kimi-k2-instruct-0905",
+                    "name": "Kimi K2 Instruct",
+                    "supportsChat": False,
+                },
+            ]
+        }
+    )
+
+
 def _mock_bridge_fallback_catalog_request(calls: list[str]):
     def _handler(url: str, *args, **kwargs) -> _MockResponse:
         _ = (args, kwargs)
@@ -101,6 +140,38 @@ def _mock_bridge_fallback_catalog_request(calls: list[str]):
         return _MockResponse({"data": []}, status_code=404)
 
     return _handler
+
+
+def _mock_supported_local_catalog_request(
+    url: str, *args, **kwargs
+) -> _MockResponse:
+    _ = (args, kwargs)
+    if url.endswith("/api/tags"):
+        return _MockResponse(
+            {
+                "models": [
+                    {"name": "qwen3.5:0.8b"},
+                    {"name": "qwen2.5:7b"},
+                ]
+            }
+        )
+    return _MockResponse({"data": []}, status_code=404)
+
+
+def _mock_non_strict_local_catalog_request(
+    url: str, *args, **kwargs
+) -> _MockResponse:
+    _ = (args, kwargs)
+    if url.endswith("/api/tags"):
+        return _MockResponse(
+            {
+                "models": [
+                    {"name": "llama3.2:3b"},
+                    {"name": "qwen2.5:7b"},
+                ]
+            }
+        )
+    return _MockResponse({"data": []}, status_code=404)
 
 
 def _provider_by_id(payload: dict, provider_id: str) -> dict:
@@ -208,6 +279,158 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         assert local["models"][0]["source"] == "host.docker.internal:11434"
         assert any("127.0.0.1:11434" in url for url in calls)
         assert any("host.docker.internal:11434" in url for url in calls)
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_local_only_exposes_effective_local_chat_model(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_supported_local_catalog_request,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = True
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
+        settings.LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
+        settings.DEFAULT_LOCAL_MODEL = "library2/ministral-3:8b"
+        settings.LLM_MODEL = "library2/ministral-3:8b"
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+
+        local = _provider_by_id(payload, "local")
+        assert local["default_model"] == "qwen3.5:0.8b"
+        assert local["model_resolution"]["source"] == "LOCAL_CHAT_MODEL"
+        assert local["enabled"] is True
+        assert local["truth"]["selectable"] is True
+        assert local["models"][0]["id"] == "qwen3.5:0.8b"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_non_strict_mode_keeps_runnable_local_available(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_non_strict_local_catalog_request,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_LLM_MODEL = "llama3.2:3b"
+        settings.LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
+        settings.DEFAULT_LOCAL_MODEL = "llama3.2:3b"
+        settings.LLM_MODEL = "llama3.2:3b"
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+
+        local = _provider_by_id(payload, "local")
+        assert local["default_model"] == "llama3.2:3b"
+        assert local["enabled"] is True
+        assert local["truth"]["selectable"] is True
+        assert local["models"][0]["id"] == "llama3.2:3b"
+        assert "disabled_reason" not in local
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_matches_stream_local_executed_model(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, stream, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        _ = (headers, stream, timeout)
+        return _MockStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"Local "}}]}',
+                b'data: {"choices":[{"delta":{"content":"stream"}}]}',
+                b"data: [DONE]",
+            ]
+        )
+
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_supported_local_catalog_request,
+    )
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = True
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
+        settings.LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
+        settings.DEFAULT_LOCAL_MODEL = "library2/ministral-3:8b"
+        settings.LLM_MODEL = "library2/ministral-3:8b"
+
+        tokens = list(
+            stream_local(
+                [{"role": "user", "content": "hello"}],
+                "library2/ministral-3:8b",
+                settings=settings,
+            )
+        )
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+
+        local = _provider_by_id(payload, "local")
+        assert tokens == ["Local ", "stream"]
+        assert captured["json"]["model"] == "qwen3.5:0.8b"
+        assert local["default_model"] == captured["json"]["model"]
+        assert local["model_resolution"]["source"] == "LOCAL_CHAT_MODEL"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -364,10 +587,74 @@ def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
             "Llama 3.3 70B",
             "Kimi K2 Instruct",
         ]
+        assert groq["models"][0]["_capability"] == "confirmed"
         assert groq["models"][0]["supports_chat"] is True
         assert groq["models"][0]["supports_vision"] is False
         assert groq["models"][0]["supports_text_input"] is True
         assert groq["models"][0]["model_kind"] == "chat"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_soft_fallback_surfaces_inferred_groq_models(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        _mock_groq_model_index_classifier_miss,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "GROQ_BASE_URL": settings.GROQ_BASE_URL,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+        "ALIBABA_MODEL": settings.ALIBABA_MODEL,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = "groq"
+        settings.OPENAI_API_KEY = None
+        settings.GROQ_API_KEY = "test-groq-key"
+        settings.GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+        settings.ALIBABA_API_KEY = None
+        settings.ALIBABA_API_BASE = (
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        )
+        settings.ALIBABA_MODEL = None
+        settings.MINIMAX_API_KEY = None
+        settings.MINIMAX_API_BASE = None
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+        groq = _provider_by_id(payload, "groq")
+
+        assert groq["enabled"] is True
+        assert groq["available"] is True
+        assert groq["authorized"] is True
+        assert groq["model_index"]["state"] == "degraded"
+        assert groq["model_index"]["failure_kind"] == "empty_model_result"
+        assert groq["model_index"]["model_count"] == 2
+        assert [model["id"] for model in groq["models"]] == [
+            "llama-3.3-70b-versatile",
+            "moonshotai/kimi-k2-instruct-0905",
+        ]
+        assert all(
+            model["_capability"] == "inferred" for model in groq["models"]
+        )
+        assert all(model["supports_chat"] is True for model in groq["models"])
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

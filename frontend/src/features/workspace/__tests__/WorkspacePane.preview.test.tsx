@@ -246,7 +246,7 @@ describe("WorkspacePane preview surface", () => {
     );
 
     expect(
-      screen.getByText("Preview unavailable for this file type")
+      screen.getByText("This file type does not have an inline preview yet.")
     ).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByTestId("workspace-preview-surface")).toHaveAttribute(
@@ -254,7 +254,7 @@ describe("WorkspacePane preview surface", () => {
       "unsupported"
     );
     expect(
-      screen.getByRole("link", { name: "Open source asset in a new tab" })
+      screen.getByRole("link", { name: "Open in a new tab" })
     ).toHaveAttribute("target", "_blank");
     expect(screen.getByTestId("workspace-metadata")).toHaveTextContent(
       "Unsupported (.zip)"

@@ -40,6 +40,9 @@ from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
 RETRIEVAL_PLAN_TRACE_KEY = "retrieval_plan"
+DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY = "debug_latest_completion_task_id"
+DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY = "debug_rag_trace_candidate"
+DEBUG_LATEST_RAG_TRACE_METADATA_KEY = "debug_latest_rag_trace"
 
 try:  # pragma: no cover - prompts are optional in some deployments
     from guardian.cognition.system_prompt_builder import (
@@ -73,6 +76,52 @@ def _estimate_tokens(text: str | None) -> int:
     except Exception:
         return 0
     return max(1, length // 4)
+
+
+def _normalize_source_mode(value: Any) -> str:
+    return "personal_knowledge" if value == "personal_knowledge" else "project"
+
+
+def _source_mode_from_origin(origin: Any) -> str:
+    text = str(origin or "").strip()
+    if not text:
+        return "project"
+    for segment in text.split("|")[1:]:
+        key, _, value = segment.partition("=")
+        if key.strip() == "source_mode":
+            return _normalize_source_mode(value.strip())
+    return "project"
+
+
+async def _assemble_context_bundle(
+    broker: ContextBroker,
+    *,
+    thread_id: int,
+    query: str,
+    depth_mode: str,
+    user_id: str,
+    project_id: int | None,
+    source_mode: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    try:
+        return await broker.assemble(
+            thread_id,
+            query=query,
+            depth_mode=depth_mode,
+            user_id=user_id,
+            project_id=project_id,
+            source_mode=source_mode,
+        )
+    except TypeError as exc:
+        error_text = str(exc)
+        if "source_mode" not in error_text and "project_id" not in error_text:
+            raise
+        return await broker.assemble(
+            thread_id,
+            query=query,
+            depth_mode=depth_mode,
+            user_id=user_id,
+        )
 
 
 def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
@@ -541,6 +590,104 @@ def _serialize_retrieval_plan_trace(
     }
 
 
+def _merge_thread_metadata_patch(
+    thread_id: int,
+    patch: dict[str, Any],
+) -> bool:
+    if thread_id <= 0 or not isinstance(patch, dict) or not patch:
+        return False
+
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return False
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if callable(connect):
+        try:
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb,
+                            updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (json.dumps(patch), thread_id),
+                    )
+                    rowcount = getattr(cur, "rowcount", 0)
+                    return bool(rowcount)
+        except Exception:
+            logger.debug(
+                "[chat-completion] failed to merge thread metadata thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
+
+    getter = getattr(chatlog_db, "get_chat_thread", None)
+    updater = getattr(chatlog_db, "update_thread_metadata", None)
+    if not callable(updater):
+        return False
+
+    metadata: dict[str, Any] = {}
+    if callable(getter):
+        try:
+            thread = getter(thread_id)
+        except Exception:
+            thread = None
+        if isinstance(thread, dict):
+            raw_metadata = thread.get("metadata")
+            if isinstance(raw_metadata, dict):
+                metadata.update(raw_metadata)
+            elif isinstance(raw_metadata, str):
+                try:
+                    parsed = json.loads(raw_metadata)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    metadata.update(parsed)
+
+    metadata.update(patch)
+    try:
+        return bool(updater(thread_id, metadata))
+    except Exception:
+        logger.debug(
+            "[chat-completion] failed to update thread metadata thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+        return False
+
+
+def _persist_thread_trace_candidate(
+    task: ChatCompletionTask,
+    trace: dict[str, Any] | None,
+) -> None:
+    if not isinstance(trace, dict):
+        return
+
+    task_id = str(getattr(task, "task_id", "") or "").strip()
+    thread_id = int(getattr(task, "thread_id", 0) or 0)
+    if not task_id or thread_id <= 0:
+        return
+
+    patch = {
+        DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: task_id,
+        DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY: {
+            "task_id": task_id,
+            "thread_id": thread_id,
+            "trace": dict(trace),
+            "updated_at": datetime.now(UTC).isoformat(),
+        },
+    }
+    if not _merge_thread_metadata_patch(thread_id, patch):
+        logger.debug(
+            "[chat-completion] failed to persist rag trace candidate thread_id=%s task_id=%s",
+            thread_id,
+            task_id,
+        )
+
+
 async def build_messages_for_llm(
     task: ChatCompletionTask,
 ) -> tuple[
@@ -622,6 +769,16 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
+    source_mode = _source_mode_from_origin(getattr(task, "origin", None))
+
+    project_id_for_prompt: int | None = None
+    if thread_info:
+        try:
+            raw_project_id = thread_info.get("project_id")
+            if raw_project_id is not None:
+                project_id_for_prompt = int(raw_project_id)
+        except (TypeError, ValueError):
+            project_id_for_prompt = None
 
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
@@ -633,11 +790,14 @@ async def build_messages_for_llm(
             dependencies._sensors,
             settings=settings,
         )
-        bundle, trace = await broker.assemble(
-            thread_id,
+        bundle, trace = await _assemble_context_bundle(
+            broker,
+            thread_id=thread_id,
             query=latest_message,
             depth_mode=depth,
             user_id=user_for_context,
+            project_id=project_id_for_prompt,
+            source_mode=source_mode,
         )
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
@@ -651,15 +811,6 @@ async def build_messages_for_llm(
 
     messages_for_llm: list[dict[str, str]] = []
     prompt_meta: dict[str, Any] = {}
-
-    project_id_for_prompt: int | None = None
-    if thread_info:
-        try:
-            raw_project_id = thread_info.get("project_id")
-            if raw_project_id is not None:
-                project_id_for_prompt = int(raw_project_id)
-        except (TypeError, ValueError):
-            project_id_for_prompt = None
 
     try:
         if build_guardian_system_prompt:
@@ -753,6 +904,8 @@ async def build_messages_for_llm(
             depth,
             exc,
         )
+
+    _persist_thread_trace_candidate(task, trace)
 
     messages_for_llm.extend(context)
 
