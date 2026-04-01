@@ -188,7 +188,7 @@ describe("CommandCenterPage", () => {
     );
     expect(screen.getByTestId("command-center-summary-health-count")).toHaveTextContent("5");
     expect(screen.getByTestId("command-center-summary-run-count")).toHaveTextContent("2");
-    expect(within(summaryStrip).getByLabelText(/unknown items yes 2/i)).toBeInTheDocument();
+    expect(within(summaryStrip).getByLabelText(/unknown items 2/i)).toBeInTheDocument();
 
     const healthStrip = screen.getByTestId("command-center-health-strip");
     expect(within(healthStrip).getByText("Core")).toBeInTheDocument();
@@ -196,23 +196,34 @@ describe("CommandCenterPage", () => {
     expect(within(healthStrip).getByText("Deps")).toBeInTheDocument();
     expect(within(healthStrip).getByText("Vector")).toBeInTheDocument();
     expect(within(healthStrip).getByText("Memory")).toBeInTheDocument();
-    expect(screen.getByLabelText("LLM status UNKNOWN")).toBeInTheDocument();
-    expect(within(healthStrip).getAllByText("Details").length).toBeGreaterThan(0);
+    expect(within(screen.getByTestId("command-center-health-core")).getByText("OK")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("command-center-health-llm")).getByText("UNKNOWN")
+    ).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-health-deps")).getByText("FAIL")).toBeInTheDocument();
+    expect(within(healthStrip).getAllByText("Inspect raw details").length).toBeGreaterThan(0);
 
     const runsFeed = screen.getByTestId("command-center-runs-feed");
-    expect(within(runsFeed).getByText("task-alpha")).toBeInTheDocument();
-    expect(within(runsFeed).getByText("task-bravo")).toBeInTheDocument();
-    expect(screen.getByLabelText("task-alpha status running")).toBeInTheDocument();
-    expect(screen.getByLabelText("task-bravo status unknown")).toBeInTheDocument();
-    expect(within(runsFeed).getByRole("button", { name: /open details for task-alpha/i })).toBeInTheDocument();
-    expect(within(runsFeed).getByRole("button", { name: /open details for task-bravo/i })).toBeInTheDocument();
+    expect(within(runsFeed).getByText("Processing alpha")).toBeInTheDocument();
+    expect(within(runsFeed).getByText("No classification yet")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-run-alpha")).getByText("running")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-run-bravo")).getByText("unknown")).toBeInTheDocument();
+    expect(
+      within(runsFeed).getByRole("button", { name: /open details for processing alpha/i })
+    ).toBeInTheDocument();
+    expect(
+      within(runsFeed).getByRole("button", { name: /open details for no classification yet/i })
+    ).toBeInTheDocument();
+    expect(within(runsFeed).getAllByText("Inspect event details").length).toBeGreaterThan(0);
 
     fireEvent.click(
-      within(runsFeed).getByRole("button", { name: /open details for task-alpha/i })
+      within(runsFeed).getByRole("button", { name: /open details for processing alpha/i })
     );
     expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("run-alpha");
 
     expect(screen.getByText("Approvals")).toBeInTheDocument();
+    expect(screen.getByText("attention")).toBeInTheDocument();
     expect(screen.queryByText(/composer/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/message thread/i)).not.toBeInTheDocument();
   });
 });
