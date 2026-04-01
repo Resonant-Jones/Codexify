@@ -1,10 +1,40 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from guardian.db.models import Base, UserSettings
 from guardian.routes import imprint as imprint_routes
+from guardian.services import iddb_settings_service
+
+AUTH_HEADERS = {"X-API-Key": "test-api-key", "X-User-Id": "u1"}
+
+
+@pytest.fixture(autouse=True)
+def _auth_env(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
+    monkeypatch.setenv("DEBUG", "1")
+
+
+@pytest.fixture(autouse=True)
+def _settings_db():
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine, tables=[UserSettings.__table__])
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, future=True
+    )
+    iddb_settings_service._set_session_factory(Session)
+    yield
 
 
 def make_app():
@@ -17,11 +47,13 @@ def test_identity_updates_blocked_when_memory_none():
     app = make_app()
     client = TestClient(app)
     with patch.object(
-        imprint_routes.user_settings_store,
+        imprint_routes.iddb_settings_service,
         "get_user_settings",
         return_value={"memory_mode": "none"},
     ):
-        resp = client.post("/api/imprint/proposal", json={})
+        resp = client.post(
+            "/api/imprint/proposal", json={}, headers=AUTH_HEADERS
+        )
     assert resp.status_code == 403
 
 
@@ -37,7 +69,7 @@ def test_identity_updates_blocked_when_thread_excludes():
     try:
         with (
             patch.object(
-                imprint_routes.user_settings_store,
+                imprint_routes.iddb_settings_service,
                 "get_user_settings",
                 return_value={"memory_mode": "deep"},
             ),
@@ -45,7 +77,11 @@ def test_identity_updates_blocked_when_thread_excludes():
                 imprint_routes.imprint_store, "save_imprint"
             ) as mock_save,
         ):
-            resp = client.post("/api/imprint/proposal", json={"thread_id": 1})
+            resp = client.post(
+                "/api/imprint/proposal",
+                json={"thread_id": 1},
+                headers=AUTH_HEADERS,
+            )
             mock_save.assert_not_called()
     finally:
         imprint_routes.chatlog_db = original
@@ -64,7 +100,7 @@ def test_identity_updates_blocked_when_thread_in_diary_mode():
     try:
         with (
             patch.object(
-                imprint_routes.user_settings_store,
+                imprint_routes.iddb_settings_service,
                 "get_user_settings",
                 return_value={"memory_mode": "deep"},
             ),
@@ -72,7 +108,11 @@ def test_identity_updates_blocked_when_thread_in_diary_mode():
                 imprint_routes.imprint_store, "save_imprint"
             ) as mock_save,
         ):
-            resp = client.post("/api/imprint/proposal", json={"thread_id": 1})
+            resp = client.post(
+                "/api/imprint/proposal",
+                json={"thread_id": 1},
+                headers=AUTH_HEADERS,
+            )
             mock_save.assert_not_called()
     finally:
         imprint_routes.chatlog_db = original
@@ -105,7 +145,7 @@ def test_identity_updates_allowed_light_mode():
     try:
         with (
             patch.object(
-                imprint_routes.user_settings_store,
+                imprint_routes.iddb_settings_service,
                 "get_user_settings",
                 return_value={"memory_mode": "light"},
             ),
@@ -115,7 +155,11 @@ def test_identity_updates_allowed_light_mode():
                 return_value=draft_imprint,
             ),
         ):
-            resp = client.post("/api/imprint/proposal", json={"thread_id": 1})
+            resp = client.post(
+                "/api/imprint/proposal",
+                json={"thread_id": 1},
+                headers=AUTH_HEADERS,
+            )
     finally:
         imprint_routes.chatlog_db = original
     assert resp.status_code == 200
@@ -138,7 +182,7 @@ def test_deep_identity_modeling_blocked_when_project_depth_is_light():
     try:
         with (
             patch.object(
-                imprint_routes.user_settings_store,
+                imprint_routes.iddb_settings_service,
                 "get_user_settings",
                 return_value={"memory_mode": "deep"},
             ),
@@ -149,6 +193,7 @@ def test_deep_identity_modeling_blocked_when_project_depth_is_light():
             resp = client.post(
                 "/api/imprint/proposal",
                 json={"thread_id": 1, "requested_depth": "deep"},
+                headers=AUTH_HEADERS,
             )
             mock_save.assert_not_called()
     finally:
@@ -183,7 +228,7 @@ def test_deep_identity_modeling_allowed_when_project_depth_is_deep():
     try:
         with (
             patch.object(
-                imprint_routes.user_settings_store,
+                imprint_routes.iddb_settings_service,
                 "get_user_settings",
                 return_value={"memory_mode": "deep"},
             ),
@@ -196,6 +241,7 @@ def test_deep_identity_modeling_allowed_when_project_depth_is_deep():
             resp = client.post(
                 "/api/imprint/proposal",
                 json={"thread_id": 1, "requested_depth": "deep"},
+                headers=AUTH_HEADERS,
             )
     finally:
         imprint_routes.chatlog_db = original

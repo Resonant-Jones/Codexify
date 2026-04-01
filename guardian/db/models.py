@@ -1381,6 +1381,48 @@ class ProjectDocumentLink(Base):
 
 
 # =========================
+# Control Plane State
+# =========================
+
+
+class UserSettings(Base):
+    """Durable user-global policy controls for identity modeling."""
+
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[str] = mapped_column(
+        String(255), primary_key=True, nullable=False
+    )
+    memory_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="deep", server_default="deep"
+    )
+    diary_requires_unlock: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    allow_sensitive_modeling: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "memory_mode IN ('none','light','deep')",
+            name="user_settings_memory_mode_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Imprints, Personas, System Docs
 # =========================
 
