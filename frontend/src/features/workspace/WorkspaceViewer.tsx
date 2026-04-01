@@ -772,6 +772,18 @@ export default function WorkspaceViewer({
             ? "Open the source asset in a new tab if you need the raw file."
             : undefined
         }
+        action={
+          normalizedPreviewUrl || previewUrl ? (
+            <a
+              href={normalizedPreviewUrl || previewUrl || undefined}
+              className="codexifyWorkspaceLink"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Open source asset in a new tab
+            </a>
+          ) : undefined
+        }
       />
     );
   };
@@ -820,11 +832,13 @@ function PreviewMessage({
   title,
   hint,
   detail,
+  action,
   tone = "default",
 }: {
   title: string;
   hint?: string;
   detail?: string;
+  action?: React.ReactNode;
   tone?: "default" | "muted" | "error";
 }) {
   return (
@@ -832,6 +846,7 @@ function PreviewMessage({
       <div className="codexifyWorkspaceStateTitle">{title}</div>
       {hint && <div className="codexifyWorkspaceHint">{hint}</div>}
       {detail && <div className="codexifyWorkspaceHint">{detail}</div>}
+      {action}
     </div>
   );
 }
