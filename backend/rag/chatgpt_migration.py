@@ -10,6 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from guardian.core import dependencies
 
+from .personal_fact_extraction import (
+    extract_personal_fact_candidates,
+    persist_personal_fact_candidates,
+)
+
 logger = logging.getLogger(__name__)
 
 _CHATGPT_IMPORT_PROFILE = "chatgpt_v1_canonical"
@@ -103,7 +108,7 @@ def _embed_items_best_effort(
         )
         return diagnostics
 
-    if not _IMPORT_EMBED_ISOLATED:
+    def _embed_in_process() -> Dict[str, Any]:
         try:
             persisted = vector_store.add_texts(items)
             if persisted is None:
@@ -125,6 +130,9 @@ def _embed_items_best_effort(
             )
         return diagnostics
 
+    if not _IMPORT_EMBED_ISOLATED:
+        return _embed_in_process()
+
     try:
         ctx = mp.get_context("spawn")
         proc = ctx.Process(target=_embed_items_subprocess, args=(items,))
@@ -138,14 +146,14 @@ def _embed_items_best_effort(
                 _EMBED_SUBPROCESS_TIMEOUT_S,
                 candidates,
             )
-            return diagnostics
+            return _embed_in_process()
         if proc.exitcode != 0:
             logger.warning(
                 "ChatGPT import embedding subprocess failed with exit code=%s for batch size=%d",
                 proc.exitcode,
                 candidates,
             )
-            return diagnostics
+            return _embed_in_process()
         diagnostics["embeddings_persisted"] = candidates
         diagnostics["embeddings_failed"] = 0
         diagnostics["embedding_coverage_degraded"] = False
@@ -155,7 +163,7 @@ def _embed_items_best_effort(
             "ChatGPT import embedding subprocess launch failed: %s",
             exc,
         )
-        return diagnostics
+        return _embed_in_process()
 
 
 def _fetch_retryable_chatgpt_embedding_items(
@@ -1032,6 +1040,9 @@ def _normalize_mainline_messages(
             {
                 "role": guardian_role,
                 "content": canonical_text,
+                "content_type": str(content.get("content_type") or "")
+                .strip()
+                .lower(),
                 "source_created_at": message_created_at,
                 "source_created_at_inferred": source_created_at_inferred,
                 "imported_at": imported_at,
@@ -1039,6 +1050,8 @@ def _normalize_mainline_messages(
                 "source_message_id": str(node_id),
                 "turn_index": turn_index,
                 "source_role_raw": source_role_raw,
+                "raw_role": raw_role,
+                "raw_message": dict(message),
                 "origin": "chatgpt_import",
                 "era": "pre_codexify",
             }
@@ -1150,6 +1163,8 @@ def ingest_chatgpt_export(
     threads_count = 0
     messages_count = 0
     messages_filtered = 0
+    projects_created = 0
+    projects_reused = 0
     imports_project_id = int(_resolve_imports_project_id(chatlog_db))
     pending_embed_items: List[Dict[str, Any]] = []
     pending_embed_message_ids: List[int] = []
@@ -1174,6 +1189,9 @@ def ingest_chatgpt_export(
                 conv.get("create_time")
             ) or _parse_export_timestamp(conv.get("update_time"))
             imported_at = datetime.now(timezone.utc)
+            template_id = _normalize_template_id(
+                conv.get("conversation_template_id")
+            )
 
             # Linearize canonical mainline (root -> active leaf).
             mainline_nodes = _linearize_mainline(
@@ -1196,15 +1214,26 @@ def ingest_chatgpt_export(
                 continue
 
             title = str(conv.get("title") or "Imported Chat")
-            template_id = _normalize_template_id(
-                conv.get("conversation_template_id")
-            )
 
             thread_id = _find_existing_thread_for_source(
                 chatlog_db, user_id=user_id, source_thread_id=source_thread_id
             )
             if thread_id is None:
                 project_id = imports_project_id
+                if template_id:
+                    (
+                        project_id,
+                        template_id,
+                        project_resolution,
+                    ) = _resolve_target_project(
+                        chatlog_db,
+                        user_id=user_id,
+                        conversation=conv,
+                    )
+                    if project_resolution == "created":
+                        projects_created += 1
+                    elif project_resolution == "reused":
+                        projects_reused += 1
 
                 thread_metadata: Dict[str, Any] = {
                     "import_source": "chatgpt",
@@ -1294,6 +1323,12 @@ def ingest_chatgpt_export(
                     "turn_index": msg["turn_index"],
                     "source_created_at": msg["source_created_at"].isoformat(),
                     "imported_at": msg["imported_at"].isoformat(),
+                    "content_type": msg.get("content_type"),
+                    "raw_role": msg.get("raw_role"),
+                    "raw_message": msg.get("raw_message"),
+                    "origin": msg.get("origin"),
+                    "era": msg.get("era"),
+                    "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
                 }
 
                 if existing:
@@ -1319,6 +1354,25 @@ def ingest_chatgpt_export(
                     merged_meta=merged_meta,
                     source_created_at=msg["source_created_at"],
                 )
+
+                personal_fact_candidates = extract_personal_fact_candidates(msg)
+                if personal_fact_candidates:
+                    try:
+                        persist_personal_fact_candidates(
+                            chatlog_db,
+                            user_id=user_id,
+                            message={
+                                **msg,
+                                "chatlog_message_id": mid,
+                            },
+                            candidates=personal_fact_candidates,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to persist ChatGPT personal fact candidates for message %s: %s",
+                            mid,
+                            exc,
+                        )
 
                 # Queue embedding payload for post-import processing.
                 if not existing:
@@ -1385,8 +1439,8 @@ def ingest_chatgpt_export(
     return {
         "threads_imported": threads_count,
         "messages_imported": messages_count,
-        "projects_created": 0,
-        "projects_reused": 0,
+        "projects_created": projects_created,
+        "projects_reused": projects_reused,
         "messages_filtered": messages_filtered,
         "embedding_candidates": embedding_diagnostics["embedding_candidates"],
         "embeddings_persisted": embedding_diagnostics["embeddings_persisted"],

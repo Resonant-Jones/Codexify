@@ -3,11 +3,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 export const WORKSPACE_LAYOUT_STORAGE_KEY = "cfy.workspace.layout";
 export const MIN_WORKSPACE_PANE_RATIO = 0.28;
 export const MAX_WORKSPACE_PANE_RATIO = 0.62;
-export const DEFAULT_WORKSPACE_PANE_RATIO = 0.42;
+export const CHAT_FOCUS_WORKSPACE_PANE_RATIO = MIN_WORKSPACE_PANE_RATIO;
+export const DEFAULT_WORKSPACE_PANE_RATIO = CHAT_FOCUS_WORKSPACE_PANE_RATIO;
+export const BALANCED_SPLIT_WORKSPACE_PANE_RATIO = 0.42;
+export const WORKSPACE_FOCUS_WORKSPACE_PANE_RATIO = MAX_WORKSPACE_PANE_RATIO;
 export const BALANCED_SPLIT_MIN_RATIO = 0.36;
 export const WORKSPACE_FOCUS_MIN_RATIO = 0.52;
 export const MIN_WORKSPACE_PRIMARY_PANE_WIDTH = "24rem";
 export const MIN_WORKSPACE_DRAWER_PANE_WIDTH = "20rem";
+export const DEFAULT_WORKSPACE_LAYOUT_THREAD_KEY = "__workspace_default__";
 
 export type WorkspaceLayoutMode =
   | "chat_focus"
@@ -16,17 +20,39 @@ export type WorkspaceLayoutMode =
 export type WorkspaceLayoutRatioBucket = "chat_first" | "shared" | "workspace_first";
 
 type PersistedWorkspaceLayoutState = {
-  paneRatio?: number;
+  layoutMode?: WorkspaceLayoutMode;
 };
 
 type UseWorkspaceLayoutModeOptions = {
   isOpen: boolean;
-  initialPaneRatio?: number;
+  activeThreadId?: string | number | null;
   storageKey?: string;
 };
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+function isWorkspaceLayoutMode(value: unknown): value is WorkspaceLayoutMode {
+  return (
+    value === "chat_focus" ||
+    value === "balanced_split" ||
+    value === "workspace_focus"
+  );
+}
+
+function getWorkspaceLayoutThreadKey(
+  threadId: string | number | null | undefined
+): string {
+  if (threadId == null) {
+    return DEFAULT_WORKSPACE_LAYOUT_THREAD_KEY;
+  }
+
+  const normalized = String(threadId).trim();
+  return normalized || DEFAULT_WORKSPACE_LAYOUT_THREAD_KEY;
+}
+
+export function getWorkspaceLayoutStorageKeyForThread(
+  threadId: string | number | null | undefined,
+  storageKey = WORKSPACE_LAYOUT_STORAGE_KEY
+): string {
+  return `${storageKey}.${encodeURIComponent(getWorkspaceLayoutThreadKey(threadId))}`;
 }
 
 export function clampWorkspacePaneRatio(value: number): number {
@@ -57,6 +83,64 @@ export function deriveWorkspaceLayoutMode({
   return "balanced_split";
 }
 
+export function getWorkspacePaneRatioForLayoutMode(
+  layoutMode: WorkspaceLayoutMode
+): number {
+  switch (layoutMode) {
+    case "workspace_focus":
+      return WORKSPACE_FOCUS_WORKSPACE_PANE_RATIO;
+    case "balanced_split":
+      return BALANCED_SPLIT_WORKSPACE_PANE_RATIO;
+    case "chat_focus":
+    default:
+      return CHAT_FOCUS_WORKSPACE_PANE_RATIO;
+  }
+}
+
+export function getWorkspaceLayoutModeFromPaneRatio(
+  paneRatio: number
+): WorkspaceLayoutMode {
+  const clampedPaneRatio = clampWorkspacePaneRatio(paneRatio);
+
+  if (clampedPaneRatio < BALANCED_SPLIT_MIN_RATIO) {
+    return "chat_focus";
+  }
+
+  if (clampedPaneRatio >= WORKSPACE_FOCUS_MIN_RATIO) {
+    return "workspace_focus";
+  }
+
+  return "balanced_split";
+}
+
+export function getNextWorkspaceLayoutMode(
+  layoutMode: WorkspaceLayoutMode
+): WorkspaceLayoutMode {
+  switch (layoutMode) {
+    case "chat_focus":
+      return "balanced_split";
+    case "balanced_split":
+      return "workspace_focus";
+    case "workspace_focus":
+    default:
+      return "chat_focus";
+  }
+}
+
+export function getWorkspaceLayoutModeLabel(
+  layoutMode: WorkspaceLayoutMode
+): string {
+  switch (layoutMode) {
+    case "workspace_focus":
+      return "Workspace Focus";
+    case "balanced_split":
+      return "Balanced Split";
+    case "chat_focus":
+    default:
+      return "Chat Focus";
+  }
+}
+
 export function getWorkspaceLayoutRatioBucket(
   layoutMode: WorkspaceLayoutMode
 ): WorkspaceLayoutRatioBucket {
@@ -78,14 +162,9 @@ function readPersistedWorkspaceLayoutState(
 
   try {
     const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return {};
+    if (!raw || !isWorkspaceLayoutMode(raw)) return {};
 
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-
-    return parsed as PersistedWorkspaceLayoutState;
+    return { layoutMode: raw };
   } catch {
     return {};
   }
@@ -93,33 +172,31 @@ function readPersistedWorkspaceLayoutState(
 
 export function useWorkspaceLayoutMode({
   isOpen,
-  initialPaneRatio,
+  activeThreadId,
   storageKey = WORKSPACE_LAYOUT_STORAGE_KEY,
 }: UseWorkspaceLayoutModeOptions) {
+  const activeThreadStorageKey = useMemo(
+    () => getWorkspaceLayoutStorageKeyForThread(activeThreadId, storageKey),
+    [activeThreadId, storageKey]
+  );
+
   const [paneRatio, setPaneRatioState] = useState<number>(() => {
-    const persisted = readPersistedWorkspaceLayoutState(storageKey);
-
-    if (isFiniteNumber(persisted.paneRatio)) {
-      return clampWorkspacePaneRatio(persisted.paneRatio);
-    }
-
-    return clampWorkspacePaneRatio(
-      initialPaneRatio ?? DEFAULT_WORKSPACE_PANE_RATIO
+    const persisted = readPersistedWorkspaceLayoutState(activeThreadStorageKey);
+    return getWorkspacePaneRatioForLayoutMode(
+      persisted.layoutMode ?? "chat_focus"
     );
   });
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    const persisted = readPersistedWorkspaceLayoutState(activeThreadStorageKey);
+    const nextPaneRatio = getWorkspacePaneRatioForLayoutMode(
+      persisted.layoutMode ?? "chat_focus"
+    );
 
-    try {
-      window.localStorage.setItem(
-        storageKey,
-        JSON.stringify({ paneRatio })
-      );
-    } catch {
-      // Ignore local-only persistence failures.
-    }
-  }, [paneRatio, storageKey]);
+    setPaneRatioState((previousPaneRatio) =>
+      previousPaneRatio === nextPaneRatio ? previousPaneRatio : nextPaneRatio
+    );
+  }, [activeThreadStorageKey]);
 
   const setPaneRatio = useCallback(
     (nextPaneRatio: number | ((previousPaneRatio: number) => number)) => {
@@ -132,6 +209,22 @@ export function useWorkspaceLayoutMode({
       );
     },
     []
+  );
+
+  const setLayoutMode = useCallback(
+    (nextLayoutMode: WorkspaceLayoutMode) => {
+      const nextPaneRatio = getWorkspacePaneRatioForLayoutMode(nextLayoutMode);
+      setPaneRatioState(nextPaneRatio);
+
+      if (typeof window === "undefined") return;
+
+      try {
+        window.localStorage.setItem(activeThreadStorageKey, nextLayoutMode);
+      } catch {
+        // Ignore local-only persistence failures.
+      }
+    },
+    [activeThreadStorageKey]
   );
 
   const layoutMode = useMemo(
@@ -157,5 +250,6 @@ export function useWorkspaceLayoutMode({
     layoutMode,
     isWorkspaceDominant,
     ratioBucket,
+    setLayoutMode,
   };
 }
