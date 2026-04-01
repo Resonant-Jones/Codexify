@@ -26,15 +26,9 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-        active
-          ? "bg-[var(--accent)] text-[var(--text-on-accent)]"
-          : "text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--panel-hover)]"
-      }`}
-      style={{
-        background: active ? "var(--accent)" : undefined,
-        color: active ? "var(--text-on-accent)" : undefined,
-      }}
+      aria-pressed={active}
+      data-state={active ? "active" : "inactive"}
+      className="pill-tab min-w-0 flex-1 px-4 py-3.5 text-[0.95rem]"
     >
       {children}
     </button>
@@ -59,10 +53,13 @@ function IdentityEditor({
   onChange: (config: PersonaConfig) => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
       <div className="space-y-2">
-        <label className="text-sm font-medium">Persona Name</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+          Persona Name
+        </label>
         <Input
+          className="h-10"
           value={config.identity.name}
           onChange={(e) =>
             onChange({
@@ -74,8 +71,11 @@ function IdentityEditor({
         />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Description</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+          Description
+        </label>
         <Textarea
+          className="min-h-[140px] resize-y"
           value={config.identity.description}
           onChange={(e) =>
             onChange({
@@ -83,7 +83,7 @@ function IdentityEditor({
               identity: { ...config.identity, description: e.target.value },
             })
           }
-          rows={3}
+          rows={5}
           placeholder="Describe this persona"
         />
       </div>
@@ -792,19 +792,19 @@ export default function PersonaStudioPage() {
 
   return (
     <div className="h-full w-full overflow-auto p-[var(--card-pad)]">
-      <div className="h-full flex flex-col">
-        <div className="mb-4">
-          <h1 className="text-xl font-semibold">Persona Studio</h1>
-          <p className="text-sm mt-0.5" style={{ color: "var(--muted)" }}>
+      <div className="flex h-full flex-col gap-6">
+        <div className="max-w-3xl space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Persona Studio</h1>
+          <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
             Configure runtime persona profiles. This is for configuration only — no chat history or memory records are created.
           </p>
         </div>
 
-        <div className="grid grid-cols-[280px_1fr_320px] gap-4 flex-1 min-h-0">
+        <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_320px] gap-4">
           <Card
-            className="bezel-none rounded-2xl border"
+            className="bezel-none flex min-h-0 flex-col rounded-2xl border"
             style={{
-              background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+              background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
               borderColor: "var(--panel-border)",
             }}
           >
@@ -859,35 +859,150 @@ export default function PersonaStudioPage() {
           </Card>
 
           <Card
-            className="bezel-none rounded-2xl border"
+            className="bezel-none flex min-h-0 flex-col rounded-2xl border"
+            role="region"
+            aria-label="Persona Studio editor"
+            data-testid="persona-studio-editor"
             style={{
-              background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
-              borderColor: "var(--panel-border)",
+              background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
+              borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
             }}
           >
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">
-                  {selectedProfile?.name || "Editor"}
-                </CardTitle>
-                <div className="flex gap-1">
-                  {TABS.map((tab) => (
-                    <TabButton
-                      key={tab}
-                      active={activeTab === tab}
-                      onClick={() => setActiveTab(tab)}
+            <CardHeader className="space-y-4 pb-4">
+              <div
+                className="rounded-2xl border px-4 py-4"
+                style={{
+                  background: "color-mix(in srgb, var(--panel-bg) 91%, transparent)",
+                  borderColor: "var(--panel-border)",
+                }}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 space-y-1.5">
+                    <div
+                      className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                      style={{ color: "var(--muted)" }}
                     >
-                      {tab}
-                    </TabButton>
-                  ))}
+                      Active profile
+                    </div>
+                    <CardTitle className="text-lg leading-6">
+                      {selectedProfile?.name || "Editor"}
+                    </CardTitle>
+                    <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--muted)" }}>
+                      {selectedProfile?.description ||
+                        "Select a persona profile to edit its runtime identity and behavior."}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-2 py-1 uppercase tracking-[0.14em]"
+                      style={{
+                        borderColor: "var(--panel-border)",
+                      }}
+                    >
+                      {selectedProfile?.isDefault ? "Default profile" : "Custom profile"}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-2 py-1 uppercase tracking-[0.14em]"
+                      style={{
+                        borderColor: "var(--accent)",
+                        color: "var(--accent)",
+                      }}
+                    >
+                      Active profile
+                    </Badge>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <div
+                    className="rounded-xl border px-3 py-2"
+                    style={{
+                      borderColor: "var(--panel-border)",
+                      background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+                    }}
+                  >
+                    <div
+                      className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      Selection
+                    </div>
+                    <div className="mt-1 text-sm font-medium">
+                      {selectedProfile?.isDefault
+                        ? "Default runtime profile"
+                        : "Custom runtime profile"}
+                    </div>
+                  </div>
+                  <div
+                    className="rounded-xl border px-3 py-2"
+                    style={{
+                      borderColor: "var(--panel-border)",
+                      background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+                    }}
+                  >
+                    <div
+                      className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      Status
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-2 py-1"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        {selectedProfile?.isDefault ? "Default" : "Custom"}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-2 py-1"
+                        style={{
+                          borderColor: "var(--accent)",
+                          color: "var(--accent)",
+                        }}
+                      >
+                        Active
+                      </Badge>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {renderActiveTab()}
-
               <div
-                className="flex items-center gap-3 pt-4 border-t"
+                className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
+                style={
+                  {
+                    "--pill-active-text": "var(--text-on-accent)",
+                    "--pill-font": "0.92rem",
+                    width: "100%",
+                    justifyContent: "stretch",
+                  } as React.CSSProperties
+                }
+              >
+                {TABS.map((tab) => (
+                  <TabButton
+                    key={tab}
+                    active={activeTab === tab}
+                    onClick={() => setActiveTab(tab)}
+                  >
+                    {tab}
+                  </TabButton>
+                ))}
+              </div>
+            </CardHeader>
+            <CardContent className="flex min-h-0 flex-1 flex-col space-y-6 pt-0">
+              <div
+                className="rounded-2xl border p-5"
+                style={{
+                  background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                  borderColor: "var(--panel-border)",
+                }}
+              >
+                {renderActiveTab()}
+              </div>
+              <div
+                className="flex flex-wrap items-center gap-3 border-t pt-4"
                 style={{ borderColor: "var(--panel-border)" }}
               >
                 <Button
@@ -929,10 +1044,13 @@ export default function PersonaStudioPage() {
           </Card>
 
           <Card
-            className="bezel-none rounded-2xl border"
+            className="bezel-none flex min-h-0 flex-col rounded-2xl border"
+            role="complementary"
+            aria-label="Persona Studio diagnostics"
+            data-testid="persona-studio-diagnostics"
             style={{
-              background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
-              borderColor: "var(--panel-border)",
+              background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
+              borderColor: "color-mix(in oklab, var(--panel-border) 78%, transparent)",
             }}
           >
             <CardContent className="pt-4">

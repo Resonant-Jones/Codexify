@@ -53,14 +53,29 @@ describe("Persona Studio Shell Integration", () => {
     expect(personaStudioPill).toBeInTheDocument();
   });
 
-  it("renders Persona Studio page content when navigating to it", async () => {
+  it("renders Persona Studio hierarchy when navigating to it", async () => {
     const user = userEvent.setup();
     renderAppShell();
 
     const personaStudioPill = screen.getByRole("button", { name: /persona studio/i });
     await user.click(personaStudioPill);
 
+    expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
     expect(screen.getByText(/configure runtime persona profiles/i)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeInTheDocument();
+    expect(screen.getByText("Selection")).toBeInTheDocument();
+    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /identity/i })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
   });
 
   it("renders the profile list panel when Persona Studio is active", async () => {
@@ -93,20 +108,22 @@ describe("Persona Studio Shell Integration", () => {
 
     await user.click(screen.getByRole("button", { name: /persona studio/i }));
 
-    expect(screen.getByText("Diagnostics")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeInTheDocument();
     expect(screen.getByText("Save Status")).toBeInTheDocument();
     expect(screen.getByText("Effective Config")).toBeInTheDocument();
     expect(screen.getByText("Debug Log")).toBeInTheDocument();
   });
 
-  it("does not render chat composer elements in Persona Studio", async () => {
+  it("does not render chat composer or thread UI in Persona Studio", async () => {
     const user = userEvent.setup();
     renderAppShell();
 
     await user.click(screen.getByRole("button", { name: /persona studio/i }));
 
-    expect(screen.getByTestId("persona-studio-framecard")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
   });
 
   it("renders Generation Top K and Retrieval Top K as separate fields", async () => {
