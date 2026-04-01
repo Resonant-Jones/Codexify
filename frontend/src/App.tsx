@@ -99,6 +99,11 @@ function isCommandCenterRoute() {
   return window.location.pathname.startsWith("/command-center");
 }
 
+function isPersonaStudioRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/persona-studio");
+}
+
 function isShareRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/share/");
@@ -380,6 +385,7 @@ export default function App() {
   const tuneRoute = TUNE_ENABLED && isTuneRoute();
   const eventsRoute = isEventsRoute();
   const commandCenterRoute = isCommandCenterRoute();
+  const personaStudioRoute = isPersonaStudioRoute();
   const shareRoute = isShareRoute();
   const shareToken = shareRoute ? getShareToken() : null;
   const bootstrapEnabled =
@@ -387,6 +393,7 @@ export default function App() {
     !tuneRoute &&
     !eventsRoute &&
     !commandCenterRoute &&
+    !personaStudioRoute &&
     !(shareRoute && !!shareToken);
   const [docGenOpen, setDocGenOpen] = React.useState(false);
   const [docGenDraft, setDocGenDraft] = React.useState<DocumentGenInput | null>(
@@ -1050,7 +1057,10 @@ export default function App() {
     );
   }
   if (commandCenterRoute) {
-    return <CommandCenterPage enabled={COMMAND_CENTER_ENABLED} />;
+    return <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} />;
+  }
+  if (personaStudioRoute) {
+    return <AppShell />;
   }
   if (shareRoute) {
     if (shareToken) {
