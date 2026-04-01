@@ -728,6 +728,201 @@ function buildDebugLog(
   ];
 }
 
+type PersonaStudioTruthMatrixRow = {
+  control: string;
+  uiPresent: boolean;
+  localDraftState: boolean;
+  savedLocally: boolean;
+  backendPersisted: boolean;
+  appliedToRuntime: boolean;
+};
+
+const PERSONA_STUDIO_TRUTH_MATRIX_BASE_TRUTH = {
+  uiPresent: true,
+  localDraftState: true,
+  savedLocally: true,
+  backendPersisted: false,
+  appliedToRuntime: false,
+} as const;
+
+const PERSONA_STUDIO_TRUTH_MATRIX_CONTROLS = [
+  "Persona Name",
+  "Description",
+  "Model Provider",
+  "Model ID",
+  "Temperature",
+  "Generation Top K",
+  "Top P",
+  "Max Tokens",
+  "Voice Enabled",
+  "Voice Provider",
+  "Voice Preset",
+  "Wake Word",
+  "Interruptible Voice",
+  "System Prompt",
+  "Style Notes",
+  "Directives",
+  "Pinned Tools",
+  "Allowed Tools",
+  "Skills",
+  "Web Permission",
+  "Email Permission",
+  "Calendar Permission",
+  "CLI Permission",
+  "Filesystem Permission",
+  "Retrieval Enabled",
+  "Retrieval Mode",
+  "Retrieval Top K",
+  "Retrieval Rerank",
+] as const;
+
+const PERSONA_STUDIO_TRUTH_MATRIX_ROWS: PersonaStudioTruthMatrixRow[] =
+  PERSONA_STUDIO_TRUTH_MATRIX_CONTROLS.map((control) => ({
+    control,
+    ...PERSONA_STUDIO_TRUTH_MATRIX_BASE_TRUTH,
+  }));
+
+function TruthValuePill({ value }: { value: boolean }) {
+  return (
+    <span
+      className="inline-flex min-w-12 justify-center rounded-full border px-2 py-0.5 text-[10px] font-medium"
+      style={{
+        borderColor: value ? "rgba(34, 197, 94, 0.35)" : "var(--panel-border)",
+        background: value ? "rgba(34, 197, 94, 0.12)" : "transparent",
+        color: value ? "rgb(74, 222, 128)" : "var(--muted)",
+      }}
+    >
+      {value ? "Yes" : "No"}
+    </span>
+  );
+}
+
+function PersonaStudioTruthMatrix() {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
+            Truth Matrix
+          </h4>
+          <p className="text-[11px] leading-tight" style={{ color: "var(--muted)" }}>
+            Field-by-field implementation truth for the current Persona Studio page.
+            Backend Persisted and Applied to Runtime remain No.
+          </p>
+        </div>
+      </div>
+
+      <div
+        className="rounded-lg border overflow-auto"
+        style={{
+          background: "rgba(0,0,0,0.12)",
+          borderColor: "var(--panel-border)",
+          maxHeight: "280px",
+        }}
+      >
+        <table
+          aria-label="Persona Studio truth matrix"
+          className="w-full table-fixed text-[11px]"
+        >
+          <colgroup>
+            <col style={{ width: "30%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "14%" }} />
+          </colgroup>
+          <thead
+            className="sticky top-0 z-10"
+            style={{ background: "rgba(0,0,0,0.18)" }}
+          >
+            <tr>
+              <th
+                scope="col"
+                className="px-2 py-2 text-left font-medium leading-tight"
+                style={{ color: "var(--muted)" }}
+              >
+                Control
+              </th>
+              <th
+                scope="col"
+                className="px-2 py-2 text-left font-medium leading-tight"
+                style={{ color: "var(--muted)" }}
+              >
+                UI Present
+              </th>
+              <th
+                scope="col"
+                className="px-2 py-2 text-left font-medium leading-tight"
+                style={{ color: "var(--muted)" }}
+              >
+                Local Draft State
+              </th>
+              <th
+                scope="col"
+                className="px-2 py-2 text-left font-medium leading-tight"
+                style={{ color: "var(--muted)" }}
+              >
+                Saved Locally
+              </th>
+              <th
+                scope="col"
+                className="px-2 py-2 text-left font-medium leading-tight"
+                style={{ color: "var(--muted)" }}
+              >
+                Backend Persisted
+              </th>
+              <th
+                scope="col"
+                className="px-2 py-2 text-left font-medium leading-tight"
+                style={{ color: "var(--muted)" }}
+              >
+                Applied to Runtime
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {PERSONA_STUDIO_TRUTH_MATRIX_ROWS.map((row, index) => (
+              <tr
+                key={row.control}
+                className="border-t"
+                style={{
+                  borderColor: "var(--panel-border)",
+                  background:
+                    index % 2 === 0 ? "transparent" : "rgba(255, 255, 255, 0.02)",
+                }}
+              >
+                <th
+                  scope="row"
+                  className="px-2 py-2 text-left font-medium leading-tight"
+                  style={{ color: "var(--text)" }}
+                >
+                  {row.control}
+                </th>
+                <td className="px-2 py-2">
+                  <TruthValuePill value={row.uiPresent} />
+                </td>
+                <td className="px-2 py-2">
+                  <TruthValuePill value={row.localDraftState} />
+                </td>
+                <td className="px-2 py-2">
+                  <TruthValuePill value={row.savedLocally} />
+                </td>
+                <td className="px-2 py-2">
+                  <TruthValuePill value={row.backendPersisted} />
+                </td>
+                <td className="px-2 py-2">
+                  <TruthValuePill value={row.appliedToRuntime} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function DiagnosticsPanel({
   profile,
   config,
@@ -835,6 +1030,8 @@ function DiagnosticsPanel({
           ))}
         </div>
       </div>
+
+      <PersonaStudioTruthMatrix />
 
     </div>
   );
