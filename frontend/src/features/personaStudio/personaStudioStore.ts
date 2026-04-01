@@ -70,12 +70,13 @@ export type PersonaProfileDraft = PersonaProfile & {
 };
 
 export type EditorTab =
-  | "identity"
-  | "model"
-  | "voice"
-  | "prompt"
-  | "tools"
-  | "retrieval";
+  | "Identity"
+  | "Model"
+  | "Voice"
+  | "Prompt"
+  | "Tools"
+  | "Retrieval"
+  | "Truth Matrix";
 
 export type PersonaStudioLocalState = {
   profiles: PersonaProfileDraft[];
@@ -85,15 +86,6 @@ export type PersonaStudioLocalState = {
 };
 
 export const PERSONA_STUDIO_STORAGE_KEY = "cfy.personaStudio.localState.v1";
-
-const EDITOR_TABS: EditorTab[] = [
-  "identity",
-  "model",
-  "voice",
-  "prompt",
-  "tools",
-  "retrieval",
-];
 
 const PERSONA_STUDIO_SEED_PROFILES: PersonaProfileDraft[] = [
   {
@@ -270,8 +262,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isEditorTab(value: unknown): value is EditorTab {
-  return typeof value === "string" && EDITOR_TABS.includes(value as EditorTab);
+function normalizeEditorTab(value: unknown): EditorTab | null {
+  if (typeof value !== "string") return null;
+
+  switch (value.trim().toLowerCase()) {
+    case "identity":
+      return "Identity";
+    case "model":
+      return "Model";
+    case "voice":
+      return "Voice";
+    case "prompt":
+      return "Prompt";
+    case "tools":
+      return "Tools";
+    case "retrieval":
+      return "Retrieval";
+    case "truth matrix":
+    case "truth-matrix":
+    case "truth_matrix":
+    case "truthmatrix":
+      return "Truth Matrix";
+    default:
+      return null;
+  }
 }
 
 function normalizeStringArray(value: unknown, fallback: string[]): string[] {
@@ -519,7 +533,7 @@ function normalizePersonaStudioLocalState(
   return {
     profiles,
     selectedProfileId,
-    activeTab: isEditorTab(value.activeTab) ? value.activeTab : "identity",
+    activeTab: normalizeEditorTab(value.activeTab) ?? "Identity",
     lastSavedProfiles,
   };
 }
@@ -538,7 +552,7 @@ export function createPersonaStudioSeedState(): PersonaStudioLocalState {
   return {
     profiles: clone(PERSONA_STUDIO_SEED_PROFILES),
     selectedProfileId: PERSONA_STUDIO_SEED_PROFILES[0]?.id ?? "",
-    activeTab: "identity",
+    activeTab: "Identity",
     lastSavedProfiles: {},
   };
 }

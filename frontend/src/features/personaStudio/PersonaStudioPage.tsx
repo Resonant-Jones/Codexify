@@ -10,6 +10,8 @@ import {
   type ToolsSettings,
   usePersonaStudioLocalDraftState,
 } from "./personaStudioStore";
+import DiagnosticsPanel from "./components/DiagnosticsPanel";
+import TruthMatrix from "./components/TruthMatrix";
 
 function TabButton({
   active,
@@ -38,6 +40,16 @@ function TabButton({
     </button>
   );
 }
+
+const TABS = [
+  "Identity",
+  "Model",
+  "Voice",
+  "Prompt",
+  "Tools",
+  "Retrieval",
+  "Truth Matrix",
+] as const;
 
 function IdentityEditor({
   config,
@@ -705,141 +717,6 @@ function RetrievalEditor({
   );
 }
 
-function buildDebugLog(
-  profile: PersonaProfileDraft | null,
-  config: PersonaConfig | null
-): string[] {
-  if (!profile || !config) {
-    return [
-      "[PersonaStudio] Initialized local draft store",
-      "[PersonaStudio] Waiting for profile selection",
-      "[Config] No profile selected",
-    ];
-  }
-
-  return [
-    "[PersonaStudio] Initialized local draft store",
-    `[PersonaStudio] Selected profile: ${profile.id}`,
-    `[PersonaStudio] Profile loaded: ${profile.name}`,
-    `[Config] Model: ${config.model.provider}/${config.model.model}`,
-    `[Config] Temperature: ${config.model.temperature}`,
-    `[Config] Voice: ${config.voice.enabled ? config.voice.provider : "disabled"}`,
-    `[Config] Retrieval: ${config.retrieval.enabled ? config.retrieval.mode : "disabled"}`,
-  ];
-}
-
-function DiagnosticsPanel({
-  profile,
-  config,
-  isDirty,
-  hasSavedVersion,
-}: {
-  profile: PersonaProfileDraft | null;
-  config: PersonaConfig | null;
-  isDirty: boolean;
-  hasSavedVersion: boolean;
-}) {
-  const [debugLog, setDebugLog] = React.useState<string[]>(() =>
-    buildDebugLog(profile, config)
-  );
-
-  React.useEffect(() => {
-    setDebugLog(buildDebugLog(profile, config));
-  }, [profile, config]);
-
-  const saveStatusLabel = isDirty
-    ? "Unsaved Draft"
-    : hasSavedVersion
-      ? "Saved Locally"
-      : "Seed Draft";
-
-  const saveStatusTone = isDirty ? "warning" : hasSavedVersion ? "saved" : "seed";
-
-  return (
-    <div className="space-y-4 h-full flex flex-col">
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold">Diagnostics</h3>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span style={{ color: "var(--muted)" }}>Save Status</span>
-            <Badge
-              variant="outline"
-              className="text-xs"
-              style={{
-                borderColor:
-                  saveStatusTone === "saved"
-                    ? "rgba(34, 197, 94, 0.35)"
-                    : saveStatusTone === "warning"
-                      ? "rgba(234, 179, 8, 0.35)"
-                      : "var(--panel-border)",
-                background: saveStatusTone === "saved"
-                  ? "rgba(34, 197, 94, 0.12)"
-                  : saveStatusTone === "warning"
-                    ? "rgba(234, 179, 8, 0.12)"
-                    : "transparent",
-              }}
-            >
-              {saveStatusLabel}
-            </Badge>
-          </div>
-
-          <div className="flex items-center justify-between text-xs">
-            <span style={{ color: "var(--muted)" }}>Unsaved Changes</span>
-            <span
-              className={`font-medium ${isDirty ? "text-[var(--warning)]" : ""}`}
-              style={{ color: isDirty ? "rgb(234, 179, 8)" : "var(--muted)" }}
-            >
-              {isDirty ? "Yes" : "No"}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-2 flex-1 min-h-0">
-        <h4 className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
-          Effective Config
-        </h4>
-        <div
-          className="rounded-lg border p-3 text-xs font-mono overflow-auto"
-          style={{
-            background: "rgba(0,0,0,0.12)",
-            borderColor: "var(--panel-border)",
-            color: "var(--text)",
-            maxHeight: "200px",
-          }}
-        >
-          {config ? (
-            <pre className="whitespace-pre-wrap">{JSON.stringify(config, null, 2)}</pre>
-          ) : (
-            <span style={{ color: "var(--muted)" }}>No profile selected</span>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <h4 className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
-          Debug Log
-        </h4>
-        <div
-          className="rounded-lg border p-3 text-xs font-mono overflow-auto"
-          style={{
-            background: "rgba(0,0,0,0.12)",
-            borderColor: "var(--panel-border)",
-            color: "var(--text)",
-            maxHeight: "150px",
-          }}
-        >
-          {debugLog.map((log, i) => (
-            <div key={i}>{log}</div>
-          ))}
-        </div>
-      </div>
-
-    </div>
-  );
-}
-
 export default function PersonaStudioPage() {
   const {
     profiles,
@@ -878,6 +755,39 @@ export default function PersonaStudioPage() {
 
   const handleReset = () => {
     resetSelectedProfile();
+  };
+
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case "Identity":
+        return currentConfig ? (
+          <IdentityEditor config={currentConfig} onChange={handleConfigChange} />
+        ) : null;
+      case "Model":
+        return currentConfig ? (
+          <ModelEditor config={currentConfig} onChange={handleConfigChange} />
+        ) : null;
+      case "Voice":
+        return currentConfig ? (
+          <VoiceEditor config={currentConfig} onChange={handleConfigChange} />
+        ) : null;
+      case "Prompt":
+        return currentConfig ? (
+          <PromptEditor config={currentConfig} onChange={handleConfigChange} />
+        ) : null;
+      case "Tools":
+        return currentConfig ? (
+          <ToolsEditor config={currentConfig} onChange={handleConfigChange} />
+        ) : null;
+      case "Retrieval":
+        return currentConfig ? (
+          <RetrievalEditor config={currentConfig} onChange={handleConfigChange} />
+        ) : null;
+      case "Truth Matrix":
+        return <TruthMatrix />;
+      default:
+        return null;
+    }
   };
 
   return (
@@ -961,68 +871,20 @@ export default function PersonaStudioPage() {
                   {selectedProfile?.name || "Editor"}
                 </CardTitle>
                 <div className="flex gap-1">
-                  <TabButton
-                    active={activeTab === "identity"}
-                    onClick={() => setActiveTab("identity")}
-                  >
-                    Identity
-                  </TabButton>
-                  <TabButton
-                    active={activeTab === "model"}
-                    onClick={() => setActiveTab("model")}
-                  >
-                    Model
-                  </TabButton>
-                  <TabButton
-                    active={activeTab === "voice"}
-                    onClick={() => setActiveTab("voice")}
-                  >
-                    Voice
-                  </TabButton>
-                  <TabButton
-                    active={activeTab === "prompt"}
-                    onClick={() => setActiveTab("prompt")}
-                  >
-                    Prompt
-                  </TabButton>
-                  <TabButton
-                    active={activeTab === "tools"}
-                    onClick={() => setActiveTab("tools")}
-                  >
-                    Tools
-                  </TabButton>
-                  <TabButton
-                    active={activeTab === "retrieval"}
-                    onClick={() => setActiveTab("retrieval")}
-                  >
-                    Retrieval
-                  </TabButton>
+                  {TABS.map((tab) => (
+                    <TabButton
+                      key={tab}
+                      active={activeTab === tab}
+                      onClick={() => setActiveTab(tab)}
+                    >
+                      {tab}
+                    </TabButton>
+                  ))}
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {currentConfig && (
-                <>
-                  {activeTab === "identity" && (
-                    <IdentityEditor config={currentConfig} onChange={handleConfigChange} />
-                  )}
-                  {activeTab === "model" && (
-                    <ModelEditor config={currentConfig} onChange={handleConfigChange} />
-                  )}
-                  {activeTab === "voice" && (
-                    <VoiceEditor config={currentConfig} onChange={handleConfigChange} />
-                  )}
-                  {activeTab === "prompt" && (
-                    <PromptEditor config={currentConfig} onChange={handleConfigChange} />
-                  )}
-                  {activeTab === "tools" && (
-                    <ToolsEditor config={currentConfig} onChange={handleConfigChange} />
-                  )}
-                  {activeTab === "retrieval" && (
-                    <RetrievalEditor config={currentConfig} onChange={handleConfigChange} />
-                  )}
-                </>
-              )}
+              {renderActiveTab()}
 
               <div
                 className="flex items-center gap-3 pt-4 border-t"
