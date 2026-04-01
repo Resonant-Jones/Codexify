@@ -284,6 +284,185 @@ describe("useChat refresh ownership", () => {
     ).toBe(false);
   });
 
+  it("keeps the latest assistant row when a completion refresh races with a live assistant event", async () => {
+    const threadId = 7;
+    const turnId = "33333333-3333-4333-8333-333333333333";
+
+    apiMock.get
+      .mockResolvedValueOnce(
+        buildEnvelope([buildMessage(1, "user", { thread_id: threadId })], 1)
+      )
+      .mockResolvedValueOnce(
+        buildEnvelope([buildMessage(1, "user", { thread_id: threadId })], 1)
+      )
+      .mockResolvedValueOnce(
+        buildEnvelope(
+          [
+            buildMessage(1, "user", { thread_id: threadId }),
+            buildMessage(2, "assistant", {
+              thread_id: threadId,
+              turn_id: turnId,
+              content: "Working...",
+              created_at: "2026-03-13T00:00:02.000Z",
+              task_id: "task-1",
+            }),
+            buildMessage(3, "assistant", {
+              thread_id: threadId,
+              turn_id: turnId,
+              content: "Final answer",
+              created_at: "2026-03-13T00:00:03.000Z",
+              task_id: "task-1",
+            }),
+          ],
+          3
+        )
+      )
+      .mockResolvedValueOnce(
+        buildEnvelope(
+          [
+            buildMessage(1, "user", { thread_id: threadId }),
+            buildMessage(2, "assistant", {
+              thread_id: threadId,
+              turn_id: turnId,
+              content: "Working...",
+              created_at: "2026-03-13T00:00:02.000Z",
+              task_id: "task-1",
+            }),
+            buildMessage(3, "assistant", {
+              thread_id: threadId,
+              turn_id: turnId,
+              content: "Final answer",
+              created_at: "2026-03-13T00:00:03.000Z",
+              task_id: "task-1",
+            }),
+          ],
+          3
+        )
+      );
+
+    const { result } = renderHook(() =>
+      useChat({ completionHardTimeoutMs: 60_000 })
+    );
+
+    await act(async () => {
+      await result.current.activateThread(threadId);
+    });
+
+    act(() => {
+      result.current.startCompletion(threadId, "task-1");
+      result.current.startCompletionSession({
+        threadId,
+        taskId: "task-1",
+        turnId,
+        reloadVersion: 1,
+      });
+    });
+
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledTimes(2);
+    });
+
+    act(() => {
+      result.current.handleIncomingAssistantMessage({
+        id: 2,
+        thread_id: threadId,
+        role: "assistant",
+        content: "Working...",
+        created_at: "2026-03-13T00:00:02.000Z",
+        task_id: "task-1",
+        turn_id: turnId,
+      });
+    });
+
+    act(() => {
+      expect(
+        result.current.finalizeCompletionSession({
+          taskId: "task-1",
+          terminalState: "completed",
+        })
+      ).toBe(true);
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledTimes(3);
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        1,
+        3,
+      ]);
+      expect(
+        result.current.messages.filter((message) =>
+          String(message.role).trim().toLowerCase() === "assistant"
+        )
+      ).toHaveLength(1);
+      expect(
+        result.current.messages.find(
+          (message) => String(message.role).trim().toLowerCase() === "assistant"
+        )?.content
+      ).toBe("Final answer");
+    });
+
+    await act(async () => {
+      await result.current.refreshSnapshot(threadId, "manual");
+    });
+
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledTimes(4);
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        1,
+        3,
+      ]);
+      expect(
+        result.current.messages.filter((message) =>
+          String(message.role).trim().toLowerCase() === "assistant"
+        )
+      ).toHaveLength(1);
+    });
+  });
+
+  it("does not attach an assistant row from a background thread to the active thread", async () => {
+    apiMock.get
+      .mockResolvedValueOnce(
+        buildEnvelope([buildMessage(1, "user", { thread_id: 7 })], 1)
+      )
+      .mockResolvedValueOnce(
+        buildEnvelope([buildMessage(9, "user", { thread_id: 8 })], 1)
+      );
+
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.activateThread(7);
+    });
+
+    await act(async () => {
+      await result.current.activateThread(8);
+    });
+
+    act(() => {
+      result.current.handleIncomingAssistantMessage({
+        id: 2,
+        thread_id: 7,
+        role: "assistant",
+        content: "wrong thread",
+        created_at: "2026-03-13T00:00:02.000Z",
+        task_id: "task-7",
+        turn_id: "44444444-4444-4444-8444-444444444444",
+      });
+    });
+
+    expect(result.current.messages.map((message) => message.thread_id)).toEqual([
+      8,
+    ]);
+    expect(
+      result.current.messages.some((message) => message.thread_id === 7)
+    ).toBe(false);
+  });
+
   it("does not end an active completion for an unrelated assistant message", async () => {
     apiMock.get
       .mockResolvedValueOnce(buildEnvelope([buildMessage(1, "user")], 1))
