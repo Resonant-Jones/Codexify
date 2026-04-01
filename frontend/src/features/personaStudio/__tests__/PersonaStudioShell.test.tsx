@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -133,11 +133,11 @@ describe("Persona Studio Shell Integration", () => {
     await user.click(screen.getByRole("button", { name: /persona studio/i }));
     await user.click(screen.getByRole("button", { name: /model/i }));
 
-    expect(screen.getByText("Generation Top K")).toBeInTheDocument();
+    expect(screen.getByText("Generation Top K", { selector: "label" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /retrieval/i }));
 
-    expect(screen.getByText("Retrieval Top K")).toBeInTheDocument();
+    expect(screen.getByText("Retrieval Top K", { selector: "label" })).toBeInTheDocument();
     expect(screen.getByText(/distinct from generation top k/i)).toBeInTheDocument();
   });
 
@@ -162,5 +162,42 @@ describe("Persona Studio Shell Integration", () => {
 
     expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
+  });
+
+  it("renders a truthful matrix for current Persona Studio controls", async () => {
+    const user = userEvent.setup();
+    renderAppShell();
+
+    await user.click(screen.getByRole("button", { name: /persona studio/i }));
+    await user.click(screen.getByRole("button", { name: /truth matrix/i }));
+
+    const matrix = screen.getByRole("table", { name: /persona studio truth matrix/i });
+
+    expect(within(matrix).getByRole("columnheader", { name: /control/i })).toBeInTheDocument();
+    expect(within(matrix).getByRole("columnheader", { name: /ui present/i })).toBeInTheDocument();
+    expect(
+      within(matrix).getByRole("columnheader", { name: /local draft state/i })
+    ).toBeInTheDocument();
+    expect(within(matrix).getByRole("columnheader", { name: /saved locally/i })).toBeInTheDocument();
+    expect(
+      within(matrix).getByRole("columnheader", { name: /backend persisted/i })
+    ).toBeInTheDocument();
+    expect(
+      within(matrix).getByRole("columnheader", { name: /applied to runtime/i })
+    ).toBeInTheDocument();
+
+    const getRowValues = (label: string) => {
+      const rowHeader = within(matrix).getByRole("rowheader", { name: label });
+      const row = rowHeader.closest("tr");
+      expect(row).not.toBeNull();
+      return within(row as HTMLElement)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent?.trim());
+    };
+
+    expect(getRowValues("Persona Name")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
+    expect(getRowValues("Generation Top K")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
+    expect(getRowValues("Retrieval Top K")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
+    expect(getRowValues("Voice Enabled")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
   });
 });

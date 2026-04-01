@@ -389,15 +389,13 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     assert observed.get("has_memory_context") is True
 
 
-def test_ingest_routes_template_projects_and_tracks_project_stats(monkeypatch):
+def test_ingest_with_template_metadata_stays_in_imports_container(monkeypatch):
     mock_db = MagicMock()
     mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
 
     def ensure_project(name: str, _description: str = "") -> int:
         if name == "Imports":
             return 1
-        if "[11111111]" in name:
-            return 10
         return 11
 
     mock_db.ensure_project.side_effect = ensure_project
@@ -430,20 +428,6 @@ def test_ingest_routes_template_projects_and_tracks_project_stats(monkeypatch):
         lambda *_args, **_kwargs: None,
     )
 
-    project_lookup_calls = {"count": 0}
-
-    def fake_find_project(*_args, **_kwargs):
-        project_lookup_calls["count"] += 1
-        if project_lookup_calls["count"] == 1:
-            return None
-        return 10
-
-    monkeypatch.setattr(
-        chatgpt_migration,
-        "_find_existing_project_for_template",
-        fake_find_project,
-    )
-
     export = _build_mainline_export(
         [("user", "One", 1), ("assistant", "A", 2)],
         thread_id="thread-one",
@@ -455,6 +439,10 @@ def test_ingest_routes_template_projects_and_tracks_project_stats(monkeypatch):
     )
     export[0]["conversation_template_id"] = "g-p-aaaaaaaa11111111"
     export[1]["conversation_template_id"] = "g-p-aaaaaaaa11111111"
+    export[0]["gizmo_id"] = "gizmo-alpha"
+    export[0]["gizmo_type"] = "assistants"
+    export[1]["gizmo_id"] = "gizmo-alpha"
+    export[1]["gizmo_type"] = "assistants"
 
     stats = ingest_chatgpt_export(
         json.dumps(export).encode("utf-8"),
@@ -463,17 +451,22 @@ def test_ingest_routes_template_projects_and_tracks_project_stats(monkeypatch):
 
     assert stats["threads_imported"] == 2
     assert stats["messages_imported"] == 4
-    assert stats["projects_created"] == 1
-    assert stats["projects_reused"] == 1
+    assert stats["projects_created"] == 0
+    assert stats["projects_reused"] == 0
+    mock_db.ensure_project.assert_called_once_with(
+        "Imports", "Default bucket for imported threads"
+    )
 
     first_call = mock_db.create_chat_thread.call_args_list[0].kwargs
     second_call = mock_db.create_chat_thread.call_args_list[1].kwargs
-    assert first_call["project_id"] == 10
-    assert second_call["project_id"] == 10
+    assert first_call["project_id"] == 1
+    assert second_call["project_id"] == 1
     assert (
         first_call["metadata"]["source_conversation_template_id"]
         == "g-p-aaaaaaaa11111111"
     )
+    assert first_call["metadata"]["source_gizmo_id"] == "gizmo-alpha"
+    assert first_call["metadata"]["source_gizmo_type"] == "assistants"
 
 
 def test_ingest_without_template_falls_back_to_imports(monkeypatch):

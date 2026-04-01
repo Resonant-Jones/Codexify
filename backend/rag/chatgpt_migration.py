@@ -4,7 +4,6 @@ import json
 import logging
 import multiprocessing as mp
 import os
-import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -250,6 +249,13 @@ def _fetch_retryable_chatgpt_embedding_items(
                         "source_thread_id": existing_meta.get(
                             "source_thread_id"
                         ),
+                        "source_conversation_template_id": existing_meta.get(
+                            "source_conversation_template_id"
+                        ),
+                        "source_gizmo_id": existing_meta.get("source_gizmo_id"),
+                        "source_gizmo_type": existing_meta.get(
+                            "source_gizmo_type"
+                        ),
                         "source_message_id": existing_meta.get(
                             "source_message_id"
                         ),
@@ -383,17 +389,34 @@ def _resolve_imports_project_id(chatlog_db) -> int:
         imports_ids = [int(p["id"]) for p in imports if p.get("id") is not None]
         if imports_ids:
             return min(imports_ids)
-
-        legacy = [p for p in projects if p.get("name") == "Loose Threads"]
-        legacy_ids = [int(p["id"]) for p in legacy if p.get("id") is not None]
-        if legacy_ids:
-            return min(legacy_ids)
     except Exception as e:
         logger.warning(
-            "Failed to resolve Imports/Loose Threads project ID via list_projects: %s",
+            "Failed to resolve Imports project ID via list_projects: %s",
             e,
         )
-    raise RuntimeError("Unable to resolve Loose Threads project ID")
+    raise RuntimeError("Unable to resolve Imports project ID")
+
+
+def _build_import_grouping_metadata(
+    conversation: Dict[str, Any],
+) -> Dict[str, Any]:
+    metadata: Dict[str, Any] = {}
+
+    template_id = _normalize_template_id(
+        conversation.get("conversation_template_id")
+    )
+    if template_id:
+        metadata["source_conversation_template_id"] = template_id
+
+    gizmo_id = conversation.get("gizmo_id")
+    if isinstance(gizmo_id, str) and gizmo_id.strip():
+        metadata["source_gizmo_id"] = gizmo_id.strip()
+
+    gizmo_type = conversation.get("gizmo_type")
+    if isinstance(gizmo_type, str) and gizmo_type.strip():
+        metadata["source_gizmo_type"] = gizmo_type.strip()
+
+    return metadata
 
 
 def _parse_export_timestamp(value: Any) -> Optional[datetime]:
@@ -650,122 +673,6 @@ def _normalize_template_id(value: Any) -> Optional[str]:
     if not candidate.startswith("g-p-"):
         return None
     return candidate
-
-
-def _slugify_title_for_project(title: Any) -> str:
-    text = str(title or "").strip()
-    if not text:
-        return "Project"
-    words = re.findall(r"[A-Za-z0-9]+", text)
-    if not words:
-        return "Project"
-    friendly = " ".join(words[:6]).strip()
-    if len(friendly) > 42:
-        friendly = friendly[:42].rstrip()
-    return friendly or "Project"
-
-
-def _build_template_project_name(template_id: str, title: Any) -> str:
-    suffix = template_id[-8:]
-    friendly = _slugify_title_for_project(title)
-    return f"ChatGPT {friendly} [{suffix}]"
-
-
-def _find_project_id_by_name(chatlog_db, project_name: str) -> Optional[int]:
-    try:
-        projects = chatlog_db.list_projects()
-    except Exception:
-        return None
-
-    for project in projects:
-        if str(project.get("name") or "") != project_name:
-            continue
-        project_id = project.get("id")
-        if project_id is None:
-            continue
-        try:
-            return int(project_id)
-        except (TypeError, ValueError):
-            continue
-    return None
-
-
-def _find_existing_project_for_template(
-    chatlog_db,
-    *,
-    user_id: str,
-    template_id: str,
-) -> Optional[int]:
-    if not template_id or not hasattr(chatlog_db, "_connect"):
-        return None
-    try:
-        with chatlog_db._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT project_id
-                FROM chat_threads
-                WHERE user_id = %s
-                  AND project_id IS NOT NULL
-                  AND metadata->>'import_source' = 'chatgpt'
-                  AND metadata->>'source_conversation_template_id' = %s
-                ORDER BY id ASC
-                LIMIT 1
-                """,
-                (user_id, template_id),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            project_id = row.get("project_id")
-            return int(project_id) if project_id is not None else None
-    except Exception:
-        return None
-
-
-def _ensure_template_project_id(
-    chatlog_db,
-    *,
-    template_id: str,
-    title: Any,
-) -> Tuple[int, bool]:
-    project_name = _build_template_project_name(template_id, title)
-    existing_by_name = _find_project_id_by_name(chatlog_db, project_name)
-    if existing_by_name is not None:
-        return existing_by_name, False
-
-    project_id = chatlog_db.ensure_project(
-        project_name,
-        f"Imported ChatGPT conversations for template {template_id}",
-    )
-    return int(project_id), True
-
-
-def _resolve_target_project(
-    chatlog_db,
-    *,
-    user_id: str,
-    conversation: Dict[str, Any],
-) -> Tuple[int, Optional[str], str]:
-    template_id = _normalize_template_id(
-        conversation.get("conversation_template_id")
-    )
-    if not template_id:
-        return _resolve_imports_project_id(chatlog_db), None, "imports"
-
-    existing_project_id = _find_existing_project_for_template(
-        chatlog_db,
-        user_id=user_id,
-        template_id=template_id,
-    )
-    if existing_project_id is not None:
-        return existing_project_id, template_id, "reused"
-
-    project_id, created = _ensure_template_project_id(
-        chatlog_db,
-        template_id=template_id,
-        title=conversation.get("title"),
-    )
-    return project_id, template_id, "created" if created else "reused"
 
 
 def _map_role(raw_role: Any) -> Tuple[str, Optional[str]]:
@@ -1189,9 +1096,7 @@ def ingest_chatgpt_export(
                 conv.get("create_time")
             ) or _parse_export_timestamp(conv.get("update_time"))
             imported_at = datetime.now(timezone.utc)
-            template_id = _normalize_template_id(
-                conv.get("conversation_template_id")
-            )
+            import_grouping_metadata = _build_import_grouping_metadata(conv)
 
             # Linearize canonical mainline (root -> active leaf).
             mainline_nodes = _linearize_mainline(
@@ -1219,21 +1124,9 @@ def ingest_chatgpt_export(
                 chatlog_db, user_id=user_id, source_thread_id=source_thread_id
             )
             if thread_id is None:
+                # Keep the surface flat: imported threads land in Imports, and
+                # any inferred grouping survives only in metadata.
                 project_id = imports_project_id
-                if template_id:
-                    (
-                        project_id,
-                        template_id,
-                        project_resolution,
-                    ) = _resolve_target_project(
-                        chatlog_db,
-                        user_id=user_id,
-                        conversation=conv,
-                    )
-                    if project_resolution == "created":
-                        projects_created += 1
-                    elif project_resolution == "reused":
-                        projects_reused += 1
 
                 thread_metadata: Dict[str, Any] = {
                     "import_source": "chatgpt",
@@ -1244,25 +1137,8 @@ def ingest_chatgpt_export(
                         "messages_filtered": conv_filtered_count,
                         "filtered_reasons": filtered_reasons,
                     },
+                    **import_grouping_metadata,
                 }
-                if template_id:
-                    thread_metadata[
-                        "source_conversation_template_id"
-                    ] = template_id
-                if (
-                    isinstance(conv.get("gizmo_id"), str)
-                    and str(conv.get("gizmo_id")).strip()
-                ):
-                    thread_metadata["source_gizmo_id"] = str(
-                        conv.get("gizmo_id")
-                    ).strip()
-                if (
-                    isinstance(conv.get("gizmo_type"), str)
-                    and str(conv.get("gizmo_type")).strip()
-                ):
-                    thread_metadata["source_gizmo_type"] = str(
-                        conv.get("gizmo_type")
-                    ).strip()
 
                 try:
                     thread_record = chatlog_db.create_chat_thread(
@@ -1300,12 +1176,12 @@ def ingest_chatgpt_export(
                         "import_source": "chatgpt",
                         "import_profile": _CHATGPT_IMPORT_PROFILE,
                         "source_thread_id": source_thread_id,
-                        "source_conversation_template_id": template_id,
                         "import_summary": {
                             "messages_kept": len(messages),
                             "messages_filtered": conv_filtered_count,
                             "filtered_reasons": filtered_reasons,
                         },
+                        **import_grouping_metadata,
                     },
                 )
 
@@ -1329,6 +1205,7 @@ def ingest_chatgpt_export(
                     "origin": msg.get("origin"),
                     "era": msg.get("era"),
                     "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
+                    **import_grouping_metadata,
                 }
 
                 if existing:
@@ -1395,6 +1272,7 @@ def ingest_chatgpt_export(
                             "era": msg["era"],
                             "source": "chatgpt_import",
                             "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
+                            **import_grouping_metadata,
                         }
                         pending_embed_items.append(
                             {
