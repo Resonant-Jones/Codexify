@@ -370,7 +370,6 @@ function resolveDocumentMimeType(
       "contentType",
     ])?.toLowerCase() ?? ""
   );
-}
 
 function resolveInlinePreviewText(
   doc: DocumentLike | null | undefined
