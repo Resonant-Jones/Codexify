@@ -61,6 +61,22 @@ function resolvePreviewText(doc: DocumentLike | null | undefined): string | null
   ]);
 }
 
+function resolvePreviewUrlPath(previewUrl: string | null | undefined): string {
+  const trimmed = typeof previewUrl === "string" ? previewUrl.trim() : "";
+  if (!trimmed) return "";
+  if (/^(?:data:|blob:)/i.test(trimmed)) return trimmed.toLowerCase();
+
+  try {
+    const base =
+      typeof window !== "undefined" && window.location?.href
+        ? window.location.href
+        : "http://localhost";
+    return new URL(trimmed, base).pathname.toLowerCase();
+  } catch {
+    return trimmed.split(/[?#]/)[0].toLowerCase();
+  }
+}
+
 function resolvePreviewMimeType(doc: DocumentLike | null | undefined): string | null {
   return readDocString(doc, [
     "mime_type",
@@ -81,20 +97,22 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
   const isImage = useMemo(() => {
     if (!previewUrl) return false;
     const u = previewUrl.toLowerCase();
+    const path = resolvePreviewUrlPath(previewUrl);
     return (
-      u.endsWith(".png") ||
-      u.endsWith(".jpg") ||
-      u.endsWith(".jpeg") ||
-      u.endsWith(".webp") ||
-      u.endsWith(".gif") ||
-      u.endsWith(".svg") ||
+      path.endsWith(".png") ||
+      path.endsWith(".jpg") ||
+      path.endsWith(".jpeg") ||
+      path.endsWith(".webp") ||
+      path.endsWith(".gif") ||
+      path.endsWith(".svg") ||
       u.startsWith("data:image/")
     );
   }, [previewUrl]);
 
   const isPdf = useMemo(() => {
     if (!previewUrl) return false;
-    return previewUrl.toLowerCase().includes(".pdf") || previewUrl.toLowerCase().startsWith("data:application/pdf");
+    const u = previewUrl.toLowerCase();
+    return resolvePreviewUrlPath(previewUrl).endsWith(".pdf") || u.startsWith("data:application/pdf");
   }, [previewUrl]);
   const [codexEntry, setCodexEntry] = useState<CodexEntry | null>(null);
   const [loading, setLoading] = useState(false);
