@@ -42,6 +42,14 @@ def _candidate_k(limit: int) -> int:
     return max(limit * 3, limit + 5)
 
 
+class _TemporalLike:
+    def __init__(self, iso_text: str) -> None:
+        self._iso_text = iso_text
+
+    def isoformat(self) -> str:
+        return self._iso_text
+
+
 @pytest.fixture
 def sample_results():
     """Sample vector search results."""
@@ -494,3 +502,74 @@ async def test_retrieve_allows_archival_for_history_queries():
     assert "a1" in by_id
     assert by_id["a1"]["metadata"]["is_archival"] is True
     assert by_id["a1"]["metadata"]["origin"] == "chatgpt_import"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_with_trace_reports_empty_query():
+    vector_store = MockVectorStore([])
+    retriever = MemoryOSRetriever(vector_store)
+
+    results, trace = await retriever.retrieve_with_trace("", limit=5)
+
+    assert results == []
+    assert trace["status"] == "skipped"
+    assert trace["reason"] == "empty_query"
+    assert trace["attempted"] is False
+    assert len(vector_store.search_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_retrieve_with_trace_reports_attempted_no_hits():
+    vector_store = MockVectorStore([])
+    retriever = MemoryOSRetriever(vector_store)
+
+    results, trace = await retriever.retrieve_with_trace("test query", limit=3)
+
+    assert results == []
+    assert trace["status"] == "attempted_no_hits"
+    assert trace["reason"] == "no_hits"
+    assert trace["attempted"] is True
+    assert trace["result_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_retrieve_with_trace_reports_contributed_hits(sample_results):
+    vector_store = MockVectorStore(sample_results)
+    retriever = MemoryOSRetriever(vector_store)
+
+    results, trace = await retriever.retrieve_with_trace(
+        "programming languages", limit=3
+    )
+
+    assert len(results) == 3
+    assert trace["status"] == "contributed"
+    assert trace["reason"] == "results"
+    assert trace["attempted"] is True
+    assert trace["result_count"] == 3
+    assert trace["semantic_candidate_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_retrieve_accepts_temporal_metadata_values():
+    semantic_hits = [
+        {
+            "text": "temporal memory",
+            "meta": {
+                "source_thread_id": "thread-x",
+                "source_message_id": "m1",
+                "source_created_at": _TemporalLike("2026-03-31T12:00:00+00:00"),
+                "turn_index": 1,
+                "message_id": 1,
+            },
+            "score": 0.9,
+        }
+    ]
+    vector_store = MockVectorStore(semantic_hits)
+    retriever = MemoryOSRetriever(vector_store)
+    retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
+
+    results = await retriever.retrieve("temporal", limit=1)
+
+    assert results[0]["metadata"]["source_created_at"] == (
+        "2026-03-31T12:00:00+00:00"
+    )
