@@ -113,6 +113,11 @@ class _SharedEmbedder:
         return [[0.0] for _ in texts]
 
 
+class _ExitEmbedder:
+    def embed_and_index(self, _docs, metadatas=None, ids=None):
+        raise SystemExit("boom")
+
+
 def test_document_embed_worker_uses_canonical_vector_store_runtime(
     monkeypatch,
 ):
@@ -156,6 +161,25 @@ def test_document_embed_worker_uses_canonical_vector_store_runtime(
         query.updates[1][UploadedDocument.embedding_completed_at],
         datetime,
     )
+
+
+def test_document_embed_worker_terminalizes_baseexception_failures():
+    doc = _FakeDoc()
+    query = _FakeQuery(doc)
+    db = _make_db(query)
+
+    ok = document_embed_worker.process_document_embed_task(
+        {"doc_id": doc.id},
+        db=db,
+        embedder_factory=lambda: _ExitEmbedder(),
+    )
+
+    assert ok is False
+    assert len(query.updates) == 2
+    _, second = query.updates
+    assert second[UploadedDocument.embedding_status] == "failed"
+    assert second[UploadedDocument.embedding_error] == "boom"
+    assert isinstance(second[UploadedDocument.embedding_completed_at], datetime)
 
 
 def test_worker_write_and_backend_search_share_canonical_store_seam(

@@ -189,23 +189,23 @@ def process_document_embed_task(
             doc_id,
             len(chunks),
         )
-    except Exception as exc:
-        error = str(exc)
+    except BaseException as exc:
+        error = str(exc) or exc.__class__.__name__
         logger.warning(
             "[document-embed] embedding failed doc_id=%s err=%s",
             doc_id,
             exc,
         )
-
-    completed_at = _utc_now()
-    _update_status(
-        db,
-        doc_id,
-        status=status,
-        error=error,
-        started_at=started_at,
-        completed_at=completed_at,
-    )
+    finally:
+        completed_at = _utc_now()
+        _update_status(
+            db,
+            doc_id,
+            status=status,
+            error=error,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
     return status == "ready"
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 
@@ -251,3 +252,55 @@ def test_preflight_local_model_missing_no_download_attempt(
     assert "configured local embedder not found in cache or invalid" in str(
         result["reason"]
     )
+
+
+def test_chroma_client_disables_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_faiss_available(monkeypatch)
+
+    captured: dict[str, object] = {}
+
+    class _FakeCollection:
+        pass
+
+    class _FakeClient:
+        def __init__(self, path: str, settings=None) -> None:
+            captured["path"] = path
+            captured["settings"] = settings
+
+        def get_or_create_collection(self, name: str):
+            captured["collection"] = name
+            return _FakeCollection()
+
+    monkeypatch.setattr(
+        embedder_module,
+        "chromadb",
+        SimpleNamespace(PersistentClient=_FakeClient),
+    )
+    monkeypatch.setattr(
+        embedder_module,
+        "ChromaSettings",
+        lambda anonymized_telemetry=False: {
+            "anonymized_telemetry": anonymized_telemetry
+        },
+    )
+    monkeypatch.setattr(
+        embedder_module.LocalSemanticEmbedder,
+        "_init_embedding_model",
+        lambda _self: object(),
+    )
+
+    embedder_module.LocalSemanticEmbedder(
+        model="/models/default-local-embedder",
+        store="chroma",
+        chroma_path="/tmp/chroma-no-telemetry",
+        collection="telemetry_suppressed",
+        backend="mock",
+    )
+
+    assert captured == {
+        "path": "/tmp/chroma-no-telemetry",
+        "settings": {"anonymized_telemetry": False},
+        "collection": "telemetry_suppressed",
+    }
