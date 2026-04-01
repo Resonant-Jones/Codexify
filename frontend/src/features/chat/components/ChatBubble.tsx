@@ -7,7 +7,9 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Volume2 } from "lucide-react";
+import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { Message, MessageAttachment } from "@/types/ui";
+import { resolveMediaSrc } from "@/lib/mediaUrl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -32,12 +34,15 @@ const mergeAttachments = (
     return messageAttachments.map((att) => ({
       kind: att.kind,
       id: att.id,
-      src: att.src,
+      src: att.src ? resolveMediaSrc(att.src) : att.src,
       name: att.name,
     }));
   }
   // Otherwise fall back to parsed content attachments
-  return contentAttachments;
+  return contentAttachments.map((att) => ({
+    ...att,
+    src: att.src ? resolveMediaSrc(att.src) : att.src,
+  }));
 };
 
 const parseAttachments = (content: string) => {
@@ -78,9 +83,7 @@ const parseAttachments = (content: string) => {
     }
   }
 
-  const text = content
-    .replace(/<!--\s*(cfy-media(?:-src|-name)?):([^>]*?)\s*-->/gi, "")
-    .trim();
+  const text = content.replace(/<!--\s*(cfy-media(?:-src|-name)?):([^>]*?)\s*-->/gi, "");
   return { attachments, text };
 };
 
@@ -274,20 +277,20 @@ const AttachmentTiles = ({
     <div className={`flex flex-col gap-2 ${alignClass}`}>
       {attachments.map((att, idx) => {
         const key = `${att.kind}-${att.id ?? idx}`;
+        const resolvedSrc = att.src ? resolveMediaSrc(att.src) : att.src;
         if (att.kind === "image") {
           return (
             <div key={key} className={`${tileFrame} ${tileSize}`}>
-              {att.src ? (
+              {resolvedSrc ? (
                 <button
                   type="button"
                   onClick={() => openInWorkspace(att, idx)}
                   className="block w-full text-left"
                   aria-label="Open image"
                 >
-                  <img
-                    src={att.src}
+                  <RenderableChatImage
+                    src={resolvedSrc}
                     alt="uploaded image"
-                    loading="lazy"
                     className="block w-full h-auto"
                     style={{ maxHeight: 320, objectFit: "cover" }}
                   />
@@ -303,7 +306,7 @@ const AttachmentTiles = ({
 
         return (
           <div key={key} className={`${tileFrame} ${tileSize} px-3 py-2`}>
-            {att.src ? (
+            {resolvedSrc ? (
               <button
                 type="button"
                 onClick={() => openInWorkspace(att, idx)}
@@ -330,6 +333,49 @@ const AttachmentTiles = ({
   );
 };
 
+function RenderableChatImage({
+  src,
+  alt,
+  className,
+  style,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const renderableSrc = useRenderableMediaSrc(src);
+  const [hasLoadError, setHasLoadError] = React.useState(false);
+
+  React.useEffect(() => {
+    setHasLoadError(false);
+  }, [renderableSrc.src]);
+
+  const showImage =
+    renderableSrc.status === "ready" &&
+    !!renderableSrc.src &&
+    !hasLoadError;
+
+  if (!showImage) {
+    return (
+      <div className="flex items-center justify-center h-32 text-xs opacity-70">
+        {renderableSrc.status === "loading" ? "Loading image" : "Image unavailable"}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={renderableSrc.src}
+      alt={alt}
+      loading="lazy"
+      className={className}
+      style={style}
+      onError={() => setHasLoadError(true)}
+    />
+  );
+}
+
 export function ChatBubble({
   message,
   isGuardian,
@@ -355,8 +401,9 @@ export function ChatBubble({
   const { attachments: contentAttachments, text } = parseAttachments(message.content || "");
   const attachments = mergeAttachments(message.attachments, contentAttachments);
   const cleanedContent = text;
+  const assistantContent = cleanedContent.trim();
   const hasAttachments = attachments.length > 0;
-  const hasText = Boolean(cleanedContent.trim());
+  const hasText = Boolean(assistantContent);
   const formattedTime = fmtTime(message.createdAt);
   const execution = message.execution;
   const executionBadgeLabel =
@@ -433,20 +480,42 @@ export function ChatBubble({
       </a>
     ),
     img: ({ src, alt }: any) => (
-      <img
-        src={src}
+      <RenderableChatImage
+        src={resolveMediaSrc(String(src ?? ""))}
         alt={alt || "uploaded media"}
-        loading="lazy"
         className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"
         style={{ maxHeight: 320, objectFit: "cover" }}
       />
     ),
   };
 
-  const renderedMarkdown = hasText ? (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-      {cleanedContent}
-    </ReactMarkdown>
+  const renderedContent = hasText ? (
+    isGuardian ? (
+      <div
+        className="text-sm leading-relaxed prose prose-sm max-w-none break-words dark:prose-invert"
+        style={{
+          color: "var(--text)",
+          overflowWrap: "break-word",
+          wordWrap: "break-word",
+        }}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+          {assistantContent}
+        </ReactMarkdown>
+      </div>
+    ) : (
+      // User messages stay as plaintext so pasted code keeps raw line breaks and spacing.
+      <div
+        className="text-sm leading-relaxed whitespace-pre-wrap break-words"
+        style={{
+          color: "var(--pill-active-text)",
+          overflowWrap: "break-word",
+          wordWrap: "break-word",
+        }}
+      >
+        {cleanedContent}
+      </div>
+    )
   ) : null;
 
   if (isGuardian) {
@@ -466,18 +535,7 @@ export function ChatBubble({
         {hasAttachments ? (
           <AttachmentTiles attachments={attachments} align="left" />
         ) : null}
-        {hasText ? (
-          <div
-            className="text-sm leading-relaxed prose prose-sm max-w-none break-words dark:prose-invert"
-            style={{
-              color: "var(--text)",
-              overflowWrap: "break-word",
-              wordWrap: "break-word",
-            }}
-          >
-            {renderedMarkdown}
-          </div>
-        ) : null}
+        {renderedContent}
         <div className="mt-1.5 flex items-center gap-2">
           {executionBadgeLabel ? (
             <span
@@ -537,9 +595,7 @@ export function ChatBubble({
           className="max-w-full rounded-[var(--tile-radius)] p-3 shadow-sm"
           style={{ background: "var(--accent)", color: "var(--pill-active-text)" }}
         >
-          <div className="text-sm leading-relaxed prose prose-sm max-w-none break-words dark:prose-invert">
-            {renderedMarkdown}
-          </div>
+          {renderedContent}
           {formattedTime ? (
             <div className="mt-1.5 flex items-center justify-end gap-2">
               <span className="text-[10px] opacity-70">{formattedTime}</span>

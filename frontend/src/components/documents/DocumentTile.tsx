@@ -62,6 +62,27 @@ function getExt(name: string): string {
   return m ? m[1].toLowerCase() : "";
 }
 
+function splitDocumentLabel(name: string, providedExt?: string) {
+  const normalizedName = name.trim() || "Untitled";
+  const normalizedExt = (providedExt || getExt(normalizedName) || "")
+    .replace(/^\./, "")
+    .toLowerCase();
+
+  if (!normalizedExt) {
+    return { baseName: normalizedName, extLabel: "" };
+  }
+
+  const suffix = `.${normalizedExt}`;
+  const baseName = normalizedName.toLowerCase().endsWith(suffix)
+    ? normalizedName.slice(0, normalizedName.length - suffix.length)
+    : normalizedName;
+
+  return {
+    baseName: baseName || normalizedName,
+    extLabel: normalizedExt,
+  };
+}
+
 const STATUS_STYLES: Record<
   string,
   { label: string; background: string; color: string; border: string }
@@ -148,6 +169,10 @@ export default function DocumentTile({ file, onClick, onDeleted, className }: Pr
   const extColors = React.useMemo(readExtColors, []);
   const fileName = file?.name || "Untitled";
   const ext = (file?.ext || getExt(fileName) || "").toLowerCase();
+  const { baseName, extLabel } = React.useMemo(
+    () => splitDocumentLabel(fileName, ext),
+    [ext, fileName]
+  );
   const fileType = file?.type === "codex_entry" ? "codex_entry" : "file";
   const bannerColor = extColors[ext] || "#6B7280"; // fallback gray
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
@@ -235,32 +260,83 @@ export default function DocumentTile({ file, onClick, onDeleted, className }: Pr
   if (isDeleted) return null;
 
   const content = (
-    <div className="relative flex h-full w-full flex-col">
+    <div className="relative flex h-full w-full flex-col" data-slot="document-tile">
       {file?.thumb ? (
-        <img src={file.thumb} alt={fileName} className="absolute inset-0 h-full w-full object-cover" />
+        <>
+          <img src={file.thumb} alt={fileName} className="absolute inset-0 h-full w-full object-cover" />
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 bg-gradient-to-b from-black/5 via-transparent to-black/25"
+          />
+        </>
       ) : (
-        <div className="absolute inset-0 grid place-items-center">
-          <Icon className="h-7 w-7" style={{ color: bannerColor }} />
-        </div>
-      )}
-      {status && (
-        <span
-          className="absolute right-2 top-2 z-10 max-w-[120px] truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
           style={{
-            background: status.background,
-            color: status.color,
-            borderColor: status.border,
+            background: `linear-gradient(180deg, color-mix(in oklab, ${bannerColor} 14%, var(--panel-bg, #111827)) 0%, color-mix(in oklab, ${bannerColor} 5%, var(--panel-bg, #111827)) 100%)`,
           }}
-        >
-          {statusLabel}
-        </span>
+        />
       )}
-      <div className="mt-auto">
-        <div className="flex h-11 items-center px-2 text-xs" style={{ background: bannerColor, color: onColor }}>
-          <div className="flex-1 truncate" title={fileName}>
-            {fileName}
+      <div className="relative flex min-h-0 flex-1 flex-col px-3 pt-3 pb-2">
+        {status && (
+          <div
+            className="codexifyDocumentTileStatusWrap flex min-h-0 justify-center pb-2"
+            data-slot="document-tile-status-wrap"
+          >
+            <span
+              className="codexifyDocumentTileStatus inline-flex max-w-full items-center justify-center truncate rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-sm"
+              data-slot="document-tile-status"
+              title={statusLabel ?? undefined}
+              style={{
+                background: status.background,
+                color: status.color,
+                borderColor: status.border,
+              }}
+            >
+              {statusLabel}
+            </span>
           </div>
-          {ext && <div className="ml-2 font-semibold uppercase opacity-90">.{ext}</div>}
+        )}
+        <div
+          className="codexifyDocumentTileBody flex min-h-0 flex-1 items-center justify-center"
+          data-slot="document-tile-body"
+        >
+          <div
+            className="flex h-12 w-12 items-center justify-center border"
+            style={{
+              borderRadius: "calc(var(--tile-radius) - 6px)",
+              background: "color-mix(in oklab, var(--panel-bg, #111827) 80%, white 20%)",
+              borderColor:
+                "color-mix(in oklab, var(--panel-border, rgba(255,255,255,0.12)) 72%, transparent)",
+            }}
+          >
+            <Icon className="h-7 w-7 shrink-0" style={{ color: bannerColor }} />
+          </div>
+        </div>
+      </div>
+      <div className="mt-auto">
+        <div
+          className="codexifyDocumentTileFooter flex min-h-[54px] flex-col items-center justify-center gap-1 px-3 py-2 text-center"
+          data-slot="document-tile-footer"
+          style={{ background: bannerColor, color: onColor }}
+        >
+          <div
+            className="codexifyDocumentTileName max-w-full text-[11px] font-semibold leading-[1.1]"
+            data-slot="document-tile-name"
+            style={{ overflowWrap: "anywhere" }}
+            title={fileName}
+          >
+            {baseName}
+          </div>
+          {extLabel && (
+            <div
+              className="codexifyDocumentTileExtension text-[10px] font-semibold uppercase tracking-[0.18em] opacity-90"
+              data-slot="document-tile-extension"
+            >
+              .{extLabel}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -290,7 +366,7 @@ export default function DocumentTile({ file, onClick, onDeleted, className }: Pr
   }
 
   return (
-      <TileShell
+    <TileShell
       sizeVariant="document"
       className={baseClasses}
       contextMenuItems={contextMenuItems}
