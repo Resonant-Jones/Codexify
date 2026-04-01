@@ -33,6 +33,7 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
@@ -102,13 +103,57 @@ type AppShellView =
   | "documents"
   | "gallery"
   | "guardian"
-  | "settings";
+  | "settings"
+  | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
 type DocItem = DocumentLike & { ext: keyof ExtColors };
 type AppShellProps = PropsWithChildren<{
   startupLocked?: boolean;
   startupOverlay?: React.ReactNode;
 }>;
+
+const APP_SHELL_VIEWS = [
+  "dashboard",
+  "documents",
+  "gallery",
+  "guardian",
+  "settings",
+  "personaStudio",
+] as const satisfies readonly AppShellView[];
+
+const APP_SHELL_VIEW_SET = new Set<AppShellView>(APP_SHELL_VIEWS);
+
+function isAppShellView(value: string | null): value is AppShellView {
+  return value != null && APP_SHELL_VIEW_SET.has(value as AppShellView);
+}
+
+function resolveViewFromPathname(pathname: string): AppShellView | null {
+  if (pathname.startsWith("/persona-studio")) return "personaStudio";
+  if (pathname.startsWith("/settings")) return "settings";
+  if (pathname.startsWith("/gallery")) return "gallery";
+  if (pathname.startsWith("/documents")) return "documents";
+  if (pathname.startsWith("/dashboard")) return "dashboard";
+  if (pathname.startsWith("/chat")) return "guardian";
+  return null;
+}
+
+function resolvePathForView(view: AppShellView, threadId: number | null): string {
+  switch (view) {
+    case "guardian":
+      return threadId != null ? `/chat/${threadId}` : "/chat";
+    case "documents":
+      return "/documents";
+    case "gallery":
+      return "/gallery";
+    case "settings":
+      return "/settings";
+    case "personaStudio":
+      return "/persona-studio";
+    case "dashboard":
+    default:
+      return "/dashboard";
+  }
+}
 
 function isWorkspaceShellView(view: AppShellView): view is WorkspaceShellView {
   return view === "dashboard" || view === "documents" || view === "guardian";
@@ -780,9 +825,19 @@ export default function AppShell({
      - `wallpaper`: Optional image for the background.
      - We persist the last view and wallpaper for a seamless return experience.
      ───────────────────────────────────────────────────────────────────────────── */
-  const [view, setView] = useState<AppShellView>(() =>
-    (typeof window === "undefined" ? "dashboard" : ((localStorage.getItem("cfy.lastView") as any) || "dashboard"))
-  );
+  const [view, setView] = useState<AppShellView>(() => {
+    if (typeof window !== "undefined") {
+      const routeView = resolveViewFromPathname(window.location.pathname);
+      if (routeView) return routeView;
+
+      const storedView = window.localStorage.getItem("cfy.lastView");
+      if (isAppShellView(storedView)) {
+        return storedView;
+      }
+    }
+
+    return "dashboard";
+  });
   const workspaceShellEnabled = isWorkspaceShellView(view);
   const workspaceRouteContext: WorkspaceShellView = workspaceShellEnabled
     ? view
@@ -863,13 +918,26 @@ export default function AppShell({
     [projectModalIcon, projectModalName]
   );
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.lastView", view); }, [view]);
-  // Sync the main view with URL when landing directly on /chat/:id
+  // Sync the main view with the browser URL so direct links and back/forward
+  // navigation keep the shell view in lockstep with the pathname.
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      if (window.location.pathname.startsWith("/chat/")) {
-        setView("guardian");
+    if (typeof window === "undefined") return;
+
+    const syncRouteState = () => {
+      setActiveRouteThreadId(readRouteThreadId());
+      const routeView = resolveViewFromPathname(window.location.pathname);
+      if (routeView) {
+        setView(routeView);
       }
-    }
+    };
+
+    syncRouteState();
+    window.addEventListener("popstate", syncRouteState);
+    window.addEventListener("cfy:threads:refresh", syncRouteState as EventListener);
+    return () => {
+      window.removeEventListener("popstate", syncRouteState);
+      window.removeEventListener("cfy:threads:refresh", syncRouteState as EventListener);
+    };
   }, []);
   const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem("cfy.wallpaper")));
 
@@ -936,6 +1004,19 @@ export default function AppShell({
   useEffect(() => {
     setProjectScopeMode(activeRouteThreadId != null ? "thread" : "project");
   }, [activeRouteThreadId]);
+  const navigateToView = useCallback(
+    (nextView: AppShellView) => {
+      setView(nextView);
+      if (typeof window === "undefined") return;
+
+      const nextPath = resolvePathForView(nextView, activeRouteThreadId);
+      if (window.location.pathname !== nextPath) {
+        window.history.pushState({}, "", nextPath);
+      }
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    },
+    [activeRouteThreadId]
+  );
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
     return readCachedDocuments() ? "cache" : "default";
@@ -1626,10 +1707,10 @@ export default function AppShell({
       const doc = normalizeDoc(request.doc);
       setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
       setDocuments((prev) => dedupeDocItems([doc, ...prev]));
-      setView(request.targetView === "guardian" ? "guardian" : "documents");
+      navigateToView(request.targetView === "guardian" ? "guardian" : "documents");
       openWorkspaceDrawer("inspector");
     },
-    [openWorkspaceDrawer]
+    [navigateToView, openWorkspaceDrawer]
   );
   const {
     openWorkspaceDocument,
@@ -1726,7 +1807,7 @@ export default function AppShell({
     }
     // Prefill Guardian chat with image-derived tag
     setPrefill(`[image-derived][${mode}] ${prompt}`);
-    setView("guardian");
+    navigateToView("guardian");
     try { window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message: "Image prompt generated" } })); } catch {}
     setVisionBusySrc(null);
   }
@@ -1748,7 +1829,7 @@ export default function AppShell({
     }
     setPrefill(undefined);
     closeWorkspaceDrawer();
-    setView("guardian");
+    navigateToView("guardian");
     if (typeof window !== "undefined") {
       try {
         window.dispatchEvent(
@@ -1759,10 +1840,8 @@ export default function AppShell({
       } catch (eventErr) {
         console.warn("[dashboard] draft-thread event failed", eventErr);
       }
-      window.history.pushState({}, "", "/chat");
-      window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, [auth, closeWorkspaceDrawer]);
+  }, [auth, closeWorkspaceDrawer, navigateToView]);
   // Use an active wallpaper for refractive glass; fall back to first gallery image if none chosen yet
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
@@ -1771,7 +1850,7 @@ export default function AppShell({
   const bp = useBreakpoint();
 
   // Helper to jump to Guardian chat with a prefilled prompt
-  function openChatWithPrompt(p: string) { setPrefill(p); setView("guardian"); }
+  function openChatWithPrompt(p: string) { setPrefill(p); navigateToView("guardian"); }
 
   // Responsive layout helper for Settings view
   const settingsLayout = useMemo(() => {
@@ -2046,37 +2125,44 @@ export default function AppShell({
           <button
             className="pill-tab"
             data-state={view === "guardian" ? "active" : "inactive"}
-            onClick={() => setView("guardian")}
+            onClick={() => navigateToView("guardian")}
           >
             Guardian
           </button>
           <button
             className="pill-tab"
             data-state={view === "dashboard" ? "active" : "inactive"}
-            onClick={() => setView("dashboard")}
+            onClick={() => navigateToView("dashboard")}
           >
             Dashboard
           </button>
           <button
             className="pill-tab"
             data-state={view === "documents" ? "active" : "inactive"}
-            onClick={() => setView("documents")}
+            onClick={() => navigateToView("documents")}
           >
             Documents
           </button>
           <button
             className="pill-tab"
             data-state={view === "gallery" ? "active" : "inactive"}
-            onClick={() => setView("gallery")}
+            onClick={() => navigateToView("gallery")}
           >
             Gallery
           </button>
           <button
             className="pill-tab"
             data-state={view === "settings" ? "active" : "inactive"}
-            onClick={() => setView("settings")}
+            onClick={() => navigateToView("settings")}
           >
             Settings
+          </button>
+          <button
+            className="pill-tab"
+            data-state={view === "personaStudio" ? "active" : "inactive"}
+            onClick={() => navigateToView("personaStudio")}
+          >
+            Persona Studio
           </button>
         </div>
         {(workspaceShellEnabled || activeRouteThreadId != null) && (
@@ -2383,8 +2469,8 @@ export default function AppShell({
                     onImagePrompt={openChatWithPrompt}
                     onRequestNewProject={openCreateProjectModal}
                     onRequestNewThread={createThreadFromDashboard}
-                    onNavigateDocuments={() => setView("documents")}
-                    onNavigateGallery={() => setView("gallery")}
+                    onNavigateDocuments={() => navigateToView("documents")}
+                    onNavigateGallery={() => navigateToView("gallery")}
                     threadGridRows={dashboardThreadRows}
                   />
                 </div>
@@ -2432,6 +2518,16 @@ export default function AppShell({
                   />
                 </ErrorBoundary>
               </div>
+            </FrameCard>
+          )}
+          {!startupLocked && view === "personaStudio" && (
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+              data-testid="persona-studio-framecard"
+            >
+              <PersonaStudioPage />
             </FrameCard>
           )}
         </div>
