@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodexEntry } from "@/api/codex";
-import { resolveMediaSrc } from "@/lib/mediaUrl";
+import { buildAuthenticatedFetchInit } from "@/lib/api";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import { DocumentLike } from "@/types/documents";
 
 type WorkspaceViewerProps = {
   activeDoc?: DocumentLike | null;
   previewUrl: string | null;
+  previewText: string | null;
+  previewMimeType: string | null;
   isImage: boolean;
   isPdf: boolean;
   codexEntry: CodexEntry | null;
@@ -15,402 +18,569 @@ type WorkspaceViewerProps = {
   error: string | null;
 };
 
-type SupportedTextExtension = "txt" | "md" | "json";
+type PreviewKind = "image" | "pdf" | "markdown" | "text" | "unsupported";
+type PreviewPhase = "idle" | "loading" | "ready" | "error";
 
-type PreviewContext = {
-  activeDoc: DocumentLike;
-  normalizedExt: string;
-  previewUrl: string;
-  resolvedPreviewUrl: string;
+const MARKDOWN_EXTENSIONS = new Set([
+  "md",
+  "markdown",
+  "mdown",
+  "mkd",
+  "mkdn",
+  "mdx",
+]);
+
+const TEXT_EXTENSIONS = new Set([
+  "txt",
+  "text",
+  "log",
+  "csv",
+  "tsv",
+  "json",
+  "jsonl",
+  "yaml",
+  "yml",
+  "xml",
+  "html",
+  "htm",
+  "ini",
+  "conf",
+  "env",
+  "toml",
+  "css",
+  "scss",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "py",
+  "rb",
+  "go",
+  "rs",
+  "java",
+  "c",
+  "cc",
+  "cpp",
+  "cxx",
+  "h",
+  "hpp",
+  "sh",
+  "bash",
+  "zsh",
+  "sql",
+  "graphql",
+  "gql",
+  "swift",
+  "kt",
+  "kts",
+  "php",
+  "patch",
+  "diff",
+]);
+
+function readStringField(
+  source: Record<string, unknown> | null | undefined,
+  fields: string[]
+): string | null {
+  if (!source) return null;
+  for (const field of fields) {
+    const value = source[field];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return value;
+  }
+  return null;
+}
+
+function normalizeText(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  return value.trim() ? value : null;
+}
+
+function resolveDocumentExtension(doc: DocumentLike | null | undefined): string {
+  if (!doc) return "";
+  const direct = readStringField(doc as Record<string, unknown>, [
+    "ext",
+    "extension",
+    "format",
+  ]);
+  if (direct) return direct.replace(/^\./, "").toLowerCase();
+
+  const filename = readStringField(doc as Record<string, unknown>, [
+    "filename",
+    "name",
+    "title",
+  ]);
+  if (!filename) return "";
+
+  const lowered = filename.toLowerCase();
+  if (lowered === "dockerfile") return "dockerfile";
+
+  const match = lowered.match(/\.([a-z0-9]+)$/i);
+  return match?.[1] ?? "";
+}
+
+function resolveDocumentMimeType(
+  doc: DocumentLike | null | undefined,
+  explicit?: string | null
+): string {
+  const direct = normalizeText(explicit);
+  if (direct) return direct.toLowerCase();
+  if (!doc) return "";
+  return (
+    readStringField(doc as Record<string, unknown>, [
+      "mime_type",
+      "mimeType",
+      "content_type",
+      "contentType",
+    ])?.toLowerCase() ?? ""
+  );
+}
+
+function resolveInlinePreviewText(
+  doc: DocumentLike | null | undefined
+): string | null {
+  if (!doc) return null;
+  return readStringField(doc as Record<string, unknown>, [
+    "content",
+    "body",
+    "text",
+    "parsed_text",
+    "parsedText",
+    "markdown",
+    "preview",
+    "rawText",
+    "snippet",
+  ]);
+}
+
+function formatDate(value: string | undefined | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function buildSourceLabel(
+  previewUrl: string | null,
+  previewText: string | null,
+  fetchedText: string | null,
+  activeDoc: DocumentLike | null | undefined,
+  previewKind: PreviewKind
+): string {
+  if (activeDoc?.type === "codex_entry") return "Codex entry body";
+  if (previewText) return "Inline text";
+  if (fetchedText) return previewUrl ? "Remote document source" : "Loaded preview text";
+  if (previewUrl) {
+    if (previewKind === "image" || previewKind === "pdf") {
+      return "Embedded asset";
+    }
+    return "Remote document source";
+  }
+  return "No preview source";
+}
+
+function buildPreviewKind(options: {
+  activeDoc: DocumentLike | null | undefined;
+  previewMimeType: string;
+  previewText: string | null;
   isImage: boolean;
   isPdf: boolean;
-};
+}): PreviewKind {
+  const { activeDoc, previewMimeType, previewText, isImage, isPdf } = options;
+  if (isImage) return "image";
+  if (isPdf) return "pdf";
 
-type PreviewRegistration = {
-  kind: "pdf" | "image" | "text";
-  supports: (context: PreviewContext) => boolean;
-  render: (context: PreviewContext) => React.ReactNode;
-};
+  const extension = resolveDocumentExtension(activeDoc).toLowerCase();
+  const mimeType = previewMimeType.toLowerCase();
+  const markdownLike =
+    activeDoc?.type === "codex_entry" ||
+    MARKDOWN_EXTENSIONS.has(extension) ||
+    mimeType.includes("markdown") ||
+    mimeType.endsWith("+markdown");
 
-const SUPPORTED_TEXT_EXTENSIONS: readonly SupportedTextExtension[] = [
-  "txt",
-  "md",
-  "json",
-] as const;
+  if (markdownLike) return "markdown";
 
-function normalizeExtension(value: string | null | undefined): string {
-  return (value || "").trim().replace(/^\./, "").toLowerCase();
+  const textLike =
+    Boolean(previewText) ||
+    TEXT_EXTENSIONS.has(extension) ||
+    mimeType.startsWith("text/") ||
+    mimeType.includes("json") ||
+    mimeType.includes("xml") ||
+    mimeType.includes("yaml") ||
+    mimeType.includes("toml") ||
+    mimeType.includes("csv") ||
+    mimeType.includes("javascript") ||
+    mimeType.includes("typescript") ||
+    mimeType.includes("sql");
+
+  return textLike ? "text" : "unsupported";
 }
-
-function inferExtension(activeDoc?: DocumentLike | null, previewUrl?: string | null): string {
-  const explicitExt = normalizeExtension(activeDoc?.ext);
-  if (explicitExt) {
-    return explicitExt;
-  }
-
-  const candidates = [activeDoc?.title, previewUrl];
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-
-    const trimmedCandidate = candidate.trim();
-    if (!trimmedCandidate) continue;
-
-    try {
-      const pathname = new URL(trimmedCandidate, "http://workspace.local").pathname;
-      const match = pathname.match(/\.([a-z0-9]+)$/i);
-      if (match?.[1]) {
-        return normalizeExtension(match[1]);
-      }
-    } catch {
-      const base = trimmedCandidate.split(/[?#]/, 1)[0];
-      const match = base.match(/\.([a-z0-9]+)$/i);
-      if (match?.[1]) {
-        return normalizeExtension(match[1]);
-      }
-    }
-  }
-
-  return "";
-}
-
-function isSupportedTextExtension(
-  value: string
-): value is SupportedTextExtension {
-  return SUPPORTED_TEXT_EXTENSIONS.includes(value as SupportedTextExtension);
-}
-
-function PdfPreview({
-  title,
-  resolvedPreviewUrl,
-}: {
-  title: string;
-  resolvedPreviewUrl: string;
-}) {
-  return (
-    <div className="codexifyWorkspaceViewer codexifyWorkspaceViewer--embed">
-      <iframe title={title} src={resolvedPreviewUrl} />
-    </div>
-  );
-}
-
-function ImagePreview({
-  title,
-  resolvedPreviewUrl,
-}: {
-  title: string;
-  resolvedPreviewUrl: string;
-}) {
-  return (
-    <div className="codexifyWorkspaceViewer codexifyWorkspaceViewer--image">
-      <img
-        src={resolvedPreviewUrl}
-        alt={title}
-        className="codexifyWorkspaceImage"
-        loading="lazy"
-      />
-    </div>
-  );
-}
-
-function TextPreview({
-  activeDoc,
-  normalizedExt,
-  resolvedPreviewUrl,
-}: {
-  activeDoc: DocumentLike;
-  normalizedExt: SupportedTextExtension;
-  resolvedPreviewUrl: string;
-}) {
-  const [content, setContent] = useState("");
-  const [loadingContent, setLoadingContent] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let cancelled = false;
-
-    setContent("");
-    setLoadError(null);
-    setLoadingContent(true);
-
-    fetch(resolvedPreviewUrl, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Failed to load ${normalizedExt.toUpperCase()} preview`);
-        }
-        return response.text();
-      })
-      .then((nextContent) => {
-        if (!cancelled) {
-          setContent(nextContent);
-        }
-      })
-      .catch((err) => {
-        if (err?.name === "AbortError" || cancelled) {
-          return;
-        }
-        setLoadError(err?.message || "Failed to load preview");
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingContent(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [normalizedExt, resolvedPreviewUrl]);
-
-  const formattedJson = useMemo(() => {
-    if (normalizedExt !== "json") {
-      return content;
-    }
-
-    try {
-      return JSON.stringify(JSON.parse(content), null, 2);
-    } catch {
-      return content;
-    }
-  }, [content, normalizedExt]);
-
-  if (loadingContent) {
-    return (
-      <div className="codexifyWorkspaceViewer">
-        <div className="codexifyWorkspaceHint">Loading preview…</div>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="codexifyWorkspaceViewer">
-        <div className="codexifyWorkspaceError">
-          <div className="codexifyWorkspaceErrorTitle">Error loading preview</div>
-          <div>{loadError}</div>
-          <div className="codexifyWorkspaceHint">
-            Try opening the original file in a new tab.
-          </div>
-        </div>
-        <a
-          href={resolvedPreviewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="codexifyWorkspaceLink"
-        >
-          Open in a new tab
-        </a>
-      </div>
-    );
-  }
-
-  if (normalizedExt === "md") {
-    return (
-      <div className="codexifyWorkspaceViewer">
-        <div className="prose prose-sm max-w-none dark:prose-invert codexifyWorkspaceMarkdown">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              img: ({ src, alt }) => (
-                <img
-                  src={resolveMediaSrc(String(src ?? ""))}
-                  alt={alt || "Workspace media"}
-                  loading="lazy"
-                />
-              ),
-            }}
-          >
-            {content || "_No content available._"}
-          </ReactMarkdown>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="codexifyWorkspaceViewer">
-      <div
-        className="max-h-full overflow-auto whitespace-pre-wrap break-words rounded-xl border p-4 text-sm"
-        style={{
-          borderColor: "var(--panel-border)",
-          background: "color-mix(in srgb, var(--panel-bg) 90%, black 10%)",
-          color: "var(--text)",
-        }}
-      >
-        <div className="mb-3 text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-          {activeDoc.title || "Untitled"}
-          {normalizedExt ? ` · ${normalizedExt.toUpperCase()}` : ""}
-        </div>
-        <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-6">
-          {normalizedExt === "json" ? formattedJson : content}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
-const previewRegistry: readonly PreviewRegistration[] = [
-  {
-    kind: "pdf",
-    supports: (context) => context.isPdf,
-    render: ({ activeDoc, resolvedPreviewUrl }) => (
-      <PdfPreview
-        title={activeDoc?.title || "PDF"}
-        resolvedPreviewUrl={resolvedPreviewUrl}
-      />
-    ),
-  },
-  {
-    kind: "image",
-    supports: (context) => context.isImage,
-    render: ({ activeDoc, resolvedPreviewUrl }) => (
-      <ImagePreview
-        title={activeDoc?.title || "Image"}
-        resolvedPreviewUrl={resolvedPreviewUrl}
-      />
-    ),
-  },
-  {
-    kind: "text",
-    supports: (context) => isSupportedTextExtension(context.normalizedExt),
-    render: ({ activeDoc, normalizedExt, resolvedPreviewUrl }) => (
-      <TextPreview
-        activeDoc={activeDoc}
-        normalizedExt={normalizedExt as SupportedTextExtension}
-        resolvedPreviewUrl={resolvedPreviewUrl}
-      />
-    ),
-  },
-] as const;
 
 export default function WorkspaceViewer({
   activeDoc,
   previewUrl,
+  previewText,
+  previewMimeType,
   isImage,
   isPdf,
   codexEntry,
   loading,
   error,
 }: WorkspaceViewerProps) {
-  const resolvedPreviewUrl = previewUrl ? resolveMediaSrc(previewUrl) : null;
-  const normalizedExt = inferExtension(activeDoc, previewUrl);
-  const previewContext = useMemo<PreviewContext | null>(() => {
-    if (!activeDoc || !previewUrl || !resolvedPreviewUrl) {
-      return null;
+  const inlinePreviewText = useMemo(
+    () => normalizeText(previewText) ?? resolveInlinePreviewText(activeDoc),
+    [activeDoc, previewText]
+  );
+
+  const mimeType = useMemo(
+    () => resolveDocumentMimeType(activeDoc, previewMimeType),
+    [activeDoc, previewMimeType]
+  );
+
+  const previewKind = useMemo(
+    () =>
+      buildPreviewKind({
+        activeDoc,
+        previewMimeType: mimeType,
+        previewText: inlinePreviewText,
+        isImage,
+        isPdf,
+      }),
+    [activeDoc, inlinePreviewText, isImage, isPdf, mimeType]
+  );
+
+  const codexBody = useMemo(() => {
+    const body = codexEntry?.body;
+    if (typeof body !== "string") return null;
+    return body.trim() ? body : null;
+  }, [codexEntry?.body]);
+
+  const sourceText = activeDoc?.type === "codex_entry" ? codexBody : inlinePreviewText;
+  const needsRemoteText = (previewKind === "markdown" || previewKind === "text") && !sourceText;
+  const normalizedPreviewUrl = useMemo(
+    () => (previewUrl ? normalizeMediaUrl(previewUrl) : ""),
+    [previewUrl]
+  );
+
+  const [fetchedText, setFetchedText] = useState<string | null>(null);
+  const [fetchPhase, setFetchPhase] = useState<PreviewPhase>("idle");
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFetchedText(null);
+    setFetchError(null);
+
+    if (!needsRemoteText || !normalizedPreviewUrl) {
+      setFetchPhase(needsRemoteText && !normalizedPreviewUrl ? "error" : "idle");
+      if (needsRemoteText && !normalizedPreviewUrl) {
+        setFetchError("Missing preview source URL");
+      }
+      return;
     }
 
-    return {
-      activeDoc,
-      normalizedExt,
-      previewUrl,
-      resolvedPreviewUrl,
-      isImage,
-      isPdf,
+    const controller = new AbortController();
+    let cancelled = false;
+
+    setFetchPhase("loading");
+
+    fetch(
+      normalizedPreviewUrl,
+      buildAuthenticatedFetchInit(
+        { method: "GET", signal: controller.signal },
+        { forceApiKey: true }
+      )
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Preview request failed (${response.status})`);
+        }
+        return response.text();
+      })
+      .then((text) => {
+        if (cancelled) return;
+        setFetchedText(text);
+        setFetchPhase("ready");
+      })
+      .catch((err) => {
+        if (cancelled || err?.name === "AbortError") return;
+        setFetchError(err?.message || "Failed to load preview content");
+        setFetchPhase("error");
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
     };
-  }, [activeDoc, isImage, isPdf, normalizedExt, previewUrl, resolvedPreviewUrl]);
-  const previewRegistration = useMemo(() => {
-    if (!previewContext) {
-      return null;
+  }, [needsRemoteText, normalizedPreviewUrl]);
+
+  const resolvedText = sourceText ?? fetchedText;
+  const title = activeDoc?.title || activeDoc?.name || "Untitled document";
+  const extension = resolveDocumentExtension(activeDoc);
+  const createdAt = formatDate(
+    activeDoc?.createdAt ?? (activeDoc as any)?.created_at ?? codexEntry?.created_at ?? null
+  );
+  const threadId = activeDoc?.thread_id ?? activeDoc?.threadId ?? codexEntry?.thread_id ?? null;
+  const embeddingStatus = activeDoc?.embeddingStatus ?? null;
+
+  const metadataRows = useMemo(() => {
+    if (!activeDoc) return [];
+
+    const rows: Array<{ label: string; value: string }> = [];
+    rows.push({ label: "Title", value: title });
+    rows.push({
+      label: "Format",
+      value:
+        previewKind === "unsupported"
+          ? extension
+            ? `Unsupported (.${extension})`
+            : "Unsupported"
+          : previewKind === "markdown"
+            ? extension
+              ? `Markdown (.${extension})`
+              : "Markdown"
+            : previewKind === "text"
+              ? extension
+                ? `Text (.${extension})`
+                : "Text"
+              : previewKind === "image"
+                ? "Image"
+                : "PDF",
+    });
+    rows.push({
+      label: "Source",
+      value: buildSourceLabel(
+        normalizedPreviewUrl || previewUrl,
+        sourceText,
+        fetchedText,
+        activeDoc,
+        previewKind
+      ),
+    });
+
+    if (threadId !== null && threadId !== undefined) {
+      rows.push({ label: "Thread", value: String(threadId) });
+    }
+    if (createdAt) {
+      rows.push({ label: "Created", value: createdAt });
+    }
+    if (embeddingStatus) {
+      rows.push({ label: "Embedding", value: embeddingStatus });
     }
 
-    return previewRegistry.find((entry) => entry.supports(previewContext)) || null;
-  }, [previewContext]);
+    return rows;
+  }, [
+    activeDoc,
+    createdAt,
+    embeddingStatus,
+    extension,
+    fetchedText,
+    normalizedPreviewUrl,
+    previewKind,
+    previewUrl,
+    sourceText,
+    threadId,
+    title,
+  ]);
 
   if (!activeDoc) {
     return (
       <div className="codexifyWorkspaceViewer">
-        <div className="codexifyWorkspaceHint">
-          Select a document to view it here. Codex entries render as read-only
-          markdown.
+        <div
+          className="codexifyWorkspacePreviewSurface"
+          data-testid="workspace-empty-state"
+          role="status"
+          aria-live="polite"
+          style={{ minHeight: 0, overflow: "auto" }}
+        >
+          <div className="codexifyWorkspaceState">
+            <div className="codexifyWorkspaceStateTitle">No document selected</div>
+            <div className="codexifyWorkspaceHint">
+              Select a workspace document to see its preview here.
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (activeDoc.type !== "codex_entry") {
-    if (!resolvedPreviewUrl) {
+  const renderPreviewSurface = () => {
+    if (previewKind === "image") {
       return (
-        <div className="codexifyWorkspaceViewer">
-          <div className="codexifyWorkspaceHint">
-            Preview is not available for this document type. Use “Open in
-            Thread” to review.
-          </div>
+        <div className="codexifyWorkspaceMediaPreview">
+          <img
+            src={normalizedPreviewUrl || previewUrl || undefined}
+            alt={title}
+            className="codexifyWorkspaceImage"
+            loading="lazy"
+          />
         </div>
       );
     }
 
-    if (previewRegistration && previewContext) {
-      return previewRegistration.render(previewContext);
+    if (previewKind === "pdf") {
+      return (
+        <div className="codexifyWorkspaceMediaPreview">
+          <iframe title={title} src={normalizedPreviewUrl || previewUrl || undefined} />
+        </div>
+      );
+    }
+
+    if (previewKind === "markdown") {
+      if (loading && activeDoc.type === "codex_entry" && !resolvedText) {
+        return <PreviewMessage title="Loading preview…" hint="Fetching markdown content." />;
+      }
+
+      if (error && activeDoc.type === "codex_entry" && !resolvedText) {
+        return (
+          <PreviewMessage
+            title="Preview load failed"
+            hint={error}
+            tone="error"
+            detail="The entry may have been deleted or the endpoint may be unavailable."
+          />
+        );
+      }
+
+      if (fetchPhase === "loading" && !resolvedText) {
+        return <PreviewMessage title="Loading preview…" hint="Fetching document markdown." />;
+      }
+
+      if (fetchPhase === "error" && !resolvedText) {
+        return (
+          <PreviewMessage
+            title="Preview unavailable"
+            hint="The document body could not be loaded."
+            tone="error"
+            detail={fetchError || undefined}
+          />
+        );
+      }
+
+      if (!resolvedText) {
+        return (
+          <PreviewMessage
+            title="Preview unavailable"
+            hint="This document has no previewable markdown content."
+          />
+        );
+      }
+
+      return (
+        <div
+          className="prose prose-sm max-w-none dark:prose-invert codexifyWorkspaceMarkdown"
+          data-testid="workspace-preview-content"
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{resolvedText}</ReactMarkdown>
+        </div>
+      );
+    }
+
+    if (previewKind === "text") {
+      if (fetchPhase === "loading" && !resolvedText) {
+        return <PreviewMessage title="Loading preview…" hint="Fetching document text." />;
+      }
+
+      if (fetchPhase === "error" && !resolvedText) {
+        return (
+          <PreviewMessage
+            title="Preview unavailable"
+            hint="The document body could not be loaded."
+            tone="error"
+            detail={fetchError || undefined}
+          />
+        );
+      }
+
+      if (!resolvedText) {
+        return (
+          <PreviewMessage
+            title="Preview unavailable"
+            hint="This document has no previewable text content."
+          />
+        );
+      }
+
+      return (
+        <pre
+          className="codexifyWorkspacePlaintext"
+          data-testid="workspace-preview-content"
+        >
+          {resolvedText}
+        </pre>
+      );
     }
 
     return (
-      <div className="codexifyWorkspaceViewer">
-        <div className="codexifyWorkspaceHint">
-          This file type does not have an inline preview yet.
-        </div>
-        <a
-          href={resolvedPreviewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="codexifyWorkspaceLink"
-        >
-          Open in a new tab
-        </a>
-      </div>
+      <PreviewMessage
+        title="Preview unavailable for this file type"
+        hint="Metadata is still available below."
+        tone="muted"
+        detail={
+          normalizedPreviewUrl || previewUrl
+            ? "Open the source asset in a new tab if you need the raw file."
+            : undefined
+        }
+      />
     );
-  }
+  };
 
   return (
     <div className="codexifyWorkspaceViewer">
-      <div className="codexifyWorkspaceCodexHeader">
-        <div className="codexifyWorkspaceCodexTitle">
-          {activeDoc?.title || "Untitled Codex Entry"}
-        </div>
-        <div className="codexifyWorkspaceHint">
-          {codexEntry?.thread_id ? `Thread: ${codexEntry.thread_id}` : "Codex entry"}
-        </div>
-        {codexEntry?.created_at && (
-          <div className="codexifyWorkspaceHint">
-            Created {new Date(codexEntry.created_at).toLocaleString()}
-          </div>
-        )}
+      <div
+        className="codexifyWorkspacePreviewSurface"
+        data-testid="workspace-preview-surface"
+        data-state={previewKind}
+        style={{ minHeight: 0, overflow: "auto" }}
+      >
+        {renderPreviewSurface()}
       </div>
 
-      {loading && <div className="codexifyWorkspaceHint">Loading Codex entry…</div>}
-
-      {error && (
-        <div className="codexifyWorkspaceError">
-          <div className="codexifyWorkspaceErrorTitle">Error loading Codex entry</div>
-          <div>{error}</div>
+      <div className="codexifyWorkspaceMetadata" data-testid="workspace-metadata">
+        <div className="codexifyWorkspaceMetadataHeader">
+          <div className="codexifyWorkspaceMetadataTitle">{title}</div>
           <div className="codexifyWorkspaceHint">
-            The entry may have been deleted or the endpoint may be unavailable.
+            {previewKind === "unsupported"
+              ? "Unsupported document"
+              : previewKind === "markdown"
+                ? "Markdown preview"
+                : previewKind === "text"
+                  ? "Text preview"
+                  : previewKind === "image"
+                    ? "Image preview"
+                    : "PDF preview"}
           </div>
         </div>
-      )}
 
-      {!loading && !error && codexEntry && (
-        <div className="prose prose-sm max-w-none dark:prose-invert codexifyWorkspaceMarkdown">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              img: ({ src, alt }) => (
-                <img
-                  src={resolveMediaSrc(String(src ?? ""))}
-                  alt={alt || "Workspace media"}
-                  loading="lazy"
-                />
-              ),
-            }}
-          >
-            {codexEntry?.body || "_No content available._"}
-          </ReactMarkdown>
-        </div>
-      )}
+        <dl className="codexifyWorkspaceMetadataGrid">
+          {metadataRows.map((row) => (
+            <div key={row.label} className="codexifyWorkspaceMetadataItem">
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  );
+}
 
-      {!loading && !error && !codexEntry && (
-        <div className="codexifyWorkspaceHint">No content available.</div>
-      )}
+function PreviewMessage({
+  title,
+  hint,
+  detail,
+  tone = "default",
+}: {
+  title: string;
+  hint?: string;
+  detail?: string;
+  tone?: "default" | "muted" | "error";
+}) {
+  return (
+    <div className={`codexifyWorkspaceState codexifyWorkspaceState--${tone}`}>
+      <div className="codexifyWorkspaceStateTitle">{title}</div>
+      {hint && <div className="codexifyWorkspaceHint">{hint}</div>}
+      {detail && <div className="codexifyWorkspaceHint">{detail}</div>}
     </div>
   );
 }
