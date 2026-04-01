@@ -61,6 +61,73 @@ export function describeProviderState(state: ProviderRuntimeState): {
   }
 }
 
+export type RuntimeStatusTone =
+  | "active"
+  | "attention"
+  | "danger"
+  | "info"
+  | "neutral"
+  | "subtle";
+
+export interface RuntimeStatusPresentation {
+  label: string;
+  tone: RuntimeStatusTone;
+  isFallback: boolean;
+}
+
+export const RUNTIME_STATUS_PRESENTATIONS = {
+  healthy: { label: "healthy", tone: "active", isFallback: false },
+  degraded: { label: "degraded", tone: "attention", isFallback: false },
+  unknown: { label: "unknown", tone: "subtle", isFallback: false },
+  active: { label: "active", tone: "active", isFallback: false },
+  stale: { label: "stale", tone: "attention", isFallback: false },
+  offline: { label: "offline", tone: "danger", isFallback: false },
+  online: { label: "online", tone: "active", isFallback: false },
+  running: { label: "running", tone: "info", isFallback: false },
+  queued: { label: "queued", tone: "neutral", isFallback: false },
+  open: { label: "open", tone: "active", isFallback: false },
+  connecting: { label: "connecting", tone: "info", isFallback: false },
+  closed: { label: "closed", tone: "subtle", isFallback: false },
+  error: { label: "error", tone: "danger", isFallback: false },
+  OK: { label: "OK", tone: "active", isFallback: false },
+  FAIL: { label: "FAIL", tone: "danger", isFallback: false },
+  UNKNOWN: { label: "UNKNOWN", tone: "subtle", isFallback: false },
+  attention: { label: "attention", tone: "attention", isFallback: false },
+  needs_attention: { label: "needs attention", tone: "attention", isFallback: false },
+  succeeded: { label: "succeeded", tone: "active", isFallback: false },
+  failed: { label: "failed", tone: "danger", isFallback: false },
+  unauthorized: { label: "unauthorized", tone: "attention", isFallback: false },
+} as const satisfies Record<string, RuntimeStatusPresentation>;
+
+function humanizeRuntimeStatus(value: string): string {
+  return value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function describeRuntimeStatusPresentation(
+  status: string | null | undefined
+): RuntimeStatusPresentation {
+  const normalized = typeof status === "string" ? status.trim() : "";
+  if (!normalized) {
+    return {
+      label: "unknown",
+      tone: "subtle",
+      isFallback: true,
+    };
+  }
+
+  const presentation =
+    RUNTIME_STATUS_PRESENTATIONS[
+      normalized as keyof typeof RUNTIME_STATUS_PRESENTATIONS
+    ];
+  if (presentation) return presentation;
+
+  return {
+    label: humanizeRuntimeStatus(normalized),
+    tone: "subtle",
+    isFallback: true,
+  };
+}
+
 export const CHAT_REQUEST_STATES = {
   DISPATCHING: "dispatching",
   STREAMING: "streaming",
