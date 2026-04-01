@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
@@ -33,6 +33,11 @@ vi.mock("@/state/session/SessionSpine", () => ({
     subscribeActiveSpine: () => () => {},
   },
 }));
+
+beforeEach(() => {
+  window.localStorage.clear();
+  window.history.pushState({}, "", "/");
+});
 
 function renderAppShell() {
   return render(
@@ -139,6 +144,6 @@ describe("Persona Studio Shell Integration", () => {
     await user.click(screen.getByRole("button", { name: /persona studio/i }));
 
     expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /reset/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
   });
 });
