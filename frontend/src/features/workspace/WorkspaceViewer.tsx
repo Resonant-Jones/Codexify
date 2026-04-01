@@ -268,7 +268,7 @@ const markdownComponents = {
   ),
   img: ({ src, alt }: any) => (
     <img
-      src={src}
+      src={normalizeMediaUrl(src) || src || undefined}
       alt={alt || "uploaded media"}
       loading="lazy"
       className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"

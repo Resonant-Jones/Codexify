@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspacePane from "../WorkspacePane";
 import { setRuntimeApiKey } from "@/lib/api";
+import { initRuntimeConfig } from "@/lib/runtimeConfig";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import type { DocumentLike } from "@/types/documents";
 
 function buildDocument(
@@ -40,8 +42,10 @@ describe("WorkspacePane preview surface", () => {
     } as Response);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     setRuntimeApiKey(null);
+    window.localStorage.removeItem("cfy.desktop.backendBaseUrl");
+    await initRuntimeConfig({ force: true });
     vi.restoreAllMocks();
   });
 
@@ -149,6 +153,39 @@ describe("WorkspacePane preview surface", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(within(metadataSurface).getByText("Markdown (.md)")).toBeInTheDocument();
     expect(within(previewSurface).queryByText("Markdown (.md)")).not.toBeInTheDocument();
+  });
+
+  it("normalizes markdown image sources before rendering", async () => {
+    window.localStorage.setItem("cfy.desktop.backendBaseUrl", "http://127.0.0.1:8888");
+    await initRuntimeConfig({ force: true });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: async () => "![Inline diagram](/media/documents/inline-diagram.png)",
+    } as Response);
+
+    render(
+      <WorkspacePane
+        activeDoc={buildDocument({
+          id: "doc-md-image",
+          title: "Diagram Notes",
+          ext: "md",
+          type: "file",
+          src_url: "/media/documents/diagram-notes.md",
+        })}
+      />
+    );
+
+    const previewSurface = screen.getByTestId("workspace-preview-surface");
+    const image = await within(previewSurface).findByRole("img", {
+      name: "Inline diagram",
+    });
+
+    expect(image).toHaveAttribute(
+      "src",
+      normalizeMediaUrl("/media/documents/inline-diagram.png")
+    );
+    expect(previewSurface).toHaveAttribute("data-state", "markdown");
+    expect(screen.getByTestId("workspace-metadata")).toHaveTextContent("Markdown (.md)");
   });
 
   it("renders text-like documents as actual content", () => {
