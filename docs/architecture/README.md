@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-03-29
+Last updated: 2026-04-01
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -10,6 +10,7 @@ Source anchors:
 - guardian/core/dependencies.py
 - frontend/src/App.tsx
 - frontend/src/components/persona/layout/AppShell.tsx
+- frontend/src/features/personaStudio/
 - docker-compose.yml
 
 # Codexify Architecture KB
@@ -36,6 +37,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
+- [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
