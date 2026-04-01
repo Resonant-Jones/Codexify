@@ -919,3 +919,30 @@ class TestUploadDedupeAndResolve:
         payload = response.json()
         assert payload["count"] == 1
         assert payload["images"][0]["source_tag"] == "generated"
+
+    @patch("guardian.routes.media._get_db")
+    def test_list_images_uploaded_tag_omits_unpersisted_failures(
+        self, mock_get_db, client
+    ):
+        """List surface emits only persisted uploaded rows."""
+        mock_session = MagicMock()
+        query = mock_session.query.return_value
+        query.filter.return_value = query
+        query.filter_by.return_value = query
+        query.order_by.return_value = query
+        query.limit.return_value = query
+        query.all.return_value = []
+
+        mock_db = MagicMock()
+        mock_db.get_session.return_value.__enter__ = MagicMock(
+            return_value=mock_session
+        )
+        mock_db.get_session.return_value.__exit__ = MagicMock(
+            return_value=False
+        )
+        mock_get_db.return_value = mock_db
+
+        response = client.get("/api/media/images?tag=uploaded")
+
+        assert response.status_code == 200
+        assert response.json() == {"images": [], "count": 0}

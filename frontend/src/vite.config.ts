@@ -184,6 +184,14 @@ export default defineConfig({
         },
       },
 
+      // Signed media assets are served from the backend at /media/*.
+      // Keep the path and query string intact so signature validation continues to work.
+      '/media': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+      },
+
       // Convenience routes so you can open docs directly via Vite dev server
       '/openapi.json': {
         target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:8888',

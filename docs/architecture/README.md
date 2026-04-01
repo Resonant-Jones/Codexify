@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-03-28
+Last updated: 2026-03-29
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -35,6 +35,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
+- [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
@@ -43,6 +44,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack with source-scoped evidence notes and confidence labels.
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
+- [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
+- [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.
 - [Completion Pipeline](./completion_pipeline.md): older completion deep dive; supplementary only and verify against current routes/workers.
 - [Inference Providers](./providers.md): provider notes; supplementary only and verify against current catalog/router/health behavior.
 - [Guardian Agent Delegation Recon](./guardian-agent-delegation-recon.md): focused planning/recon notes on delegation and agent runtime work.

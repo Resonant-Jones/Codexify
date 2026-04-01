@@ -35,6 +35,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.core.chat_completion_service import (
+    DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
+    DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
+    DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
+    _merge_thread_metadata_patch,
+)
 from guardian.core.event_graph import get_event_writer
 from guardian.depth import (
     DepthDowngradeReason,
@@ -529,6 +535,7 @@ class ChatCompletionRequest(BaseModel):
     reasoning_mode: Optional[str] = None
     system_override: Optional[str] = None
     turn_id: Optional[str] = None
+    source_mode: Optional[str] = "project"
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
@@ -1325,6 +1332,125 @@ def _fetch_message_extra_meta(
     return backfill
 
 
+def _fetch_thread_metadata(thread_id: int) -> dict[str, Any]:
+    getter = getattr(chatlog_db, "get_chat_thread", None)
+    if callable(getter):
+        try:
+            thread = getter(thread_id)
+        except Exception:
+            thread = None
+        if isinstance(thread, dict):
+            metadata = _coerce_message_meta(thread.get("metadata"))
+            if metadata:
+                return metadata
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return {}
+
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT metadata
+                    FROM chat_threads
+                    WHERE id = %s
+                    """,
+                    (thread_id,),
+                )
+                row = cur.fetchone()
+    except Exception:
+        logger.debug(
+            "[chat.trace] failed to read thread metadata thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+        return {}
+
+    if row is None:
+        return {}
+    if isinstance(row, dict):
+        return _coerce_message_meta(row.get("metadata"))
+    if hasattr(row, "keys"):
+        return _coerce_message_meta(dict(row).get("metadata"))
+    if isinstance(row, (list, tuple)) and row:
+        return _coerce_message_meta(row[0])
+    return {}
+
+
+def _thread_trace_entry(
+    metadata: dict[str, Any],
+    *,
+    key: str,
+    thread_id: int,
+    task_id: str | None = None,
+) -> dict[str, Any] | None:
+    entry = metadata.get(key)
+    if not isinstance(entry, dict):
+        return None
+
+    entry_task_id = str(entry.get("task_id") or "").strip()
+    if task_id is not None and entry_task_id != task_id:
+        return None
+
+    entry_thread_id = _coerce_positive_int(entry.get("thread_id"))
+    if entry_thread_id is not None and entry_thread_id != thread_id:
+        return None
+
+    trace = entry.get("trace")
+    if not isinstance(trace, dict):
+        return None
+    return dict(trace)
+
+
+def _thread_latest_task_id(
+    thread_id: int,
+    metadata: dict[str, Any],
+) -> str | None:
+    task_id = _thread_latest_task.get(thread_id)
+    if task_id:
+        return task_id
+    fallback = _normalize_task_identity(
+        metadata.get(DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY)
+    )
+    if fallback:
+        _thread_latest_task[thread_id] = fallback
+    return fallback
+
+
+def _persist_thread_latest_task_id(thread_id: int, task_id: str) -> None:
+    normalized = _normalize_task_identity(task_id)
+    if normalized is None:
+        return
+    _merge_thread_metadata_patch(
+        thread_id,
+        {DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: normalized},
+    )
+
+
+def _persist_thread_latest_rag_trace(
+    thread_id: int,
+    task_id: str,
+    trace: dict[str, Any],
+) -> None:
+    normalized = _normalize_task_identity(task_id)
+    if normalized is None or not isinstance(trace, dict):
+        return
+    _merge_thread_metadata_patch(
+        thread_id,
+        {
+            DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: normalized,
+            DEBUG_LATEST_RAG_TRACE_METADATA_KEY: {
+                "task_id": normalized,
+                "thread_id": thread_id,
+                "trace": dict(trace),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        },
+    )
+
+
 def _build_scoped_doc_override(
     docs_bundle: Dict[str, Any] | None,
     *,
@@ -1430,6 +1556,11 @@ def map_internal_depth_mode(
     if requested_depth_raw == "deep":
         return "deep" if effective_depth_mode == "deep" else "normal"
     return requested_depth_raw
+
+
+def normalize_source_mode(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    return "personal_knowledge" if value == "personal_knowledge" else "project"
 
 
 # =========================
@@ -1758,6 +1889,7 @@ async def chat_complete(
     Enqueue an assistant reply for the given thread and return a task id.
     """
     turn_id = _normalize_turn_id(body.turn_id)
+    source_mode = normalize_source_mode(body.source_mode)
 
     provider = str(
         body.provider
@@ -1918,8 +2050,9 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        # Encode turn_id into origin so it survives dataclass serialization.
-        origin=f"api:chat.complete|turn_id={turn_id}",
+        # Temporary transport bridge: carry turn_id and source_mode via origin
+        # until ChatCompletionTask gains typed fields for both values.
+        origin=f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}",
     )
     task.turn_id = turn_id
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
@@ -2001,6 +2134,7 @@ async def chat_complete(
 
     # Track latest task for debug endpoint
     _thread_latest_task[thread_id] = task_identity
+    _persist_thread_latest_task_id(thread_id, task_identity)
 
     task_created_publish_error: task_events.TaskEventPublishError | None = None
     try:
@@ -2071,6 +2205,7 @@ async def chat_complete(
         "task_id": task_identity,
         "turn_id": turn_id,
         "thread_id": thread_id,
+        "source_mode": source_mode,
         "depth_mode": internal_depth_mode,
         "requested_depth_mode": requested_depth_mode,
         "effective_depth_mode": effective_depth_mode,
@@ -2516,6 +2651,7 @@ def get_latest_rag_trace(
     """
     trace: Dict[str, Any] | None = None
     payload_summary: Dict[str, Any] | None = None
+    metadata = _fetch_thread_metadata(thread_id)
     profile_debug: Dict[str, Any] = {
         "active_profile_id": None,
         "provider_override": None,
@@ -2525,15 +2661,31 @@ def get_latest_rag_trace(
         "model_mode": None,
     }
 
-    # Try to get trace + profile data from task events if we have a recent task
-    task_id = _thread_latest_task.get(thread_id)
+    # Try to get trace + profile data from task events if we have a recent task.
+    task_id = _thread_latest_task_id(thread_id, metadata)
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
-        if completed_payload:
+        if isinstance(completed_payload, dict):
             payload_trace = completed_payload.get("trace")
             if isinstance(payload_trace, dict):
                 trace = dict(payload_trace)
                 _rag_traces[thread_id] = trace  # Cache it
+                _persist_thread_latest_rag_trace(thread_id, task_id, trace)
+            elif trace is None:
+                candidate_trace = _thread_trace_entry(
+                    metadata,
+                    key=DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
+                    thread_id=thread_id,
+                    task_id=task_id,
+                )
+                if candidate_trace is not None:
+                    trace = candidate_trace
+                    _rag_traces[thread_id] = trace
+                    _persist_thread_latest_rag_trace(
+                        thread_id,
+                        task_id,
+                        trace,
+                    )
             if isinstance(completed_payload.get("payload_summary"), dict):
                 payload_summary = dict(completed_payload.get("payload_summary"))
                 if trace is not None:
@@ -2548,6 +2700,15 @@ def get_latest_rag_trace(
                 "model_mode",
             ):
                 profile_debug[key] = completed_payload.get(key)
+
+    if trace is None:
+        persisted = _thread_trace_entry(
+            metadata,
+            key=DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
+            thread_id=thread_id,
+        )
+        if persisted is not None:
+            trace = persisted
 
     # Fall back to in-memory cache
     if trace is None:
