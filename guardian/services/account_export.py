@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
-import io
 import json
+import os
+import tempfile
 import zipfile
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -83,10 +85,11 @@ OMITTED_BINARY_COVERAGE = (
 
 
 @dataclass(frozen=True)
-class _PayloadFile:
+class _PayloadArtifact:
     family: str
     path: str
-    body: bytes
+    row_count: int
+    size_bytes: int
     sha256: str
 
 
@@ -131,22 +134,16 @@ def _reader_rows(
     return [dict(row) for row in rows]
 
 
-def _build_payload_files(
+def _iter_account_export_payloads(
     db: Any, user: AuthenticatedUser
-) -> list[_PayloadFile]:
-    payloads: list[_PayloadFile] = []
+) -> Iterable[tuple[str, str, list[dict[str, Any]]]]:
+    iterator = getattr(db, "iter_account_export_payloads_for_user", None)
+    if callable(iterator):
+        yield from iterator(user.id)
+        return
+
     for family, path, reader_name in PAYLOAD_ORDER:
-        rows = _reader_rows(db, reader_name, user.id)
-        body = _dump_json(rows)
-        payloads.append(
-            _PayloadFile(
-                family=family,
-                path=path,
-                body=body,
-                sha256=hashlib.sha256(body).hexdigest(),
-            )
-        )
-    return payloads
+        yield family, path, _reader_rows(db, reader_name, user.id)
 
 
 def _build_manifest(
@@ -154,19 +151,18 @@ def _build_manifest(
     user: AuthenticatedUser,
     created_at: str,
     app_version: str,
-    payload_files: Iterable[_PayloadFile],
+    payload_files: Iterable[_PayloadArtifact],
 ) -> dict[str, Any]:
     payload_files_list = list(payload_files)
     entity_counts = {
-        payload.family: len(json.loads(payload.body.decode("utf-8")))
-        for payload in payload_files_list
+        payload.family: payload.row_count for payload in payload_files_list
     }
     integrity = {
         "algorithm": "sha256",
         "payload_files": {
             payload.path: {
                 "sha256": payload.sha256,
-                "size_bytes": len(payload.body),
+                "size_bytes": payload.size_bytes,
             }
             for payload in payload_files_list
         },
@@ -200,23 +196,46 @@ def build_account_export_zip(
     user: AuthenticatedUser,
     *,
     app_version: str | None = None,
-) -> bytes:
+) -> str:
     created_at = datetime.now(timezone.utc).isoformat()
     resolved_app_version = app_version or _resolve_app_version()
-    payload_files = _build_payload_files(db, user)
-    manifest = _build_manifest(
-        user=user,
-        created_at=created_at,
-        app_version=resolved_app_version,
-        payload_files=payload_files,
+    payload_files: list[_PayloadArtifact] = []
+    temp_zip = tempfile.NamedTemporaryFile(
+        mode="wb",
+        suffix=".zip",
+        prefix="codexify-account-export-",
+        delete=False,
     )
+    temp_path = temp_zip.name
+    try:
+        with temp_zip:
+            with zipfile.ZipFile(
+                temp_zip, mode="w", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                for family, path, rows in _iter_account_export_payloads(
+                    db, user
+                ):
+                    body = _dump_json(rows)
+                    archive.writestr(path, body)
+                    payload_files.append(
+                        _PayloadArtifact(
+                            family=family,
+                            path=path,
+                            row_count=len(rows),
+                            size_bytes=len(body),
+                            sha256=hashlib.sha256(body).hexdigest(),
+                        )
+                    )
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(
-        buffer, mode="w", compression=zipfile.ZIP_DEFLATED
-    ) as archive:
-        for payload in payload_files:
-            archive.writestr(payload.path, payload.body)
-        archive.writestr("manifest.json", _dump_json(manifest))
-
-    return buffer.getvalue()
+                manifest = _build_manifest(
+                    user=user,
+                    created_at=created_at,
+                    app_version=resolved_app_version,
+                    payload_files=payload_files,
+                )
+                archive.writestr("manifest.json", _dump_json(manifest))
+        return temp_path
+    except Exception:
+        with suppress(Exception):
+            os.unlink(temp_path)
+        raise

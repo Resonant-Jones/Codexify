@@ -2,6 +2,7 @@
 import io
 import json
 import logging
+import os
 import re
 import zipfile
 from datetime import datetime, timezone
@@ -9,7 +10,8 @@ from typing import Any, Iterable, Literal, Optional
 
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
 
 from guardian.core import db
 from guardian.core.auth import AuthenticatedUser, require_user
@@ -68,6 +70,13 @@ def _safe_filename(
     if len(text) > max_length:
         text = text[:max_length].rstrip()
     return text or default
+
+
+def _cleanup_export_file(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
 
 
 def _source_thread_short(
@@ -305,7 +314,7 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
 )
 def export_account_zip(user: AuthenticatedUser = Depends(require_user)):
     try:
-        payload = build_account_export_zip(db, user)
+        zip_path = build_account_export_zip(db, user)
     except Exception as exc:
         logger.exception(
             "Failed to build account export zip for user %s: %s",
@@ -317,12 +326,11 @@ def export_account_zip(user: AuthenticatedUser = Depends(require_user)):
             detail="Failed to build account export",
         ) from exc
 
-    return Response(
-        content=payload,
+    return FileResponse(
+        zip_path,
         media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{ZIP_FILENAME}"'
-        },
+        filename=ZIP_FILENAME,
+        background=BackgroundTask(_cleanup_export_file, zip_path),
     )
 
 

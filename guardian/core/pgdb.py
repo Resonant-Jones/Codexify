@@ -2250,6 +2250,88 @@ class _AccountExportScope:
     asset_ids: tuple[str, ...]
 
 
+PAYLOAD_ORDER = (
+    (
+        "projects",
+        "entities/projects.json",
+        "fetch_account_export_projects_for_user",
+    ),
+    (
+        "chat_threads",
+        "entities/chat_threads.json",
+        "fetch_account_export_chat_threads_for_user",
+    ),
+    (
+        "chat_messages",
+        "entities/chat_messages.json",
+        "fetch_account_export_chat_messages_for_user",
+    ),
+    (
+        "uploaded_documents",
+        "entities/uploaded_documents.json",
+        "fetch_account_export_uploaded_documents_for_user",
+    ),
+    (
+        "generated_documents",
+        "entities/generated_documents.json",
+        "fetch_account_export_generated_documents_for_user",
+    ),
+    (
+        "uploaded_images",
+        "entities/uploaded_images.json",
+        "fetch_account_export_uploaded_images_for_user",
+    ),
+    (
+        "generated_images",
+        "entities/generated_images.json",
+        "fetch_account_export_generated_images_for_user",
+    ),
+    (
+        "media_assets",
+        "entities/media_assets.json",
+        "fetch_account_export_media_assets_for_user",
+    ),
+    (
+        "media_aliases",
+        "entities/media_aliases.json",
+        "fetch_account_export_media_aliases_for_user",
+    ),
+    (
+        "thread_documents",
+        "entities/thread_documents.json",
+        "fetch_account_export_thread_documents_for_user",
+    ),
+    (
+        "project_document_links",
+        "entities/project_document_links.json",
+        "fetch_account_export_project_document_links_for_user",
+    ),
+)
+
+
+@contextmanager
+def _account_export_connection(
+    conn: psycopg.Connection | None = None,
+):
+    if conn is not None:
+        yield conn
+        return
+
+    dsn = _resolve_dsn()
+    new_conn = psycopg.connect(dsn, row_factory=dict_row)
+    try:
+        yield new_conn
+    finally:
+        try:
+            new_conn.close()
+        except Exception as conn_err:
+            logger.debug(
+                "Failed to close account export connection: %s",
+                conn_err,
+                exc_info=True,
+            )
+
+
 def _account_export_thread_ids(conn, user_id: str) -> tuple[int, ...]:
     if not user_id:
         return ()
@@ -2268,7 +2350,7 @@ def _account_export_thread_ids(conn, user_id: str) -> tuple[int, ...]:
 
 
 def _account_export_thread_clause(
-    thread_ids: tuple[int, ...]
+    thread_ids: tuple[int, ...],
 ) -> tuple[str, tuple[Any, ...]]:
     if not thread_ids:
         return "FALSE", ()
@@ -2438,17 +2520,35 @@ def _account_export_scope(conn, user_id: str) -> _AccountExportScope:
     )
 
 
+def iter_account_export_payloads_for_user(
+    user_id: str,
+) -> Generator[tuple[str, str, list[dict[str, Any]]], None, None]:
+    if not user_id:
+        return
+
+    with _account_export_connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+                )
+            for family, path, reader_name in PAYLOAD_ORDER:
+                reader = globals()[reader_name]
+                rows = reader(user_id, conn=conn)
+                yield family, path, rows
+
+
 def fetch_account_export_projects_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             if not scope.project_ids:
                 return []
             cur.execute(
@@ -2461,27 +2561,18 @@ def fetch_account_export_projects_for_user(
                 (list(scope.project_ids),),
             )
             return [_normalize_export_row(dict(row)) for row in cur.fetchall()]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close account export project connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_chat_threads_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT
@@ -2511,28 +2602,19 @@ def fetch_account_export_chat_threads_for_user(
                 _normalize_export_row(PgDB._normalize_thread(dict(row)))
                 for row in rows
             ]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close account export thread connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_chat_messages_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             if not scope.thread_ids:
                 return []
             cur.execute(
@@ -2557,28 +2639,19 @@ def fetch_account_export_chat_messages_for_user(
                 _normalize_export_row(_normalize_export_message_row(dict(row)))
                 for row in rows
             ]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close account export message connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_uploaded_documents_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             thread_clause, thread_params = _account_export_thread_clause(
                 scope.thread_ids
             )
@@ -2612,28 +2685,19 @@ def fetch_account_export_uploaded_documents_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close uploaded document export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_generated_documents_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             thread_clause, thread_params = _account_export_thread_clause(
                 scope.thread_ids
             )
@@ -2660,28 +2724,19 @@ def fetch_account_export_generated_documents_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close generated document export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_uploaded_images_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             thread_clause, thread_params = _account_export_thread_clause(
                 scope.thread_ids
             )
@@ -2710,28 +2765,19 @@ def fetch_account_export_uploaded_images_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close uploaded image export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_generated_images_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             thread_clause, thread_params = _account_export_thread_clause(
                 scope.thread_ids
             )
@@ -2758,28 +2804,19 @@ def fetch_account_export_generated_images_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close generated image export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_media_assets_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             thread_clause, thread_params = _account_export_thread_clause(
                 scope.thread_ids
             )
@@ -2812,28 +2849,19 @@ def fetch_account_export_media_assets_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close media asset export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_media_aliases_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             if not scope.asset_ids:
                 return []
             cur.execute(
@@ -2853,28 +2881,19 @@ def fetch_account_export_media_aliases_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close media alias export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_thread_documents_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             if not scope.thread_ids:
                 return []
             cur.execute(
@@ -2893,28 +2912,19 @@ def fetch_account_export_thread_documents_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close thread document export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_account_export_project_document_links_for_user(
     user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if not user_id:
         return []
 
-    dsn = _resolve_dsn()
-    conn = psycopg.connect(dsn, row_factory=dict_row)
-    try:
-        with conn.cursor() as cur:
-            scope = _account_export_scope(conn, user_id)
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
             if not scope.project_ids:
                 return []
             cur.execute(
@@ -2935,15 +2945,6 @@ def fetch_account_export_project_document_links_for_user(
             )
             rows = cur.fetchall()
             return [_normalize_export_row(dict(row)) for row in rows]
-    finally:
-        try:
-            conn.close()
-        except Exception as conn_err:
-            logger.debug(
-                "Failed to close project document export connection: %s",
-                conn_err,
-                exc_info=True,
-            )
 
 
 def fetch_imported_chatgpt_threads_for_user(

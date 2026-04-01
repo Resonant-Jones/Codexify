@@ -386,6 +386,28 @@ def test_account_export_zip_requires_auth(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+def test_account_export_zip_writes_archive_to_temp_file(
+    fake_db,
+) -> None:
+    db, _ = fake_db
+    zip_path = api_exports.build_account_export_zip(
+        db,
+        SimpleNamespace(id=USER_ID),
+    )
+
+    try:
+        assert os.path.exists(zip_path)
+
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            assert archive.testzip() is None
+            assert sorted(archive.namelist()) == sorted(
+                ["manifest.json", *EXPECTED_FILES]
+            )
+    finally:
+        if os.path.exists(zip_path):
+            os.unlink(zip_path)
+
+
 def test_account_export_zip_returns_truthful_manifest(
     client: TestClient, fake_db, monkeypatch: pytest.MonkeyPatch, rows
 ) -> None:
