@@ -16,6 +16,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -151,6 +152,14 @@ _MIRRORED_LIVE_EVENT_TYPES = {
     "task.cancelled",
 }
 _TASK_STATE_EVENT_TYPE = "task.state"
+_LIFECYCLE_TIMING_FIELDS = (
+    "queued_at",
+    "awaiting_model_at",
+    "awaiting_first_token_at",
+    "first_token_at",
+    "first_output_at",
+    "completed_at",
+)
 _ASSISTANT_AUDIO_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(
         1,
@@ -165,6 +174,36 @@ def _coerce_message_id(raw: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _lifecycle_timing_payload(
+    lifecycle_timings: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(lifecycle_timings, dict):
+        return {}
+    return {
+        field: lifecycle_timings[field]
+        for field in _LIFECYCLE_TIMING_FIELDS
+        if lifecycle_timings.get(field) is not None
+    }
+
+
+def _finalize_lifecycle_timings(
+    lifecycle_timings: dict[str, Any],
+    *,
+    fallback_completed_at: str | None = None,
+) -> dict[str, Any]:
+    payload = _lifecycle_timing_payload(lifecycle_timings)
+    completed_at = (
+        payload.get("completed_at") or fallback_completed_at or _utc_now_iso()
+    )
+    payload["completed_at"] = completed_at
+    lifecycle_timings["completed_at"] = completed_at
+    return payload
 
 
 def _extract_turn_id(task: ChatCompletionTask) -> str:
@@ -1420,7 +1459,7 @@ def _run_chat_completion_task_compat(
         assistant_output = ""
         streaming_emitted = False
 
-        def _publish_streaming() -> None:
+        def _publish_streaming(first_output_kind: str) -> None:
             nonlocal streaming_emitted
             if streaming_emitted:
                 return
@@ -1431,6 +1470,7 @@ def _run_chat_completion_task_compat(
                     {
                         "provider": execution_provider,
                         "model": execution_model,
+                        "first_output_kind": first_output_kind,
                     },
                 )
 
@@ -1455,7 +1495,7 @@ def _run_chat_completion_task_compat(
                         raise ChatTaskCancelled("task_cancelled")
                     visible_token = _extract_visible_stream_text(token)
                     if visible_token:
-                        _publish_streaming()
+                        _publish_streaming("token")
                         streamed_any = True
                         assistant_output += visible_token
                         if token_callback:
@@ -1477,7 +1517,7 @@ def _run_chat_completion_task_compat(
                         ),
                     )
                 )
-                _publish_streaming()
+                _publish_streaming("body")
                 if token_callback and (not streamed_any) and assistant_output:
                     token_callback(extract_assistant_response(assistant_output))
             return assistant_output
@@ -1497,7 +1537,7 @@ def _run_chat_completion_task_compat(
                 ),
             )
         )
-        _publish_streaming()
+        _publish_streaming("body")
         if token_callback:
             token_callback(extract_assistant_response(assistant_output))
         return assistant_output
@@ -1772,10 +1812,16 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     started = time.monotonic()
     turn_id = _extract_turn_id(task)
     latest_turn_message_id = _extract_latest_turn_message_id(task)
+    lifecycle_timings: dict[str, Any] = {}
+    queued_at = (
+        str(getattr(task, "created_at", "") or "").strip() or _utc_now_iso()
+    )
+    lifecycle_timings["queued_at"] = queued_at
     _publish_task_state(
         task,
         TaskLifecycleState.QUEUED,
         run_id=run_id,
+        extra={"queued_at": queued_at},
     )
     _safe_publish(
         task.task_id,
@@ -1793,11 +1839,48 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     def _state_callback(
         state: TaskLifecycleState, details: dict[str, Any] | None = None
     ) -> None:
+        state_details = dict(details or {})
+        first_output_kind = (
+            str(state_details.pop("first_output_kind", "") or "")
+            .strip()
+            .lower()
+        )
+        timestamp = _utc_now_iso()
+        if state == TaskLifecycleState.AWAITING_MODEL:
+            state_details.setdefault("awaiting_model_at", timestamp)
+            lifecycle_timings["awaiting_model_at"] = state_details[
+                "awaiting_model_at"
+            ]
+        elif state == TaskLifecycleState.AWAITING_FIRST_TOKEN:
+            state_details.setdefault("awaiting_first_token_at", timestamp)
+            lifecycle_timings["awaiting_first_token_at"] = state_details[
+                "awaiting_first_token_at"
+            ]
+        elif state == TaskLifecycleState.STREAMING:
+            if first_output_kind == "token":
+                state_details.setdefault("first_token_at", timestamp)
+                state_details.setdefault(
+                    "first_output_at", state_details["first_token_at"]
+                )
+                lifecycle_timings["first_token_at"] = state_details[
+                    "first_token_at"
+                ]
+                lifecycle_timings["first_output_at"] = state_details[
+                    "first_output_at"
+                ]
+            else:
+                state_details.setdefault("first_output_at", timestamp)
+                lifecycle_timings["first_output_at"] = state_details[
+                    "first_output_at"
+                ]
+        elif state == TaskLifecycleState.COMPLETED:
+            state_details.setdefault("completed_at", timestamp)
+            lifecycle_timings["completed_at"] = state_details["completed_at"]
         _publish_task_state(
             task,
             state,
             run_id=run_id,
-            extra=dict(details or {}),
+            extra=state_details,
         )
 
     logger.info(
@@ -1817,6 +1900,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         )
         if existing_message_id is not None:
             duration_ms = int((time.monotonic() - started) * 1000)
+            terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
             logger.warning(
                 "[chat-worker] duplicate_turn_detected thread_id=%s turn_id=%s task_id=%s existing_message_id=%s",
                 task.thread_id,
@@ -1838,11 +1922,13 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "model": task.model,
                     "selection_source": "turn_id_dedupe",
                     "catalog_version_hash": None,
+                    **terminal_timings,
                 },
             )
             return
 
         if is_cancelled(task.task_id):
+            terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
             _safe_publish(
                 task.task_id,
                 "task.cancelled",
@@ -1852,6 +1938,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "origin": task.origin,
                     "turn_id": turn_id,
                     "latest_turn_message_id": latest_turn_message_id,
+                    **terminal_timings,
                 },
             )
             clear_cancelled(task.task_id)
@@ -1871,6 +1958,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             )
             if existing_message_id is not None:
                 duration_ms = int((time.monotonic() - started) * 1000)
+                terminal_timings = _finalize_lifecycle_timings(
+                    lifecycle_timings
+                )
                 logger.warning(
                     "[chat-worker] duplicate_turn_prevented thread_id=%s turn_id=%s task_id=%s message_id=%s",
                     task.thread_id,
@@ -1891,6 +1981,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                         "deduplicated": True,
                         "provider": task.provider,
                         "model": task.model,
+                        **terminal_timings,
                     },
                 )
                 logger.info(
@@ -1940,6 +2031,16 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         result_retrieval_target = result.get("retrieval_target")
         if result_retrieval_target is None and isinstance(result_trace, dict):
             result_retrieval_target = result_trace.get("retrieval_target")
+        lifecycle_timings_payload = _finalize_lifecycle_timings(
+            lifecycle_timings
+        )
+        result.update(lifecycle_timings_payload)
+        if isinstance(result_trace, dict):
+            result_trace = dict(result_trace)
+            result_trace.update(lifecycle_timings_payload)
+        else:
+            result_trace = dict(lifecycle_timings_payload)
+        result["trace"] = result_trace
         message_id = _coerce_message_id(result.get("message_id"))
         if message_id is None:
             logger.error(
@@ -2092,6 +2193,8 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "retrieval_query_matches_latest_turn": result.get(
                     "retrieval_query_matches_latest_turn"
                 ),
+                "trace": result_trace,
+                **lifecycle_timings_payload,
             },
         )
         logger.info(
@@ -2104,6 +2207,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             message_id,
         )
     except ChatTaskCancelled:
+        terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
         _safe_publish(
             task.task_id,
             "task.cancelled",
@@ -2113,6 +2217,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "origin": task.origin,
                 "turn_id": turn_id,
                 "latest_turn_message_id": latest_turn_message_id,
+                **terminal_timings,
             },
         )
         clear_cancelled(task.task_id)
@@ -2127,6 +2232,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         duration_ms = int((time.monotonic() - started) * 1000)
         error_detail = _describe_task_error(exc)
         error_metadata = _task_error_metadata(exc)
+        terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
         failure_payload = {
             "run_id": run_id,
             "duration_ms": duration_ms,
@@ -2136,6 +2242,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "origin": task.origin,
             "turn_id": turn_id,
             "latest_turn_message_id": latest_turn_message_id,
+            **terminal_timings,
         }
         for key in (
             "provider",

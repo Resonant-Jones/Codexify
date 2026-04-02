@@ -75,6 +75,12 @@ def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
                 "retrieval_query": "question B",
                 "retrieval_target": "latest_turn",
                 "retrieval_query_matches_latest_turn": True,
+                "queued_at": "2026-04-02T00:00:00+00:00",
+                "awaiting_model_at": "2026-04-02T00:00:01+00:00",
+                "awaiting_first_token_at": "2026-04-02T00:00:02+00:00",
+                "first_token_at": "2026-04-02T00:00:03+00:00",
+                "first_output_at": "2026-04-02T00:00:03+00:00",
+                "completed_at": "2026-04-02T00:00:04+00:00",
             },
             "payload_summary": {"message_count": 2},
         },
@@ -87,6 +93,12 @@ def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
     assert trace["retrieval_query"] == "question B"
     assert trace["retrieval_target"] == "latest_turn"
     assert trace["retrieval_query_matches_latest_turn"] is True
+    assert trace["queued_at"] == "2026-04-02T00:00:00+00:00"
+    assert trace["awaiting_model_at"] == "2026-04-02T00:00:01+00:00"
+    assert trace["awaiting_first_token_at"] == "2026-04-02T00:00:02+00:00"
+    assert trace["first_token_at"] == "2026-04-02T00:00:03+00:00"
+    assert trace["first_output_at"] == "2026-04-02T00:00:03+00:00"
+    assert trace["completed_at"] == "2026-04-02T00:00:04+00:00"
 
     chat._thread_latest_task.pop(91, None)
     chat._rag_traces.pop(91, None)
