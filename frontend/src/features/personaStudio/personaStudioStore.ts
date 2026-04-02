@@ -80,9 +80,9 @@ export type EditorTab =
 
 export type PersonaStudioLocalState = {
   profiles: PersonaProfileDraft[];
+  draftProfilesById: Record<string, PersonaProfileDraft>;
   selectedProfileId: string;
   activeTab: EditorTab;
-  lastSavedProfiles: Record<string, PersonaProfileDraft>;
 };
 
 export const PERSONA_STUDIO_STORAGE_KEY = "cfy.personaStudio.localState.v1";
@@ -432,6 +432,33 @@ function normalizePersonaProfileDraft(
   };
 }
 
+function normalizePersonaProfileArray(
+  value: unknown,
+  fallbackProfiles: PersonaProfileDraft[]
+): PersonaProfileDraft[] {
+  if (!Array.isArray(value)) return clone(fallbackProfiles);
+
+  const nextProfiles: PersonaProfileDraft[] = [];
+  const seenProfileIds = new Set<string>();
+
+  for (const profileValue of value) {
+    const fallbackId =
+      isRecord(profileValue) && typeof profileValue.id === "string"
+        ? profileValue.id
+        : fallbackProfiles[0]?.id ?? PERSONA_STUDIO_SEED_PROFILES[0]?.id ?? "";
+    const normalized = normalizePersonaProfileDraft(
+      profileValue,
+      getSeedProfileReference(fallbackId)
+    );
+
+    if (seenProfileIds.has(normalized.id)) continue;
+    seenProfileIds.add(normalized.id);
+    nextProfiles.push(normalized);
+  }
+
+  return nextProfiles.length > 0 ? nextProfiles : clone(fallbackProfiles);
+}
+
 function getSeedProfileReference(profileId?: string | null): PersonaProfileDraft {
   return (
     PERSONA_STUDIO_SEED_PROFILES.find((profile) => profile.id === profileId) ??
@@ -489,32 +516,59 @@ function getSeedProfileReference(profileId?: string | null): PersonaProfileDraft
   );
 }
 
+function createPersonaProfileMap(
+  profiles: PersonaProfileDraft[]
+): Record<string, PersonaProfileDraft> {
+  return Object.fromEntries(
+    profiles.map((profile) => [profile.id, cloneProfile(profile)])
+  );
+}
+
+function createDefaultCopyName(
+  sourceName: string,
+  existingProfiles: PersonaProfileDraft[]
+): string {
+  const baseName = sourceName.trim() || "Persona";
+  const normalizedBase = baseName.replace(/\s+Copy(?:\s+\d+)?$/i, "");
+  const existingNames = new Set(existingProfiles.map((profile) => profile.name));
+
+  let candidate = `${normalizedBase} Copy`;
+  let copyIndex = 2;
+
+  while (existingNames.has(candidate)) {
+    candidate = `${normalizedBase} Copy ${copyIndex}`;
+    copyIndex += 1;
+  }
+
+  return candidate;
+}
+
 function normalizePersonaStudioLocalState(
   value: unknown
 ): PersonaStudioLocalState {
   if (!isRecord(value)) return createPersonaStudioSeedState();
 
   const rawProfiles = Array.isArray(value.profiles) ? value.profiles : [];
-  const nextProfiles: PersonaProfileDraft[] = [];
-  const seenProfileIds = new Set<string>();
+  const rawDraftProfilesById = isRecord(value.draftProfilesById)
+    ? value.draftProfilesById
+    : null;
+  const rawLegacySavedProfiles = isRecord(value.lastSavedProfiles)
+    ? value.lastSavedProfiles
+    : null;
 
-  for (const profileValue of rawProfiles) {
-    const fallbackId =
-      isRecord(profileValue) && typeof profileValue.id === "string"
-        ? profileValue.id
-        : PERSONA_STUDIO_SEED_PROFILES[0]?.id ?? "";
-    const normalized = normalizePersonaProfileDraft(
-      profileValue,
-      getSeedProfileReference(fallbackId)
-    );
+  const profileSource =
+    rawProfiles.length > 0
+      ? rawProfiles
+      : rawDraftProfilesById && Object.keys(rawDraftProfilesById).length > 0
+        ? Object.values(rawDraftProfilesById)
+        : rawLegacySavedProfiles && Object.keys(rawLegacySavedProfiles).length > 0
+          ? Object.values(rawLegacySavedProfiles)
+          : PERSONA_STUDIO_SEED_PROFILES;
 
-    if (seenProfileIds.has(normalized.id)) continue;
-    seenProfileIds.add(normalized.id);
-    nextProfiles.push(normalized);
-  }
-
-  const profiles =
-    nextProfiles.length > 0 ? nextProfiles : clone(PERSONA_STUDIO_SEED_PROFILES);
+  const profiles = normalizePersonaProfileArray(
+    profileSource,
+    PERSONA_STUDIO_SEED_PROFILES
+  );
   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
 
   const selectedProfileId =
@@ -522,19 +576,47 @@ function normalizePersonaStudioLocalState(
       ? value.selectedProfileId
       : profiles[0]?.id ?? PERSONA_STUDIO_SEED_PROFILES[0]?.id ?? "";
 
-  const lastSavedProfiles: Record<string, PersonaProfileDraft> = {};
-  if (isRecord(value.lastSavedProfiles)) {
-    for (const [profileId, savedValue] of Object.entries(value.lastSavedProfiles)) {
-      const fallback = profilesById.get(profileId) ?? getSeedProfileReference(profileId);
-      lastSavedProfiles[profileId] = normalizePersonaProfileDraft(savedValue, fallback);
+  if (rawDraftProfilesById) {
+    const draftProfilesById: Record<string, PersonaProfileDraft> = {};
+
+    for (const profile of profiles) {
+      draftProfilesById[profile.id] = normalizePersonaProfileDraft(
+        rawDraftProfilesById[profile.id],
+        profile
+      );
     }
+
+    return {
+      profiles,
+      draftProfilesById,
+      selectedProfileId,
+      activeTab: normalizeEditorTab(value.activeTab) ?? "Identity",
+    };
+  }
+
+  if (rawLegacySavedProfiles) {
+    const draftProfilesById = createPersonaProfileMap(profiles);
+    const savedProfiles = profiles.map((profile) => {
+      const fallback = getSeedProfileReference(profile.id);
+      return normalizePersonaProfileDraft(
+        rawLegacySavedProfiles[profile.id] ?? fallback,
+        fallback
+      );
+    });
+
+    return {
+      profiles: savedProfiles,
+      draftProfilesById,
+      selectedProfileId,
+      activeTab: normalizeEditorTab(value.activeTab) ?? "Identity",
+    };
   }
 
   return {
     profiles,
+    draftProfilesById: createPersonaProfileMap(profiles),
     selectedProfileId,
     activeTab: normalizeEditorTab(value.activeTab) ?? "Identity",
-    lastSavedProfiles,
   };
 }
 
@@ -551,9 +633,9 @@ export function getPersonaStudioSeedProfile(
 export function createPersonaStudioSeedState(): PersonaStudioLocalState {
   return {
     profiles: clone(PERSONA_STUDIO_SEED_PROFILES),
+    draftProfilesById: createPersonaProfileMap(PERSONA_STUDIO_SEED_PROFILES),
     selectedProfileId: PERSONA_STUDIO_SEED_PROFILES[0]?.id ?? "",
     activeTab: "Identity",
-    lastSavedProfiles: {},
   };
 }
 
@@ -621,13 +703,16 @@ export function usePersonaStudioLocalDraftState() {
   }, [state]);
 
   const selectedProfile = useMemo(
-    () => state.profiles.find((profile) => profile.id === state.selectedProfileId) ?? null,
-    [state.profiles, state.selectedProfileId]
+    () =>
+      state.draftProfilesById[state.selectedProfileId] ??
+      state.profiles.find((profile) => profile.id === state.selectedProfileId) ??
+      null,
+    [state.draftProfilesById, state.profiles, state.selectedProfileId]
   );
 
   const selectedSavedProfile = useMemo(
-    () => state.lastSavedProfiles[state.selectedProfileId] ?? null,
-    [state.lastSavedProfiles, state.selectedProfileId]
+    () => state.profiles.find((profile) => profile.id === state.selectedProfileId) ?? null,
+    [state.profiles, state.selectedProfileId]
   );
 
   const seedProfile = useMemo(
@@ -636,14 +721,18 @@ export function usePersonaStudioLocalDraftState() {
   );
 
   const isDirty = selectedProfile
-    ? !sameProfileDraft(selectedProfile, selectedSavedProfile ?? seedProfile)
+    ? !sameProfileDraft(selectedProfile, selectedSavedProfile)
     : false;
 
   const hasSavedVersion = Boolean(selectedSavedProfile);
 
   const setSelectedProfileId = useCallback((profileId: string) => {
     setState((previous) => {
-      if (!previous.profiles.some((profile) => profile.id === profileId)) {
+      const nextSelectedProfile = previous.profiles.find(
+        (profile) => profile.id === profileId
+      );
+
+      if (!nextSelectedProfile) {
         return previous;
       }
 
@@ -651,8 +740,19 @@ export function usePersonaStudioLocalDraftState() {
         return previous;
       }
 
+      if (previous.draftProfilesById[profileId]) {
+        return {
+          ...previous,
+          selectedProfileId: profileId,
+        };
+      }
+
       return {
         ...previous,
+        draftProfilesById: {
+          ...previous.draftProfilesById,
+          [profileId]: cloneProfile(nextSelectedProfile),
+        },
         selectedProfileId: profileId,
       };
     });
@@ -678,14 +778,17 @@ export function usePersonaStudioLocalDraftState() {
 
         if (!currentProfile) return previous;
 
-        const nextProfile = updater(currentProfile);
-        if (sameProfileDraft(nextProfile, currentProfile)) return previous;
+        const currentDraft =
+          previous.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
+        const nextProfile = updater(cloneProfile(currentDraft));
+        if (sameProfileDraft(nextProfile, currentDraft)) return previous;
 
         return {
           ...previous,
-          profiles: previous.profiles.map((profile) =>
-            profile.id === currentProfile.id ? nextProfile : profile
-          ),
+          draftProfilesById: {
+            ...previous.draftProfilesById,
+            [currentProfile.id]: nextProfile,
+          },
         };
       });
     },
@@ -700,11 +803,22 @@ export function usePersonaStudioLocalDraftState() {
 
       if (!currentProfile) return previous;
 
+      const currentDraft =
+        previous.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
+      const nextProfile = cloneProfile(currentDraft);
+
+      if (sameProfileDraft(nextProfile, currentProfile)) {
+        return previous;
+      }
+
       return {
         ...previous,
-        lastSavedProfiles: {
-          ...previous.lastSavedProfiles,
-          [currentProfile.id]: cloneProfile(currentProfile),
+        profiles: previous.profiles.map((profile) =>
+          profile.id === currentProfile.id ? nextProfile : profile
+        ),
+        draftProfilesById: {
+          ...previous.draftProfilesById,
+          [currentProfile.id]: cloneProfile(nextProfile),
         },
       };
     });
@@ -719,19 +833,30 @@ export function usePersonaStudioLocalDraftState() {
       if (!currentProfile) return previous;
 
       const nextId = createNextProfileId(previous.profiles);
-      const nextProfile = cloneProfile(currentProfile);
+      const currentDraft =
+        previous.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
+      const nextProfile = cloneProfile(currentDraft);
       nextProfile.id = nextId;
-      nextProfile.name = `${currentProfile.name} (Copy)`;
+      nextProfile.name = createDefaultCopyName(currentDraft.name, previous.profiles);
+      nextProfile.description = currentDraft.description;
       nextProfile.isDefault = false;
+      nextProfile.config = {
+        ...nextProfile.config,
+        identity: {
+          ...nextProfile.config.identity,
+          name: nextProfile.name,
+          description: nextProfile.description,
+        },
+      };
 
       return {
         ...previous,
         profiles: [...previous.profiles, nextProfile],
-        selectedProfileId: nextId,
-        lastSavedProfiles: {
-          ...previous.lastSavedProfiles,
+        draftProfilesById: {
+          ...previous.draftProfilesById,
           [nextId]: cloneProfile(nextProfile),
         },
+        selectedProfileId: nextId,
       };
     });
   }, []);
@@ -744,17 +869,19 @@ export function usePersonaStudioLocalDraftState() {
 
       if (!currentProfile) return previous;
 
-      const fallbackProfile =
-        previous.lastSavedProfiles[currentProfile.id] ??
-        getPersonaStudioSeedProfile(currentProfile.id);
+      const nextProfile = cloneProfile(currentProfile);
+      const currentDraft = previous.draftProfilesById[currentProfile.id];
 
-      const nextProfile = cloneProfile(fallbackProfile);
+      if (sameProfileDraft(currentDraft, nextProfile)) {
+        return previous;
+      }
 
       return {
         ...previous,
-        profiles: previous.profiles.map((profile) =>
-          profile.id === currentProfile.id ? nextProfile : profile
-        ),
+        draftProfilesById: {
+          ...previous.draftProfilesById,
+          [currentProfile.id]: nextProfile,
+        },
       };
     });
   }, []);
