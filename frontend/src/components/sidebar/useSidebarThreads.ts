@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import {
+  isGeneralLikeProjectName,
+} from "./sidebarPresentation";
 
 type UseSidebarThreadsOptions = {
   initialThreads: Thread[];
@@ -359,41 +362,36 @@ export function useSidebarThreads({
   );
 
   const currentProjectId = onProjectChange ? (projectId ?? null) : localProjectId;
-  const generalProjectId = useMemo(() => {
-    const fromProjects = projects.find((project) => isDefaultAliasName(project?.name));
-    if (fromProjects?.id != null) {
-      return String(fromProjects.id);
+  const generalProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const project of projects) {
+      if (isGeneralLikeProjectName(project?.name) && project?.id != null) {
+        ids.add(String(project.id));
+      }
     }
-    return readStoredGeneralProjectId();
+    const stored = readStoredGeneralProjectId();
+    if (stored) {
+      ids.add(stored);
+    }
+    return ids;
   }, [projects]);
 
   const scopedThreads = useMemo(() => {
-    const includesUnassignedAndGeneral = (scopeId: string | null): boolean => {
-      if (!scopeId) return false;
-      if (!generalProjectId) return false;
-      return String(scopeId) === String(generalProjectId);
+    const includesGeneralScope = (scopeId: string | null): boolean => {
+      if (!scopeId) return true;
+      return generalProjectIds.has(String(scopeId));
     };
 
-    const base =
-      currentProjectId === null
-        ? threadList.filter((t) => {
-            if (!t.projectId) return true;
-            if (!generalProjectId) return false;
-            return String(t.projectId) === String(generalProjectId);
-          })
-        : currentProjectId
-        ? includesUnassignedAndGeneral(currentProjectId)
-          ? threadList.filter(
-              (t) =>
-                !t.projectId
-                || String(t.projectId ?? "") === String(currentProjectId)
-            )
-          : threadList.filter(
-              (t) => String(t.projectId ?? "") === String(currentProjectId)
-            )
-        : threadList;
+    const base = includesGeneralScope(currentProjectId)
+      ? threadList.filter((t) => {
+          if (!t.projectId) return true;
+          return generalProjectIds.has(String(t.projectId));
+        })
+      : threadList.filter(
+          (t) => String(t.projectId ?? "") === String(currentProjectId)
+        );
     return base.filter((t) => !t.archivedAt);
-  }, [currentProjectId, generalProjectId, threadList]);
+  }, [currentProjectId, generalProjectIds, threadList]);
 
   const displayThreads = useMemo(() => {
     const titleMap = stableTitleRef.current;
@@ -416,12 +414,13 @@ export function useSidebarThreads({
 
   const scopeLabel = useMemo(() => {
     if (currentProjectId === null) return "General";
+    if (generalProjectIds.has(String(currentProjectId))) return "General";
     if (currentProjectId) {
       const proj = projects.find((p) => String(p.id) === String(currentProjectId));
       return proj?.name ?? "Project";
     }
     return "All";
-  }, [currentProjectId, projects]);
+  }, [currentProjectId, generalProjectIds, projects]);
 
   const looseCount = useMemo(() => threadList.filter((t) => !t.projectId).length, [threadList]);
 

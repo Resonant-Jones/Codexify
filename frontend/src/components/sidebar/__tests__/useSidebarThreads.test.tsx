@@ -17,7 +17,11 @@ const mockApi = api as unknown as {
   delete: ReturnType<typeof vi.fn>;
 };
 
-function createThread(id: string, title?: string): Thread {
+function createThread(
+  id: string,
+  title?: string,
+  overrides: Partial<Thread> = {}
+): Thread {
   return {
     id,
     title: title ?? `Thread ${id}`,
@@ -25,6 +29,7 @@ function createThread(id: string, title?: string): Thread {
     unread: 0,
     participants: [],
     messages: [],
+    ...overrides,
   };
 }
 
@@ -127,5 +132,30 @@ describe("useSidebarThreads delete flow", () => {
       )
     ).toBe(true);
     toastCapture.cleanup();
+  });
+
+  it("treats Imports as the General fallback scope when resolving sidebar threads", () => {
+    const threads = [
+      createThread("11", "Imported project thread", { projectId: "imports-1" }),
+      createThread("22", "Loose thread", { projectId: null }),
+      createThread("33", "Project thread", { projectId: "proj-1" }),
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarThreads({
+        initialThreads: threads,
+        projectId: "imports-1",
+        projects: [
+          { id: "imports-1", name: "Imports", icon: "📁" },
+          { id: "proj-1", name: "Project Alpha", icon: "📁" },
+        ],
+      })
+    );
+
+    expect(result.current.scopeLabel).toBe("General");
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
+      "11",
+      "22",
+    ]);
   });
 });

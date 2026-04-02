@@ -6,6 +6,9 @@ import api from "@/lib/api";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import { logOnce } from "@/lib/logging/logOnce";
+import {
+  pickCanonicalGeneralProject,
+} from "./sidebarPresentation";
 
 type UseProjectsCacheOptions = {
   initialProjects?: Project[];
@@ -163,9 +166,7 @@ export function useProjectsCache({
   }, [projectList]);
 
   useEffect(() => {
-    const defaultProject = projectList.find((project) =>
-      isDefaultAliasName(project?.name)
-    );
+    const defaultProject = pickCanonicalGeneralProject(projectList);
     if (!defaultProject?.id) return;
     try {
       if (typeof window === "undefined") return;
