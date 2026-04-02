@@ -14,20 +14,11 @@ import {
 import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import TileShell from "@/components/surface/TileShell";
-import {
-  getThreadPresentation,
-  type ProjectPresentation,
-} from "./sidebarPresentation";
-
-type BrowseMode = "grouped" | "flat";
 
 type ThreadListProps = {
   threads: Thread[];
   activeId: string | null;
   scopeLabel: string;
-  scopeBadge?: string | null;
-  browseMode?: BrowseMode;
-  projectPresentationsById?: Map<string, ProjectPresentation>;
   onSelect: (id: string) => void;
   onNewChat: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
@@ -80,9 +71,6 @@ export default function ThreadList({
   threads,
   activeId,
   scopeLabel,
-  scopeBadge = null,
-  browseMode = "grouped",
-  projectPresentationsById,
   onSelect,
   onNewChat,
   onRename,
@@ -100,12 +88,9 @@ export default function ThreadList({
       activeId={activeId}
       onSelect={onSelect}
       className={className}
-      rectH={browseMode === "flat" ? 58 : 60}
+      rectH={60}
       showHeader
       scopeLabel={scopeLabel}
-      scopeBadge={scopeBadge}
-      browseMode={browseMode}
-      projectPresentationsById={projectPresentationsById}
       onNewChat={onNewChat}
       onRename={onRename}
       onArchiveToggle={onArchiveToggle}
@@ -126,9 +111,6 @@ function ThreadPreviewList({
   rectH = 60,
   showHeader = false,
   scopeLabel,
-  scopeBadge,
-  browseMode = "grouped",
-  projectPresentationsById,
   onNewChat,
   onRename,
   onArchiveToggle,
@@ -144,9 +126,6 @@ function ThreadPreviewList({
   rectH?: number;
   showHeader?: boolean;
   scopeLabel?: string;
-  scopeBadge?: string | null;
-  browseMode?: BrowseMode;
-  projectPresentationsById?: Map<string, ProjectPresentation>;
   onNewChat?: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
   onArchiveToggle: (threadId: string, archived: boolean) => Promise<void>;
@@ -183,20 +162,8 @@ function ThreadPreviewList({
       {showHeader && (
         <div className="flex items-center justify-between pb-2">
           <div className="inline-flex items-center gap-1 text-xs opacity-70">
-            <ChevronDown className="h-3 w-3" /> <span>{browseMode === "flat" ? "Flat:" : "Project:"}</span>{" "}
+            <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
             <span className="font-medium">{scopeLabel ?? "—"}</span>
-            {browseMode === "grouped" && scopeBadge ? (
-              <span
-                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none"
-                style={{
-                  background: "color-mix(in oklab, var(--accent) 12%, transparent)",
-                  borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
-                  color: "var(--accent-strong)",
-                }}
-              >
-                {scopeBadge}
-              </span>
-            ) : null}
           </div>
           {onNewChat && (
             <button type="button" className="icon-inline" onClick={onNewChat}>
@@ -212,12 +179,6 @@ function ThreadPreviewList({
             thread={t}
             active={t.id === activeId}
             isDarkMode={isDarkMode}
-            browseMode={browseMode}
-            projectPresentation={
-              projectPresentationsById && t.projectId != null
-                ? projectPresentationsById.get(String(t.projectId)) ?? null
-                : null
-            }
             onSelect={onSelect}
             rectH={rectH}
             onRename={onRename}
@@ -240,8 +201,6 @@ function ThreadTileRow({
   thread,
   active,
   isDarkMode,
-  browseMode,
-  projectPresentation,
   onSelect,
   rectH = 60,
   className,
@@ -252,8 +211,6 @@ function ThreadTileRow({
   thread: Thread;
   active: boolean;
   isDarkMode: boolean;
-  browseMode: BrowseMode;
-  projectPresentation?: ProjectPresentation | null;
   onSelect: (id: string) => void;
   rectH?: number;
   className?: string;
@@ -410,58 +367,11 @@ function ThreadTileRow({
         ? false
         : heuristicCloud;
 
-  const presentation = getThreadPresentation(thread);
-  const safeTitle = presentation.label || (thread.title || "").trim() || "Untitled";
-  const flatProjectPresentation =
-    browseMode === "flat" ? (projectPresentation ?? null) : null;
-  const provenanceBadge = presentation.badge ? (
-    <span
-      data-testid={`thread-badge-${String(thread.id)}`}
-      className="inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none"
-      style={{
-        background: "color-mix(in oklab, var(--accent) 12%, transparent)",
-        borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
-        color: "var(--accent-strong)",
-      }}
-    >
-      {presentation.badge}
-    </span>
-  ) : null;
-  const projectBadge = flatProjectPresentation ? (
-    <span
-      data-testid={`thread-project-${String(thread.id)}`}
-      className="inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none"
-      style={{
-        background: "color-mix(in oklab, var(--panel-sheet) 72%, transparent)",
-        borderColor: "color-mix(in oklab, var(--panel-border) 80%, transparent)",
-        color: "var(--muted)",
-      }}
-      title={flatProjectPresentation.rawName}
-    >
-      {flatProjectPresentation.label}
-    </span>
-  ) : null;
-  const projectProvenanceBadge = browseMode === "flat" && flatProjectPresentation?.badge ? (
-    <span
-      data-testid={`thread-project-badge-${String(thread.id)}`}
-      className="inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none"
-      style={{
-        background: "color-mix(in oklab, var(--accent) 10%, transparent)",
-        borderColor: "color-mix(in oklab, var(--panel-border) 80%, transparent)",
-        color: "var(--muted)",
-      }}
-      title={flatProjectPresentation.rawName}
-    >
-      {flatProjectPresentation.badge}
-    </span>
-  ) : null;
+  const safeTitle = (thread.title || "").trim() || "Untitled";
   const titleNode = (
-    <span key="title" className="thread-title block truncate" title={presentation.rawTitle}>
-      <span className="inline-flex min-w-0 items-center gap-1 truncate">
+    <span key="title" className="thread-title block truncate" title={safeTitle}>
+      <span className="inline-flex items-center gap-1 truncate">
         <span className="truncate">{safeTitle}</span>
-        {provenanceBadge}
-        {projectBadge}
-        {projectProvenanceBadge}
         {isCloud ? (
           <span
             className="inline-flex items-center justify-center rounded-full text-[10px] px-1.5 py-0.5"
@@ -511,10 +421,7 @@ function ThreadTileRow({
         type="button"
         onClick={() => onSelect(thread.id)}
         data-testid={`thread-tile-${thread.id}`}
-        className={clsx(
-          "thread-preview w-full text-left text-[var(--text)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white",
-          browseMode === "flat" && "thread-preview--flat"
-        )}
+        className="thread-preview w-full text-left text-[var(--text)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white"
         borderColor={active ? highlightBorder : undefined}
         style={tileStyle}
       >
