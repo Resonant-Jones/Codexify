@@ -9,13 +9,6 @@ import ProjectList from "./ProjectList";
 import CreateProjectModal from "./CreateProjectModal";
 import useSidebarThreads from "./useSidebarThreads";
 import useProjectsCache from "./useProjectsCache";
-import {
-  getProjectPresentation,
-  getThreadPresentation,
-  isGeneralLikeProjectName,
-  pickCanonicalGeneralProject,
-  type ProjectPresentation,
-} from "./sidebarPresentation";
 import { useLegacyThreads } from "@/contexts/LegacyThreadsContext";
 import api from "@/lib/api";
 
@@ -82,6 +75,18 @@ function getComputedStyleVar(name: string, fallback = ""): string {
   }
 }
 
+function normalizeProjectName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isDefaultProjectAlias(value: unknown): boolean {
+  const normalized = normalizeProjectName(value);
+  return normalized === "general" || normalized === "loose threads";
+}
+
 async function deleteProjectApi(projectId: string | number) {
   const paths = [`/api/projects/${projectId}`, `/projects/${projectId}`];
   let lastErr: any = null;
@@ -117,20 +122,6 @@ async function createProjectApi(payload: ProjectCreatePayload) {
 }
 
 const SIDEBAR_RAIL = "px-3";
-const BROWSE_MODE_STORAGE_KEY = "cfy.sidebarBrowseMode";
-const LEGACY_SIDEBAR_TAB_KEY = "cfy.sidebarTab";
-
-function readStoredBrowseMode(): "grouped" | "flat" {
-  if (typeof window === "undefined") return "grouped";
-  const stored = window.localStorage.getItem(BROWSE_MODE_STORAGE_KEY);
-  if (stored === "grouped" || stored === "flat") {
-    return stored;
-  }
-  const legacy = window.localStorage.getItem(LEGACY_SIDEBAR_TAB_KEY);
-  if (legacy === "projects" || legacy === "grouped") return "grouped";
-  if (legacy === "threads" || legacy === "flat") return "flat";
-  return "grouped";
-}
 
 export default function SidebarRoot({
   threads,
@@ -148,8 +139,8 @@ export default function SidebarRoot({
   onBeforeDeleteThread,
   onCreateProject,
 }: Props) {
-  const [browseMode, setBrowseMode] = React.useState<"grouped" | "flat">(() =>
-    readStoredBrowseMode()
+  const [tab, setTab] = React.useState<"threads" | "projects">(() =>
+    (typeof window === "undefined" ? "threads" : ((localStorage.getItem("cfy.sidebarTab") as any) || "threads"))
   );
   const [q, setQ] = React.useState("");
   const { enabled: legacyEnabled, open: openLegacy } = useLegacyThreads();
@@ -175,64 +166,23 @@ export default function SidebarRoot({
     refreshProjectsFromServer,
   } = useProjectsCache({ initialProjects: projects, threadsForLooseCount: sidebarThreads });
 
-  const canonicalGeneralProject = React.useMemo(
-    () => pickCanonicalGeneralProject(projectList),
-    [projectList]
-  );
-
-  const currentProject = React.useMemo(
-    () =>
-      currentProjectId == null
-        ? null
-        : projectList.find((project) => String(project.id) === String(currentProjectId)) ?? null,
-    [currentProjectId, projectList]
-  );
-
-  const visibleProjects = React.useMemo(() => {
-    const canonicalId = canonicalGeneralProject?.id != null
-      ? String(canonicalGeneralProject.id)
-      : null;
-    return projectList.filter((project) => {
-      if (!isGeneralLikeProjectName(project?.name)) return true;
-      return canonicalId != null && String(project.id) === canonicalId;
-    });
-  }, [canonicalGeneralProject, projectList]);
-
-  const projectPresentationById = React.useMemo(() => {
-    const map = new Map<string, ProjectPresentation>();
-    for (const project of projectList) {
-      map.set(String(project.id), getProjectPresentation(project.name));
-    }
-    return map;
-  }, [projectList]);
-
   const scopeLabel = React.useMemo(() => {
     if (currentProjectId === null) return "General";
-    if (currentProject) {
-      return getProjectPresentation(currentProject.name).label;
+    if (currentProjectId) {
+      const proj = projectList.find((p) => String(p.id) === String(currentProjectId));
+      return proj?.name ?? hookScopeLabel;
     }
     return hookScopeLabel;
-  }, [currentProject, currentProjectId, hookScopeLabel]);
-
-  const scopeBadge = React.useMemo(() => {
-    if (currentProjectId == null || !currentProject) return null;
-    return getProjectPresentation(currentProject.name).badge;
-  }, [currentProject, currentProjectId]);
+  }, [currentProjectId, hookScopeLabel, projectList]);
 
   React.useEffect(() => {
     if (currentProjectId !== null) return;
-    const defaultProject = canonicalGeneralProject;
+    const defaultProject = projectList.find((project) =>
+      isDefaultProjectAlias(project?.name)
+    );
     if (!defaultProject?.id) return;
     setScope(String(defaultProject.id));
-  }, [canonicalGeneralProject, currentProjectId, setScope]);
-
-  React.useEffect(() => {
-    if (!currentProject || !canonicalGeneralProject?.id) return;
-    if (!isGeneralLikeProjectName(currentProject.name)) return;
-    const canonicalId = String(canonicalGeneralProject.id);
-    if (String(currentProject.id) === canonicalId) return;
-    setScope(canonicalId);
-  }, [canonicalGeneralProject, currentProject, setScope]);
+  }, [currentProjectId, projectList, setScope]);
 
   const columnClass = clsx("w-full", SIDEBAR_RAIL);
 
@@ -273,60 +223,19 @@ export default function SidebarRoot({
 
   React.useEffect(() => {
     try {
-      localStorage.setItem(BROWSE_MODE_STORAGE_KEY, browseMode);
-      localStorage.setItem(
-        LEGACY_SIDEBAR_TAB_KEY,
-        browseMode === "grouped" ? "projects" : "threads"
-      );
+      localStorage.setItem("cfy.sidebarTab", tab);
     } catch {
       /* ignore */
     }
-  }, [browseMode]);
-
-  const groupedMode = browseMode === "grouped";
-  const searchPlaceholder = groupedMode
-    ? "Search projects and threads…"
-    : "Search threads…";
-
-  const filteredProjects = React.useMemo(() => {
-    if (!q) return visibleProjects;
-    const s = q.toLowerCase();
-    return visibleProjects.filter((project) => {
-      const presentation = getProjectPresentation(project.name);
-      return [
-        presentation.label,
-        presentation.rawName,
-        presentation.badge ?? "",
-        project.name,
-      ].some((value) => String(value ?? "").toLowerCase().includes(s));
-    });
-  }, [q, visibleProjects]);
+  }, [tab]);
 
   const filteredThreads = React.useMemo(() => {
-    const sourceThreads = browseMode === "flat"
-      ? sidebarThreads.filter((thread) => !thread.archivedAt)
-      : displayThreads;
-    if (!q) return sourceThreads;
+    if (!q) return displayThreads;
     const s = q.toLowerCase();
-    return sourceThreads.filter((thread) => {
-      const threadPresentation = getThreadPresentation(thread);
-      const projectPresentation =
-        thread.projectId != null
-          ? projectPresentationById.get(String(thread.projectId)) ?? null
-          : null;
-      const searchableValues = [
-        threadPresentation.label,
-        threadPresentation.rawTitle,
-        thread.title,
-        thread.lastMessage ?? "",
-        thread.metadata ? JSON.stringify(thread.metadata) : "",
-        projectPresentation?.label ?? "",
-        projectPresentation?.rawName ?? "",
-        projectPresentation?.badge ?? "",
-      ];
-      return searchableValues.some((value) => String(value ?? "").toLowerCase().includes(s));
-    });
-  }, [browseMode, displayThreads, projectPresentationById, q, sidebarThreads]);
+    return displayThreads.filter(
+      (t) => t.title.toLowerCase().includes(s) || (t.lastMessage ?? "").toLowerCase().includes(s)
+    );
+  }, [displayThreads, q]);
 
   const handleDelete = React.useCallback(
     async (id: string) => {
@@ -403,7 +312,7 @@ export default function SidebarRoot({
           return exists ? prev : [newProj, ...prev];
         });
 
-        setBrowseMode("grouped");
+        setTab("projects");
         setQ("");
         setScope(String(newProj.id));
         setShowProjectModal(false);
@@ -440,7 +349,9 @@ export default function SidebarRoot({
         String(currentProjectId) === normalizedId;
       const fallbackProjectId = deletingSelectedProject
         ? (() => {
-            const generalProject = pickCanonicalGeneralProject(remaining);
+            const generalProject = remaining.find((project) =>
+              isDefaultProjectAlias(project?.name)
+            );
             if (generalProject?.id != null) {
               return String(generalProject.id);
             }
@@ -525,30 +436,30 @@ export default function SidebarRoot({
       >
         <div className={clsx("flex items-center gap-[14px] w-full", SIDEBAR_RAIL)}>
           <div className="flex-1 flex justify-center mt-[3px]">
-            <div className="glass-pill" role="tablist" aria-label="Sidebar browse modes">
-              <button
-                role="tab"
-                className="pill-tab text-xs"
-                data-testid="sidebar-projects-tab"
-                data-state={groupedMode ? "active" : undefined}
-                onClick={() => setBrowseMode("grouped")}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowRight" || e.key === "ArrowDown") setBrowseMode("flat");
-                }}
-              >
-                Grouped
-              </button>
+            <div className="glass-pill" role="tablist" aria-label="Sidebar tabs">
               <button
                 role="tab"
                 className="pill-tab text-xs"
                 data-testid="sidebar-threads-tab"
-                data-state={!groupedMode ? "active" : undefined}
-                onClick={() => setBrowseMode("flat")}
+                data-state={tab === "threads" ? "active" : undefined}
+                onClick={() => setTab("threads")}
                 onKeyDown={(e) => {
-                  if (e.key === "ArrowLeft" || e.key === "ArrowUp") setBrowseMode("grouped");
+                  if (e.key === "ArrowRight" || e.key === "ArrowDown") setTab("projects");
                 }}
               >
-                Flat
+                Threads
+              </button>
+              <button
+                role="tab"
+                className="pill-tab text-xs"
+                data-testid="sidebar-projects-tab"
+                data-state={tab === "projects" ? "active" : undefined}
+                onClick={() => setTab("projects")}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "ArrowUp") setTab("threads");
+                }}
+              >
+                Projects
               </button>
             </div>
             {legacyEnabled && (
@@ -564,7 +475,7 @@ export default function SidebarRoot({
           </div>
         </div>
 
-        <div className={clsx(columnClass, groupedMode && "mb-[5px]")}>
+        <div className={clsx(columnClass, tab === "projects" && "mb-[5px]")}>
           <div
             className="flex items-center gap-[calc(var(--radius-micro)/2)] rounded-[var(--tile-radius)] border bg-[var(--chip-bg)] px-[var(--radius-micro)] focus-within:ring-2 focus-within:ring-[var(--accent)]"
             style={{ borderColor: "var(--panel-border)" }}
@@ -579,7 +490,7 @@ export default function SidebarRoot({
             <Input
               data-testid="sidebar-search-input"
               className="h-[calc(var(--radius-micro)*3)] min-w-0 flex-1 border-0 bg-transparent px-0 py-0 shadow-none focus:ring-0 focus:outline-none"
-              placeholder={searchPlaceholder}
+              placeholder={tab === "projects" ? "Search projects…" : "Search threads…"}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               style={{ color: "var(--text)" }}
@@ -587,59 +498,24 @@ export default function SidebarRoot({
           </div>
         </div>
 
-        {groupedMode ? (
-          <div className={clsx("flex flex-1 min-h-0 flex-col gap-3", SIDEBAR_RAIL)}>
-            <section className="flex-none">
-              <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                <span>Projects</span>
-              </div>
-              <ProjectList
-                projects={filteredProjects}
-                search=""
-                currentId={currentProjectId}
-                onPick={(id) => {
-                  setScope(id);
-                }}
-                onDeleteProject={handleDeleteProject}
-                onOpenNewProject={() => {
-                  setProjectModalError(null);
-                  setShowProjectModal(true);
-                }}
-                className={clsx("max-h-[240px]", columnClass)}
-              />
-            </section>
-            <section className="flex-1 min-h-0">
-              <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--muted)]">
-                <span>Threads</span>
-              </div>
-              <ThreadList
-                threads={filteredThreads}
-                activeId={activeId}
-                scopeLabel={scopeLabel}
-                scopeBadge={scopeBadge}
-                browseMode="grouped"
-                projectPresentationsById={projectPresentationById}
-                onSelect={onSelect}
-                onNewChat={onNewChat}
-                creatingThread={creatingThread}
-                hasMore={hasMoreThreads}
-                isLoadingMore={loadingMoreThreads}
-                onLoadMore={onLoadMoreThreads}
-                onRename={renameThread}
-                onArchiveToggle={handleArchiveToggle}
-                onDelete={handleDelete}
-                className={clsx("flex-1 min-h-0", columnClass)}
-              />
-            </section>
-          </div>
+        {tab === "projects" ? (
+          <ProjectList
+            projects={projectList}
+            search={q}
+            currentId={currentProjectId}
+            onPick={(id) => { setScope(id); setTab("threads"); }}
+            onDeleteProject={handleDeleteProject}
+            onOpenNewProject={() => {
+              setProjectModalError(null);
+              setShowProjectModal(true);
+            }}
+            className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
+          />
         ) : (
           <ThreadList
             threads={filteredThreads}
             activeId={activeId}
-            scopeLabel="All threads"
-            scopeBadge={null}
-            browseMode="flat"
-            projectPresentationsById={projectPresentationById}
+            scopeLabel={scopeLabel}
             onSelect={onSelect}
             onNewChat={onNewChat}
             creatingThread={creatingThread}

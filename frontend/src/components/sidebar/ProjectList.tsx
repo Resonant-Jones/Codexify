@@ -2,7 +2,6 @@ import * as React from "react";
 import clsx from "clsx";
 import { FolderOpen, Loader2, PlusCircle, Trash2 } from "lucide-react";
 import type { Project } from "@/types/common";
-import { getProjectPresentation } from "./sidebarPresentation";
 
 type Props = {
   projects: Project[];
@@ -24,24 +23,13 @@ export default function ProjectList({
   className,
 }: Props) {
   const [deletingProjectId, setDeletingProjectId] = React.useState<string | null>(null);
-  const query = search.trim().toLowerCase();
-  const filtered = query
-    ? projects.filter((project) => {
-        const presentation = getProjectPresentation(project.name);
-        return [
-          presentation.label,
-          presentation.rawName,
-          presentation.badge ?? "",
-          project.name,
-        ].some((value) => String(value ?? "").toLowerCase().includes(query));
-      })
-    : projects;
+  const query = search.toLowerCase();
+  const filtered = query ? projects.filter((p) => p.name.toLowerCase().includes(query)) : projects;
   const handleDeleteProject = React.useCallback(
     async (project: Project) => {
       if (!onDeleteProject) return;
       const projectId = String(project.id);
-      const presentation = getProjectPresentation(project.name);
-      const projectName = presentation.label || "this project";
+      const projectName = String(project.name || "").trim() || "this project";
       const confirmed = window.confirm(
         `Delete project "${projectName}"? This will remove the project and unassign its threads.`
       );
@@ -57,24 +45,19 @@ export default function ProjectList({
   );
 
   return (
-    <div className={clsx("min-h-0 overflow-auto pt-[5px]", className)}>
+    <div className={clsx("flex-1 min-h-0 overflow-auto pt-[5px]", className)}>
       <div className="flex flex-col gap-2">
-        {filtered.map((p) => {
-          const presentation = getProjectPresentation(p.name);
-          return (
-            <ProjectTileCard
-              key={p.id}
-              label={presentation.label}
-              rawName={presentation.rawName}
-              badge={presentation.badge}
-              icon={p.icon}
-              active={currentId === String(p.id)}
-              onClick={() => onPick(String(p.id))}
-              onDelete={onDeleteProject ? () => void handleDeleteProject(p) : undefined}
-              deleting={deletingProjectId === String(p.id)}
-            />
-          );
-        })}
+        {filtered.map((p) => (
+          <ProjectTileCard
+            key={p.id}
+            label={p.name}
+            icon={p.icon}
+            active={currentId === String(p.id)}
+            onClick={() => onPick(String(p.id))}
+            onDelete={onDeleteProject ? () => void handleDeleteProject(p) : undefined}
+            deleting={deletingProjectId === String(p.id)}
+          />
+        ))}
       </div>
       {onOpenNewProject && (
         <button
@@ -91,8 +74,6 @@ export default function ProjectList({
 
 function ProjectTileCard({
   label,
-  rawName,
-  badge,
   icon,
   active,
   onClick,
@@ -100,8 +81,6 @@ function ProjectTileCard({
   deleting = false,
 }: {
   label: string;
-  rawName: string;
-  badge: string | null;
   icon?: React.ReactNode;
   active?: boolean;
   onClick?: () => void;
@@ -127,24 +106,9 @@ function ProjectTileCard({
           active && "project-tile--active"
         )}
         aria-pressed={active}
-        title={rawName}
       >
         {iconNode}
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="project-tile__label" title={rawName}>{label}</span>
-          {badge ? (
-            <span
-              className="inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none"
-              style={{
-                background: "color-mix(in oklab, var(--accent) 12%, transparent)",
-                borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
-                color: "var(--accent-strong)",
-              }}
-            >
-              {badge}
-            </span>
-          ) : null}
-        </span>
+        <span className="project-tile__label" title={label}>{label}</span>
       </button>
       {onDelete && (
         <button
