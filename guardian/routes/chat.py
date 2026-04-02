@@ -31,7 +31,13 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StrictStr,
+    ValidationError,
+    field_validator,
+)
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
@@ -507,6 +513,33 @@ class ThreadBranchRequest(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     project_id: Optional[int] = None
+
+
+class ThreadConfigUpdate(BaseModel):
+    providerId: StrictStr | None = None
+    modelId: StrictStr | None = None
+    inferenceMode: StrictStr | None = None
+    retrievalSource: StrictStr | None = None
+    personaId: StrictStr | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator(
+        "providerId",
+        "modelId",
+        "inferenceMode",
+        "retrievalSource",
+        "personaId",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_config_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                raise ValueError("value cannot be blank")
+            return cleaned
+        return value
 
 
 class ThreadCreateRequest(BaseModel):
@@ -1300,6 +1333,46 @@ def _build_thread_config_snapshot(
         "retrievalSource": retrieval_source,
         "personaId": persona_id,
     }
+
+
+def _thread_config_payload_dict(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return {}
+        if isinstance(parsed, dict):
+            return dict(parsed)
+    return {}
+
+
+def _merge_thread_config_update(
+    existing_config: Any, patch: ThreadConfigUpdate
+) -> dict[str, Any]:
+    base_config = _build_thread_config_snapshot(
+        _thread_config_payload_dict(existing_config)
+    )
+    patch_values = patch.model_dump(exclude_unset=True)
+    if not patch_values:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    for key in (
+        "providerId",
+        "modelId",
+        "inferenceMode",
+        "retrievalSource",
+    ):
+        if key in patch_values and patch_values[key] is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{key} cannot be null",
+            )
+
+    merged_payload = dict(base_config)
+    merged_payload.update(patch_values)
+    return _build_thread_config_snapshot(merged_payload)
 
 
 def _persist_thread_config_snapshot(
@@ -2567,6 +2640,28 @@ def patch_thread(
         )
 
 
+@router.patch("/threads/{thread_id}/config")
+def patch_thread_config(
+    thread_id: int,
+    body: ThreadConfigUpdate = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Update the durable thread execution contract without starting a run."""
+    existing = chatlog_db.get_chat_thread(thread_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    updated_config = _merge_thread_config_update(
+        existing.get("thread_config"), body
+    )
+    _persist_thread_config_snapshot(thread_id, updated_config)
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "thread_config": updated_config,
+    }
+
+
 @router.delete("/{thread_id}")
 def delete_thread(
     thread_id: int,
@@ -3088,6 +3183,16 @@ def api_patch_thread(
 ):
     """Compat alias for PATCH /chat/threads/{thread_id} used in tests."""
     return patch_thread(thread_id, body, api_key=api_key)
+
+
+@api_chat_router.patch("/threads/{thread_id}/config")
+def api_patch_thread_config(
+    thread_id: int,
+    body: ThreadConfigUpdate = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Compat alias for PATCH /chat/threads/{thread_id}/config."""
+    return patch_thread_config(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.delete("/threads/{thread_id}")
