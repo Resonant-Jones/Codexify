@@ -170,6 +170,18 @@ textarea:disabled::placeholder {
   opacity: 0.7;
 }
 
+.thread-preview--flat .fc-inner > div {
+  gap: 0.3rem;
+}
+
+.thread-preview--flat .thread-title {
+  font-weight: 550;
+}
+
+.thread-preview--flat .thread-snippet {
+  opacity: 0.62;
+}
+
 .project-tile {
   display: flex;
   align-items: center;
