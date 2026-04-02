@@ -8,13 +8,14 @@ type InferenceStatusBannerProps = {
   onSwitchToFast?: () => void;
 };
 
-function isVisiblePhase(phase: InferenceRequestState["phase"]): boolean {
+function isVisibleState(state: InferenceRequestState): boolean {
   return (
-    phase === "sending" ||
-    phase === "thinking" ||
-    phase === "streaming" ||
-    phase === "failed" ||
-    phase === "cancelled"
+    state.phase === "sending" ||
+    state.phase === "thinking" ||
+    state.phase === "streaming" ||
+    state.phase === "failed" ||
+    state.phase === "cancelled" ||
+    (state.phase === "completed" && (state.latencyMetrics?.length ?? 0) > 0)
   );
 }
 
@@ -23,7 +24,7 @@ export function InferenceStatusBanner({
   onCancel,
   onSwitchToFast,
 }: InferenceStatusBannerProps) {
-  if (!isVisiblePhase(state.phase)) {
+  if (!isVisibleState(state)) {
     return null;
   }
 
@@ -33,10 +34,12 @@ export function InferenceStatusBanner({
     state.phase === "streaming";
 
   const isPendingStop = state.isPendingCancel;
+  const latencyMetrics = state.latencyMetrics ?? [];
   const label = (() => {
     if (isPendingStop) return "Stopping…";
     if (state.phase === "failed") return "Reply failed";
     if (state.phase === "cancelled") return "Reply stopped";
+    if (state.phase === "completed") return "Completed";
     if (state.statusText) return state.statusText;
     if (state.phase === "thinking") return "Thinking…";
     if (state.phase === "streaming") return "Replying…";
@@ -59,23 +62,46 @@ export function InferenceStatusBanner({
         : "var(--muted)";
 
   return (
-    <div className="flex items-center justify-between gap-3" aria-live="polite">
-      <div className="min-w-0 flex items-center gap-2 text-[11px]">
-        {isActive ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" style={{ color: tone }} />
-        ) : (
-          <span
-            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ background: tone }}
-          />
-        )}
-        <span className="truncate font-medium" style={{ color: "var(--text)" }}>
-          {label}
-        </span>
-        {detail ? (
-          <span className="hidden truncate sm:inline" style={{ color: "var(--muted)" }}>
-            {detail}
+    <div className="flex items-start justify-between gap-3" aria-live="polite">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 text-[11px]">
+          {isActive ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" style={{ color: tone }} />
+          ) : (
+            <span
+              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: tone }}
+            />
+          )}
+          <span className="truncate font-medium" style={{ color: "var(--text)" }}>
+            {label}
           </span>
+          {detail ? (
+            <span className="hidden truncate sm:inline" style={{ color: "var(--muted)" }}>
+              {detail}
+            </span>
+          ) : null}
+        </div>
+        {latencyMetrics.length > 0 ? (
+          <div
+            className="mt-1 flex flex-wrap gap-1 pl-5 text-[10px]"
+            data-testid="inference-latency-readout"
+          >
+            {latencyMetrics.map((metric) => (
+              <span
+                key={metric.label}
+                className="inline-flex items-center rounded-full border px-2 py-0.5 leading-none"
+                style={{
+                  borderColor: "color-mix(in oklab, var(--muted) 18%, transparent)",
+                  background:
+                    "color-mix(in oklab, var(--panel-bg, transparent) 82%, transparent)",
+                  color: "var(--muted)",
+                }}
+              >
+                {metric.label}: {metric.value}
+              </span>
+            ))}
+          </div>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-3 text-[11px]">

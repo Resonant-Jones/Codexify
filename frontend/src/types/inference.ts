@@ -1,5 +1,10 @@
 export type ComposerInferenceMode = "default" | "no_think" | "think";
 
+export type InferenceLatencyMetric = {
+  label: string;
+  value: string;
+};
+
 export type InferencePhase =
   | "idle"
   | "sending"
@@ -21,6 +26,13 @@ export interface InferenceRequestState {
   statusText: string | null;
   detailText: string | null;
   errorText: string | null;
+  queuedAt?: string | null;
+  awaitingModelAt?: string | null;
+  awaitingFirstTokenAt?: string | null;
+  firstTokenAt?: string | null;
+  firstOutputAt?: string | null;
+  completedAt?: string | null;
+  latencyMetrics?: InferenceLatencyMetric[];
   canCancel: boolean;
   canSwitchToFast: boolean;
   isPendingCancel: boolean;
@@ -42,6 +54,13 @@ export function createIdleInferenceRequestState(): InferenceRequestState {
     statusText: null,
     detailText: null,
     errorText: null,
+    queuedAt: null,
+    awaitingModelAt: null,
+    awaitingFirstTokenAt: null,
+    firstTokenAt: null,
+    firstOutputAt: null,
+    completedAt: null,
+    latencyMetrics: [],
     canCancel: false,
     canSwitchToFast: false,
     isPendingCancel: false,
