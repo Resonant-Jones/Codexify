@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ExtColors, GalleryItem } from "@/types/ui";
 import api from "@/lib/api";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
@@ -74,14 +74,6 @@ export default function DashboardView({
   >([]);
   const [showImgGen, setShowImgGen] = React.useState(false);
   const [recentDocs, setRecentDocs] = React.useState<DocumentFile[]>([]);
-  const [showDemoDocs, setShowDemoDocs] = React.useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("cfy.hideMockDocs") !== "1";
-  });
-  const [showDemoGallery, setShowDemoGallery] = React.useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("cfy.hideMockGallery") !== "1";
-  });
   const [previewImage, setPreviewImage] = React.useState<{
     src: string;
     alt: string;
@@ -229,18 +221,25 @@ export default function DashboardView({
   const hasRealDocs = recentDocs && recentDocs.length > 0;
   const docsToRender = hasRealDocs
     ? recentDocs
-    : showDemoDocs
-      ? DEMO_RECENT_DOCS.map((name) => ({
-          name,
-          ext: inferDocumentExtension(name),
-          type: "file" as const,
-        }))
-      : [];
+    : DEMO_RECENT_DOCS.map((name) => ({
+        name,
+        ext: inferDocumentExtension(name),
+        type: "file" as const,
+      }));
 
-  const hasRealGallery = gallery && gallery.length > 0;
+  const realGallery = React.useMemo(
+    () => gallery.filter((item) => !item.mock),
+    [gallery]
+  );
+  const hasRealGallery = realGallery.length > 0;
   const galleryToRender = React.useMemo(
-    () => (hasRealGallery ? gallery : showDemoGallery ? DEMO_GALLERY_ITEMS : []),
-    [gallery, hasRealGallery, showDemoGallery]
+    () =>
+      hasRealGallery
+        ? realGallery
+        : gallery.length > 0
+        ? gallery
+        : DEMO_GALLERY_ITEMS,
+    [gallery, hasRealGallery, realGallery]
   );
 
   return (
@@ -332,20 +331,9 @@ export default function DashboardView({
                     See All
                   </Button>
                 </div>
-                {!hasRealDocs && showDemoDocs && (
+                {!hasRealDocs && (
                   <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
                     <p className="text-xs opacity-75">Demo documents. Create or upload to replace.</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowDemoDocs(false);
-                        window.localStorage.setItem("cfy.hideMockDocs", "1");
-                      }}
-                      className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
-                      aria-label="Dismiss demo documents"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
                   </div>
                 )}
                 <div className="flex-1 min-h-0 overflow-hidden">
@@ -396,20 +384,9 @@ export default function DashboardView({
                   </Button>
                 </div>
               </div>
-              {!hasRealGallery && showDemoGallery && (
+              {!hasRealGallery && (
                 <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
                   <p className="text-xs opacity-75">Demo gallery images. They'll disappear once you add your own.</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowDemoGallery(false);
-                      window.localStorage.setItem("cfy.hideMockGallery", "1");
-                    }}
-                    className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
-                    aria-label="Dismiss demo gallery"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
                 </div>
               )}
               <div className="flex-1 min-h-0 overflow-auto pr-1">

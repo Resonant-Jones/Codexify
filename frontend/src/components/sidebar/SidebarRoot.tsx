@@ -14,6 +14,11 @@ import api from "@/lib/api";
 
 type ToastMessage = { kind: "success" | "error"; message: string };
 type ActiveToast = ToastMessage & { id: number };
+type ProjectCreatePayload = {
+  name: string;
+  icon: string;
+  description: string;
+};
 
 type Props = {
   threads: Thread[];
@@ -97,6 +102,23 @@ async function deleteProjectApi(projectId: string | number) {
     }
   }
   throw lastErr || new Error("Project delete route unavailable");
+}
+
+async function createProjectApi(payload: ProjectCreatePayload) {
+  const paths = ["/api/projects", "/projects"];
+  let lastErr: any = null;
+  for (const path of paths) {
+    try {
+      return await api.post(path, payload);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error("Project create route unavailable");
 }
 
 const SIDEBAR_RAIL = "px-3";
@@ -269,7 +291,11 @@ export default function SidebarRoot({
           created = await onCreateProject(data);
         } else {
           const icon = data.icon?.trim() || "📁";
-          const resp = await api.post("/api/projects", { name, icon, description: "" });
+          const resp = await createProjectApi({
+            name,
+            icon,
+            description: "",
+          });
           const payload = resp?.data ?? {};
           const createdId = payload?.id ?? payload?.project_id;
           if (createdId) {

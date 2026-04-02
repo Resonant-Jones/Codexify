@@ -46,8 +46,10 @@ except Exception:
 
 try:
     import chromadb  # type: ignore
+    from chromadb.config import Settings as ChromaSettings  # type: ignore
 except Exception:
     chromadb = None  # type: ignore
+    ChromaSettings = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +223,15 @@ def _get_local_embed_model(*, strict: bool) -> str | None:
     return get_local_embed_model(strict=False)
 
 
+def _create_chroma_client(chroma_path: str):
+    if chromadb is None:
+        raise RuntimeError("chromadb not installed.")
+    settings = None
+    if ChromaSettings is not None:
+        settings = ChromaSettings(anonymized_telemetry=False)
+    return chromadb.PersistentClient(path=chroma_path, settings=settings)
+
+
 class LocalSemanticEmbedder:
     """Local embedder for embedding, indexing, and semantic search."""
 
@@ -229,7 +240,7 @@ class LocalSemanticEmbedder:
         model: str | None = None,
         store: str = DEFAULT_STORE,
         chroma_path: str = "./.chroma",
-        collection: str = "codexify_vault",
+        collection: str = "codexify_vault_supported",
         backend: str | None = None,
     ) -> None:
         self._model_override = model
@@ -261,9 +272,7 @@ class LocalSemanticEmbedder:
             if faiss is None:
                 raise RuntimeError("faiss not installed.")
         elif self.store == "chroma":
-            if chromadb is None:
-                raise RuntimeError("chromadb not installed.")
-            client = chromadb.PersistentClient(path=self.chroma_path)
+            client = _create_chroma_client(self.chroma_path)
             self._chroma_collection = client.get_or_create_collection(
                 name=self.collection
             )
@@ -623,7 +632,7 @@ class Embedder(LocalSemanticEmbedder):
         model: str | None = None,
         store: str = DEFAULT_STORE,
         chroma_path: str = "./.chroma",
-        collection: str = "codexify_vault",
+        collection: str = "codexify_vault_supported",
     ) -> None:
         backend = (
             (

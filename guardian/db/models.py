@@ -107,6 +107,7 @@ class ChatThread(Base):
         Integer, ForeignKey("projects.id")
     )
     active_profile_id: Mapped[str | None] = mapped_column(String(128))
+    thread_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id")
     )

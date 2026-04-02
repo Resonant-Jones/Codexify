@@ -2,6 +2,7 @@
 import io
 import json
 import logging
+import os
 import re
 import zipfile
 from datetime import datetime, timezone
@@ -9,10 +10,15 @@ from typing import Any, Iterable, Literal, Optional
 
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
 
 from guardian.core import db
 from guardian.core.auth import AuthenticatedUser, require_user
+from guardian.services.account_export import (
+    ZIP_FILENAME,
+    build_account_export_zip,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,13 @@ def _safe_filename(
     if len(text) > max_length:
         text = text[:max_length].rstrip()
     return text or default
+
+
+def _cleanup_export_file(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
 
 
 def _source_thread_short(
@@ -293,6 +306,32 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
         raise HTTPException(
             status_code=500, detail="Failed to start export"
         ) from exc
+
+
+@router.get(
+    "/account.zip",
+    summary="Download the authenticated user's canonical account export ZIP",
+)
+def export_account_zip(user: AuthenticatedUser = Depends(require_user)):
+    try:
+        zip_path = build_account_export_zip(db, user)
+    except Exception as exc:
+        logger.exception(
+            "Failed to build account export zip for user %s: %s",
+            user.id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to build account export",
+        ) from exc
+
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=ZIP_FILENAME,
+        background=BackgroundTask(_cleanup_export_file, zip_path),
+    )
 
 
 @router.get(

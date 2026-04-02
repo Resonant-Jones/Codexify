@@ -266,6 +266,7 @@ services:
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
       # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
@@ -544,7 +545,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
       CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
-      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
     volumes:
       - ./guardian:/app/codexify
@@ -601,7 +602,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
       CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
-      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
     volumes:
       - ./guardian:/app/codexify
@@ -655,7 +656,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
       CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
-      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
     volumes:
       - ./guardian:/app/codexify
@@ -772,6 +773,9 @@ services:
     command: ["/app/guardian/scripts/ensure_embed_model.py"]
 
   tts:
+    # Optional voice service: only start when explicitly requested via --profile voice.
+    profiles:
+      - voice
     build:
       context: .
       dockerfile: backend/Dockerfile

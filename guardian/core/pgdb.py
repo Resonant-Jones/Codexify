@@ -16,6 +16,7 @@ import logging
 import os
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
@@ -2086,6 +2087,563 @@ class PgDB(ChatDB):
         remaining = max(int(freq - delta_minutes), 0)
         return False, f"Next summarization available in {remaining} min"
 
+    # ---- account restore helpers --------------------------------------
+    def _restore_account_export_rows(
+        self,
+        *,
+        table_name: str,
+        pk_column: str,
+        columns: tuple[str, ...],
+        rows: list[dict[str, Any]],
+        conn: psycopg.Connection | None = None,
+        json_columns: tuple[str, ...] = (),
+        unique_key_columns: tuple[tuple[str, ...], ...] = (),
+        sequence_column: str | None = None,
+    ) -> dict[str, int]:
+        if conn is None:
+            with self._connect() as restore_conn:
+                return self._restore_account_export_rows(
+                    table_name=table_name,
+                    pk_column=pk_column,
+                    columns=columns,
+                    rows=rows,
+                    conn=restore_conn,
+                    json_columns=json_columns,
+                    unique_key_columns=unique_key_columns,
+                    sequence_column=sequence_column,
+                )
+
+        imported = 0
+        skipped = 0
+        failed = 0
+        unresolved = 0
+        columns = tuple(columns)
+        json_column_set = set(json_columns)
+
+        with conn.cursor() as cur:
+            for index, raw_row in enumerate(rows):
+                row = dict(raw_row or {})
+                normalized_row = self._restore_account_export_normalize_row(
+                    table_name=table_name,
+                    row=row,
+                    columns=columns,
+                )
+                pk_value = normalized_row.get(pk_column)
+                if pk_value is None:
+                    raise ValueError(
+                        f"{table_name} row {index} is missing primary key column {pk_column}"
+                    )
+
+                existing = self._restore_account_export_fetch_row(
+                    cur,
+                    table_name=table_name,
+                    columns=columns,
+                    pk_column=pk_column,
+                    pk_value=pk_value,
+                )
+                if existing is not None:
+                    if existing == normalized_row:
+                        skipped += 1
+                        continue
+                    raise ValueError(
+                        f"{table_name} row {pk_value!r} conflicts with an existing row"
+                    )
+
+                for unique_columns in unique_key_columns:
+                    conflict = (
+                        self._restore_account_export_fetch_unique_conflict(
+                            cur,
+                            table_name=table_name,
+                            columns=columns,
+                            pk_column=pk_column,
+                            pk_value=pk_value,
+                            unique_columns=unique_columns,
+                            row=normalized_row,
+                        )
+                    )
+                    if conflict is not None:
+                        raise ValueError(
+                            f"{table_name} row {pk_value!r} conflicts with an existing row on {unique_columns}"
+                        )
+
+                try:
+                    inserted = self._restore_account_export_insert_row(
+                        cur,
+                        table_name=table_name,
+                        pk_column=pk_column,
+                        columns=columns,
+                        row=normalized_row,
+                        json_column_set=json_column_set,
+                    )
+                except pg_errors.UniqueViolation as exc:
+                    raise ValueError(
+                        f"{table_name} row {pk_value!r} conflicts with an existing row"
+                    ) from exc
+
+                if inserted:
+                    imported += 1
+                    continue
+
+                existing = self._restore_account_export_fetch_row(
+                    cur,
+                    table_name=table_name,
+                    columns=columns,
+                    pk_column=pk_column,
+                    pk_value=pk_value,
+                )
+                if existing is not None and existing == normalized_row:
+                    skipped += 1
+                    continue
+
+                raise ValueError(
+                    f"{table_name} row {pk_value!r} could not be restored idempotently"
+                )
+
+            if sequence_column is not None:
+                self._restore_account_export_sync_sequence(
+                    cur,
+                    table_name=table_name,
+                    sequence_column=sequence_column,
+                )
+
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "failed": failed,
+            "unresolved": unresolved,
+        }
+
+    @staticmethod
+    def _restore_account_export_normalize_row(
+        *,
+        table_name: str,
+        row: dict[str, Any],
+        columns: tuple[str, ...],
+    ) -> dict[str, Any]:
+        missing = [column for column in columns if column not in row]
+        if missing:
+            raise ValueError(
+                f"{table_name} row is missing required columns: {missing}"
+            )
+        normalized: dict[str, Any] = {}
+        for column in columns:
+            normalized[column] = _normalize_export_value(row.get(column))
+        return normalized
+
+    def _restore_account_export_fetch_row(
+        self,
+        cur,
+        *,
+        table_name: str,
+        columns: tuple[str, ...],
+        pk_column: str,
+        pk_value: Any,
+    ) -> dict[str, Any] | None:
+        column_sql = ", ".join(columns)
+        cur.execute(
+            f"""
+            SELECT {column_sql}
+            FROM {table_name}
+            WHERE {pk_column} = %s
+            """,
+            (pk_value,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            column: _normalize_export_value(row.get(column))
+            for column in columns
+        }
+
+    def _restore_account_export_fetch_unique_conflict(
+        self,
+        cur,
+        *,
+        table_name: str,
+        columns: tuple[str, ...],
+        pk_column: str,
+        pk_value: Any,
+        unique_columns: tuple[str, ...],
+        row: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not unique_columns:
+            return None
+        where_clause = " AND ".join(
+            f"{column} = %s" for column in unique_columns
+        )
+        params = [row.get(column) for column in unique_columns]
+        params.append(pk_value)
+        cur.execute(
+            f"""
+            SELECT {", ".join(columns)}
+            FROM {table_name}
+            WHERE {where_clause}
+              AND {pk_column} <> %s
+            LIMIT 1
+            """,
+            params,
+        )
+        found = cur.fetchone()
+        if not found:
+            return None
+        return {
+            column: _normalize_export_value(found.get(column))
+            for column in columns
+        }
+
+    def _restore_account_export_insert_row(
+        self,
+        cur,
+        *,
+        table_name: str,
+        pk_column: str,
+        columns: tuple[str, ...],
+        row: dict[str, Any],
+        json_column_set: set[str],
+    ) -> bool:
+        placeholders = ", ".join(["%s"] * len(columns))
+        column_sql = ", ".join(columns)
+        params: list[Any] = []
+        for column in columns:
+            value = row.get(column)
+            if column in json_column_set:
+                params.append(_to_json(value))
+            else:
+                params.append(value)
+        cur.execute(
+            f"""
+            INSERT INTO {table_name} ({column_sql})
+            VALUES ({placeholders})
+            ON CONFLICT ({pk_column}) DO NOTHING
+            RETURNING {pk_column}
+            """,
+            params,
+        )
+        return cur.fetchone() is not None
+
+    def _restore_account_export_sync_sequence(
+        self,
+        cur,
+        *,
+        table_name: str,
+        sequence_column: str,
+    ) -> None:
+        cur.execute(
+            "SELECT pg_get_serial_sequence(%s, %s) AS sequence_name",
+            (f"public.{table_name}", sequence_column),
+        )
+        row = cur.fetchone() or {}
+        sequence_name = row.get("sequence_name")
+        if not sequence_name:
+            return
+
+        cur.execute(
+            f"SELECT COALESCE(MAX({sequence_column}), 0) AS max_id FROM {table_name}"
+        )
+        max_row = cur.fetchone() or {}
+        max_value = int(max_row.get("max_id") or 0)
+        if max_value > 0:
+            cur.execute(
+                "SELECT setval(%s, %s, true)", (sequence_name, max_value)
+            )
+        else:
+            cur.execute("SELECT setval(%s, %s, false)", (sequence_name, 1))
+
+    def restore_account_export_projects(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="projects",
+            pk_column="id",
+            columns=(
+                "id",
+                "name",
+                "description",
+                "icon",
+                "identity_depth",
+                "created_at",
+                "updated_at",
+            ),
+            rows=rows,
+            conn=conn,
+            unique_key_columns=(("name",),),
+            sequence_column="id",
+        )
+
+    def restore_account_export_chat_threads(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="chat_threads",
+            pk_column="id",
+            columns=(
+                "id",
+                "user_id",
+                "title",
+                "summary",
+                "project_id",
+                "parent_id",
+                "archived_at",
+                "is_diary",
+                "diary_mode",
+                "exclude_from_identity",
+                "modeling_excluded",
+                "metadata",
+                "active_profile_id",
+                "created_at",
+                "updated_at",
+            ),
+            rows=rows,
+            conn=conn,
+            json_columns=("metadata",),
+            sequence_column="id",
+        )
+
+    def restore_account_export_chat_messages(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="chat_messages",
+            pk_column="id",
+            columns=(
+                "id",
+                "thread_id",
+                "role",
+                "content",
+                "event_at",
+                "kind",
+                "extra_meta",
+                "created_at",
+            ),
+            rows=rows,
+            conn=conn,
+            json_columns=("extra_meta",),
+            sequence_column="id",
+        )
+
+    def restore_account_export_media_assets(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="media_assets",
+            pk_column="id",
+            columns=(
+                "id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "media_kind",
+                "provenance",
+                "source_tag",
+                "content_hash",
+                "deterministic_id",
+                "normalized_slug",
+                "system_name",
+                "storage_prefix",
+                "src_url",
+                "mime_type",
+                "filesize",
+                "ingested_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_media_aliases(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="media_aliases",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "alias",
+                "alias_normalized",
+                "alias_type",
+                "created_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_uploaded_documents(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="uploaded_documents",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "filename",
+                "filesize",
+                "mime_type",
+                "src_url",
+                "source_tag",
+                "parsed_text",
+                "embedding_status",
+                "embedding_error",
+                "embedding_started_at",
+                "embedding_completed_at",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_generated_documents(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="generated_documents",
+            pk_column="id",
+            columns=(
+                "id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "title",
+                "content",
+                "format",
+                "model",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_uploaded_images(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="uploaded_images",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "src_url",
+                "filename",
+                "filesize",
+                "mime_type",
+                "source_tag",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_generated_images(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="generated_images",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "src_url",
+                "prompt",
+                "model",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_thread_documents(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="thread_documents",
+            pk_column="id",
+            columns=(
+                "id",
+                "thread_id",
+                "document_id",
+                "relation",
+                "created_at",
+            ),
+            rows=rows,
+            conn=conn,
+            sequence_column="id",
+        )
+
+    def restore_account_export_project_document_links(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="project_document_links",
+            pk_column="id",
+            columns=(
+                "id",
+                "project_id",
+                "document_id",
+                "document_type",
+                "is_enabled",
+                "attached_at",
+                "attached_by",
+            ),
+            rows=rows,
+            conn=conn,
+            unique_key_columns=(
+                ("project_id", "document_id", "document_type"),
+            ),
+            sequence_column="id",
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -2220,6 +2778,730 @@ def _normalize_export_message_row(row: dict[str, Any]) -> dict[str, Any]:
         normalized.get("extra_meta")
     )
     return normalized
+
+
+def _normalize_export_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {
+            key: _normalize_export_value(item) for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_normalize_export_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_export_value(item) for item in value]
+    return value
+
+
+def _normalize_export_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: _normalize_export_value(value) for key, value in dict(row).items()
+    }
+
+
+@dataclass(frozen=True)
+class _AccountExportScope:
+    thread_ids: tuple[int, ...]
+    project_ids: tuple[int, ...]
+    asset_ids: tuple[str, ...]
+
+
+PAYLOAD_ORDER = (
+    (
+        "projects",
+        "entities/projects.json",
+        "fetch_account_export_projects_for_user",
+    ),
+    (
+        "chat_threads",
+        "entities/chat_threads.json",
+        "fetch_account_export_chat_threads_for_user",
+    ),
+    (
+        "chat_messages",
+        "entities/chat_messages.json",
+        "fetch_account_export_chat_messages_for_user",
+    ),
+    (
+        "uploaded_documents",
+        "entities/uploaded_documents.json",
+        "fetch_account_export_uploaded_documents_for_user",
+    ),
+    (
+        "generated_documents",
+        "entities/generated_documents.json",
+        "fetch_account_export_generated_documents_for_user",
+    ),
+    (
+        "uploaded_images",
+        "entities/uploaded_images.json",
+        "fetch_account_export_uploaded_images_for_user",
+    ),
+    (
+        "generated_images",
+        "entities/generated_images.json",
+        "fetch_account_export_generated_images_for_user",
+    ),
+    (
+        "media_assets",
+        "entities/media_assets.json",
+        "fetch_account_export_media_assets_for_user",
+    ),
+    (
+        "media_aliases",
+        "entities/media_aliases.json",
+        "fetch_account_export_media_aliases_for_user",
+    ),
+    (
+        "thread_documents",
+        "entities/thread_documents.json",
+        "fetch_account_export_thread_documents_for_user",
+    ),
+    (
+        "project_document_links",
+        "entities/project_document_links.json",
+        "fetch_account_export_project_document_links_for_user",
+    ),
+)
+
+
+@contextmanager
+def _account_export_connection(
+    conn: psycopg.Connection | None = None,
+):
+    if conn is not None:
+        yield conn
+        return
+
+    dsn = _resolve_dsn()
+    new_conn = psycopg.connect(dsn, row_factory=dict_row)
+    try:
+        yield new_conn
+    finally:
+        try:
+            new_conn.close()
+        except Exception as conn_err:
+            logger.debug(
+                "Failed to close account export connection: %s",
+                conn_err,
+                exc_info=True,
+            )
+
+
+def _account_export_thread_ids(conn, user_id: str) -> tuple[int, ...]:
+    if not user_id:
+        return ()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id
+            FROM chat_threads
+            WHERE user_id = %s
+            ORDER BY updated_at ASC, id ASC
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+    return tuple(int(row["id"]) for row in rows if row.get("id") is not None)
+
+
+def _account_export_thread_clause(
+    thread_ids: tuple[int, ...],
+) -> tuple[str, tuple[Any, ...]]:
+    if not thread_ids:
+        return "FALSE", ()
+    return "thread_id = ANY(%s::int[])", (list(thread_ids),)
+
+
+def _account_export_scope(conn, user_id: str) -> _AccountExportScope:
+    thread_ids = _account_export_thread_ids(conn, user_id)
+    thread_clause, thread_params = _account_export_thread_clause(thread_ids)
+
+    project_ids: set[int] = set()
+    project_queries: list[tuple[str, tuple[Any, ...]]] = [
+        (
+            """
+            SELECT project_id
+            FROM chat_threads
+            WHERE user_id = %s
+              AND project_id IS NOT NULL
+            """,
+            (user_id,),
+        ),
+        (
+            """
+            SELECT project_id
+            FROM generated_documents
+            WHERE user_id = %s
+              AND project_id IS NOT NULL
+            """,
+            (user_id,),
+        ),
+        (
+            f"""
+            SELECT project_id
+            FROM generated_documents
+            WHERE {thread_clause}
+              AND project_id IS NOT NULL
+            """,
+            thread_params,
+        ),
+        (
+            """
+            SELECT project_id
+            FROM uploaded_documents
+            WHERE user_id = %s
+              AND project_id IS NOT NULL
+            """,
+            (user_id,),
+        ),
+        (
+            f"""
+            SELECT project_id
+            FROM uploaded_documents
+            WHERE {thread_clause}
+              AND project_id IS NOT NULL
+            """,
+            thread_params,
+        ),
+        (
+            """
+            SELECT project_id
+            FROM generated_images
+            WHERE user_id = %s
+              AND project_id IS NOT NULL
+            """,
+            (user_id,),
+        ),
+        (
+            f"""
+            SELECT project_id
+            FROM generated_images
+            WHERE {thread_clause}
+              AND project_id IS NOT NULL
+            """,
+            thread_params,
+        ),
+        (
+            """
+            SELECT project_id
+            FROM uploaded_images
+            WHERE user_id = %s
+              AND project_id IS NOT NULL
+            """,
+            (user_id,),
+        ),
+        (
+            f"""
+            SELECT project_id
+            FROM uploaded_images
+            WHERE {thread_clause}
+              AND project_id IS NOT NULL
+            """,
+            thread_params,
+        ),
+        (
+            """
+            SELECT project_id
+            FROM media_assets
+            WHERE user_id = %s
+              AND project_id IS NOT NULL
+            """,
+            (user_id,),
+        ),
+        (
+            f"""
+            SELECT project_id
+            FROM media_assets
+            WHERE {thread_clause}
+              AND project_id IS NOT NULL
+            """,
+            thread_params,
+        ),
+        (
+            """
+            SELECT project_id
+            FROM project_document_links
+            WHERE attached_by = %s
+              AND project_id IS NOT NULL
+            """,
+            (user_id,),
+        ),
+    ]
+
+    asset_ids: set[str] = set()
+    asset_queries: list[tuple[str, tuple[Any, ...]]] = [
+        (
+            """
+            SELECT id
+            FROM media_assets
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        ),
+        (
+            f"""
+            SELECT id
+            FROM media_assets
+            WHERE {thread_clause}
+            """,
+            thread_params,
+        ),
+    ]
+
+    with conn.cursor() as cur:
+        for query, params in project_queries:
+            cur.execute(query, params)
+            for row in cur.fetchall():
+                project_id = row.get("project_id")
+                if project_id is None:
+                    continue
+                try:
+                    project_ids.add(int(project_id))
+                except (TypeError, ValueError):
+                    continue
+
+        for query, params in asset_queries:
+            cur.execute(query, params)
+            for row in cur.fetchall():
+                asset_id = row.get("id")
+                if asset_id is None:
+                    continue
+                asset_ids.add(str(asset_id))
+
+    return _AccountExportScope(
+        thread_ids=thread_ids,
+        project_ids=tuple(sorted(project_ids)),
+        asset_ids=tuple(sorted(asset_ids)),
+    )
+
+
+def iter_account_export_payloads_for_user(
+    user_id: str,
+) -> Generator[tuple[str, str, list[dict[str, Any]]], None, None]:
+    if not user_id:
+        return
+
+    with _account_export_connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+                )
+            for family, path, reader_name in PAYLOAD_ORDER:
+                reader = globals()[reader_name]
+                rows = reader(user_id, conn=conn)
+                yield family, path, rows
+
+
+def fetch_account_export_projects_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            if not scope.project_ids:
+                return []
+            cur.execute(
+                """
+                SELECT id, name, description, icon, identity_depth, created_at, updated_at
+                FROM projects
+                WHERE id = ANY(%s::int[])
+                ORDER BY id ASC
+                """,
+                (list(scope.project_ids),),
+            )
+            return [_normalize_export_row(dict(row)) for row in cur.fetchall()]
+
+
+def fetch_account_export_chat_threads_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    user_id,
+                    title,
+                    summary,
+                    project_id,
+                    parent_id,
+                    archived_at,
+                    is_diary,
+                    diary_mode,
+                    exclude_from_identity,
+                    modeling_excluded,
+                    metadata,
+                    active_profile_id,
+                    created_at,
+                    updated_at
+                FROM chat_threads
+                WHERE user_id = %s
+                ORDER BY created_at ASC, id ASC
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            return [
+                _normalize_export_row(PgDB._normalize_thread(dict(row)))
+                for row in rows
+            ]
+
+
+def fetch_account_export_chat_messages_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            if not scope.thread_ids:
+                return []
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    thread_id,
+                    role,
+                    content,
+                    event_at,
+                    kind,
+                    extra_meta,
+                    created_at
+                FROM chat_messages
+                WHERE thread_id = ANY(%s::int[])
+                ORDER BY thread_id ASC, COALESCE(event_at, created_at) ASC, id ASC
+                """,
+                (list(scope.thread_ids),),
+            )
+            rows = cur.fetchall()
+            return [
+                _normalize_export_row(_normalize_export_message_row(dict(row)))
+                for row in rows
+            ]
+
+
+def fetch_account_export_uploaded_documents_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            thread_clause, thread_params = _account_export_thread_clause(
+                scope.thread_ids
+            )
+            cur.execute(
+                f"""
+                SELECT
+                    id,
+                    asset_id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    filename,
+                    filesize,
+                    mime_type,
+                    src_url,
+                    source_tag,
+                    parsed_text,
+                    embedding_status,
+                    embedding_error,
+                    embedding_started_at,
+                    embedding_completed_at,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM uploaded_documents
+                WHERE user_id = %s
+                   OR {thread_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                (user_id, *thread_params),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
+
+
+def fetch_account_export_generated_documents_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            thread_clause, thread_params = _account_export_thread_clause(
+                scope.thread_ids
+            )
+            cur.execute(
+                f"""
+                SELECT
+                    id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    title,
+                    content,
+                    format,
+                    model,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM generated_documents
+                WHERE user_id = %s
+                   OR {thread_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                (user_id, *thread_params),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
+
+
+def fetch_account_export_uploaded_images_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            thread_clause, thread_params = _account_export_thread_clause(
+                scope.thread_ids
+            )
+            cur.execute(
+                f"""
+                SELECT
+                    id,
+                    asset_id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    src_url,
+                    filename,
+                    filesize,
+                    mime_type,
+                    source_tag,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM uploaded_images
+                WHERE user_id = %s
+                   OR {thread_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                (user_id, *thread_params),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
+
+
+def fetch_account_export_generated_images_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            thread_clause, thread_params = _account_export_thread_clause(
+                scope.thread_ids
+            )
+            cur.execute(
+                f"""
+                SELECT
+                    id,
+                    asset_id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    src_url,
+                    prompt,
+                    model,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM generated_images
+                WHERE user_id = %s
+                   OR {thread_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                (user_id, *thread_params),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
+
+
+def fetch_account_export_media_assets_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            thread_clause, thread_params = _account_export_thread_clause(
+                scope.thread_ids
+            )
+            cur.execute(
+                f"""
+                SELECT
+                    id,
+                    project_id,
+                    thread_id,
+                    user_id,
+                    media_kind,
+                    provenance,
+                    source_tag,
+                    content_hash,
+                    deterministic_id,
+                    normalized_slug,
+                    system_name,
+                    storage_prefix,
+                    src_url,
+                    mime_type,
+                    filesize,
+                    ingested_at,
+                    deleted_at
+                FROM media_assets
+                WHERE user_id = %s
+                   OR {thread_clause}
+                ORDER BY ingested_at ASC, id ASC
+                """,
+                (user_id, *thread_params),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
+
+
+def fetch_account_export_media_aliases_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            if not scope.asset_ids:
+                return []
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    asset_id,
+                    alias,
+                    alias_normalized,
+                    alias_type,
+                    created_at
+                FROM media_aliases
+                WHERE asset_id = ANY(%s::text[])
+                ORDER BY created_at ASC, id ASC
+                """,
+                (list(scope.asset_ids),),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
+
+
+def fetch_account_export_thread_documents_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            if not scope.thread_ids:
+                return []
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    thread_id,
+                    document_id,
+                    relation,
+                    created_at
+                FROM thread_documents
+                WHERE thread_id = ANY(%s::int[])
+                ORDER BY thread_id ASC, created_at ASC, id ASC
+                """,
+                (list(scope.thread_ids),),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
+
+
+def fetch_account_export_project_document_links_for_user(
+    user_id: str,
+    *,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return []
+
+    with _account_export_connection(conn) as export_conn:
+        with export_conn.cursor() as cur:
+            scope = _account_export_scope(export_conn, user_id)
+            if not scope.project_ids:
+                return []
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    project_id,
+                    document_id,
+                    document_type,
+                    is_enabled,
+                    attached_at,
+                    attached_by
+                FROM project_document_links
+                WHERE project_id = ANY(%s::int[])
+                ORDER BY project_id ASC, attached_at ASC, id ASC
+                """,
+                (list(scope.project_ids),),
+            )
+            rows = cur.fetchall()
+            return [_normalize_export_row(dict(row)) for row in rows]
 
 
 def fetch_imported_chatgpt_threads_for_user(
@@ -2413,3 +3695,510 @@ def fetch_imported_chatgpt_messages_for_thread(
                 conn_err,
                 exc_info=True,
             )
+
+
+ACCOUNT_EXPORT_PAYLOAD_ORDER = (
+    "projects",
+    "chat_threads",
+    "chat_messages",
+    "uploaded_documents",
+    "generated_documents",
+    "uploaded_images",
+    "generated_images",
+    "media_assets",
+    "media_aliases",
+    "thread_documents",
+    "project_document_links",
+)
+
+
+def _normalize_export_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _normalize_export_value(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_normalize_export_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_export_value(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    return value
+
+
+def _normalize_export_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: _normalize_export_value(value) for key, value in dict(row).items()
+    }
+
+
+def _export_rows(
+    cur,
+    query: str,
+    params: tuple[Any, ...] | list[Any] = (),
+) -> list[dict[str, Any]]:
+    cur.execute(query, params)
+    return [_normalize_export_row(dict(row)) for row in cur.fetchall()]
+
+
+def _export_scope_clause(
+    *clauses: tuple[str, Any | None]
+) -> tuple[str, list[Any]]:
+    active_clauses: list[str] = []
+    params: list[Any] = []
+    for clause, value in clauses:
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple, set)) and len(value) == 0:
+            continue
+        active_clauses.append(f"({clause})")
+        params.append(list(value) if isinstance(value, set) else value)
+    if not active_clauses:
+        return "FALSE", params
+    return " OR ".join(active_clauses), params
+
+
+def _append_unique(values: list[Any], row_values: list[Any]) -> list[Any]:
+    seen = set(values)
+    for value in row_values:
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+    return values
+
+
+def fetch_account_export_bundle_for_user(
+    user_id: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Return the complete canonical account export payload bundle for a user.
+
+    The bundle is keyed by logical family name and keeps user scoping explicit.
+    """
+    if not user_id:
+        return {family: [] for family in ACCOUNT_EXPORT_PAYLOAD_ORDER}
+
+    dsn = _resolve_dsn()
+    conn = psycopg.connect(dsn, row_factory=dict_row)
+    try:
+        with conn.cursor() as cur:
+            bundles: dict[str, list[dict[str, Any]]] = {
+                family: [] for family in ACCOUNT_EXPORT_PAYLOAD_ORDER
+            }
+
+            bundles["chat_threads"] = _export_rows(
+                cur,
+                """
+                SELECT
+                    id, user_id, title, summary, project_id,
+                    active_profile_id, parent_id, archived_at,
+                    is_diary, diary_mode, exclude_from_identity,
+                    modeling_excluded, created_at, updated_at
+                FROM chat_threads
+                WHERE user_id = %s
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (user_id,),
+            )
+
+            thread_ids = [row.get("id") for row in bundles["chat_threads"]]
+            project_ids = _append_unique(
+                [],
+                [
+                    row.get("project_id")
+                    for row in bundles["chat_threads"]
+                    if row.get("project_id") is not None
+                ],
+            )
+
+            bundles["chat_messages"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, thread_id, role, content, event_at,
+                        kind, extra_meta, created_at
+                    FROM chat_messages
+                    WHERE thread_id = ANY(%s)
+                    ORDER BY COALESCE(event_at, created_at) ASC, id ASC
+                    """,
+                    (
+                        [
+                            thread_id
+                            for thread_id in thread_ids
+                            if thread_id is not None
+                        ],
+                    ),
+                )
+                if thread_ids
+                else []
+            )
+
+            document_scope_clause, document_scope_params = _export_scope_clause(
+                ("user_id = %s", user_id),
+                (
+                    "thread_id = ANY(%s)",
+                    [t for t in thread_ids if t is not None],
+                ),
+                ("project_id = ANY(%s)", project_ids),
+            )
+
+            bundles["uploaded_documents"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, asset_id, project_id, thread_id, user_id,
+                    filename, filesize, mime_type, src_url, source_tag,
+                    parsed_text, embedding_status, embedding_error,
+                    embedding_started_at, embedding_completed_at,
+                    created_at, updated_at, deleted_at
+                FROM uploaded_documents
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+            bundles["generated_documents"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, project_id, thread_id, user_id, title, content,
+                    format, model, created_at, updated_at, deleted_at
+                FROM generated_documents
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+            bundles["uploaded_images"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, asset_id, project_id, thread_id, user_id,
+                    src_url, filename, filesize, mime_type, source_tag,
+                    created_at, updated_at, deleted_at
+                FROM uploaded_images
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+            bundles["generated_images"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, asset_id, project_id, thread_id, user_id,
+                    src_url, prompt, model, created_at, updated_at, deleted_at
+                FROM generated_images
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+
+            for family in (
+                "uploaded_documents",
+                "generated_documents",
+                "uploaded_images",
+                "generated_images",
+            ):
+                project_ids = _append_unique(
+                    project_ids,
+                    [
+                        row.get("project_id")
+                        for row in bundles[family]
+                        if row.get("project_id") is not None
+                    ],
+                )
+
+            asset_ids = _append_unique(
+                [],
+                [
+                    row.get("asset_id")
+                    for row in bundles["uploaded_documents"]
+                    + bundles["uploaded_images"]
+                    + bundles["generated_images"]
+                    if row.get("asset_id") is not None
+                ],
+            )
+
+            media_scope_clause, media_scope_params = _export_scope_clause(
+                ("user_id = %s", user_id),
+                (
+                    "thread_id = ANY(%s)",
+                    [t for t in thread_ids if t is not None],
+                ),
+                ("project_id = ANY(%s)", project_ids),
+                ("id = ANY(%s)", asset_ids),
+            )
+            bundles["media_assets"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, project_id, thread_id, user_id, media_kind,
+                    provenance, source_tag, content_hash,
+                    deterministic_id, normalized_slug, system_name,
+                    storage_prefix, src_url, mime_type, filesize,
+                    ingested_at, deleted_at
+                FROM media_assets
+                WHERE {media_scope_clause}
+                ORDER BY ingested_at ASC, id ASC
+                """,
+                tuple(media_scope_params),
+            )
+
+            project_ids = _append_unique(
+                project_ids,
+                [
+                    row.get("project_id")
+                    for row in bundles["media_assets"]
+                    if row.get("project_id") is not None
+                ],
+            )
+            asset_ids = _append_unique(
+                asset_ids,
+                [
+                    row.get("id")
+                    for row in bundles["media_assets"]
+                    if row.get("id") is not None
+                ],
+            )
+
+            bundles["media_aliases"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, asset_id, alias, alias_normalized,
+                        alias_type, created_at
+                    FROM media_aliases
+                    WHERE asset_id = ANY(%s)
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (
+                        [
+                            asset_id
+                            for asset_id in asset_ids
+                            if asset_id is not None
+                        ],
+                    ),
+                )
+                if asset_ids
+                else []
+            )
+
+            bundles["thread_documents"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT id, thread_id, document_id, relation, created_at
+                    FROM thread_documents
+                    WHERE thread_id = ANY(%s)
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (
+                        [
+                            thread_id
+                            for thread_id in thread_ids
+                            if thread_id is not None
+                        ],
+                    ),
+                )
+                if thread_ids
+                else []
+            )
+
+            bundles["project_document_links"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, project_id, document_id, document_type,
+                        is_enabled, attached_at, attached_by
+                    FROM project_document_links
+                    WHERE project_id = ANY(%s)
+                    ORDER BY attached_at ASC, id ASC
+                    """,
+                    (
+                        [
+                            project_id
+                            for project_id in project_ids
+                            if project_id is not None
+                        ],
+                    ),
+                )
+                if project_ids
+                else []
+            )
+
+            bundles["projects"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, name, description, icon,
+                        identity_depth, created_at, updated_at
+                    FROM projects
+                    WHERE id = ANY(%s)
+                    ORDER BY id ASC
+                    """,
+                    (
+                        [
+                            project_id
+                            for project_id in project_ids
+                            if project_id is not None
+                        ],
+                    ),
+                )
+                if project_ids
+                else []
+            )
+
+            return bundles
+    finally:
+        try:
+            conn.close()
+        except Exception as conn_err:
+            logger.debug(
+                "Failed to close account export bundle connection: %s",
+                conn_err,
+                exc_info=True,
+            )
+
+
+def _bundle_family_rows(user_id: str, family: str) -> list[dict[str, Any]]:
+    bundle = fetch_account_export_bundle_for_user(user_id)
+    return bundle.get(family, [])
+
+
+def fetch_account_export_projects_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "projects")
+
+
+def fetch_account_export_chat_threads_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "chat_threads")
+
+
+def fetch_account_export_chat_messages_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "chat_messages")
+
+
+def fetch_account_export_uploaded_documents_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "uploaded_documents")
+
+
+def fetch_account_export_generated_documents_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "generated_documents")
+
+
+def fetch_account_export_uploaded_images_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "uploaded_images")
+
+
+def fetch_account_export_generated_images_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "generated_images")
+
+
+def fetch_account_export_media_assets_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "media_assets")
+
+
+def fetch_account_export_media_aliases_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "media_aliases")
+
+
+def fetch_account_export_thread_documents_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "thread_documents")
+
+
+def fetch_account_export_project_document_links_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "project_document_links")
+
+
+def iter_account_export_payloads_for_user(
+    user_id: str,
+):
+    bundle = fetch_account_export_bundle_for_user(user_id)
+    for family, path, _reader_name in (
+        (
+            "projects",
+            "entities/projects.json",
+            "fetch_account_export_projects_for_user",
+        ),
+        (
+            "chat_threads",
+            "entities/chat_threads.json",
+            "fetch_account_export_chat_threads_for_user",
+        ),
+        (
+            "chat_messages",
+            "entities/chat_messages.json",
+            "fetch_account_export_chat_messages_for_user",
+        ),
+        (
+            "uploaded_documents",
+            "entities/uploaded_documents.json",
+            "fetch_account_export_uploaded_documents_for_user",
+        ),
+        (
+            "generated_documents",
+            "entities/generated_documents.json",
+            "fetch_account_export_generated_documents_for_user",
+        ),
+        (
+            "uploaded_images",
+            "entities/uploaded_images.json",
+            "fetch_account_export_uploaded_images_for_user",
+        ),
+        (
+            "generated_images",
+            "entities/generated_images.json",
+            "fetch_account_export_generated_images_for_user",
+        ),
+        (
+            "media_assets",
+            "entities/media_assets.json",
+            "fetch_account_export_media_assets_for_user",
+        ),
+        (
+            "media_aliases",
+            "entities/media_aliases.json",
+            "fetch_account_export_media_aliases_for_user",
+        ),
+        (
+            "thread_documents",
+            "entities/thread_documents.json",
+            "fetch_account_export_thread_documents_for_user",
+        ),
+        (
+            "project_document_links",
+            "entities/project_document_links.json",
+            "fetch_account_export_project_document_links_for_user",
+        ),
+    ):
+        yield family, path, bundle.get(family, [])

@@ -15,6 +15,7 @@ from guardian.core.ai_router import (
     _resolve_local_base,
     describe_local_runtime,
     discover_local_model_inventory,
+    resolve_local_execution_model,
 )
 from guardian.core.config import Settings, get_settings
 from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
@@ -295,7 +296,7 @@ def _apply_local_display_disambiguation(
 
 def _fetch_local_models(
     settings: Settings,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], Any]:
     timeout = _catalog_timeout_seconds()
     names, endpoint_resolution = discover_local_model_inventory(
         settings, timeout_seconds=timeout, request_get=requests.get
@@ -309,6 +310,28 @@ def _fetch_local_models(
             continue
         seen.add(key)
         deduped.append(key)
+    local_model_resolution = resolve_local_execution_model(
+        settings=settings,
+        validate_availability=True,
+        discovered_model_names=deduped,
+        endpoint_resolution=endpoint_resolution,
+    )
+    effective_model = normalize_model_id(local_model_resolution.model)
+    if effective_model:
+        normalized_names = {
+            normalize_model_id(name): name for name in deduped if name
+        }
+        if effective_model in normalized_names:
+            deduped = [
+                normalized_names[effective_model],
+                *[
+                    name
+                    for name in deduped
+                    if normalize_model_id(name) != effective_model
+                ],
+            ]
+        elif str(endpoint_resolution.get("state") or "").strip() != "available":
+            deduped = [effective_model, *deduped]
     source_base = str(
         (endpoint_resolution.get("selected_endpoint") or {}).get("base_url")
         or ""
@@ -364,7 +387,7 @@ def _fetch_local_models(
             "Local model discovery degraded; using configured/local fallback names. resolution=%s",
             endpoint_resolution,
         )
-    return entries, endpoint_resolution
+    return entries, endpoint_resolution, local_model_resolution
 
 
 def _cloud_models(
@@ -434,7 +457,9 @@ def _provider_models(
     settings: Settings,
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
-        models, _resolution = _fetch_local_models(settings)
+        models, _resolution, _local_model_resolution = _fetch_local_models(
+            settings
+        )
         return models
     return _cloud_models(provider_id, settings)
 
@@ -485,8 +510,13 @@ def _provider_entry(
     disabled_reason = capability["disabled_reason"]
     enabled = bool(capability["enabled"])
     endpoint_resolution: dict[str, Any] | None = None
+    local_model_resolution = None
     if provider_id == "local":
-        models, endpoint_resolution = _fetch_local_models(settings)
+        (
+            models,
+            endpoint_resolution,
+            local_model_resolution,
+        ) = _fetch_local_models(settings)
         if (
             models
             and endpoint_resolution is not None
@@ -496,9 +526,25 @@ def _provider_entry(
             available = True
             enabled = True
             disabled_reason = None
+        if (
+            local_model_resolution is not None
+            and local_model_resolution.failure_kind
+        ):
+            enabled = False
+            disabled_reason = local_model_resolution.message
     else:
         models = _provider_models(provider_id, settings)
 
+    provider_capability = (
+        {
+            **capability,
+            "enabled": enabled,
+            "available": available,
+            "disabled_reason": disabled_reason,
+        }
+        if provider_id == "local"
+        else capability
+    )
     entry: dict[str, Any] = {
         "id": provider_id,
         "displayName": _PROVIDER_LABELS.get(provider_id, provider_id.title()),
@@ -512,7 +558,7 @@ def _provider_entry(
         "truth": build_provider_truth(
             provider_id,
             settings,
-            capability=capability,
+            capability=provider_capability,
             discoverable=(
                 str(endpoint_resolution.get("state") or "").strip()
                 == "available"
@@ -530,7 +576,10 @@ def _provider_entry(
         entry["source"] = source
     if endpoint_resolution is not None:
         entry["endpoint_resolution"] = endpoint_resolution
-    if not available and disabled_reason:
+    if local_model_resolution is not None:
+        entry["default_model"] = local_model_resolution.model
+        entry["model_resolution"] = local_model_resolution.as_dict()
+    if disabled_reason:
         entry["disabled_reason"] = disabled_reason
     return entry
 
@@ -555,7 +604,9 @@ def resolve_provider_for_model(
     settings: Settings | None = None,
 ) -> str | None:
     resolved = settings or get_settings()
-    local_models, _resolution = _fetch_local_models(resolved)
+    local_models, _resolution, _local_model_resolution = _fetch_local_models(
+        resolved
+    )
     local_model_ids = [model.get("id") for model in local_models]
     return resolve_provider_for_model_registry(
         model_id,

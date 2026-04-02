@@ -10,9 +10,15 @@ import {
   useState,
 } from "react";
 
+import { useTaskEvents, type TaskStreamEvent } from "./hooks/useTaskEvents";
 import api from "@/lib/api";
 import { logOnce } from "@/lib/logging/logOnce";
-import type { ChatExecution } from "@/types/chat";
+import {
+  CHAT_REQUEST_STATES,
+  canTransitionRequestState,
+  type ChatRequestState,
+} from "@/contracts/runtimeTokens";
+import type { ChatExecution, StreamChunk } from "@/types/chat";
 
 export type ChatAttachment = {
   id: string;
@@ -45,6 +51,7 @@ export type CompletionState = {
   activeTaskId: string | null;
   activeThreadId: number | null;
   startedAt: number | null;
+  requestState: ChatRequestState | null;
 };
 
 type CompletionTerminalState = "completed" | "failed" | "cancelled" | "error";
@@ -66,6 +73,11 @@ type ReassociateCompletionSessionInput = {
 type FinalizeCompletionSessionInput = {
   taskId: string;
   terminalState: CompletionTerminalState;
+};
+
+type RefreshOptions = {
+  limit?: number;
+  preserveError?: boolean;
 };
 
 type UseChatOptions = {
@@ -95,17 +107,23 @@ type CompletionSession = {
   finalSnapshotError: string | null;
   finalSnapshotPromise: Promise<boolean> | null;
   assistantMatchedMessageId: number | null;
-  pollDelayMs: number;
   audioReconcileStartedAt: number | null;
+  requestState: ChatRequestState;
+};
+
+type ScheduledRefreshState = {
+  threadId: number | null;
+  promise: Promise<ChatMessage[]> | null;
+  resolve: ((value: ChatMessage[]) => void) | null;
+  reject: ((reason?: unknown) => void) | null;
 };
 
 const DEFAULT_COMPLETION_SLOW_PATH_MS = 15_000;
 const DEFAULT_COMPLETION_HARD_TIMEOUT_MS = 300_000;
 const ACTIVE_SNAPSHOT_LIMIT = 100;
-const COMPLETION_POLL_MIN_MS = 1_500;
-const COMPLETION_POLL_MAX_MS = 5_000;
 const AUDIO_RECONCILE_POLL_MS = 5_000;
 const AUDIO_RECONCILE_MAX_MS = 45_000;
+const DEBOUNCED_REFRESH_MS = 250;
 const UUID_V4ISH_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -159,6 +177,24 @@ export const parseMessagesResponse = (
   }
   return null;
 };
+
+export function renderStreamChunk(chunk: unknown): string {
+  // Only render the explicit public content channel.
+  if (!chunk || typeof chunk !== "object" || !("content" in chunk)) {
+    return "";
+  }
+
+  const content = (chunk as StreamChunk).content;
+  return typeof content === "string" ? content : "";
+}
+
+function normalizeMessageContent(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && "content" in raw) {
+    return renderStreamChunk(raw);
+  }
+  return String(raw ?? "");
+}
 
 const normalizeSrcUrl = (src: any): string => {
   if (typeof src !== "string") return "";
@@ -259,6 +295,12 @@ function normalizeTaskId(raw: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+function normalizeStreamTaskId(raw: unknown): string | null {
+  const normalized = normalizeTaskId(raw);
+  if (!normalized) return null;
+  return normalized.startsWith("pending-") ? null : normalized;
+}
+
 function normalizeExecution(raw: unknown): ChatExecution | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const candidate = raw as Record<string, unknown>;
@@ -340,8 +382,7 @@ const normalizeMessage = (
   const threadId = Number(base.thread_id ?? base.threadId ?? fallbackThreadId);
   const id = Number(base.id ?? base.message_id ?? base.messageId);
   const role = String(base.role ?? "").trim();
-  const content =
-    typeof base.content === "string" ? base.content : String(base.content ?? "");
+  const content = normalizeMessageContent(base.content);
   const createdAtRaw = base.created_at ?? base.createdAt;
   const createdAt = createdAtRaw ? String(createdAtRaw) : "";
   const attachments = normalizeAttachments(raw);
@@ -452,16 +493,18 @@ function collapseAssistantTurnDuplicates(messages: ChatMessage[]): ChatMessage[]
   if (messages.length < 2) return messages;
   const seenTurns = new Set<string>();
   const next: ChatMessage[] = [];
-  for (const message of messages) {
-    if (!isAssistantWithTurnId(message)) {
-      next.push(message);
-      continue;
+  // Keep the newest assistant row per turn because completion refreshes can
+  // briefly surface a placeholder before the persisted final response lands.
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (isAssistantWithTurnId(message)) {
+      const turnId = message.turn_id as string;
+      if (seenTurns.has(turnId)) continue;
+      seenTurns.add(turnId);
     }
-    const turnId = message.turn_id as string;
-    if (seenTurns.has(turnId)) continue;
-    seenTurns.add(turnId);
     next.push(message);
   }
+  next.reverse();
   return next;
 }
 
@@ -557,6 +600,7 @@ export function useChat(options: UseChatOptions = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [streamTaskId, setStreamTaskId] = useState<string | null>(null);
   const [completionState, setCompletionState] = useState<CompletionState>({
     isCompleting: false,
     activeTaskId: null,
@@ -592,13 +636,20 @@ export function useChat(options: UseChatOptions = {}) {
     token: 0,
   });
   const completionSessionRef = useRef<CompletionSession | null>(null);
-  const completionPollTimerRef = useRef<number | null>(null);
   const audioReconcileTimerRef = useRef<number | null>(null);
   const completionSlowTimeoutRef = useRef<number | null>(null);
   const completionHardTimeoutRef = useRef<number | null>(null);
   const inFlightCompletionRef = useRef<Record<number, boolean>>({});
   const completionGenerationRef = useRef(0);
   const loadingCountRef = useRef(0);
+  const activeTaskIdRef = useRef<string | null>(null);
+  const refreshTimeoutRef = useRef<number | null>(null);
+  const scheduledRefreshRef = useRef<ScheduledRefreshState>({
+    threadId: null,
+    promise: null,
+    resolve: null,
+    reject: null,
+  });
 
   const beginLoading = useCallback(() => {
     loadingCountRef.current += 1;
@@ -642,18 +693,36 @@ export function useChat(options: UseChatOptions = {}) {
     laneRef.current.threadId = null;
   }, []);
 
-  const stopCompletionPoll = useCallback(() => {
-    if (completionPollTimerRef.current !== null) {
-      window.clearTimeout(completionPollTimerRef.current);
-      completionPollTimerRef.current = null;
-    }
-  }, []);
-
   const stopAudioReconcile = useCallback(() => {
     if (audioReconcileTimerRef.current !== null) {
       window.clearTimeout(audioReconcileTimerRef.current);
       audioReconcileTimerRef.current = null;
     }
+  }, []);
+
+  const setActiveStreamTaskId = useCallback((taskId: string | null) => {
+    const nextTaskId = normalizeStreamTaskId(taskId);
+    if (nextTaskId === activeTaskIdRef.current) {
+      return;
+    }
+    activeTaskIdRef.current = nextTaskId;
+    setStreamTaskId(nextTaskId);
+  }, []);
+
+  const cancelScheduledRefresh = useCallback(() => {
+    if (refreshTimeoutRef.current !== null) {
+      window.clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = null;
+    }
+    if (scheduledRefreshRef.current.resolve) {
+      scheduledRefreshRef.current.resolve([]);
+    }
+    scheduledRefreshRef.current = {
+      threadId: null,
+      promise: null,
+      resolve: null,
+      reject: null,
+    };
   }, []);
 
   const clearCompletionState = useCallback(() => {
@@ -674,6 +743,7 @@ export function useChat(options: UseChatOptions = {}) {
         activeTaskId: null,
         activeThreadId: null,
         startedAt: null,
+        requestState: null,
       };
     });
   }, []);
@@ -704,11 +774,12 @@ export function useChat(options: UseChatOptions = {}) {
       ) {
         return;
       }
-      stopCompletionPoll();
       stopAudioReconcile();
+      cancelScheduledRefresh();
+      setActiveStreamTaskId(null);
       completionSessionRef.current = null;
     },
-    [stopAudioReconcile, stopCompletionPoll]
+    [cancelScheduledRefresh, setActiveStreamTaskId, stopAudioReconcile]
   );
 
   const findAssociatedAssistantMessage = useCallback(
@@ -720,20 +791,22 @@ export function useChat(options: UseChatOptions = {}) {
       );
       if (!assistants.length) return null;
 
+      if (session.turnId) {
+        const byTurn = [...assistants]
+          .reverse()
+          .find(
+            (candidate) =>
+              candidate.turn_id === session.turnId &&
+              candidate.id > session.baselineLatestAssistantId
+          );
+        if (byTurn) return byTurn;
+      }
+
       if (session.assistantMatchedMessageId != null) {
         const byId = assistants.find(
           (candidate) => candidate.id === session.assistantMatchedMessageId
         );
         if (byId) return byId;
-      }
-
-      if (session.turnId) {
-        const byTurn = assistants.find(
-          (candidate) =>
-            candidate.turn_id === session.turnId &&
-            candidate.id > session.baselineLatestAssistantId
-        );
-        if (byTurn) return byTurn;
       }
 
       if (session.taskTerminalState != null) {
@@ -759,7 +832,7 @@ export function useChat(options: UseChatOptions = {}) {
     async (
       threadId: number,
       reason: string,
-      options: { limit?: number; preserveError?: boolean } = {}
+      options: RefreshOptions = {}
     ): Promise<ChatMessage[]> => {
       if (!Number.isFinite(threadId)) return [];
       const limit = options.limit ?? ACTIVE_SNAPSHOT_LIMIT;
@@ -833,6 +906,55 @@ export function useChat(options: UseChatOptions = {}) {
       return promise;
     },
     [beginLoading, endLoadingCount, rebuildVisibleState]
+  );
+
+  const scheduleRefresh = useCallback(
+    (
+      threadId: number,
+      reason: string,
+      options: RefreshOptions = {}
+    ): Promise<ChatMessage[]> => {
+      if (!Number.isFinite(threadId)) {
+        return Promise.resolve([]);
+      }
+
+      const scheduled = scheduledRefreshRef.current;
+      if (scheduled.threadId === threadId && scheduled.promise) {
+        return scheduled.promise;
+      }
+
+      cancelScheduledRefresh();
+
+      const promise = new Promise<ChatMessage[]>((resolve, reject) => {
+        scheduledRefreshRef.current = {
+          threadId,
+          promise: null,
+          resolve,
+          reject,
+        };
+
+        refreshTimeoutRef.current = window.setTimeout(async () => {
+          refreshTimeoutRef.current = null;
+          try {
+            const result = await runSnapshotRefresh(threadId, reason, options);
+            scheduledRefreshRef.current.resolve?.(result);
+          } catch (error) {
+            scheduledRefreshRef.current.reject?.(error);
+          } finally {
+            scheduledRefreshRef.current = {
+              threadId: null,
+              promise: null,
+              resolve: null,
+              reject: null,
+            };
+          }
+        }, DEBOUNCED_REFRESH_MS);
+      });
+
+      scheduledRefreshRef.current.promise = promise;
+      return promise;
+    },
+    [cancelScheduledRefresh, runSnapshotRefresh]
   );
 
   const loadOlderMessages = useCallback(
@@ -934,6 +1056,7 @@ export function useChat(options: UseChatOptions = {}) {
         activeThreadRef.current = null;
         clearLane(snapshotLaneRef);
         clearLane(paginationLaneRef);
+        cancelScheduledRefresh();
         disposeCompletionSession();
         resetMessageState();
         endCompletion();
@@ -951,12 +1074,14 @@ export function useChat(options: UseChatOptions = {}) {
       activeThreadRef.current = numericThreadId;
       clearLane(snapshotLaneRef);
       clearLane(paginationLaneRef);
+      cancelScheduledRefresh();
       disposeCompletionSession();
       resetMessageState();
       await runSnapshotRefresh(numericThreadId, "activate");
     },
     [
       clearLane,
+      cancelScheduledRefresh,
       disposeCompletionSession,
       endCompletion,
       resetMessageState,
@@ -1098,6 +1223,7 @@ export function useChat(options: UseChatOptions = {}) {
           previous.isCompleting && previous.activeThreadId === threadId
             ? previous.startedAt ?? Date.now()
             : Date.now(),
+        requestState: CHAT_REQUEST_STATES.DISPATCHING,
       }));
       stopCompletionTrackingTimers();
 
@@ -1211,7 +1337,7 @@ export function useChat(options: UseChatOptions = {}) {
       session.finalSnapshotStatus = "running";
       const promise = (async () => {
         try {
-          await runSnapshotRefresh(session.threadId, "completion-final", {
+          await scheduleRefresh(session.threadId, "completion-final", {
             preserveError: true,
           });
           const current = completionSessionRef.current;
@@ -1266,55 +1392,8 @@ export function useChat(options: UseChatOptions = {}) {
     [
       disposeCompletionSession,
       findAssociatedAssistantMessage,
-      runSnapshotRefresh,
+      scheduleRefresh,
       scheduleAudioReconcile,
-    ]
-  );
-
-  const scheduleCompletionPoll = useCallback(
-    (sessionId: string, delayMs: number) => {
-      stopCompletionPoll();
-      completionPollTimerRef.current = window.setTimeout(async () => {
-        completionPollTimerRef.current = null;
-        const session = completionSessionRef.current;
-        if (!session || session.sessionId !== sessionId) return;
-        if (session.taskTerminalState != null) return;
-        if (Date.now() - session.startedAt > completionHardTimeoutMs) {
-          disposeCompletionSession(sessionId);
-          endCompletion();
-          return;
-        }
-        try {
-          await runSnapshotRefresh(session.threadId, "completion-poll", {
-            preserveError: true,
-          });
-        } catch {
-          disposeCompletionSession(sessionId);
-          endCompletion();
-          return;
-        }
-        const current = completionSessionRef.current;
-        if (!current || current.sessionId !== sessionId) return;
-        const matched = findAssociatedAssistantMessage(current);
-        if (matched && current.turnId) {
-          current.assistantMatchedMessageId = matched.id;
-          endCompletion();
-          return;
-        }
-        current.pollDelayMs = Math.min(
-          Math.max(delayMs, COMPLETION_POLL_MIN_MS) + 500,
-          COMPLETION_POLL_MAX_MS
-        );
-        scheduleCompletionPoll(sessionId, current.pollDelayMs);
-      }, delayMs);
-    },
-    [
-      completionHardTimeoutMs,
-      disposeCompletionSession,
-      endCompletion,
-      findAssociatedAssistantMessage,
-      runSnapshotRefresh,
-      stopCompletionPoll,
     ]
   );
 
@@ -1356,11 +1435,12 @@ export function useChat(options: UseChatOptions = {}) {
         finalSnapshotError: null,
         finalSnapshotPromise: null,
         assistantMatchedMessageId: null,
-        pollDelayMs: COMPLETION_POLL_MIN_MS,
         audioReconcileStartedAt: null,
+        requestState: CHAT_REQUEST_STATES.DISPATCHING,
       };
 
       completionSessionRef.current = session;
+      setActiveStreamTaskId(normalizedTaskId);
 
       void (async () => {
         try {
@@ -1378,14 +1458,18 @@ export function useChat(options: UseChatOptions = {}) {
         if (matched && current.turnId) {
           current.assistantMatchedMessageId = matched.id;
           endCompletion();
-          return;
         }
-        scheduleCompletionPoll(sessionId, COMPLETION_POLL_MIN_MS);
       })();
 
       return sessionId;
     },
-    [disposeCompletionSession, endCompletion, findAssociatedAssistantMessage, runSnapshotRefresh, scheduleCompletionPoll]
+    [
+      disposeCompletionSession,
+      endCompletion,
+      findAssociatedAssistantMessage,
+      runSnapshotRefresh,
+      setActiveStreamTaskId,
+    ]
   );
 
   const reassociateCompletionSession = useCallback(
@@ -1412,9 +1496,10 @@ export function useChat(options: UseChatOptions = {}) {
       current.taskId = nextRealTaskId;
       current.taskIdAliases.add(nextRealTaskId);
       current.taskIdAliases.add(nextProvisionalTaskId);
+      setActiveStreamTaskId(nextRealTaskId);
       return true;
     },
-    []
+    [setActiveStreamTaskId]
   );
 
   const updateCompletionSessionTurnId = useCallback(
@@ -1466,23 +1551,21 @@ export function useChat(options: UseChatOptions = {}) {
       const matchedByTurn =
         Boolean(current.turnId) && message.turn_id === current.turnId;
 
-      // Issue 1: Remove the fallback that matches only by position without task/turn verification
-      // This prevents accepting assistant completion events by thread alone
-      const matchedByFallback = false;
-
       if (!(matchedByTask || matchedByTurn)) {
+        if (current.turnId && message.turn_id && message.turn_id !== current.turnId) {
+          current.requestState = CHAT_REQUEST_STATES.ORPHANED;
+        }
         return false;
       }
 
       current.assistantMatchedMessageId = message.id;
-      stopCompletionPoll();
       endCompletion();
       if (current.taskTerminalState != null) {
         void ensureFinalSnapshot(current.sessionId);
       }
       return true;
     },
-    [appendMessage, endCompletion, ensureFinalSnapshot, stopCompletionPoll]
+    [appendMessage, endCompletion, ensureFinalSnapshot]
   );
 
   const finalizeCompletionSession = useCallback(
@@ -1492,22 +1575,119 @@ export function useChat(options: UseChatOptions = {}) {
       const current = findCurrentSessionByTaskId(normalizedTaskId);
       if (!current) return false;
       current.taskTerminalState = terminalState;
-      stopCompletionPoll();
       endCompletion();
       void ensureFinalSnapshot(current.sessionId);
       return true;
     },
-    [endCompletion, ensureFinalSnapshot, findCurrentSessionByTaskId, stopCompletionPoll]
+    [endCompletion, ensureFinalSnapshot, findCurrentSessionByTaskId]
   );
+
+  const handleTaskStreamEvent = useCallback(
+    (event: TaskStreamEvent) => {
+      const currentTaskId = activeTaskIdRef.current;
+      if (!currentTaskId) {
+        return;
+      }
+
+      const eventTaskId = normalizeTaskId(
+        event.task_id ?? event.taskId ?? currentTaskId
+      );
+      if (!eventTaskId || eventTaskId !== currentTaskId) {
+        return;
+      }
+
+      updateCompletionTaskId(eventTaskId);
+
+      const eventTurnId = normalizeTurnId(event.turn_id ?? event.turnId);
+      if (eventTurnId) {
+        updateCompletionSessionTurnId(eventTaskId, eventTurnId);
+      }
+
+      switch (event.type) {
+        case "task.running": {
+          const session = findCurrentSessionByTaskId(currentTaskId);
+          if (session && canTransitionRequestState(session.requestState, CHAT_REQUEST_STATES.STREAMING)) {
+            session.requestState = CHAT_REQUEST_STATES.STREAMING;
+          }
+          return;
+        }
+        case "task.completed": {
+          setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.COMPLETED;
+          }
+          finalizeCompletionSession({
+            taskId: eventTaskId,
+            terminalState: "completed",
+          });
+          return;
+        }
+        case "task.failed": {
+          setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.FAILED_RETRYABLE;
+          }
+          finalizeCompletionSession({
+            taskId: eventTaskId,
+            terminalState: "failed",
+          });
+          return;
+        }
+        case "task.cancelled": {
+          setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.CANCELLED;
+          }
+          finalizeCompletionSession({
+            taskId: eventTaskId,
+            terminalState: "cancelled",
+          });
+          return;
+        }
+        case "completion.error": {
+          setActiveStreamTaskId(null);
+          const session = findCurrentSessionByTaskId(eventTaskId);
+          if (session) {
+            session.requestState = CHAT_REQUEST_STATES.FAILED_FATAL;
+          }
+          finalizeCompletionSession({
+            taskId: eventTaskId,
+            terminalState: "error",
+          });
+          return;
+        }
+        default:
+          return;
+      }
+    },
+    [
+      finalizeCompletionSession,
+      findCurrentSessionByTaskId,
+      setActiveStreamTaskId,
+      updateCompletionSessionTurnId,
+      updateCompletionTaskId,
+    ]
+  );
+
+  useTaskEvents(streamTaskId, handleTaskStreamEvent);
 
   useEffect(() => {
     return () => {
       clearLane(snapshotLaneRef);
       clearLane(paginationLaneRef);
+      cancelScheduledRefresh();
       disposeCompletionSession();
       stopCompletionTrackingTimers();
     };
-  }, [clearLane, disposeCompletionSession, stopCompletionTrackingTimers]);
+  }, [
+    cancelScheduledRefresh,
+    clearLane,
+    disposeCompletionSession,
+    stopCompletionTrackingTimers,
+  ]);
 
   const loadMessages = useCallback(
     async (threadId: number, limit = 50, offset = 0, append = false) => {

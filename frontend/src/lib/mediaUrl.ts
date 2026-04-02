@@ -1,4 +1,7 @@
-import { resolveBackendUrl } from "@/lib/runtimeConfig";
+import {
+  getRuntimeConfigSync,
+  resolveBackendUrl,
+} from "@/lib/runtimeConfig";
 
 const MEDIA_SOURCE_FIELDS = [
   "src_url",
@@ -69,6 +72,44 @@ export function resolveMediaSrc(src: string): string {
   if (!normalizedMediaPath) return trimmed;
 
   return `${resolveBackendUrl(normalizedMediaPath)}${suffix}`;
+}
+
+export function extractBackendMediaPath(
+  src: string | null | undefined
+): string | null {
+  const trimmed = asNonEmptyString(src);
+  if (!trimmed) return null;
+  if (/^(?:data:|blob:)/i.test(trimmed) || trimmed.startsWith("//")) {
+    return null;
+  }
+
+  const { path } = splitPathAndSuffix(trimmed);
+  const normalizedRelativeMediaPath = normalizeRelativeMediaPath(path);
+  if (normalizedRelativeMediaPath) {
+    return normalizedRelativeMediaPath;
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+
+  const runtimeConfig = getRuntimeConfigSync();
+  const backendBaseUrl = asNonEmptyString(runtimeConfig.backendBaseUrl);
+  if (!/^(?:https?:)\/\//i.test(backendBaseUrl)) {
+    return null;
+  }
+
+  try {
+    const parsedSrc = new URL(trimmed);
+    const parsedBackendBaseUrl = new URL(backendBaseUrl);
+    if (parsedSrc.origin !== parsedBackendBaseUrl.origin) {
+      return null;
+    }
+
+    return normalizeRelativeMediaPath(parsedSrc.pathname);
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeMediaUrl(srcUrl: string | null | undefined): string {

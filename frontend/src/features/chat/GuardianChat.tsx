@@ -74,8 +74,15 @@ import {
   CHAT_LANE_STAGE_GUTTER_CLASS,
 } from "@/features/chat/chatLane";
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
-
-const DEBUG_LAYOUT = true;
+import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import {
+  markRuntimeRouteUnavailableIfNotFound,
+  useRuntimeRouteCapability,
+} from "@/lib/runtimeRouteCapabilities";
+import {
+  forwardLegacyDocumentOpenToWorkspace,
+  LEGACY_DOCUMENT_OPEN_EVENT,
+} from "@/features/workspace/state/useWorkspaceState";
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
@@ -642,6 +649,10 @@ export function GuardianChat({
   });
   const triggerReload = useMemo(() => debounce(() => setChatReloadVersion((v) => v + 1), 300), []);
   const { subscribe } = useLiveEvents({ passive: true });
+  const {
+    ready: systemPromptCapabilityReady,
+    state: systemPromptCapability,
+  } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT);
   const [llmHealth, setLlmHealth] = useState<LlmHealthSnapshot>({
     ok: null,
     status: "unknown",
@@ -671,6 +682,30 @@ export function GuardianChat({
         new CustomEvent("cfy:toast", { detail: { message, kind: "error" } })
       );
     } catch {}
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Chat bubbles still emit the legacy document-open event. Re-emit through
+    // the shared workspace contract so Guardian attachments and Documents use
+    // the same invocation seam.
+    const onLegacyWorkspaceOpen = (event: Event) => {
+      forwardLegacyDocumentOpenToWorkspace((event as CustomEvent).detail, {
+        source: "guardian-chat",
+        targetView: "guardian",
+      });
+    };
+
+    window.addEventListener(
+      LEGACY_DOCUMENT_OPEN_EVENT,
+      onLegacyWorkspaceOpen as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        LEGACY_DOCUMENT_OPEN_EVENT,
+        onLegacyWorkspaceOpen as EventListener
+      );
+    };
   }, []);
   const voiceReadAloudEnabled = voiceCapabilities.read_aloud_enabled;
   const voiceTurnBasedEnabled = voiceCapabilities.turn_based_enabled;
@@ -1357,6 +1392,7 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+  const ragTraceThreadId = effectiveThreadId;
   const sourceScopeKey = useMemo(
     () =>
       effectiveThreadId != null
@@ -1393,15 +1429,26 @@ export function GuardianChat({
   }, [activeSessionTabId, effectiveThreadId, sourceMode, sourceScopeKey]);
 
   const refreshPromptCostSummary = useCallback(async (threadId: number | null) => {
+    if (!systemPromptCapabilityReady) {
+      return;
+    }
+    if (systemPromptCapability === "unavailable") {
+      setPromptCostSummary(null);
+      return;
+    }
     try {
       const params = threadId != null ? { thread_id: threadId } : undefined;
       const data = await fetchSystemPromptSummary(params);
       setPromptCostSummary(data ?? null);
     } catch (error) {
+      markRuntimeRouteUnavailableIfNotFound(
+        SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT,
+        error
+      );
       console.debug("[guardian] prompt cost summary refresh failed", error);
       setPromptCostSummary(null);
     }
-  }, []);
+  }, [systemPromptCapability, systemPromptCapabilityReady]);
 
   const applyProfileFallback = useCallback(() => {
     const fallbackThread = activeThreadRef.current as any;
@@ -2555,7 +2602,7 @@ export function GuardianChat({
           {ragTraceUiEnabled ? (
             <DropdownMenuItem
               onClick={() => {
-                if (effectiveThreadId == null) {
+                if (ragTraceThreadId == null) {
                   alert("Thread is not persisted yet");
                   return;
                 }
@@ -2616,15 +2663,7 @@ export function GuardianChat({
             />
           </div>
 
-          <div
-            className="flex items-center gap-2 shrink-0"
-            style={{
-              ...(DEBUG_LAYOUT && {
-                outline: "2px solid yellow",
-                background: "rgba(255,255,0,0.1)",
-              }),
-            }}
-          >
+          <div className="flex items-center gap-2 shrink-0">
             {headerActions}
           </div>
         </div>
@@ -2713,9 +2752,6 @@ export function GuardianChat({
           data-testid="composer-shell"
           className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
-            ...(DEBUG_LAYOUT && {
-              outline: "2px solid green",
-            }),
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
@@ -2730,9 +2766,6 @@ export function GuardianChat({
               data-testid="composer-conversation-lane"
               className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS}`}
               style={{
-                ...(DEBUG_LAYOUT && {
-                  outline: "2px solid blue",
-                }),
                 maxWidth: CHAT_LANE_MAX_WIDTH,
               }}
             >
@@ -2909,11 +2942,6 @@ export function GuardianChat({
         {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
 <div
   className="relative flex flex-col flex-1 min-h-0 overflow-y-auto"
-  style={{
-    ...(DEBUG_LAYOUT && {
-      outline: "2px solid red",
-    }),
-  }}
 >
   <div
     data-testid="guardian-shell"
@@ -2926,7 +2954,7 @@ export function GuardianChat({
         <RAGTracePanel
           open={ragTraceOpen}
           onOpenChange={setRagTraceOpen}
-          threadId={effectiveThreadId}
+          threadId={ragTraceThreadId}
         />
       </>
     );
@@ -2939,11 +2967,6 @@ export function GuardianChat({
         className={`mx-auto flex h-full min-h-0 min-w-0 w-full flex-1 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
         style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
         hoverPop
-        style={{
-          ...(DEBUG_LAYOUT && {
-            outline: "2px solid red",
-          }),
-        }}
       >
         <div className="relative flex flex-col w-full h-full">
           {body}
@@ -2952,7 +2975,7 @@ export function GuardianChat({
       <RAGTracePanel
         open={ragTraceOpen}
         onOpenChange={setRagTraceOpen}
-        threadId={effectiveThreadId}
+        threadId={ragTraceThreadId}
       />
     </>
   );
