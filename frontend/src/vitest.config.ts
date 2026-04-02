@@ -13,7 +13,7 @@ export default defineConfig({
       "contracts/**/*.test.{ts,tsx}",
       "lib/**/*.test.{ts,tsx}",
       "persona/**/*.test.{ts,tsx}",
-      "test/**/*.test.{ts,tsx}"
+      "test/**/*.test.{ts,tsx}",
     ],
     exclude: [
       "node_modules/**",
