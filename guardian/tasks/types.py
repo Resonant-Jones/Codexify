@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Dict, List, Optional, Type
 
 
@@ -22,6 +23,29 @@ def _base_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(task_type, str) and task_type.strip():
         base["type"] = task_type.strip()
     return base
+
+
+def _coerce_optional_positive_int(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+class TaskLifecycleState(str, Enum):
+    QUEUED = "QUEUED"
+    DISPATCHING = "DISPATCHING"
+    AWAITING_ACK = "AWAITING_ACK"
+    AWAITING_MODEL = "AWAITING_MODEL"
+    AWAITING_FIRST_TOKEN = "AWAITING_FIRST_TOKEN"
+    STREAMING = "STREAMING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+TASK_LIFECYCLE_STATES = frozenset(state.value for state in TaskLifecycleState)
 
 
 @dataclass
@@ -59,6 +83,7 @@ class WarmupTask(BaseTask):
 class ChatCompletionTask(BaseTask):
     type: str = "chat_completion"
     thread_id: int = 0
+    latest_turn_message_id: int | None = None
     model: str | None = None
     provider: str | None = None
     temperature: float | None = None
@@ -86,6 +111,9 @@ class ChatCompletionTask(BaseTask):
                 temperature = None
         return cls(
             thread_id=int(payload.get("thread_id") or 0),
+            latest_turn_message_id=_coerce_optional_positive_int(
+                payload.get("latest_turn_message_id")
+            ),
             model=payload.get("model"),
             provider=payload.get("provider"),
             temperature=temperature,
