@@ -334,6 +334,25 @@ def split_history_and_latest_turn(
     }
 
 
+def _latest_turn_instruction_message(
+    completion_assembly: dict[str, Any] | None,
+) -> str | None:
+    """Return the explicit instruction for latest-turn-only answering."""
+
+    if not isinstance(completion_assembly, dict):
+        return None
+    latest_turn = completion_assembly.get("latest_turn")
+    if not isinstance(latest_turn, dict):
+        return None
+    return (
+        "Completion targeting guidance:\n"
+        "- Use prior messages as context only.\n"
+        "- Treat the most recent user message as the only response target.\n"
+        "- Do not re-answer older turns unless the most recent user message "
+        "explicitly asks you to revisit them."
+    )
+
+
 def _image_attachments_from_meta(
     latest_user_meta: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
@@ -1066,6 +1085,10 @@ async def build_messages_for_llm(
             "Answer concisely, avoid speculation, and clearly mark any uncertainty."
         )
 
+    latest_turn_instruction = _latest_turn_instruction_message(
+        completion_assembly
+    )
+
     if isinstance(bundle, dict):
         try:
             existing_meta = bundle.get("_prompt_meta") or {}
@@ -1076,6 +1099,10 @@ async def build_messages_for_llm(
             bundle["_prompt_meta"] = dict(prompt_meta or {})
 
     messages_for_llm.append({"role": "system", "content": system_content})
+    if latest_turn_instruction:
+        messages_for_llm.append(
+            {"role": "system", "content": latest_turn_instruction}
+        )
 
     doc_message, doc_count = _build_document_context_message(bundle)
     if doc_message:
