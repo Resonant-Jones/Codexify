@@ -664,6 +664,7 @@ export function GuardianChat({
     handleIncomingAssistantMessage,
     isCompletionInFlight,
     setCompletionInFlight,
+    streamingDraft,
   } = useChat();
   const inferenceRequest = useInferenceRequestState();
   const {
@@ -2996,6 +2997,7 @@ export function GuardianChat({
             voiceReadAloudEnabled={voiceReadAloudEnabled}
             voiceCapabilitiesFailed={voiceCapabilitiesFailed}
             inferenceState={composerInferenceState}
+            streamingDraft={streamingDraft}
             onCancelInference={handleCancelInference}
             onSwitchToFast={handleSwitchToNoThink}
           />
