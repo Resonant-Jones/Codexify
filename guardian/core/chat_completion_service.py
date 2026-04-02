@@ -315,6 +315,25 @@ def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
     return -1
 
 
+def split_history_and_latest_turn(
+    messages: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Partition thread messages into prior history and the latest user turn."""
+
+    safe_messages = [
+        dict(message)
+        for message in (messages or [])
+        if isinstance(message, dict)
+    ]
+    latest_user_index = _find_last_message_index(safe_messages, "user")
+    if latest_user_index < 0:
+        return {"history": safe_messages, "latest_turn": None}
+    return {
+        "history": safe_messages[:latest_user_index],
+        "latest_turn": safe_messages[latest_user_index],
+    }
+
+
 def _image_attachments_from_meta(
     latest_user_meta: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
@@ -925,9 +944,18 @@ async def build_messages_for_llm(
     except Exception:
         pass
 
+    turn_split = split_history_and_latest_turn(items)
+    history_messages = turn_split["history"]
+    latest_turn = turn_split["latest_turn"]
+    if latest_turn is None:
+        raise ValueError("thread_has_no_usable_context")
+
+    conversation_messages = [*history_messages, latest_turn]
+    latest_message = render_content_for_inference(latest_turn.get("content"))
+
     context: list[dict[str, str]] = []
     latest_user_meta: dict[str, Any] | None = None
-    for msg in items:
+    for msg in conversation_messages:
         role = str(msg.get("role") or "").strip()
         raw_content = msg.get("content")
         if isinstance(raw_content, str):
@@ -944,14 +972,6 @@ async def build_messages_for_llm(
 
     if not context:
         raise ValueError("thread_has_no_usable_context")
-
-    latest_message = ""
-    for msg in reversed(items):
-        if str(msg.get("role") or "").strip() == "user":
-            lm = render_content_for_inference(msg.get("content"))
-            if lm:
-                latest_message = lm
-                break
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
@@ -1005,6 +1025,12 @@ async def build_messages_for_llm(
 
     messages_for_llm: list[dict[str, str]] = []
     prompt_meta: dict[str, Any] = {}
+    retrieved_context_messages: list[dict[str, str]] = []
+    completion_assembly = {
+        "history": history_messages,
+        "latest_turn": latest_turn,
+        "retrieved_context": retrieved_context_messages,
+    }
 
     try:
         if build_guardian_system_prompt:
@@ -1053,13 +1079,17 @@ async def build_messages_for_llm(
 
     doc_message, doc_count = _build_document_context_message(bundle)
     if doc_message:
-        messages_for_llm.append({"role": "system", "content": doc_message})
+        retrieved_context_messages.append(
+            {"role": "system", "content": doc_message}
+        )
 
     context_message, context_meta = build_context_system_message_with_meta(
         bundle
     )
     if context_message:
-        messages_for_llm.append({"role": "system", "content": context_message})
+        retrieved_context_messages.append(
+            {"role": "system", "content": context_message}
+        )
     prompt_meta["context"] = context_meta
     prompt_meta.setdefault("docs", {})
     prompt_meta["docs"].update(
@@ -1075,6 +1105,7 @@ async def build_messages_for_llm(
         bundle["_attachment_meta"] = {
             "latest_user": latest_user_meta,
         }
+        bundle["_completion_assembly"] = completion_assembly
 
     try:
         retrieval_plan = resolve_retrieval_plan(
@@ -1101,6 +1132,7 @@ async def build_messages_for_llm(
 
     _persist_thread_trace_candidate(task, trace)
 
+    messages_for_llm.extend(retrieved_context_messages)
     messages_for_llm.extend(context)
 
     model = thread_execution.model
