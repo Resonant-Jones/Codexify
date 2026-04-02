@@ -2,6 +2,36 @@ import { Button } from "@/components/ui/button";
 
 import useImprintReview from "@/features/settings/hooks/useImprintReview";
 
+function countList(
+  metadata: Record<string, unknown> | null,
+  key: string
+): number | null {
+  const value = metadata?.[key];
+  return Array.isArray(value) ? value.length : null;
+}
+
+function stringValue(
+  metadata: Record<string, unknown> | null,
+  key: string
+): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberValue(
+  metadata: Record<string, unknown> | null,
+  key: string
+): number | null {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function shortHash(value: string | null | undefined): string {
+  if (!value) return "—";
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 8)}…${value.slice(-4)}`;
+}
+
 type ImprintReviewPanelProps = {
   className?: string;
   projectId?: number | null;
@@ -18,8 +48,8 @@ export default function ImprintReviewPanel({
     error,
     loading,
     outcome,
+    generateProposal,
     proposal,
-    refresh,
     rejectProposal,
     rejecting,
     reviewStatus,
@@ -46,8 +76,9 @@ export default function ImprintReviewPanel({
         </h2>
         <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
           Imprint is a deeper style and reasoning layer. Persona is the
-          user-editable mask or voice layer. This panel reviews imprint proposals
-          only and keeps persona effects read-only.
+          user-editable mask or voice layer. This panel consumes the backend
+          proposal response directly, and the backend result wins over any
+          preview state.
         </p>
       </div>
 
@@ -112,7 +143,7 @@ export default function ImprintReviewPanel({
                       Status: {proposal.imprintDraft.status ?? "—"}
                     </li>
                     <li className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Guardian name: {proposal.imprintDraft.guardianName ?? proposal.name ?? "—"}
+                      Guardian name: {proposal.imprintDraft.guardianName ?? proposal.proposal?.proposalName ?? proposal.name ?? "—"}
                     </li>
                     <li className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
                       Preferred name: {proposal.imprintDraft.preferredName ?? "—"}
@@ -134,12 +165,77 @@ export default function ImprintReviewPanel({
             >
               <div className="space-y-1">
                 <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                  Proposal summary
+                  Backend proposal
                 </div>
                 <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                  Review the proposed imprint and its persona-adjacent consequences
-                  before taking a terminal action.
+                  Review the backend-generated proposal record before taking a
+                  terminal action. This view is consumer-shaped, not the source
+                  of truth.
                 </p>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div
+                  className="space-y-2 rounded-xl border px-3 py-3 text-sm"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
+                    color: "var(--text)",
+                  }}
+                >
+                  <div className="text-xs uppercase tracking-wide opacity-70">
+                    Proposal record
+                  </div>
+                  <div className="text-xs uppercase tracking-wide opacity-70">
+                    Proposal name
+                  </div>
+                  <div className="text-sm font-semibold">
+                    {proposal.proposal?.proposalName ?? proposal.name ?? "—"}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Preferred name:{" "}
+                    {proposal.proposal?.preferredName ??
+                      proposal.imprintDraft?.preferredName ??
+                      "—"}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Scope: {proposal.proposal?.scopeKind ?? "—"} | Generator:{" "}
+                    {proposal.proposal?.generatorVersion ?? "—"}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Snapshot: {shortHash(proposal.proposal?.snapshotHash)} | Proposal:{" "}
+                    {shortHash(proposal.proposal?.proposalHash)}
+                  </div>
+                </div>
+
+                <div
+                  className="space-y-2 rounded-xl border px-3 py-3 text-sm"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
+                    color: "var(--text)",
+                  }}
+                >
+                  <div className="text-xs uppercase tracking-wide opacity-70">
+                    Prompt metadata
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Prompt hints: {countList(proposal.promptMetadata, "prompt_hints") ?? "—"}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Persona hints: {countList(proposal.promptMetadata, "persona_hints") ?? "—"}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Name hints: {countList(proposal.promptMetadata, "name_hints") ?? "—"}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Requested depth:{" "}
+                    {stringValue(proposal.promptMetadata, "requested_depth") ?? "—"}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    Heat score: {numberValue(proposal.promptMetadata, "heat_score") ?? "—"}
+                  </div>
+                </div>
               </div>
 
               <div
@@ -150,7 +246,9 @@ export default function ImprintReviewPanel({
                   color: "var(--text)",
                 }}
               >
-                {proposal.personaDraft ?? "No proposal text returned."}
+                {proposal.proposal?.personaDraft ??
+                  proposal.personaDraft ??
+                  "No proposal text returned."}
               </div>
 
               <div
@@ -167,10 +265,10 @@ export default function ImprintReviewPanel({
                   type="button"
                   variant="ghost"
                   className="border border-[var(--panel-border)]"
-                  onClick={() => void refresh()}
-                  disabled={accepting || rejecting}
+                  onClick={() => void generateProposal()}
+                  disabled={loading || accepting || rejecting}
                 >
-                  Reload
+                  {loading ? "Generating…" : "Generate Proposal"}
                 </Button>
                 <Button
                   type="button"

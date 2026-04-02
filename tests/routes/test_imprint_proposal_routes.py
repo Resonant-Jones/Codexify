@@ -136,26 +136,32 @@ def test_imprint_proposal_returns_backend_authoritative_outputs(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["name"] == body["proposal"]["proposal_name"]
-    assert body["persona_draft"] == body["proposal"]["persona_draft"]
-    assert (
-        body["prompt_metadata"]["snapshot_hash"]
-        == body["proposal"]["snapshot_hash"]
-    )
+    proposal = body["proposal"]
+    assert body["name"] == proposal["proposal_name"]
+    assert body["persona_draft"] == proposal["persona_draft"]
+    assert body["prompt_metadata"] == proposal["prompt_metadata"]
+    assert body["prompt_metadata"]["snapshot_hash"] == proposal["snapshot_hash"]
     assert body["imprint_draft"]["guardian_name"] == body["name"]
-    assert (
-        body["imprint_draft"]["preferred_name"]
-        == body["proposal"]["preferred_name"]
-    )
-    assert body["proposal"]["scope_kind"] == "project_scoped"
-    assert body["proposal"]["generator_version"] == "imprint-proposal-v1"
+    assert body["imprint_draft"]["preferred_name"] == proposal["preferred_name"]
+    assert proposal["scope_kind"] == "project_scoped"
+    assert proposal["generator_version"] == "imprint-proposal-v1"
+    assert proposal["proposal_hash"]
+    assert proposal["proposal_version"] == 1
+    assert body["prompt_metadata"]["proposal_name"] == body["name"]
+    assert body["prompt_metadata"]["generator_version"] == "imprint-proposal-v1"
+    assert body["prompt_metadata"]["prompt_hints"] == [
+        "ask clarifying questions",
+        "prefer short answers",
+    ]
+    assert body["prompt_metadata"]["persona_hints"] == [
+        "keep answers grounded",
+        "project grounded",
+    ]
 
     called = mock_save.call_args.kwargs
     assert called["guardian_name"] == body["name"]
     assert called["metrics"]["proposal_name"] == body["name"]
-    assert (
-        called["metrics"]["snapshot_hash"] == body["proposal"]["snapshot_hash"]
-    )
+    assert called["metrics"]["snapshot_hash"] == proposal["snapshot_hash"]
     assert called["metrics"]["prompt_metadata"]["generator_version"] == (
         "imprint-proposal-v1"
     )

@@ -12,7 +12,16 @@ type Props = {
 
 export function ImprintZeroToast({ proposal, onAccept, onReject, onEditAccept }: Props) {
   const [openEditor, setOpenEditor] = React.useState(false);
-  const [draftText, setDraftText] = React.useState(proposal.persona_draft || "");
+  const backendProposal = proposal.proposal ?? null;
+  const proposalName = backendProposal?.proposal_name ?? proposal.name;
+  const proposalText =
+    backendProposal?.persona_draft ?? proposal.persona_draft ?? "";
+  const generatorVersion = backendProposal?.generator_version ?? null;
+  const [draftText, setDraftText] = React.useState(proposalText);
+
+  React.useEffect(() => {
+    setDraftText(proposalText);
+  }, [proposalText]);
 
   return (
     <>
@@ -34,10 +43,15 @@ export function ImprintZeroToast({ proposal, onAccept, onReject, onEditAccept }:
               Imprint Zero proposal
             </div>
             <div className="text-xs opacity-80" style={{ color: "var(--muted,#cbd5e1)" }}>
-              Proposed Guardian name: <strong>{proposal.name}</strong>
+              Proposed Guardian name: <strong>{proposalName}</strong>
             </div>
+            {generatorVersion ? (
+              <div className="mt-1 text-[11px] opacity-70" style={{ color: "var(--muted,#cbd5e1)" }}>
+                Backend generator: {generatorVersion}
+              </div>
+            ) : null}
             <div className="mt-2 rounded-lg bg-white/5 p-2 text-xs" style={{ color: "var(--text,#f8fafc)" }}>
-              {proposal.persona_draft}
+              {proposalText}
             </div>
             <div className="mt-2 flex gap-2">
               <button className="embedded-btn inline-flex items-center gap-1" onClick={() => onAccept()}>

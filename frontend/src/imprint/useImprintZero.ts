@@ -34,18 +34,19 @@ export function useImprintZero() {
     }
   }, []);
 
-  const propose = useCallback(async () => {
+  const generateProposal = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await requestImprintProposal();
       setProposal(data);
     } catch (e: any) {
-      setError(e?.message || "Failed to create proposal");
+      setError(e?.message || "Failed to generate proposal");
     } finally {
       setLoading(false);
     }
   }, []);
+  const propose = generateProposal;
 
   const refreshSystemPromptSummary = useCallback(async () => {
     try {
@@ -149,6 +150,7 @@ export function useImprintZero() {
     loading,
     error,
     refreshStatus,
+    generateProposal,
     propose,
     accept,
     reject,

@@ -54,8 +54,23 @@ export type ImprintProposal = {
     status: string;
     heat_score?: number;
   };
+  proposal?: {
+    generator_version?: string | null;
+    persona_draft?: string | null;
+    preferred_name?: string | null;
+    project_id?: number | null;
+    proposal_hash?: string | null;
+    proposal_name?: string | null;
+    proposal_version?: number | null;
+    prompt_metadata?: Record<string, unknown> | null;
+    scope_kind?: string | null;
+    snapshot_hash?: string | null;
+    snapshot_version?: number | null;
+    user_id?: string | null;
+  } | null;
   persona_draft: string;
   name: string;
+  prompt_metadata?: Record<string, unknown> | null;
 };
 
 export async function fetchImprintStatus(params?: { thread_id?: number; project_id?: number | null }) {
