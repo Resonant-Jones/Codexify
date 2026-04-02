@@ -1187,6 +1187,138 @@ def _coerce_project_id(raw: Any) -> Optional[int]:
         return _ensure_default_project_id()
 
 
+def _thread_config_payload_value(
+    payload: dict[str, Any], *keys: str
+) -> str | None:
+    for key in keys:
+        raw = payload.get(key)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            return text
+    return None
+
+
+def _thread_config_inference_mode(provider: str, model: str) -> str:
+    try:
+        from guardian.core.ai_router import resolve_local_reasoning_directive
+    except Exception:
+        resolve_local_reasoning_directive = None
+
+    if provider != "local" or resolve_local_reasoning_directive is None:
+        return "fast"
+    if not llm_settings:
+        return "fast"
+
+    directive = resolve_local_reasoning_directive(model, settings=llm_settings)
+    if directive.mode == "think":
+        return "think"
+    return "fast"
+
+
+def _build_thread_config_snapshot(
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from guardian.core.provider_registry import (
+        default_model_for_provider,
+        normalize_model_id,
+        normalize_provider,
+    )
+
+    payload = payload or {}
+    raw_provider = _thread_config_payload_value(
+        payload,
+        "providerId",
+        "provider_id",
+        "provider",
+    )
+    default_provider = (
+        getattr(llm_settings, "LLM_PROVIDER", None)
+        if llm_settings
+        else CHAT_PROVIDER
+    )
+    provider = normalize_provider(raw_provider or default_provider)
+
+    raw_model = _thread_config_payload_value(
+        payload,
+        "modelId",
+        "model_id",
+        "model",
+    )
+    model = normalize_model_id(raw_model) if raw_model is not None else ""
+    if not model:
+        if llm_settings is not None:
+            try:
+                model = default_model_for_provider(provider, llm_settings)
+            except Exception:
+                model = ""
+        if not model:
+            model = normalize_model_id(DEFAULT_MODEL)
+
+    raw_inference_mode = _thread_config_payload_value(
+        payload,
+        "inferenceMode",
+        "inference_mode",
+        "reasoningMode",
+        "reasoning_mode",
+    )
+    inference_mode = (
+        raw_inference_mode.strip().lower()
+        if raw_inference_mode is not None
+        else _thread_config_inference_mode(provider, model)
+    )
+
+    raw_retrieval_source = _thread_config_payload_value(
+        payload,
+        "retrievalSource",
+        "retrieval_source",
+        "sourceMode",
+        "source_mode",
+    )
+    retrieval_source = (
+        raw_retrieval_source.strip().lower()
+        if raw_retrieval_source
+        else "project"
+    )
+
+    raw_persona_id = (
+        payload["personaId"]
+        if "personaId" in payload
+        else payload.get("persona_id")
+    )
+    persona_id = None
+    if raw_persona_id is not None:
+        persona_text = str(raw_persona_id).strip()
+        persona_id = persona_text or None
+
+    return {
+        "providerId": provider,
+        "modelId": model,
+        "inferenceMode": inference_mode,
+        "retrievalSource": retrieval_source,
+        "personaId": persona_id,
+    }
+
+
+def _persist_thread_config_snapshot(
+    thread_id: int, thread_config: dict[str, Any]
+) -> None:
+    from guardian.core.pgdb import PgDB
+    from guardian.db.models import ChatThread
+
+    if not isinstance(chatlog_db, PgDB):
+        return
+
+    with chatlog_db._sa_session() as session:
+        thread = session.get(ChatThread, thread_id)
+        if thread is None:
+            raise RuntimeError(
+                f"chat thread {thread_id} not found while persisting thread_config"
+            )
+        thread.thread_config = thread_config
+
+
 def _coerce_positive_int(raw: Any) -> Optional[int]:
     try:
         value = int(raw)
@@ -1594,7 +1726,7 @@ def chat_create_thread(
         # Idempotency guard: check for recent empty thread from same user
         recent_thread = chatlog_db.get_recent_thread(user_id)
         if recent_thread:
-            # If recent thread exists and has no messages, reuse it
+            # If recent thread exists and has no messages, reuse it.
             recent_id = recent_thread.get("id")
             if recent_id and chatlog_db.count_messages(recent_id) == 0:
                 logger.info(
@@ -1602,8 +1734,13 @@ def chat_create_thread(
                     recent_id,
                     user_id,
                 )
-                return {"ok": True, "id": recent_id, "thread": recent_thread}
+                return {
+                    "ok": True,
+                    "id": recent_id,
+                    "thread": recent_thread,
+                }
 
+        thread_config = _build_thread_config_snapshot(payload)
         record = chatlog_db.create_chat_thread(
             user_id=user_id,
             title=title,
@@ -1611,6 +1748,7 @@ def chat_create_thread(
             project_id=normalized_project,
             metadata=metadata,
         )
+        _persist_thread_config_snapshot(int(record["id"]), thread_config)
         chatlog_db.write_audit_log(
             "create", "chat_thread", str(record["id"]), user_id=user_id
         )
