@@ -24,6 +24,14 @@ def _base_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
+def _coerce_optional_positive_int(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 @dataclass
 class BaseTask:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -59,6 +67,7 @@ class WarmupTask(BaseTask):
 class ChatCompletionTask(BaseTask):
     type: str = "chat_completion"
     thread_id: int = 0
+    latest_turn_message_id: int | None = None
     model: str | None = None
     provider: str | None = None
     requested_model: str | None = None
@@ -76,6 +85,9 @@ class ChatCompletionTask(BaseTask):
         base.setdefault("type", cls.type)
         return cls(
             thread_id=int(payload.get("thread_id") or 0),
+            latest_turn_message_id=_coerce_optional_positive_int(
+                payload.get("latest_turn_message_id")
+            ),
             model=payload.get("model"),
             provider=payload.get("provider"),
             requested_model=payload.get("requested_model"),

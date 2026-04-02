@@ -315,8 +315,18 @@ def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
     return -1
 
 
+def _coerce_message_id(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def split_history_and_latest_turn(
     messages: list[dict[str, Any]] | None,
+    *,
+    latest_turn_message_id: int | None = None,
 ) -> dict[str, Any]:
     """Partition thread messages into prior history and the latest user turn."""
 
@@ -325,6 +335,21 @@ def split_history_and_latest_turn(
         for message in (messages or [])
         if isinstance(message, dict)
     ]
+    explicit_latest_turn_message_id = _coerce_message_id(latest_turn_message_id)
+    if explicit_latest_turn_message_id is not None:
+        for index, message in enumerate(safe_messages):
+            if (
+                _coerce_message_id(message.get("id"))
+                != explicit_latest_turn_message_id
+            ):
+                continue
+            if str(message.get("role") or "").strip().lower() != "user":
+                return {"history": safe_messages[:index], "latest_turn": None}
+            return {
+                "history": safe_messages[:index],
+                "latest_turn": message,
+            }
+        return {"history": safe_messages, "latest_turn": None}
     latest_user_index = _find_last_message_index(safe_messages, "user")
     if latest_user_index < 0:
         return {"history": safe_messages, "latest_turn": None}
@@ -997,10 +1022,18 @@ async def build_messages_for_llm(
     except Exception:
         pass
 
-    turn_split = split_history_and_latest_turn(items)
+    explicit_latest_turn_message_id = _coerce_message_id(
+        getattr(task, "latest_turn_message_id", None)
+    )
+    turn_split = split_history_and_latest_turn(
+        items,
+        latest_turn_message_id=explicit_latest_turn_message_id,
+    )
     history_messages = turn_split["history"]
     latest_turn = turn_split["latest_turn"]
     if latest_turn is None:
+        if explicit_latest_turn_message_id is not None:
+            raise ValueError("thread_target_turn_missing")
         raise ValueError("thread_has_no_usable_context")
 
     conversation_messages = [*history_messages, latest_turn]
@@ -1331,6 +1364,13 @@ def run_chat_completion_task(
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
     }
+    if isinstance(trace, dict):
+        result["latest_turn_message_id"] = trace.get("latest_turn_message_id")
+        result["retrieval_query"] = trace.get("retrieval_query")
+        result["retrieval_target"] = trace.get("retrieval_target")
+        result["retrieval_query_matches_latest_turn"] = trace.get(
+            "retrieval_query_matches_latest_turn"
+        )
 
     if not persist_assistant_message:
         return result

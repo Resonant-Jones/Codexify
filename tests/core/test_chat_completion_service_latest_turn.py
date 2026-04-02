@@ -145,6 +145,27 @@ def test_split_history_and_latest_turn_returns_safe_null_when_no_user() -> None:
     assert result["latest_turn"] is None
 
 
+def test_split_history_and_latest_turn_honors_explicit_target_message_id() -> (
+    None
+):
+    messages = [
+        {"id": 1, "role": "system", "content": "BASE SYSTEM"},
+        {"id": 2, "role": "user", "content": "first question"},
+        {"id": 3, "role": "assistant", "content": "first answer"},
+        {"id": 4, "role": "user", "content": "second question"},
+        {"id": 5, "role": "assistant", "content": "second answer"},
+        {"id": 6, "role": "user", "content": "newer question"},
+    ]
+
+    result = split_history_and_latest_turn(messages, latest_turn_message_id=4)
+
+    assert [msg["id"] for msg in result["history"]] == [1, 2, 3]
+    assert result["latest_turn"] is not None
+    assert result["latest_turn"]["id"] == 4
+    assert result["latest_turn"]["content"] == "second question"
+    assert all(msg["id"] != 6 for msg in result["history"])
+
+
 @pytest.mark.asyncio
 async def test_build_messages_for_llm_fails_safely_without_user_turn(
     monkeypatch: pytest.MonkeyPatch,
@@ -198,3 +219,73 @@ async def test_build_messages_for_llm_preserves_latest_turn_boundary(
     assert completion_assembly["latest_turn"]["id"] == 4
     assert isinstance(completion_assembly["retrieved_context"], list)
     assert trace["source_mode"] == "project"
+
+
+@pytest.mark.asyncio
+async def test_build_messages_for_llm_honors_explicit_target_message_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _seed_completion_service(
+        monkeypatch,
+        messages=[
+            {"id": 1, "role": "system", "content": "BASE SYSTEM"},
+            {"id": 2, "role": "user", "content": "first question"},
+            {"id": 3, "role": "assistant", "content": "first answer"},
+            {"id": 4, "role": "user", "content": "second question"},
+            {"id": 5, "role": "assistant", "content": "second answer"},
+            {"id": 6, "role": "user", "content": "newer question"},
+        ],
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model=None,
+        latest_turn_message_id=4,
+    )
+    (
+        messages,
+        provider,
+        model,
+        bundle,
+        trace,
+    ) = await chat_completion_service.build_messages_for_llm(task)
+
+    assert provider == "local"
+    assert model == "local-model"
+    assert captured["query"] == "second question"
+    assert messages[-1] == {"role": "user", "content": "second question"}
+    assert [msg["content"] for msg in messages if msg["role"] == "user"] == [
+        "first question",
+        "second question",
+    ]
+    completion_assembly = bundle["_completion_assembly"]
+    assert [msg["id"] for msg in completion_assembly["history"]] == [1, 2, 3]
+    assert completion_assembly["latest_turn"]["id"] == 4
+    assert trace["latest_turn_message_id"] == 4
+    assert trace["retrieval_query"] == "second question"
+    assert trace["retrieval_target"] == "latest_turn"
+
+
+@pytest.mark.asyncio
+async def test_build_messages_for_llm_fails_when_explicit_target_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(
+        monkeypatch,
+        messages=[
+            {"id": 1, "role": "user", "content": "first question"},
+            {"id": 2, "role": "assistant", "content": "first answer"},
+            {"id": 3, "role": "user", "content": "second question"},
+        ],
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model=None,
+        latest_turn_message_id=999,
+    )
+
+    with pytest.raises(ValueError, match="thread_target_turn_missing"):
+        await chat_completion_service.build_messages_for_llm(task)
