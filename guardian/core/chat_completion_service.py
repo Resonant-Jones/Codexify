@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
 
@@ -35,7 +36,11 @@ from guardian.core.config import (
     get_settings,
     validate_llm_config,
 )
-from guardian.core.provider_registry import model_supports_capability
+from guardian.core.provider_registry import (
+    model_supports_capability,
+    normalize_model_id,
+    normalize_provider,
+)
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -91,6 +96,181 @@ def _source_mode_from_origin(origin: Any) -> str:
         if key.strip() == "source_mode":
             return _normalize_source_mode(value.strip())
     return "project"
+
+
+@dataclass(frozen=True)
+class ThreadCompletionSettings:
+    provider: str
+    model: str
+    reasoning_mode: str | None
+    source_mode: str
+    persona_id: str | None = None
+    has_thread_config: bool = False
+
+
+_THREAD_CONFIG_PROVIDER_KEYS = (
+    "providerId",
+    "provider_id",
+    "provider",
+)
+_THREAD_CONFIG_MODEL_KEYS = ("modelId", "model_id", "model")
+_THREAD_CONFIG_INFERENCE_MODE_KEYS = (
+    "inferenceMode",
+    "inference_mode",
+    "reasoning_mode",
+)
+_THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS = (
+    "retrievalSource",
+    "retrieval_source",
+    "source_mode",
+)
+_THREAD_CONFIG_PERSONA_KEYS = ("personaId", "persona_id")
+
+
+def _clean_thread_config_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    return text or None
+
+
+def _thread_config_payload(
+    thread_info: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(thread_info, dict):
+        return {}
+    raw_config = thread_info.get("thread_config")
+    if isinstance(raw_config, dict):
+        return raw_config
+    if isinstance(raw_config, str):
+        try:
+            parsed = json.loads(raw_config)
+        except Exception:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def _thread_config_value(
+    thread_config: dict[str, Any], keys: tuple[str, ...]
+) -> str | None:
+    for key in keys:
+        if key not in thread_config:
+            continue
+        value = _clean_thread_config_text(thread_config.get(key))
+        if value:
+            return value
+    return None
+
+
+def _normalize_reasoning_mode(value: Any) -> str | None:
+    text = _clean_thread_config_text(value)
+    if not text:
+        return None
+    normalized = text.lower()
+    if normalized == "default":
+        return None
+    return normalized
+
+
+def _runtime_provider(settings: Any) -> str:
+    return normalize_provider(
+        getattr(settings, "LLM_PROVIDER", None)
+        or getattr(dependencies, "CHAT_PROVIDER", None)
+    )
+
+
+def _runtime_model_for_provider(provider: str, settings: Any) -> str:
+    if provider == "local":
+        return (
+            normalize_model_id(getattr(settings, "LOCAL_LLM_MODEL", None))
+            or normalize_model_id(
+                getattr(settings, "DEFAULT_LOCAL_MODEL", None)
+            )
+            or normalize_model_id(getattr(settings, "LLM_MODEL", None))
+            or ""
+        )
+    return (
+        normalize_model_id(getattr(dependencies, "DEFAULT_MODEL", None)) or ""
+    )
+
+
+def resolve_thread_completion_settings(
+    thread_info: dict[str, Any] | None,
+    *,
+    requested_provider: str | None = None,
+    requested_model: str | None = None,
+    requested_reasoning_mode: str | None = None,
+    requested_source_mode: str | None = None,
+    settings: Any | None = None,
+) -> ThreadCompletionSettings:
+    settings = settings or get_settings()
+    thread_config = _thread_config_payload(thread_info)
+    has_thread_config = bool(thread_config)
+
+    if has_thread_config:
+        provider_text = _thread_config_value(
+            thread_config, _THREAD_CONFIG_PROVIDER_KEYS
+        )
+        provider = (
+            normalize_provider(provider_text)
+            if provider_text
+            else _runtime_provider(settings)
+        )
+
+        model_text = _thread_config_value(
+            thread_config, _THREAD_CONFIG_MODEL_KEYS
+        )
+        model = normalize_model_id(model_text) if model_text else ""
+        if not model:
+            model = _runtime_model_for_provider(provider, settings)
+
+        reasoning_mode = _normalize_reasoning_mode(
+            _thread_config_value(
+                thread_config, _THREAD_CONFIG_INFERENCE_MODE_KEYS
+            )
+        )
+        source_mode = _normalize_source_mode(
+            _thread_config_value(
+                thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS
+            )
+            or "project"
+        )
+        persona_id = _thread_config_value(
+            thread_config, _THREAD_CONFIG_PERSONA_KEYS
+        )
+        return ThreadCompletionSettings(
+            provider=provider,
+            model=model,
+            reasoning_mode=reasoning_mode,
+            source_mode=source_mode,
+            persona_id=persona_id,
+            has_thread_config=True,
+        )
+
+    provider = normalize_provider(
+        requested_provider
+        or getattr(settings, "LLM_PROVIDER", None)
+        or getattr(dependencies, "CHAT_PROVIDER", None)
+    )
+    model = normalize_model_id(requested_model) or _runtime_model_for_provider(
+        provider, settings
+    )
+    reasoning_mode = _normalize_reasoning_mode(requested_reasoning_mode)
+    source_mode = _normalize_source_mode(requested_source_mode)
+
+    return ThreadCompletionSettings(
+        provider=provider,
+        model=model,
+        reasoning_mode=reasoning_mode,
+        source_mode=source_mode,
+        persona_id=None,
+        has_thread_config=False,
+    )
 
 
 async def _assemble_context_bundle(
@@ -699,11 +879,26 @@ async def build_messages_for_llm(
 ]:
     """Build contextual messages and provider/model selection for one task."""
     settings = get_settings()
-    provider = (
-        (task.provider or settings.LLM_PROVIDER or dependencies.CHAT_PROVIDER)
-        .strip()
-        .lower()
+    thread_id = task.thread_id
+    thread_info = (
+        dependencies.chatlog_db.get_chat_thread(thread_id)
+        if hasattr(dependencies.chatlog_db, "get_chat_thread")
+        else None
     )
+    if not thread_info:
+        raise ValueError("thread_not_found")
+
+    thread_execution = resolve_thread_completion_settings(
+        thread_info,
+        requested_provider=task.provider,
+        requested_model=task.model,
+        requested_reasoning_mode=task.reasoning_mode,
+        requested_source_mode=_source_mode_from_origin(
+            getattr(task, "origin", None)
+        ),
+        settings=settings,
+    )
+    provider = thread_execution.provider
 
     if validate_llm_config:
         try:
@@ -720,15 +915,6 @@ async def build_messages_for_llm(
         user_system_override = user_system_override.strip() or None
     else:
         user_system_override = None
-
-    thread_id = task.thread_id
-    thread_info = (
-        dependencies.chatlog_db.get_chat_thread(thread_id)
-        if hasattr(dependencies.chatlog_db, "get_chat_thread")
-        else None
-    )
-    if not thread_info:
-        raise ValueError("thread_not_found")
 
     limit = int(task.max_context or 50)
     items = dependencies.chatlog_db.list_messages(
@@ -769,7 +955,7 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
-    source_mode = _source_mode_from_origin(getattr(task, "origin", None))
+    source_mode = thread_execution.source_mode
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -799,6 +985,8 @@ async def build_messages_for_llm(
             project_id=project_id_for_prompt,
             source_mode=source_mode,
         )
+        if thread_execution.persona_id:
+            bundle["requested_persona"] = thread_execution.persona_id
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
     except Exception as exc:
@@ -808,6 +996,12 @@ async def build_messages_for_llm(
             exc,
         )
         bundle = {}
+
+    if isinstance(bundle, dict):
+        if thread_execution.persona_id:
+            bundle["requested_persona"] = thread_execution.persona_id
+        if user_system_override:
+            bundle.setdefault("user_system_override", user_system_override)
 
     messages_for_llm: list[dict[str, str]] = []
     prompt_meta: dict[str, Any] = {}
@@ -909,16 +1103,7 @@ async def build_messages_for_llm(
 
     messages_for_llm.extend(context)
 
-    model = task.model
-    if not model and provider == "local":
-        model = (
-            settings.LOCAL_LLM_MODEL
-            or settings.DEFAULT_LOCAL_MODEL
-            or settings.LLM_MODEL
-            or ""
-        )
-    if not model:
-        model = dependencies.DEFAULT_MODEL or ""
+    model = thread_execution.model
 
     return messages_for_llm, provider, model, bundle, trace
 
