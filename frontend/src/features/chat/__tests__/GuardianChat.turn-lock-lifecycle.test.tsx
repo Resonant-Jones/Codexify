@@ -8,6 +8,13 @@ const liveEventHandlers = vi.hoisted(
   () => new Map<string, Set<(event: { type: string; data: unknown }) => void>>()
 );
 
+const apiSpies = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  patch: vi.fn(),
+  delete: vi.fn(),
+}));
+
 const chatMocks = vi.hoisted(() => {
   const completionInFlight = new Set<number>();
   const completionState = {
@@ -188,17 +195,19 @@ const inferenceMocks = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/api", () => ({
-  default: {
-    get: vi.fn(),
-    post: vi.fn(),
-    patch: vi.fn(),
-    delete: vi.fn(),
-  },
+  default: apiSpies,
   buildLlmCatalogPath: () => "/llm/catalog",
   buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
   getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
+  updateThreadConfig: async (threadId: string | number, patch: Record<string, unknown>) => {
+    const response = await apiSpies.patch(
+      `/chat/threads/${threadId}/config`,
+      patch
+    );
+    return response?.data ?? {};
+  },
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
