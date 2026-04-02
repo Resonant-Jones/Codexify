@@ -171,6 +171,10 @@ def _extract_turn_id(task: ChatCompletionTask) -> str:
     return match.group("turn_id").strip().lower() if match else ""
 
 
+def _extract_latest_turn_message_id(task: ChatCompletionTask) -> int | None:
+    return _coerce_message_id(getattr(task, "latest_turn_message_id", None))
+
+
 def _persist_turn_id_metadata(
     *, thread_id: int, message_id: int, turn_id: str
 ) -> bool:
@@ -1655,6 +1659,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     run_id = uuid.uuid4().hex
     started = time.monotonic()
     turn_id = _extract_turn_id(task)
+    latest_turn_message_id = _extract_latest_turn_message_id(task)
     _safe_publish(
         task.task_id,
         "task.running",
@@ -1664,6 +1669,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "origin": task.origin,
             "thread_id": task.thread_id,
             "turn_id": turn_id,
+            "latest_turn_message_id": latest_turn_message_id,
         },
     )
     logger.info(
@@ -1698,6 +1704,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "duration_ms": duration_ms,
                     "thread_id": task.thread_id,
                     "turn_id": turn_id,
+                    "latest_turn_message_id": latest_turn_message_id,
                     "message_id": existing_message_id,
                     "provider": task.provider,
                     "model": task.model,
@@ -1716,6 +1723,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "thread_id": task.thread_id,
                     "origin": task.origin,
                     "turn_id": turn_id,
+                    "latest_turn_message_id": latest_turn_message_id,
                 },
             )
             clear_cancelled(task.task_id)
@@ -1750,6 +1758,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                         "duration_ms": duration_ms,
                         "thread_id": task.thread_id,
                         "turn_id": turn_id,
+                        "latest_turn_message_id": latest_turn_message_id,
                         "message_id": existing_message_id,
                         "deduplicated": True,
                         "provider": task.provider,
@@ -1784,6 +1793,24 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             cancel_check=lambda: is_cancelled(task.task_id),
             persist_assistant_message=True,
         )
+        result_trace = (
+            result.get("trace") if isinstance(result.get("trace"), dict) else {}
+        )
+        result_latest_turn_message_id = _coerce_message_id(
+            result.get("latest_turn_message_id")
+        )
+        if result_latest_turn_message_id is None and isinstance(
+            result_trace, dict
+        ):
+            result_latest_turn_message_id = _coerce_message_id(
+                result_trace.get("latest_turn_message_id")
+            )
+        result_retrieval_query = result.get("retrieval_query")
+        if result_retrieval_query is None and isinstance(result_trace, dict):
+            result_retrieval_query = result_trace.get("retrieval_query")
+        result_retrieval_target = result.get("retrieval_target")
+        if result_retrieval_target is None and isinstance(result_trace, dict):
+            result_retrieval_target = result_trace.get("retrieval_target")
         message_id = _coerce_message_id(result.get("message_id"))
         if message_id is None:
             logger.error(
@@ -1898,6 +1925,11 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "duration_ms": duration_ms,
                 "thread_id": task.thread_id,
                 "turn_id": turn_id,
+                "latest_turn_message_id": (
+                    latest_turn_message_id
+                    if latest_turn_message_id is not None
+                    else result_latest_turn_message_id
+                ),
                 "message_id": message_id,
                 "provider": result.get("provider"),
                 "model": result.get("model"),
@@ -1926,6 +1958,11 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
                 "payload_summary": result.get("payload_summary"),
+                "retrieval_query": result_retrieval_query,
+                "retrieval_target": result_retrieval_target,
+                "retrieval_query_matches_latest_turn": result.get(
+                    "retrieval_query_matches_latest_turn"
+                ),
             },
         )
         logger.info(
@@ -1946,6 +1983,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "thread_id": task.thread_id,
                 "origin": task.origin,
                 "turn_id": turn_id,
+                "latest_turn_message_id": latest_turn_message_id,
             },
         )
         clear_cancelled(task.task_id)
@@ -1968,6 +2006,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "thread_id": task.thread_id,
             "origin": task.origin,
             "turn_id": turn_id,
+            "latest_turn_message_id": latest_turn_message_id,
         }
         for key in (
             "provider",
