@@ -346,6 +346,16 @@ class PgDB(ChatDB):
             row["active_profile_id"] = None
         elif not isinstance(active_profile_id, str):
             row["active_profile_id"] = str(active_profile_id)
+        thread_config = row.get("thread_config")
+        if isinstance(thread_config, str):
+            try:
+                parsed = json.loads(thread_config)
+            except Exception:
+                parsed = None
+            thread_config = parsed if isinstance(parsed, dict) else None
+        elif thread_config is not None and not isinstance(thread_config, dict):
+            thread_config = None
+        row["thread_config"] = thread_config
         metadata = row.get("metadata")
         if isinstance(metadata, str):
             try:
@@ -405,7 +415,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (
                             user_id,
@@ -491,7 +501,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (
                             thread_id,
@@ -551,7 +561,7 @@ class PgDB(ChatDB):
                         SELECT
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         FROM chat_threads
                         WHERE user_id = %s
                         ORDER BY created_at DESC
@@ -600,7 +610,7 @@ class PgDB(ChatDB):
                         SELECT
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         FROM chat_threads
                         WHERE id = %s
                         """,
@@ -643,7 +653,7 @@ class PgDB(ChatDB):
             "SELECT "
             "id, user_id, title, summary, project_id, parent_id, archived_at, "
             "is_diary, diary_mode, exclude_from_identity, modeling_excluded, "
-            "metadata, active_profile_id, created_at, updated_at "
+            "metadata, active_profile_id, thread_config, created_at, updated_at "
             "FROM chat_threads"
         )
         if clauses:
@@ -793,7 +803,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (now, now, thread_id),
                     )
@@ -832,7 +842,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (now, thread_id),
                     )
@@ -1056,7 +1066,7 @@ class PgDB(ChatDB):
                         SELECT
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         FROM chat_threads
                         WHERE parent_id = %s
                         """,
@@ -2086,6 +2096,563 @@ class PgDB(ChatDB):
             return True, ""
         remaining = max(int(freq - delta_minutes), 0)
         return False, f"Next summarization available in {remaining} min"
+
+    # ---- account restore helpers --------------------------------------
+    def _restore_account_export_rows(
+        self,
+        *,
+        table_name: str,
+        pk_column: str,
+        columns: tuple[str, ...],
+        rows: list[dict[str, Any]],
+        conn: psycopg.Connection | None = None,
+        json_columns: tuple[str, ...] = (),
+        unique_key_columns: tuple[tuple[str, ...], ...] = (),
+        sequence_column: str | None = None,
+    ) -> dict[str, int]:
+        if conn is None:
+            with self._connect() as restore_conn:
+                return self._restore_account_export_rows(
+                    table_name=table_name,
+                    pk_column=pk_column,
+                    columns=columns,
+                    rows=rows,
+                    conn=restore_conn,
+                    json_columns=json_columns,
+                    unique_key_columns=unique_key_columns,
+                    sequence_column=sequence_column,
+                )
+
+        imported = 0
+        skipped = 0
+        failed = 0
+        unresolved = 0
+        columns = tuple(columns)
+        json_column_set = set(json_columns)
+
+        with conn.cursor() as cur:
+            for index, raw_row in enumerate(rows):
+                row = dict(raw_row or {})
+                normalized_row = self._restore_account_export_normalize_row(
+                    table_name=table_name,
+                    row=row,
+                    columns=columns,
+                )
+                pk_value = normalized_row.get(pk_column)
+                if pk_value is None:
+                    raise ValueError(
+                        f"{table_name} row {index} is missing primary key column {pk_column}"
+                    )
+
+                existing = self._restore_account_export_fetch_row(
+                    cur,
+                    table_name=table_name,
+                    columns=columns,
+                    pk_column=pk_column,
+                    pk_value=pk_value,
+                )
+                if existing is not None:
+                    if existing == normalized_row:
+                        skipped += 1
+                        continue
+                    raise ValueError(
+                        f"{table_name} row {pk_value!r} conflicts with an existing row"
+                    )
+
+                for unique_columns in unique_key_columns:
+                    conflict = (
+                        self._restore_account_export_fetch_unique_conflict(
+                            cur,
+                            table_name=table_name,
+                            columns=columns,
+                            pk_column=pk_column,
+                            pk_value=pk_value,
+                            unique_columns=unique_columns,
+                            row=normalized_row,
+                        )
+                    )
+                    if conflict is not None:
+                        raise ValueError(
+                            f"{table_name} row {pk_value!r} conflicts with an existing row on {unique_columns}"
+                        )
+
+                try:
+                    inserted = self._restore_account_export_insert_row(
+                        cur,
+                        table_name=table_name,
+                        pk_column=pk_column,
+                        columns=columns,
+                        row=normalized_row,
+                        json_column_set=json_column_set,
+                    )
+                except pg_errors.UniqueViolation as exc:
+                    raise ValueError(
+                        f"{table_name} row {pk_value!r} conflicts with an existing row"
+                    ) from exc
+
+                if inserted:
+                    imported += 1
+                    continue
+
+                existing = self._restore_account_export_fetch_row(
+                    cur,
+                    table_name=table_name,
+                    columns=columns,
+                    pk_column=pk_column,
+                    pk_value=pk_value,
+                )
+                if existing is not None and existing == normalized_row:
+                    skipped += 1
+                    continue
+
+                raise ValueError(
+                    f"{table_name} row {pk_value!r} could not be restored idempotently"
+                )
+
+            if sequence_column is not None:
+                self._restore_account_export_sync_sequence(
+                    cur,
+                    table_name=table_name,
+                    sequence_column=sequence_column,
+                )
+
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "failed": failed,
+            "unresolved": unresolved,
+        }
+
+    @staticmethod
+    def _restore_account_export_normalize_row(
+        *,
+        table_name: str,
+        row: dict[str, Any],
+        columns: tuple[str, ...],
+    ) -> dict[str, Any]:
+        missing = [column for column in columns if column not in row]
+        if missing:
+            raise ValueError(
+                f"{table_name} row is missing required columns: {missing}"
+            )
+        normalized: dict[str, Any] = {}
+        for column in columns:
+            normalized[column] = _normalize_export_value(row.get(column))
+        return normalized
+
+    def _restore_account_export_fetch_row(
+        self,
+        cur,
+        *,
+        table_name: str,
+        columns: tuple[str, ...],
+        pk_column: str,
+        pk_value: Any,
+    ) -> dict[str, Any] | None:
+        column_sql = ", ".join(columns)
+        cur.execute(
+            f"""
+            SELECT {column_sql}
+            FROM {table_name}
+            WHERE {pk_column} = %s
+            """,
+            (pk_value,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            column: _normalize_export_value(row.get(column))
+            for column in columns
+        }
+
+    def _restore_account_export_fetch_unique_conflict(
+        self,
+        cur,
+        *,
+        table_name: str,
+        columns: tuple[str, ...],
+        pk_column: str,
+        pk_value: Any,
+        unique_columns: tuple[str, ...],
+        row: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not unique_columns:
+            return None
+        where_clause = " AND ".join(
+            f"{column} = %s" for column in unique_columns
+        )
+        params = [row.get(column) for column in unique_columns]
+        params.append(pk_value)
+        cur.execute(
+            f"""
+            SELECT {", ".join(columns)}
+            FROM {table_name}
+            WHERE {where_clause}
+              AND {pk_column} <> %s
+            LIMIT 1
+            """,
+            params,
+        )
+        found = cur.fetchone()
+        if not found:
+            return None
+        return {
+            column: _normalize_export_value(found.get(column))
+            for column in columns
+        }
+
+    def _restore_account_export_insert_row(
+        self,
+        cur,
+        *,
+        table_name: str,
+        pk_column: str,
+        columns: tuple[str, ...],
+        row: dict[str, Any],
+        json_column_set: set[str],
+    ) -> bool:
+        placeholders = ", ".join(["%s"] * len(columns))
+        column_sql = ", ".join(columns)
+        params: list[Any] = []
+        for column in columns:
+            value = row.get(column)
+            if column in json_column_set:
+                params.append(_to_json(value))
+            else:
+                params.append(value)
+        cur.execute(
+            f"""
+            INSERT INTO {table_name} ({column_sql})
+            VALUES ({placeholders})
+            ON CONFLICT ({pk_column}) DO NOTHING
+            RETURNING {pk_column}
+            """,
+            params,
+        )
+        return cur.fetchone() is not None
+
+    def _restore_account_export_sync_sequence(
+        self,
+        cur,
+        *,
+        table_name: str,
+        sequence_column: str,
+    ) -> None:
+        cur.execute(
+            "SELECT pg_get_serial_sequence(%s, %s) AS sequence_name",
+            (f"public.{table_name}", sequence_column),
+        )
+        row = cur.fetchone() or {}
+        sequence_name = row.get("sequence_name")
+        if not sequence_name:
+            return
+
+        cur.execute(
+            f"SELECT COALESCE(MAX({sequence_column}), 0) AS max_id FROM {table_name}"
+        )
+        max_row = cur.fetchone() or {}
+        max_value = int(max_row.get("max_id") or 0)
+        if max_value > 0:
+            cur.execute(
+                "SELECT setval(%s, %s, true)", (sequence_name, max_value)
+            )
+        else:
+            cur.execute("SELECT setval(%s, %s, false)", (sequence_name, 1))
+
+    def restore_account_export_projects(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="projects",
+            pk_column="id",
+            columns=(
+                "id",
+                "name",
+                "description",
+                "icon",
+                "identity_depth",
+                "created_at",
+                "updated_at",
+            ),
+            rows=rows,
+            conn=conn,
+            unique_key_columns=(("name",),),
+            sequence_column="id",
+        )
+
+    def restore_account_export_chat_threads(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="chat_threads",
+            pk_column="id",
+            columns=(
+                "id",
+                "user_id",
+                "title",
+                "summary",
+                "project_id",
+                "parent_id",
+                "archived_at",
+                "is_diary",
+                "diary_mode",
+                "exclude_from_identity",
+                "modeling_excluded",
+                "metadata",
+                "active_profile_id",
+                "created_at",
+                "updated_at",
+            ),
+            rows=rows,
+            conn=conn,
+            json_columns=("metadata",),
+            sequence_column="id",
+        )
+
+    def restore_account_export_chat_messages(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="chat_messages",
+            pk_column="id",
+            columns=(
+                "id",
+                "thread_id",
+                "role",
+                "content",
+                "event_at",
+                "kind",
+                "extra_meta",
+                "created_at",
+            ),
+            rows=rows,
+            conn=conn,
+            json_columns=("extra_meta",),
+            sequence_column="id",
+        )
+
+    def restore_account_export_media_assets(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="media_assets",
+            pk_column="id",
+            columns=(
+                "id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "media_kind",
+                "provenance",
+                "source_tag",
+                "content_hash",
+                "deterministic_id",
+                "normalized_slug",
+                "system_name",
+                "storage_prefix",
+                "src_url",
+                "mime_type",
+                "filesize",
+                "ingested_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_media_aliases(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="media_aliases",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "alias",
+                "alias_normalized",
+                "alias_type",
+                "created_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_uploaded_documents(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="uploaded_documents",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "filename",
+                "filesize",
+                "mime_type",
+                "src_url",
+                "source_tag",
+                "parsed_text",
+                "embedding_status",
+                "embedding_error",
+                "embedding_started_at",
+                "embedding_completed_at",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_generated_documents(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="generated_documents",
+            pk_column="id",
+            columns=(
+                "id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "title",
+                "content",
+                "format",
+                "model",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_uploaded_images(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="uploaded_images",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "src_url",
+                "filename",
+                "filesize",
+                "mime_type",
+                "source_tag",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_generated_images(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="generated_images",
+            pk_column="id",
+            columns=(
+                "id",
+                "asset_id",
+                "project_id",
+                "thread_id",
+                "user_id",
+                "src_url",
+                "prompt",
+                "model",
+                "created_at",
+                "updated_at",
+                "deleted_at",
+            ),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_thread_documents(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="thread_documents",
+            pk_column="id",
+            columns=(
+                "id",
+                "thread_id",
+                "document_id",
+                "relation",
+                "created_at",
+            ),
+            rows=rows,
+            conn=conn,
+            sequence_column="id",
+        )
+
+    def restore_account_export_project_document_links(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="project_document_links",
+            pk_column="id",
+            columns=(
+                "id",
+                "project_id",
+                "document_id",
+                "document_type",
+                "is_enabled",
+                "attached_at",
+                "attached_by",
+            ),
+            rows=rows,
+            conn=conn,
+            unique_key_columns=(
+                ("project_id", "document_id", "document_type"),
+            ),
+            sequence_column="id",
+        )
 
 
 logger = logging.getLogger(__name__)

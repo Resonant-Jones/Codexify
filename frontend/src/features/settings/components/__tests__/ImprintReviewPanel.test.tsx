@@ -49,6 +49,13 @@ describe("ImprintReviewPanel", () => {
         estimatedTokens: 1200,
       },
     });
+    const backendPromptMetadata = {
+      generator_version: "imprint-proposal-v1",
+      heat_score: 0.73,
+      persona_hints: ["stay grounded"],
+      prompt_hints: ["ask clarifying questions"],
+      requested_depth: "deep",
+    };
     requestImprintProposalForReviewMock.mockResolvedValue({
       imprintDraft: {
         guardianName: "Harbor",
@@ -61,6 +68,21 @@ describe("ImprintReviewPanel", () => {
       },
       name: "Harbor",
       personaDraft: "Respond with clear structure and warmer phrasing.",
+      promptMetadata: backendPromptMetadata,
+      proposal: {
+        generatorVersion: "imprint-proposal-v1",
+        personaDraft: "Respond with clear structure and warmer phrasing.",
+        preferredName: "friend",
+        projectId: 5,
+        proposalHash: "proposal-hash-abcdef",
+        proposalName: "Harbor",
+        proposalVersion: 1,
+        promptMetadata: backendPromptMetadata,
+        scopeKind: "project_scoped",
+        snapshotHash: "snapshot-hash-123456",
+        snapshotVersion: 4,
+        userId: "u1",
+      },
     });
 
     render(<ImprintReviewPanel projectId={5} threadId={11} />);
@@ -80,6 +102,11 @@ describe("ImprintReviewPanel", () => {
     expect(
       screen.getByText("Respond with clear structure and warmer phrasing.")
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Generator: imprint-proposal-v1/)
+    ).toBeInTheDocument();
+    expect(screen.getByText("Prompt hints: 1")).toBeInTheDocument();
+    expect(screen.getByText("Heat score: 0.73")).toBeInTheDocument();
 
     expect(fetchImprintReviewStatusMock).toHaveBeenCalledWith({
       projectId: 5,
@@ -89,6 +116,98 @@ describe("ImprintReviewPanel", () => {
       projectId: 5,
       threadId: 11,
     });
+  });
+
+  test("generates a fresh proposal from the backend response on demand", async () => {
+    const user = userEvent.setup();
+
+    fetchImprintReviewStatusMock.mockResolvedValue({
+      activeImprint: null,
+      personaSummary: null,
+      promptMeta: null,
+    });
+    requestImprintProposalForReviewMock
+      .mockResolvedValueOnce({
+        imprintDraft: {
+          guardianName: "Harbor",
+          heatScore: 0.8,
+          id: 27,
+          preferredName: "friend",
+          projectId: null,
+          status: "draft",
+          userId: "u1",
+        },
+        name: "Harbor",
+        personaDraft: "Review me safely.",
+        promptMetadata: {
+          generator_version: "imprint-proposal-v1",
+          prompt_hints: ["ask clarifying questions"],
+        },
+        proposal: {
+          generatorVersion: "imprint-proposal-v1",
+          personaDraft: "Review me safely.",
+          preferredName: "friend",
+          projectId: null,
+          proposalHash: "proposal-hash-first",
+          proposalName: "Harbor",
+          proposalVersion: 1,
+          promptMetadata: {
+            generator_version: "imprint-proposal-v1",
+            prompt_hints: ["ask clarifying questions"],
+          },
+          scopeKind: "user_scoped",
+          snapshotHash: "snapshot-hash-first",
+          snapshotVersion: 4,
+          userId: "u1",
+        },
+      })
+      .mockResolvedValueOnce({
+        imprintDraft: {
+          guardianName: "Nova Beacon",
+          heatScore: 0.9,
+          id: 28,
+          preferredName: "friend",
+          projectId: null,
+          status: "draft",
+          userId: "u1",
+        },
+        name: "Nova Beacon",
+        personaDraft: "Respond with sharper focus.",
+        promptMetadata: {
+          generator_version: "imprint-proposal-v1",
+          prompt_hints: ["prefer concise answers"],
+        },
+        proposal: {
+          generatorVersion: "imprint-proposal-v1",
+          personaDraft: "Respond with sharper focus.",
+          preferredName: "friend",
+          projectId: null,
+          proposalHash: "proposal-hash-second",
+          proposalName: "Nova Beacon",
+          proposalVersion: 1,
+          promptMetadata: {
+            generator_version: "imprint-proposal-v1",
+            prompt_hints: ["prefer concise answers"],
+          },
+          scopeKind: "user_scoped",
+          snapshotHash: "snapshot-hash-second",
+          snapshotVersion: 5,
+          userId: "u1",
+        },
+      });
+
+    render(<ImprintReviewPanel />);
+
+    await screen.findByText("Proposal available for review");
+    await user.click(
+      screen.getByRole("button", { name: "Generate Proposal" })
+    );
+
+    expect(requestImprintProposalForReviewMock).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("Nova Beacon")).toBeInTheDocument();
+    expect(
+      screen.getByText("Prompt hints: 1")
+    ).toBeInTheDocument();
   });
 
   test("shows empty state when no active imprint or pending proposal exists", async () => {

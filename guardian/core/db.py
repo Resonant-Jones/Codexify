@@ -214,6 +214,32 @@ class _PostgresGuardianDB:
     # Chat Threads
     # =================================================================
 
+    def _thread_to_dict(self, thread: ChatThread) -> Dict[str, Any]:
+        """Serialize a chat thread with its durable config surface."""
+        return {
+            "id": thread.id,
+            "user_id": thread.user_id,
+            "title": thread.title,
+            "summary": thread.summary,
+            "project_id": thread.project_id,
+            "parent_id": thread.parent_id,
+            "active_profile_id": thread.active_profile_id,
+            "thread_config": thread.thread_config,
+            "is_diary": bool(thread.is_diary),
+            "diary_mode": bool(thread.diary_mode),
+            "exclude_from_identity": bool(thread.exclude_from_identity),
+            "modeling_excluded": bool(thread.modeling_excluded),
+            "archived_at": (
+                thread.archived_at.isoformat() if thread.archived_at else None
+            ),
+            "created_at": (
+                thread.created_at.isoformat() if thread.created_at else None
+            ),
+            "updated_at": (
+                thread.updated_at.isoformat() if thread.updated_at else None
+            ),
+        }
+
     def create_chat_thread(
         self,
         user_id: str,
@@ -242,30 +268,7 @@ class _PostgresGuardianDB:
             session.add(thread)
             session.commit()
 
-            return {
-                "id": thread.id,
-                "user_id": thread.user_id,
-                "title": thread.title,
-                "summary": thread.summary,
-                "project_id": thread.project_id,
-                "parent_id": thread.parent_id,
-                "active_profile_id": thread.active_profile_id,
-                "is_diary": bool(thread.is_diary),
-                "diary_mode": bool(thread.diary_mode),
-                "exclude_from_identity": bool(thread.exclude_from_identity),
-                "modeling_excluded": bool(thread.modeling_excluded),
-                "archived_at": (
-                    thread.archived_at.isoformat()
-                    if thread.archived_at
-                    else None
-                ),
-                "created_at": (
-                    thread.created_at.isoformat() if thread.created_at else None
-                ),
-                "updated_at": (
-                    thread.updated_at.isoformat() if thread.updated_at else None
-                ),
-            }
+            return self._thread_to_dict(thread)
 
     def ensure_chat_thread(
         self,
@@ -313,31 +316,7 @@ class _PostgresGuardianDB:
                 .all()
             )
 
-            return [
-                {
-                    "id": t.id,
-                    "user_id": t.user_id,
-                    "title": t.title,
-                    "summary": t.summary,
-                    "project_id": t.project_id,
-                    "parent_id": t.parent_id,
-                    "active_profile_id": t.active_profile_id,
-                    "is_diary": bool(t.is_diary),
-                    "diary_mode": bool(t.diary_mode),
-                    "exclude_from_identity": bool(t.exclude_from_identity),
-                    "modeling_excluded": bool(t.modeling_excluded),
-                    "archived_at": t.archived_at.isoformat()
-                    if t.archived_at
-                    else None,
-                    "created_at": t.created_at.isoformat()
-                    if t.created_at
-                    else None,
-                    "updated_at": t.updated_at.isoformat()
-                    if t.updated_at
-                    else None,
-                }
-                for t in threads
-            ]
+            return [self._thread_to_dict(t) for t in threads]
 
     def get_chat_thread(self, thread_id: int) -> Optional[Dict[str, Any]]:
         """Get a single thread by ID."""
@@ -346,30 +325,7 @@ class _PostgresGuardianDB:
             if not thread:
                 return None
 
-            return {
-                "id": thread.id,
-                "user_id": thread.user_id,
-                "title": thread.title,
-                "summary": thread.summary,
-                "project_id": thread.project_id,
-                "parent_id": thread.parent_id,
-                "active_profile_id": thread.active_profile_id,
-                "is_diary": bool(thread.is_diary),
-                "diary_mode": bool(thread.diary_mode),
-                "exclude_from_identity": bool(thread.exclude_from_identity),
-                "modeling_excluded": bool(thread.modeling_excluded),
-                "archived_at": (
-                    thread.archived_at.isoformat()
-                    if thread.archived_at
-                    else None
-                ),
-                "created_at": (
-                    thread.created_at.isoformat() if thread.created_at else None
-                ),
-                "updated_at": (
-                    thread.updated_at.isoformat() if thread.updated_at else None
-                ),
-            }
+            return self._thread_to_dict(thread)
 
     def get_recent_thread(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get most recent thread for user."""
@@ -529,27 +485,7 @@ class _PostgresGuardianDB:
             threads = (
                 session.query(ChatThread).filter_by(parent_id=parent_id).all()
             )
-            return [
-                {
-                    "id": t.id,
-                    "user_id": t.user_id,
-                    "title": t.title,
-                    "summary": t.summary,
-                    "project_id": t.project_id,
-                    "parent_id": t.parent_id,
-                    "active_profile_id": t.active_profile_id,
-                    "archived_at": t.archived_at.isoformat()
-                    if t.archived_at
-                    else None,
-                    "created_at": t.created_at.isoformat()
-                    if t.created_at
-                    else None,
-                    "updated_at": t.updated_at.isoformat()
-                    if t.updated_at
-                    else None,
-                }
-                for t in threads
-            ]
+            return [self._thread_to_dict(t) for t in threads]
 
     def get_thread_summary(self, thread_id: int) -> Optional[str]:
         """Get thread summary."""
@@ -1538,26 +1474,7 @@ class _PostgresGuardianDB:
                 query = query.filter_by(project_id=int(project_id))
 
             threads = query.all()
-            return [
-                {
-                    "id": t.id,
-                    "user_id": t.user_id,
-                    "title": t.title,
-                    "summary": t.summary,
-                    "project_id": t.project_id,
-                    "parent_id": t.parent_id,
-                    "archived_at": t.archived_at.isoformat()
-                    if t.archived_at
-                    else None,
-                    "created_at": t.created_at.isoformat()
-                    if t.created_at
-                    else None,
-                    "updated_at": t.updated_at.isoformat()
-                    if t.updated_at
-                    else None,
-                }
-                for t in threads
-            ]
+            return [self._thread_to_dict(t) for t in threads]
 
     def get_thread(self, thread_id: int) -> Optional[tuple]:
         """Get thread as tuple (legacy API compat)."""

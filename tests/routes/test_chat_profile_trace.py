@@ -60,6 +60,38 @@ def test_rag_trace_exposes_payload_summary(monkeypatch):
     chat._rag_traces.pop(77, None)
 
 
+def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
+    chat._thread_latest_task[91] = "task-91"
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "latest_turn_message_id": 12,
+                "latest_turn_content": "question B",
+                "retrieval_query": "question B",
+                "retrieval_target": "latest_turn",
+                "retrieval_query_matches_latest_turn": True,
+            },
+            "payload_summary": {"message_count": 2},
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(91, api_key="test-key")
+
+    assert trace["latest_turn_message_id"] == 12
+    assert trace["latest_turn_content"] == "question B"
+    assert trace["retrieval_query"] == "question B"
+    assert trace["retrieval_target"] == "latest_turn"
+    assert trace["retrieval_query_matches_latest_turn"] is True
+
+    chat._thread_latest_task.pop(91, None)
+    chat._rag_traces.pop(91, None)
+
+
 def test_rag_trace_uses_persisted_candidate_for_completed_task(monkeypatch):
     thread_id = 88
     task_id = str(uuid.uuid4())
