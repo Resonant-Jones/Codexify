@@ -1,0 +1,529 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const apiSpies = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  patch: vi.fn(),
+  delete: vi.fn(),
+}));
+
+const taskEventSources = vi.hoisted(() => ({
+  instances: [] as MockGuardianEventSource[],
+}));
+
+const chatState = vi.hoisted(() => ({
+  messages: [
+    {
+      id: 1,
+      thread_id: 1,
+      role: "user",
+      content: "Hello Guardian",
+      created_at: "2026-03-06T00:00:00.000Z",
+    },
+    {
+      id: 2,
+      thread_id: 1,
+      role: "assistant",
+      content: "Existing assistant reply",
+      created_at: "2026-03-06T00:00:01.000Z",
+    },
+  ],
+}));
+
+type MockGuardianEventSource = EventTarget & {
+  url: string;
+  options: Record<string, unknown>;
+  readyState: number;
+  onopen: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent<string>) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  close: ReturnType<typeof vi.fn>;
+  emit: (type: string, data: Record<string, unknown>) => void;
+};
+
+vi.mock("@/lib/api", () => ({
+  default: apiSpies,
+  buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
+  clearInFlightCompletionTurnId: vi.fn(),
+  getAuthToken: vi.fn(() => null),
+  getBackendOutageRemainingMs: vi.fn(() => 0),
+  getDevApiKey: vi.fn(() => null),
+  getInFlightCompletionTurnId: vi.fn(() => null),
+  readRuntimeApiKey: vi.fn(() => null),
+  updateThreadConfig: async (
+    threadId: string | number,
+    patch: Record<string, unknown>
+  ) => {
+    const response = await apiSpies.patch(
+      `/chat/threads/${threadId}/config`,
+      patch
+    );
+    return response?.data ?? {};
+  },
+}));
+
+vi.mock("@/lib/guardianEventSource", () => {
+  class MockGuardianEventSource extends EventTarget {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSED = 2;
+
+    readonly url: string;
+    readonly options: Record<string, unknown>;
+    readyState = MockGuardianEventSource.OPEN;
+    onopen: ((event: Event) => void) | null = null;
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    close = vi.fn(() => {
+      this.readyState = MockGuardianEventSource.CLOSED;
+    });
+
+    constructor(url: string, options: Record<string, unknown> = {}) {
+      super();
+      this.url = url;
+      this.options = options;
+      taskEventSources.instances.push(this as unknown as MockGuardianEventSource);
+    }
+
+    emit(type: string, data: Record<string, unknown>): void {
+      const event = new MessageEvent(type, {
+        data: JSON.stringify(data),
+      });
+      if (type === "message") {
+        this.onmessage?.(event);
+      }
+      this.dispatchEvent(event);
+    }
+  }
+
+  return { GuardianEventSource: MockGuardianEventSource };
+});
+
+vi.mock("@/hooks/useLiveEvents", () => ({
+  useLiveEvents: () => ({
+    subscribe: () => () => {},
+  }),
+}));
+
+vi.mock("@/features/chat/useChat", () => ({
+  default: () => ({
+    messages: chatState.messages,
+    loading: false,
+    error: null,
+    hasMore: false,
+    activateThread: vi.fn().mockResolvedValue(chatState.messages),
+    refreshSnapshot: vi.fn().mockResolvedValue(chatState.messages),
+    loadOlderMessages: vi.fn().mockResolvedValue(chatState.messages),
+    completionState: {
+      isCompleting: false,
+      activeTaskId: null,
+      activeThreadId: null,
+      startedAt: null,
+    },
+    startCompletion: vi.fn(),
+    endCompletion: vi.fn(),
+    updateCompletionTaskId: vi.fn(),
+    startCompletionSession: vi.fn(),
+    reassociateCompletionSession: vi.fn(),
+    updateCompletionSessionTurnId: vi.fn(),
+    finalizeCompletionSession: vi.fn(),
+    handleIncomingAssistantMessage: vi.fn(() => false),
+    isCompletionInFlight: vi.fn(() => false),
+    setCompletionInFlight: vi.fn(),
+  }),
+}));
+
+vi.mock("@/features/chat/hooks/useLlmCatalog", () => {
+  const providers = [
+    {
+      id: "local",
+      displayName: "Local",
+      enabled: true,
+      authorized: true,
+      available: true,
+      models: [
+        {
+          id: "local-model",
+          canonicalId: "local-model",
+          modelKind: "chat",
+          supportsChat: true,
+        },
+      ],
+    },
+    {
+      id: "remote",
+      displayName: "Remote",
+      enabled: true,
+      authorized: true,
+      available: true,
+      models: [
+        {
+          id: "remote-model",
+          canonicalId: "remote-model",
+          modelKind: "chat",
+          supportsChat: true,
+        },
+      ],
+    },
+  ];
+
+  return {
+    describeModelCapability: () => "Chat model",
+    isChatSelectableModel: (model: { supportsChat?: boolean; modelKind?: string } | null | undefined) =>
+      Boolean(model && model.supportsChat !== false && model.modelKind !== "utility"),
+    useLlmCatalog: () => ({
+      providers,
+      getProviderById: (providerId: string | null | undefined) =>
+        providers.find((provider) => provider.id === providerId) ?? null,
+      getModelById: (modelId: string | null | undefined) =>
+        providers.flatMap((provider) => provider.models).find((model) => model.id === modelId) ?? null,
+      findProviderForModel: (modelId: string | null | undefined) =>
+        providers.find((provider) =>
+          provider.models.some((model) => model.id === modelId)
+        ) ?? null,
+    }),
+  };
+});
+
+vi.mock("@/lib/devFlags", () => ({
+  isRagTraceUIEnabled: () => false,
+}));
+
+vi.mock("@/state/contextTrace", () => ({
+  setTrace: vi.fn(),
+}));
+
+vi.mock("@/imprint/api", () => ({
+  fetchSystemPromptSummary: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  markRuntimeRouteUnavailableIfNotFound: vi.fn(() => false),
+  useRuntimeRouteCapability: () => ({
+    ready: true,
+    state: "available",
+    mounted: [],
+    declared: {},
+  }),
+}));
+
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: any) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children, asChild, ...props }: any) => {
+    if (asChild) return children;
+    return (
+      <button type="button" {...props}>
+        {children}
+      </button>
+    );
+  },
+  DropdownMenuContent: ({ children }: any) => <div>{children}</div>,
+  DropdownMenuItem: ({ children, onClick, ...props }: any) => (
+    <button type="button" onClick={onClick} {...props}>
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock("@/features/chat/components", () => ({
+  Composer: ({
+    onSend,
+    onProviderChange,
+  }: {
+    onSend: (text: string) => Promise<void>;
+    onProviderChange?: (providerId: string) => void;
+  }) => (
+    <div data-testid="composer-stub">
+      <button type="button" data-testid="composer-send" onClick={() => void onSend("hello")}>
+        Send
+      </button>
+      <button
+        type="button"
+        data-testid="composer-provider-switch"
+        onClick={() => onProviderChange?.("remote")}
+      >
+        Switch provider
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("@/features/chat/components/GuardianThreadApprovalRail", () => ({
+  default: () => <div data-testid="approval-rail-stub" />,
+}));
+
+vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
+  default: () => <div data-testid="prompt-cost-indicator" />,
+}));
+
+vi.mock("@/components/SessionRail/SessionRail", () => ({
+  default: () => <div data-testid="session-rail-stub" />,
+}));
+
+vi.mock("@/features/chat/panels/RAGTracePanel", () => ({
+  default: () => <div data-testid="rag-trace-panel-stub" />,
+}));
+
+vi.mock("@/components/surface/FrameCard", () => ({
+  default: ({ children }: any) => <div>{children}</div>,
+}));
+
+import GuardianChat from "@/features/chat/GuardianChat";
+import api from "@/lib/api";
+
+function buildThread(threadId: string) {
+  return {
+    id: threadId,
+    title: `Thread ${threadId}`,
+  } as any;
+}
+
+function buildSessionTabs(threadId: string) {
+  return [
+    {
+      tabId: "tab-1",
+      threadId,
+      title: `Thread ${threadId}`,
+      providerId: "local",
+      modelId: "local-model",
+      createdAt: "2026-03-06T00:00:00.000Z",
+      updatedAt: "2026-03-06T00:00:00.000Z",
+      inferenceMode: "default",
+    } as any,
+  ];
+}
+
+function renderChat(threadId = "1") {
+  const onSendMessage = vi.fn().mockResolvedValue(undefined);
+  const utils = render(
+    <GuardianChat
+      guardianName="Guardian"
+      userName="tester"
+      activeThread={buildThread(threadId)}
+      onSendMessage={onSendMessage}
+      onNewChat={vi.fn()}
+      sessionTabs={buildSessionTabs(threadId)}
+      activeSessionTabId={"tab-1" as any}
+      activeProviderId="local"
+      activeModelId="local-model"
+    />
+  );
+
+  return {
+    ...utils,
+    onSendMessage,
+  };
+}
+
+async function advanceTimers(ms: number) {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
+    await Promise.resolve();
+  });
+}
+
+function emitTaskEvent(
+  source: MockGuardianEventSource,
+  type: string,
+  data: Record<string, unknown>
+) {
+  act(() => {
+    source.emit(type, data);
+  });
+}
+
+async function startTrackedRequest() {
+  fireEvent.click(screen.getByTestId("composer-send"));
+  await screen.findByText("Queued…");
+
+  await advanceTimers(100);
+  expect(taskEventSources.instances).toHaveLength(1);
+
+  return taskEventSources.instances[0];
+}
+
+describe("GuardianChat lifecycle timing", () => {
+  const apiMock = api as unknown as {
+    get: ReturnType<typeof vi.fn>;
+    post: ReturnType<typeof vi.fn>;
+    patch: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    taskEventSources.instances.length = 0;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url === "/voice/capabilities") {
+        return {
+          data: {
+            read_aloud_enabled: true,
+            turn_based_enabled: true,
+            supported_input_mime: ["audio/wav"],
+            limits: {
+              max_upload_bytes: 1024,
+              max_duration_s: 10,
+            },
+          },
+        };
+      }
+      if (url === "/health/llm") {
+        return {
+          data: {
+            ok: true,
+            status: "online",
+            provider: "local",
+            model: "local-model",
+          },
+        };
+      }
+      if (/^\/chat\/\d+\/profile$/.test(url)) {
+        return {
+          data: {
+            profile: {
+              id: "default",
+              name: "Default",
+              mode: "cloud",
+            },
+            profiles: [
+              { id: "default", name: "Default", mode: "cloud" },
+              { id: "local_mode", name: "Local Mode", mode: "local" },
+            ],
+          },
+        };
+      }
+      return { data: {} };
+    });
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url === "/chat/1/complete") {
+        return { data: { task_id: "task-1" } };
+      }
+      return { data: {} };
+    });
+    apiMock.patch.mockResolvedValue({ data: {} });
+    apiMock.delete.mockResolvedValue({ data: {} });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps queued, warmup, first-token, and generating states visible until terminal completion", async () => {
+    renderChat("1");
+
+    expect(screen.getByText("Existing assistant reply")).toBeInTheDocument();
+
+    const source = await startTrackedRequest();
+
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "AWAITING_MODEL",
+    });
+    await screen.findByText("Warming model…");
+    await advanceTimers(60_000);
+    expect(screen.getByText("Warming model…")).toBeInTheDocument();
+
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "AWAITING_FIRST_TOKEN",
+    });
+    await screen.findByText("Waiting for first token…");
+    await advanceTimers(60_000);
+    expect(screen.getByText("Waiting for first token…")).toBeInTheDocument();
+
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "STREAMING",
+    });
+    await screen.findByText("Generating…");
+    await advanceTimers(60_000);
+    expect(screen.getByText("Generating…")).toBeInTheDocument();
+
+    emitTaskEvent(source, "task.completed", {
+      thread_id: 1,
+      task_id: "task-1",
+      message_id: 77,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Existing assistant reply")).toBeInTheDocument();
+  });
+
+  it("clears stale lifecycle text when switching threads during an in-flight request", async () => {
+    const { rerender } = renderChat("1");
+    const source = await startTrackedRequest();
+
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "AWAITING_MODEL",
+    });
+    await screen.findByText("Warming model…");
+
+    rerender(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={buildThread("2")}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={buildSessionTabs("2")}
+        activeSessionTabId={"tab-1" as any}
+        activeProviderId="local"
+        activeModelId="local-model"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Warming model…")).not.toBeInTheDocument();
+    });
+
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "STREAMING",
+    });
+    expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["task.failed", "Reply failed"],
+    ["task.cancelled", "Reply stopped"],
+  ] as const)(
+    "clears generating when the request ends with %s",
+    async (eventType, terminalLabel) => {
+      renderChat("1");
+      const source = await startTrackedRequest();
+
+      emitTaskEvent(source, "task.state", {
+        thread_id: 1,
+        task_id: "task-1",
+        state: "STREAMING",
+      });
+      await screen.findByText("Generating…");
+
+      emitTaskEvent(source, eventType, {
+        thread_id: 1,
+        task_id: "task-1",
+        error: "backend boom",
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
+        expect(screen.queryByText(terminalLabel)).not.toBeInTheDocument();
+      });
+      expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
+    }
+  );
+});

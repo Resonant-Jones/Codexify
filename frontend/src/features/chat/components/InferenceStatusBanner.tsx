@@ -35,11 +35,12 @@ export function InferenceStatusBanner({
   const isPendingStop = state.isPendingCancel;
   const label = (() => {
     if (isPendingStop) return "Stopping…";
+    if (state.phase === "failed") return "Reply failed";
+    if (state.phase === "cancelled") return "Reply stopped";
+    if (state.statusText) return state.statusText;
     if (state.phase === "thinking") return "Thinking…";
     if (state.phase === "streaming") return "Replying…";
     if (state.phase === "sending") return "Sending…";
-    if (state.phase === "failed") return "Reply failed";
-    if (state.phase === "cancelled") return "Reply stopped";
     return state.statusText ?? "Working…";
   })();
 

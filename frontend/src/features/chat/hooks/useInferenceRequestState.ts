@@ -9,6 +9,15 @@ import {
   type InferenceRequestState,
 } from "@/types/inference";
 
+type TaskLifecycleState =
+  | "QUEUED"
+  | "AWAITING_MODEL"
+  | "AWAITING_FIRST_TOKEN"
+  | "STREAMING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
 type StartInferenceRequestInput = {
   threadId: number;
   providerId: string | null;
@@ -27,6 +36,76 @@ function parseTaskEventPayload(event: Event): Record<string, unknown> | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function normalizeTaskLifecycleState(
+  value: unknown
+): TaskLifecycleState | null {
+  const normalized = String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "QUEUED":
+    case "AWAITING_MODEL":
+    case "AWAITING_FIRST_TOKEN":
+    case "STREAMING":
+    case "COMPLETED":
+    case "FAILED":
+    case "CANCELLED":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
+function getTaskEventThreadId(payload: Record<string, unknown> | null): number | null {
+  const threadId = Number(payload?.thread_id ?? payload?.threadId ?? payload?.threadID);
+  return Number.isFinite(threadId) ? threadId : null;
+}
+
+function getTaskEventTaskId(payload: Record<string, unknown> | null): string | null {
+  const value = String(payload?.task_id ?? payload?.taskId ?? "").trim();
+  return value.length > 0 ? value : null;
+}
+
+function buildLifecyclePatch(
+  lifecycleState: Exclude<TaskLifecycleState, "COMPLETED" | "FAILED" | "CANCELLED">
+): Partial<InferenceRequestState> {
+  switch (lifecycleState) {
+    case "QUEUED":
+      return {
+        phase: "sending",
+        statusText: "Queued…",
+        detailText: "Guardian is preparing a response.",
+        errorText: null,
+        isPendingCancel: false,
+      };
+    case "AWAITING_MODEL":
+      return {
+        phase: "sending",
+        statusText: "Warming model…",
+        detailText: "Guardian is warming the selected model.",
+        errorText: null,
+        isPendingCancel: false,
+      };
+    case "AWAITING_FIRST_TOKEN":
+      return {
+        phase: "sending",
+        statusText: "Waiting for first token…",
+        detailText: "Guardian is waiting for the first response chunk.",
+        errorText: null,
+        isPendingCancel: false,
+      };
+    case "STREAMING":
+      return {
+        phase: "streaming",
+        statusText: "Generating…",
+        detailText: "Output is arriving now.",
+        errorText: null,
+        isPendingCancel: false,
+      };
   }
 }
 
@@ -99,14 +178,14 @@ export function useInferenceRequestState() {
         mode,
         startedAt: Date.now(),
         updatedAt: Date.now(),
-      statusText: "Sending…",
-      detailText: "Submitting your turn to Guardian.",
-      errorText: null,
-      canCancel: false,
-      canSwitchToFast: false,
-      isPendingCancel: false,
-    });
-  },
+        statusText: "Queued…",
+        detailText: "Submitting your turn to Guardian.",
+        errorText: null,
+        canCancel: false,
+        canSwitchToFast: false,
+        isPendingCancel: false,
+      });
+    },
     [closeTaskStream]
   );
 
@@ -115,7 +194,8 @@ export function useInferenceRequestState() {
       closeTaskStream();
       applyPatch({
         phase: "failed",
-        statusText: "Response failed",
+        taskId: null,
+        statusText: null,
         detailText: options.detailText ?? "Guardian could not finish this turn.",
         errorText,
         canCancel: false,
@@ -131,7 +211,8 @@ export function useInferenceRequestState() {
       closeTaskStream();
       applyPatch({
         phase: "cancelled",
-        statusText: "Stopped",
+        taskId: null,
+        statusText: null,
         detailText,
         errorText: null,
         canCancel: false,
@@ -147,7 +228,8 @@ export function useInferenceRequestState() {
       closeTaskStream();
       applyPatch({
         phase: "completed",
-        statusText: "Response complete",
+        taskId: null,
+        statusText: null,
         detailText,
         errorText: null,
         canCancel: false,
@@ -168,14 +250,6 @@ export function useInferenceRequestState() {
       applyPatch({
         taskId,
         phase: stateRef.current.mode === "think" ? "thinking" : "sending",
-        statusText:
-          stateRef.current.mode === "think"
-            ? "Reasoning through response…"
-            : "Waiting for model…",
-        detailText:
-          stateRef.current.mode === "think"
-            ? "This may take a few minutes."
-            : "Guardian is preparing a response.",
         errorText: null,
         isPendingCancel: false,
       });
@@ -193,7 +267,8 @@ export function useInferenceRequestState() {
 
       const handleTaskProgress = (event: Event) => {
         const payload = parseTaskEventPayload(event);
-        const threadId = Number(payload?.thread_id ?? payload?.threadId);
+        const threadId = getTaskEventThreadId(payload);
+        const eventTaskId = getTaskEventTaskId(payload);
         if (
           Number.isFinite(threadId) &&
           stateRef.current.threadId != null &&
@@ -201,13 +276,76 @@ export function useInferenceRequestState() {
         ) {
           return;
         }
+        if (
+          eventTaskId &&
+          attachedTaskIdRef.current &&
+          eventTaskId !== attachedTaskIdRef.current
+        ) {
+          return;
+        }
         applyPatch({
           taskId,
           phase: "streaming",
-          statusText: "Streaming response…",
+          statusText: "Generating…",
           detailText: "Output is arriving now.",
           errorText: null,
           isPendingCancel: false,
+        });
+      };
+
+      const handleTaskState = (event: Event) => {
+        const payload = parseTaskEventPayload(event);
+        const threadId = getTaskEventThreadId(payload);
+        const eventTaskId = getTaskEventTaskId(payload);
+        if (
+          Number.isFinite(threadId) &&
+          stateRef.current.threadId != null &&
+          threadId !== stateRef.current.threadId
+        ) {
+          return;
+        }
+        if (
+          eventTaskId &&
+          attachedTaskIdRef.current &&
+          eventTaskId !== attachedTaskIdRef.current
+        ) {
+          return;
+        }
+
+        const lifecycleState = normalizeTaskLifecycleState(
+          payload?.state ?? payload?.status ?? payload?.lifecycle_state
+        );
+        if (!lifecycleState) {
+          return;
+        }
+
+        if (lifecycleState === "COMPLETED") {
+          const detail =
+            typeof payload?.message_id === "number"
+              ? "Guardian finished and saved the response."
+              : "Guardian finished responding.";
+          markCompleted(detail);
+          return;
+        }
+        if (lifecycleState === "FAILED") {
+          const errorText =
+            typeof payload?.error === "string" && payload.error.trim().length > 0
+              ? payload.error.trim()
+              : "Guardian could not finish the response.";
+          markFailed(errorText, {
+            detailText: "Try again or switch to a faster mode.",
+          });
+          return;
+        }
+        if (lifecycleState === "CANCELLED") {
+          markCancelled("The current response was cancelled.");
+          return;
+        }
+
+        const patch = buildLifecyclePatch(lifecycleState);
+        applyPatch({
+          taskId,
+          ...patch,
         });
       };
 
@@ -236,6 +374,7 @@ export function useInferenceRequestState() {
       };
 
       stream.addEventListener("task.progress", handleTaskProgress as EventListener);
+      stream.addEventListener("task.state", handleTaskState as EventListener);
       stream.addEventListener("task.completed", handleTaskCompleted as EventListener);
       stream.addEventListener("task.cancelled", handleTaskCancelled as EventListener);
       stream.addEventListener("task.failed", handleTaskFailed as EventListener);

@@ -2601,8 +2601,8 @@ export function GuardianChat({
     description: depthDescriptions[mode],
   }));
   const composerInferenceState =
-    effectiveThreadId != null &&
-    inferenceRequest.state.threadId === effectiveThreadId
+    numericThreadId != null &&
+    inferenceRequest.state.threadId === numericThreadId
       ? inferenceRequest.state
       : createIdleInferenceRequestState();
   const handleCancelInference = () => {
