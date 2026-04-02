@@ -353,6 +353,40 @@ def _latest_turn_instruction_message(
     )
 
 
+def _trace_content_snippet(content: Any, *, limit: int = 240) -> str | None:
+    text = render_content_for_inference(content).strip()
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def _latest_turn_trace_fields(
+    latest_turn: dict[str, Any] | None,
+    *,
+    retrieval_query: str | None,
+) -> dict[str, Any]:
+    if not isinstance(latest_turn, dict):
+        return {}
+
+    fields: dict[str, Any] = {
+        "retrieval_query": str(retrieval_query or ""),
+        "retrieval_target": "latest_turn",
+        "retrieval_query_matches_latest_turn": True,
+    }
+
+    latest_turn_id = latest_turn.get("id")
+    if latest_turn_id is not None:
+        fields["latest_turn_message_id"] = latest_turn_id
+
+    latest_turn_content = _trace_content_snippet(latest_turn.get("content"))
+    if latest_turn_content is not None:
+        fields["latest_turn_content"] = latest_turn_content
+
+    return fields
+
+
 def _image_attachments_from_meta(
     latest_user_meta: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
@@ -972,6 +1006,10 @@ async def build_messages_for_llm(
     conversation_messages = [*history_messages, latest_turn]
     # Retrieval must follow the latest user turn, not earlier history.
     retrieval_query = render_content_for_inference(latest_turn.get("content"))
+    latest_turn_trace_fields = _latest_turn_trace_fields(
+        latest_turn,
+        retrieval_query=retrieval_query,
+    )
 
     context: list[dict[str, str]] = []
     latest_user_meta: dict[str, Any] | None = None
@@ -1051,6 +1089,7 @@ async def build_messages_for_llm(
         "latest_turn": latest_turn,
         "retrieved_context": retrieved_context_messages,
     }
+    completion_assembly.update(latest_turn_trace_fields)
 
     try:
         if build_guardian_system_prompt:
@@ -1134,6 +1173,12 @@ async def build_messages_for_llm(
             "latest_user": latest_user_meta,
         }
         bundle["_completion_assembly"] = completion_assembly
+
+    if trace is None:
+        trace = dict(latest_turn_trace_fields)
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace.update(latest_turn_trace_fields)
 
     try:
         retrieval_plan = resolve_retrieval_plan(
