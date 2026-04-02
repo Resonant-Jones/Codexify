@@ -31,7 +31,13 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StrictStr,
+    ValidationError,
+    field_validator,
+)
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
@@ -40,6 +46,7 @@ from guardian.core.chat_completion_service import (
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
     _merge_thread_metadata_patch,
+    resolve_thread_completion_settings,
 )
 from guardian.core.event_graph import get_event_writer
 from guardian.depth import (
@@ -491,6 +498,7 @@ class ThreadDTO(BaseModel):
     archived_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    thread_config: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -506,6 +514,33 @@ class ThreadBranchRequest(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     project_id: Optional[int] = None
+
+
+class ThreadConfigUpdate(BaseModel):
+    providerId: StrictStr | None = None
+    modelId: StrictStr | None = None
+    inferenceMode: StrictStr | None = None
+    retrievalSource: StrictStr | None = None
+    personaId: StrictStr | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator(
+        "providerId",
+        "modelId",
+        "inferenceMode",
+        "retrievalSource",
+        "personaId",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_config_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                raise ValueError("value cannot be blank")
+            return cleaned
+        return value
 
 
 class ThreadCreateRequest(BaseModel):
@@ -1301,6 +1336,58 @@ def _build_thread_config_snapshot(
     }
 
 
+def _thread_config_payload_dict(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return {}
+        if isinstance(parsed, dict):
+            return dict(parsed)
+    return {}
+
+
+def _extract_thread_config(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    value = raw.get("thread_config")
+    if value is None:
+        value = raw.get("threadConfig")
+    if isinstance(value, dict):
+        return dict(value)
+    parsed = _thread_config_payload_dict(value)
+    return parsed or None
+
+
+def _merge_thread_config_update(
+    existing_config: Any, patch: ThreadConfigUpdate
+) -> dict[str, Any]:
+    base_config = _build_thread_config_snapshot(
+        _thread_config_payload_dict(existing_config)
+    )
+    patch_values = patch.model_dump(exclude_unset=True)
+    if not patch_values:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    for key in (
+        "providerId",
+        "modelId",
+        "inferenceMode",
+        "retrievalSource",
+    ):
+        if key in patch_values and patch_values[key] is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{key} cannot be null",
+            )
+
+    merged_payload = dict(base_config)
+    merged_payload.update(patch_values)
+    return _build_thread_config_snapshot(merged_payload)
+
+
 def _persist_thread_config_snapshot(
     thread_id: int, thread_config: dict[str, Any]
 ) -> None:
@@ -1749,6 +1836,8 @@ def chat_create_thread(
             metadata=metadata,
         )
         _persist_thread_config_snapshot(int(record["id"]), thread_config)
+        if isinstance(record, dict):
+            record["thread_config"] = thread_config
         chatlog_db.write_audit_log(
             "create", "chat_thread", str(record["id"]), user_id=user_id
         )
@@ -2029,11 +2118,6 @@ async def chat_complete(
     turn_id = _normalize_turn_id(body.turn_id)
     source_mode = normalize_source_mode(body.source_mode)
 
-    provider = str(
-        body.provider
-        or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
-    ).lower()
-
     user_system_override = body.system_override
     if isinstance(user_system_override, str):
         user_system_override = user_system_override.strip() or None
@@ -2047,6 +2131,19 @@ async def chat_complete(
     )
     if not thread_exists:
         raise HTTPException(status_code=404, detail="Thread not found")
+
+    thread_execution = resolve_thread_completion_settings(
+        thread_exists if isinstance(thread_exists, dict) else None,
+        requested_provider=body.provider,
+        requested_model=body.model,
+        requested_reasoning_mode=body.reasoning_mode,
+        requested_source_mode=source_mode,
+        settings=llm_settings,
+    )
+    provider = thread_execution.provider
+    model = thread_execution.model
+    reasoning_mode = thread_execution.reasoning_mode
+    source_mode = thread_execution.source_mode
 
     limit = int(body.max_context or 50)
     items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
@@ -2179,12 +2276,12 @@ async def chat_complete(
     task = ChatCompletionTask(
         thread_id=thread_id,
         provider=provider,
-        model=body.model,
-        requested_provider=provider,
+        model=model,
+        requested_provider=body.provider,
         requested_model=body.model,
         selection_source="explicit" if (provider or body.model) else "default",
         provider_pinned=bool(str(provider or "").strip()),
-        reasoning_mode=body.reasoning_mode,
+        reasoning_mode=reasoning_mode,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
@@ -2558,6 +2655,28 @@ def patch_thread(
         )
 
 
+@router.patch("/threads/{thread_id}/config")
+def patch_thread_config(
+    thread_id: int,
+    body: ThreadConfigUpdate = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Update the durable thread execution contract without starting a run."""
+    existing = chatlog_db.get_chat_thread(thread_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    updated_config = _merge_thread_config_update(
+        existing.get("thread_config"), body
+    )
+    _persist_thread_config_snapshot(thread_id, updated_config)
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "thread_config": updated_config,
+    }
+
+
 @router.delete("/{thread_id}")
 def delete_thread(
     thread_id: int,
@@ -2628,7 +2747,27 @@ thread_router = APIRouter(prefix="/thread", tags=["Threads"])
 @thread_router.get("/{thread_id}")
 def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
     """Get details for a specific thread by thread_id."""
-    row = chatlog_db.get_thread(thread_id)
+    thread_payload = None
+    get_chat_thread = getattr(chatlog_db, "get_chat_thread", None)
+    if callable(get_chat_thread):
+        try:
+            thread_payload = get_chat_thread(thread_id)
+        except Exception:
+            thread_payload = None
+
+    if isinstance(thread_payload, dict):
+        return {
+            "thread_id": thread_payload.get("id"),
+            "parent_thread_id": thread_payload.get("parent_id"),
+            "session_id": None,
+            "summary": thread_payload.get("summary"),
+            "created_at": thread_payload.get("created_at"),
+            "user_id": thread_payload.get("user_id"),
+            "project_id": thread_payload.get("project_id"),
+            "thread_config": _extract_thread_config(thread_payload),
+        }
+
+    row = getattr(chatlog_db, "get_thread", lambda _thread_id: None)(thread_id)
     if not row:
         raise HTTPException(status_code=404, detail="Thread not found")
     return {
@@ -2639,6 +2778,7 @@ def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
         "created_at": row[4],
         "user_id": row[5],
         "project_id": row[6],
+        "thread_config": None,
     }
 
 
@@ -2657,6 +2797,7 @@ def get_child_threads(thread_id: int, api_key: str = Depends(require_api_key)):
             "archived_at": row.get("archived_at"),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
+            "thread_config": _extract_thread_config(row),
         }
         for row in rows
     ]
@@ -3079,6 +3220,16 @@ def api_patch_thread(
 ):
     """Compat alias for PATCH /chat/threads/{thread_id} used in tests."""
     return patch_thread(thread_id, body, api_key=api_key)
+
+
+@api_chat_router.patch("/threads/{thread_id}/config")
+def api_patch_thread_config(
+    thread_id: int,
+    body: ThreadConfigUpdate = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Compat alias for PATCH /chat/threads/{thread_id}/config."""
+    return patch_thread_config(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.delete("/threads/{thread_id}")
