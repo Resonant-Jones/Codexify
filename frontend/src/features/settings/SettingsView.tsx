@@ -8,6 +8,9 @@ import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
 import { MemoryBrowser } from "@/features/settings/diagnostics";
+import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
+import PersonaSettingsPanel from "@/features/settings/components/PersonaSettingsPanel";
+import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
 import {
   ChatGPTImportModal,
   type MigrationStats,
@@ -836,7 +839,7 @@ export function SettingsView({
             Appearance
           </Button>
           <Button type="button" variant={tab === "system" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("system")}>
-            System Prompt
+            Imprint
           </Button>
           <Button type="button" variant={tab === "connectors" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("connectors")}>
             Connectors
@@ -862,50 +865,87 @@ export function SettingsView({
 
         {tab === "system" && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div
+              className="space-y-2 rounded-[var(--tile-radius,19px)] border p-4"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
+              }}
+            >
               <div className="space-y-1">
-                <div className="text-sm font-medium">Guardian Nickname</div>
-                <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
+                <div className="text-sm font-semibold">Local Preview</div>
+                <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                  These values are local preview context only. The backend proposal
+                  truth is generated and reviewed in the Imprint workspace below.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">Guardian Nickname</div>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">User Nickname</div>
+                  <Input value={uName} onChange={(e) => setUName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <div className="text-sm font-medium">Occupation / Role</div>
+                  <Input value={uRole} onChange={(e) => setURole(e.target.value)} className="h-9" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
+                </div>
               </div>
               <div className="space-y-1">
-                <div className="text-sm font-medium">User Nickname</div>
-                <Input value={uName} onChange={(e) => setUName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
+                <div className="text-sm font-medium">Preview Prompt</div>
+                <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
               </div>
-              <div className="space-y-1 sm:col-span-2">
-                <div className="text-sm font-medium">Occupation / Role</div>
-                <Input value={uRole} onChange={(e) => setURole(e.target.value)} className="h-9" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Notes</div>
+                <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={4} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
               </div>
-            </div>
-            <div className="space-y-1">
-              <div className="text-sm font-medium">System Prompt</div>
-              <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
-            </div>
-            <div className="space-y-1">
-              <div className="text-sm font-medium">Notes</div>
-              <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={4} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  onClick={handleSave}
-                  className="rounded-[var(--tile-radius,19px)]"
-                  disabled={systemPromptSaveStatus === "saving"}
-                >
-                  {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
-                </Button>
-                {systemPromptSaveStatus === "saved" && (
-                  <span className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
-                    System prompt saved.
-                  </span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    onClick={handleSave}
+                    className="rounded-[var(--tile-radius,19px)]"
+                    disabled={systemPromptSaveStatus === "saving"}
+                  >
+                    {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
+                  </Button>
+                  {systemPromptSaveStatus === "saved" && (
+                    <span className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
+                      Preview prompt saved.
+                    </span>
+                  )}
+                </div>
+                {systemPromptSaveError && (
+                  <div className="text-xs" style={{ color: "var(--error, #ef4444)" }}>
+                    {systemPromptSaveError}
+                  </div>
                 )}
               </div>
-              {systemPromptSaveError && (
-                <div className="text-xs" style={{ color: "var(--error, #ef4444)" }}>
-                  {systemPromptSaveError}
-                </div>
-              )}
             </div>
+
+            <section
+              className="space-y-4 rounded-[var(--tile-radius,19px)] border p-4"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
+              }}
+              data-testid="imprint-workspace"
+            >
+              <div className="space-y-1">
+                <div className="text-sm font-semibold">Imprint Workspace</div>
+                <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                  Generate Proposal uses the backend authority path. Review, edit,
+                  and inspect the returned proposal through the mounted panels.
+                </p>
+              </div>
+              <ImprintReviewPanel />
+              <div className="grid gap-4 xl:grid-cols-2">
+                <PersonaSettingsPanel />
+                <SystemPromptInspector />
+              </div>
+            </section>
           </div>
         )}
 
