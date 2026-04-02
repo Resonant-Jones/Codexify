@@ -54,6 +54,38 @@ def _render_profile_guidance(
     if profile_id:
         lines.append(f"profile_id: {profile_id}")
 
+    profile_name = str(payload.get("name") or "").strip()
+    if profile_name:
+        lines.append(f"name: {profile_name}")
+
+    provider = str(
+        payload.get("provider_override") or payload.get("model_provider") or ""
+    ).strip()
+    if provider:
+        lines.append(f"model_provider: {provider}")
+
+    model_id = str(
+        payload.get("model_override") or payload.get("model_id") or ""
+    ).strip()
+    if model_id:
+        lines.append(f"model_id: {model_id}")
+
+    temperature = payload.get("temperature_override")
+    if temperature is None:
+        temperature = payload.get("temperature")
+    if isinstance(temperature, (int, float)):
+        lines.append(f"temperature: {temperature}")
+
+    system_prompt = str(payload.get("system_prompt") or "").strip()
+    if system_prompt:
+        lines.append("system_prompt:")
+        for raw_line in system_prompt.splitlines():
+            line = raw_line.rstrip()
+            if line:
+                lines.append(f"  {line}")
+            else:
+                lines.append("  ")
+
     for key in ("style", "behavior", "constraints"):
         value = blocks_raw.get(key)
         if isinstance(value, str) and value.strip():

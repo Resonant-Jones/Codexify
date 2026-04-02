@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  createPersonaProfile as createPersonaProfileOnBackend,
+  fetchPersonaProfiles,
+  updatePersonaProfile as updatePersonaProfileOnBackend,
+  type PersonaStudioBackendProfile,
+} from "@/features/personaStudio/personaStudioApi";
 
 export type PersonaCapabilityPermissions = {
   web: boolean;
@@ -407,6 +414,61 @@ function normalizePersonaConfig(
   };
 }
 
+function createBlankPersonaProfileDraft(
+  profileId: string
+): PersonaProfileDraft {
+  return {
+    id: profileId,
+    name: "Persona",
+    description: "",
+    config: {
+      identity: {
+        name: "Persona",
+        description: "",
+      },
+      model: {
+        provider: "openai",
+        model: "gpt-4o",
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxTokens: 4096,
+      },
+      voice: {
+        enabled: false,
+        provider: "elevenlabs",
+        voicePreset: "",
+        speed: 1.0,
+        wakeWord: "",
+        interruptible: true,
+      },
+      prompt: {
+        systemPrompt: "",
+        styleNotes: "",
+        directives: "",
+      },
+      tools: {
+        pinnedTools: [],
+        allowedTools: [],
+        skills: [],
+        permissions: {
+          web: false,
+          email: false,
+          calendar: false,
+          cli: false,
+          filesystem: false,
+        },
+      },
+      retrieval: {
+        enabled: false,
+        mode: "semantic",
+        topK: 5,
+        rerank: false,
+      },
+    },
+  };
+}
+
 function normalizePersonaProfileDraft(
   value: unknown,
   fallback: PersonaProfileDraft
@@ -460,60 +522,13 @@ function normalizePersonaProfileArray(
 }
 
 function getSeedProfileReference(profileId?: string | null): PersonaProfileDraft {
-  return (
+  const seedProfile =
     PERSONA_STUDIO_SEED_PROFILES.find((profile) => profile.id === profileId) ??
-    PERSONA_STUDIO_SEED_PROFILES[0] ??
-    clone({
-      id: "profile-1",
-      name: "Persona",
-      description: "",
-      config: {
-        identity: {
-          name: "Persona",
-          description: "",
-        },
-        model: {
-          provider: "openai",
-          model: "gpt-4o",
-          temperature: 0,
-          topK: 0,
-          topP: 1,
-          maxTokens: 1024,
-        },
-        voice: {
-          enabled: false,
-          provider: "elevenlabs",
-          voicePreset: "",
-          speed: 1,
-          wakeWord: "",
-          interruptible: true,
-        },
-        prompt: {
-          systemPrompt: "",
-          styleNotes: "",
-          directives: "",
-        },
-        tools: {
-          pinnedTools: [],
-          allowedTools: [],
-          skills: [],
-          permissions: {
-            web: false,
-            email: false,
-            calendar: false,
-            cli: false,
-            filesystem: false,
-          },
-        },
-        retrieval: {
-          enabled: false,
-          mode: "semantic",
-          topK: 5,
-          rerank: false,
-        },
-      },
-    })
-  );
+    PERSONA_STUDIO_SEED_PROFILES[0];
+  if (seedProfile) {
+    return seedProfile;
+  }
+  return createBlankPersonaProfileDraft(profileId ?? "profile-1");
 }
 
 function createPersonaProfileMap(
@@ -624,6 +639,95 @@ function cloneProfile(profile: PersonaProfileDraft): PersonaProfileDraft {
   return clone(profile);
 }
 
+function applyBackendProfileToDraft(
+  profile: PersonaProfileDraft,
+  backendProfile: PersonaStudioBackendProfile
+): PersonaProfileDraft {
+  return {
+    ...profile,
+    id: backendProfile.id,
+    name: backendProfile.name,
+    description: profile.description,
+    config: {
+      ...profile.config,
+      identity: {
+        ...profile.config.identity,
+        name: backendProfile.name,
+        description: profile.description,
+      },
+      model: {
+        ...profile.config.model,
+        provider: backendProfile.model_provider,
+        model: backendProfile.model_id,
+        temperature: backendProfile.temperature,
+      },
+      prompt: {
+        ...profile.config.prompt,
+        systemPrompt: backendProfile.system_prompt,
+      },
+    },
+  };
+}
+
+function mergeBackendProfileIntoLocalState(
+  previous: PersonaStudioLocalState,
+  backendProfile: PersonaStudioBackendProfile
+): PersonaStudioLocalState {
+  const existingProfile = previous.profiles.find(
+    (profile) => profile.id === backendProfile.id
+  );
+  const existingDraft = previous.draftProfilesById[backendProfile.id];
+  const baseProfile =
+    existingProfile ?? existingDraft ?? getSeedProfileReference(backendProfile.id);
+  const mergedProfile = applyBackendProfileToDraft(baseProfile, backendProfile);
+  const shouldUpdateDraft =
+    Boolean(existingProfile) &&
+    (!existingDraft || sameProfileDraft(existingDraft, existingProfile));
+
+  const profiles = existingProfile
+    ? previous.profiles.map((profile) =>
+        profile.id === backendProfile.id ? mergedProfile : profile
+      )
+    : [...previous.profiles, mergedProfile];
+
+  return {
+    ...previous,
+    profiles,
+    draftProfilesById: shouldUpdateDraft
+      ? {
+          ...previous.draftProfilesById,
+          [backendProfile.id]: cloneProfile(mergedProfile),
+        }
+      : previous.draftProfilesById,
+  };
+}
+
+function mergeBackendProfilesIntoLocalState(
+  previous: PersonaStudioLocalState,
+  backendProfiles: PersonaStudioBackendProfile[]
+): PersonaStudioLocalState {
+  if (!Array.isArray(backendProfiles) || backendProfiles.length === 0) {
+    return previous;
+  }
+
+  let nextState = previous;
+  for (const backendProfile of backendProfiles) {
+    nextState = mergeBackendProfileIntoLocalState(nextState, backendProfile);
+  }
+  return nextState;
+}
+
+function buildPersonaProfileWriteBody(profile: PersonaProfileDraft) {
+  return {
+    id: profile.id,
+    name: profile.name.trim(),
+    system_prompt: profile.config.prompt.systemPrompt,
+    model_provider: profile.config.model.provider.trim().toLowerCase(),
+    model_id: profile.config.model.model,
+    temperature: profile.config.model.temperature,
+  };
+}
+
 export function getPersonaStudioSeedProfile(
   profileId?: string | null
 ): PersonaProfileDraft {
@@ -697,10 +801,36 @@ export function usePersonaStudioLocalDraftState() {
   const [state, setState] = useState<PersonaStudioLocalState>(() =>
     readPersonaStudioLocalState()
   );
+  const hasWrittenToBackendRef = useRef(false);
 
   useEffect(() => {
     persistPersonaStudioLocalState(state);
   }, [state]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const backendProfiles = await fetchPersonaProfiles();
+        if (cancelled || hasWrittenToBackendRef.current) {
+          return;
+        }
+        if (!backendProfiles.length) {
+          return;
+        }
+        setState((previous) =>
+          mergeBackendProfilesIntoLocalState(previous, backendProfiles)
+        );
+      } catch {
+        // Keep the local draft-only fallback when backend sync is unavailable.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const selectedProfile = useMemo(
     () =>
@@ -796,70 +926,99 @@ export function usePersonaStudioLocalDraftState() {
   );
 
   const saveSelectedProfile = useCallback(() => {
-    setState((previous) => {
-      const currentProfile = previous.profiles.find(
-        (profile) => profile.id === previous.selectedProfileId
-      );
+    const currentProfile = state.profiles.find(
+      (profile) => profile.id === state.selectedProfileId
+    );
+    if (!currentProfile) {
+      return;
+    }
 
-      if (!currentProfile) return previous;
+    const currentDraft =
+      state.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
+    const nextProfile = cloneProfile(currentDraft);
+    if (sameProfileDraft(nextProfile, currentProfile)) {
+      return;
+    }
 
-      const currentDraft =
-        previous.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
-      const nextProfile = cloneProfile(currentDraft);
+    setState((previous) => ({
+      ...previous,
+      profiles: previous.profiles.map((profile) =>
+        profile.id === currentProfile.id ? nextProfile : profile
+      ),
+      draftProfilesById: {
+        ...previous.draftProfilesById,
+        [currentProfile.id]: cloneProfile(nextProfile),
+      },
+    }));
+    const nextProfileSnapshot = cloneProfile(nextProfile);
 
-      if (sameProfileDraft(nextProfile, currentProfile)) {
-        return previous;
+    hasWrittenToBackendRef.current = true;
+    void (async () => {
+      try {
+        const backendProfile = await updatePersonaProfileOnBackend(
+          nextProfileSnapshot.id,
+          buildPersonaProfileWriteBody(nextProfileSnapshot)
+        );
+        setState((previous) =>
+          mergeBackendProfileIntoLocalState(previous, backendProfile)
+        );
+      } catch {
+        // Keep the locally saved draft even if backend persistence fails.
       }
-
-      return {
-        ...previous,
-        profiles: previous.profiles.map((profile) =>
-          profile.id === currentProfile.id ? nextProfile : profile
-        ),
-        draftProfilesById: {
-          ...previous.draftProfilesById,
-          [currentProfile.id]: cloneProfile(nextProfile),
-        },
-      };
-    });
-  }, []);
+    })();
+  }, [state]);
 
   const saveSelectedProfileAsNew = useCallback(() => {
-    setState((previous) => {
-      const currentProfile = previous.profiles.find(
-        (profile) => profile.id === previous.selectedProfileId
-      );
+    const currentProfile = state.profiles.find(
+      (profile) => profile.id === state.selectedProfileId
+    );
 
-      if (!currentProfile) return previous;
+    if (!currentProfile) {
+      return;
+    }
 
-      const nextId = createNextProfileId(previous.profiles);
-      const currentDraft =
-        previous.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
-      const nextProfile = cloneProfile(currentDraft);
-      nextProfile.id = nextId;
-      nextProfile.name = createDefaultCopyName(currentDraft.name, previous.profiles);
-      nextProfile.description = currentDraft.description;
-      nextProfile.isDefault = false;
-      nextProfile.config = {
-        ...nextProfile.config,
-        identity: {
-          ...nextProfile.config.identity,
-          name: nextProfile.name,
-          description: nextProfile.description,
-        },
-      };
+    const nextId = createNextProfileId(state.profiles);
+    const currentDraft =
+      state.draftProfilesById[currentProfile.id] ?? cloneProfile(currentProfile);
+    const nextProfile = cloneProfile(currentDraft);
+    nextProfile.id = nextId;
+    nextProfile.name = createDefaultCopyName(currentDraft.name, state.profiles);
+    nextProfile.description = currentDraft.description;
+    nextProfile.isDefault = false;
+    nextProfile.config = {
+      ...nextProfile.config,
+      identity: {
+        ...nextProfile.config.identity,
+        name: nextProfile.name,
+        description: nextProfile.description,
+      },
+    };
 
-      return {
-        ...previous,
-        profiles: [...previous.profiles, nextProfile],
-        draftProfilesById: {
-          ...previous.draftProfilesById,
-          [nextId]: cloneProfile(nextProfile),
-        },
-        selectedProfileId: nextId,
-      };
-    });
-  }, []);
+    setState((previous) => ({
+      ...previous,
+      profiles: [...previous.profiles, nextProfile],
+      draftProfilesById: {
+        ...previous.draftProfilesById,
+        [nextId]: cloneProfile(nextProfile),
+      },
+      selectedProfileId: nextId,
+    }));
+    const nextProfileSnapshot = cloneProfile(nextProfile);
+
+    hasWrittenToBackendRef.current = true;
+    void (async () => {
+      try {
+        const backendProfile = await createPersonaProfileOnBackend(
+          buildPersonaProfileWriteBody(nextProfileSnapshot)
+        );
+        setState((previous) =>
+          mergeBackendProfileIntoLocalState(previous, backendProfile)
+        );
+      } catch {
+        // Keep the locally created persona even if backend creation fails.
+      }
+    })();
+  }, [state]);
 
   const resetSelectedProfile = useCallback(() => {
     setState((previous) => {

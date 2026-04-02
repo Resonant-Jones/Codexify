@@ -406,6 +406,7 @@ from guardian.routes.imprint import system_docs_router, system_prompt_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
 from guardian.routes.obsidian import router as obsidian_router
+from guardian.routes.persona_profiles import router as persona_profiles_router
 from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
@@ -883,6 +884,11 @@ _include_router(
     label="personal_facts",
     flag_name="CODEXIFY_ENABLE_PERSONAL_FACTS_ROUTES",
     include_fn=lambda: app.include_router(personal_facts_router),
+)
+_include_router(
+    label="persona_profiles",
+    flag_name="CODEXIFY_ENABLE_PERSONA_PROFILE_ROUTES",
+    include_fn=lambda: app.include_router(persona_profiles_router),
 )
 _include_router(
     label="agent",

@@ -1,3 +1,4 @@
+import inspect
 import json
 import logging
 from dataclasses import dataclass
@@ -796,11 +797,43 @@ def build_openai_vision_content(
     return parts
 
 
+def _filter_callable_kwargs(
+    func: Any, kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """Drop keyword arguments unsupported by a callable.
+
+    This keeps the dispatch layer backward-compatible with older test doubles
+    while still allowing the production handlers to receive new runtime fields
+    like temperature.
+    """
+
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return dict(kwargs)
+
+    parameters = signature.parameters.values()
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters):
+        return dict(kwargs)
+
+    allowed = {
+        param.name
+        for param in signature.parameters.values()
+        if param.kind
+        in {
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        }
+    }
+    return {key: value for key, value in kwargs.items() if key in allowed}
+
+
 def chat_with_ai(
     messages,
     model: Optional[str] = None,
     provider: Optional[str] = None,
     reasoning_mode: Optional[str] = None,
+    temperature: Optional[float] = None,
     prompt_meta: Optional[dict[str, Any]] = None,
     settings: Optional[Settings] = None,
 ):
@@ -857,26 +890,64 @@ def chat_with_ai(
         return call_local(
             messages,
             target_model,
-            reasoning_mode=reasoning_mode,
-            settings=settings,
+            **_filter_callable_kwargs(
+                call_local,
+                {
+                    "reasoning_mode": reasoning_mode,
+                    "temperature": temperature,
+                    "settings": settings,
+                },
+            ),
         )
     if provider_name == "groq":
-        return call_groq(messages, target_model, settings=settings)
+        return call_groq(
+            messages,
+            target_model,
+            **_filter_callable_kwargs(
+                call_groq,
+                {
+                    "temperature": temperature,
+                    "settings": settings,
+                },
+            ),
+        )
     if provider_name == "openai":
         return call_openai(
             messages,
             _normalize_openai_model(target_model, settings),
-            settings=settings,
+            **_filter_callable_kwargs(
+                call_openai,
+                {
+                    "temperature": temperature,
+                    "settings": settings,
+                },
+            ),
         )
     if provider_name == "alibaba":
-        return call_alibaba(messages, target_model, settings=settings)
+        return call_alibaba(
+            messages,
+            target_model,
+            **_filter_callable_kwargs(
+                call_alibaba,
+                {
+                    "temperature": temperature,
+                    "settings": settings,
+                },
+            ),
+        )
     if provider_name == "minimax":
         return call_minimax(
             messages,
             target_model,
-            reasoning_mode=reasoning_mode,
-            prompt_meta=prompt_meta,
-            settings=settings,
+            **_filter_callable_kwargs(
+                call_minimax,
+                {
+                    "reasoning_mode": reasoning_mode,
+                    "temperature": temperature,
+                    "prompt_meta": prompt_meta,
+                    "settings": settings,
+                },
+            ),
         )
 
     logger.warning("Unsupported LLM provider: %s", provider_name)
@@ -1636,7 +1707,13 @@ def stream_local(
                 pass
 
 
-def call_groq(messages, model: str, *, settings: Optional[Settings] = None):
+def call_groq(
+    messages,
+    model: str,
+    *,
+    temperature: Optional[float] = None,
+    settings: Optional[Settings] = None,
+):
     settings = _resolve_settings(settings)
     try:
         assert_egress_allowed("groq", settings=settings)
@@ -1656,7 +1733,7 @@ def call_groq(messages, model: str, *, settings: Optional[Settings] = None):
     payload: Dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": 0.7,
+        "temperature": 0.7 if temperature is None else float(temperature),
     }
     base_url = (settings.GROQ_BASE_URL or _DEFAULT_GROQ_BASE).rstrip("/")
     url = f"{base_url}/openai/v1/chat/completions"
@@ -1740,6 +1817,7 @@ def _call_openai_compatible_chat(
     base_path: str,
     messages,
     model: str,
+    temperature: Optional[float],
     timeout: float,
     settings: Settings,
     typed_failure_kinds: bool = False,
@@ -1770,7 +1848,7 @@ def _call_openai_compatible_chat(
     payload: Dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": 0.7,
+        "temperature": 0.7 if temperature is None else float(temperature),
     }
     url = f"{resolved_base}{base_path}"
 
@@ -1867,7 +1945,13 @@ def _call_openai_compatible_chat(
         ) from exc
 
 
-def call_openai(messages, model: str, *, settings: Optional[Settings] = None):
+def call_openai(
+    messages,
+    model: str,
+    *,
+    temperature: Optional[float] = None,
+    settings: Optional[Settings] = None,
+):
     settings = _resolve_settings(settings)
     return _call_openai_compatible_chat(
         provider_name="openai",
@@ -1879,12 +1963,19 @@ def call_openai(messages, model: str, *, settings: Optional[Settings] = None):
         base_path="/v1/chat/completions",
         messages=messages,
         model=model,
+        temperature=temperature,
         timeout=30.0,
         settings=settings,
     )
 
 
-def call_alibaba(messages, model: str, *, settings: Optional[Settings] = None):
+def call_alibaba(
+    messages,
+    model: str,
+    *,
+    temperature: Optional[float] = None,
+    settings: Optional[Settings] = None,
+):
     settings = _resolve_settings(settings)
     if not bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", True)):
         raise HTTPException(
@@ -1933,6 +2024,7 @@ def call_alibaba(messages, model: str, *, settings: Optional[Settings] = None):
         base_path="/chat/completions",
         messages=messages,
         model=model,
+        temperature=temperature,
         timeout=float(
             getattr(
                 settings,
@@ -2118,6 +2210,7 @@ def call_minimax(
     model: str,
     *,
     reasoning_mode: Optional[str] = None,
+    temperature: Optional[float] = None,
     prompt_meta: Optional[dict[str, Any]] = None,
     settings: Optional[Settings] = None,
 ):
@@ -2176,7 +2269,7 @@ def call_minimax(
         payload: Dict[str, Any] = {
             "model": model,
             "messages": anthropic_messages,
-            "temperature": 0.7,
+            "temperature": 0.7 if temperature is None else float(temperature),
             "max_tokens": int(
                 getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)
             ),
@@ -2204,7 +2297,7 @@ def call_minimax(
         payload = {
             "model": model,
             "messages": messages,
-            "temperature": 0.7,
+            "temperature": 0.7 if temperature is None else float(temperature),
             "reasoning_split": True,
         }
         headers = {
