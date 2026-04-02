@@ -63,252 +63,212 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 32,
+    "commit_count": 31,
     "commits": [
       {
         "files": [
-          "backend/rag/embedder.py",
-          "docker-compose.yml",
-          "guardian/core/config.py",
-          "guardian/workers/document_embed_worker.py",
-          "tests/backend/rag/test_embedder.py",
-          "tests/workers/test_document_embed_worker.py"
+          "guardian/core/pgdb.py",
+          "guardian/services/account_export.py",
+          "tests/routes/test_account_export.py"
         ],
-        "sha": "a7d9f8200ceba78358df9a21ef4eaffe811ce3d1",
-        "subject": "fix(embed): complete document embed lifecycle and terminal status handling"
+        "sha": "7f6041f8b4ac34cc576400aab88380898817162c",
+        "subject": "feat: bundle export blobs in account zip"
       },
       {
         "files": [
-          "docs/architecture/2026-03-31-supported-path-proof.md"
+          "guardian/core/pgdb.py",
+          "guardian/routes/api_exports.py",
+          "guardian/services/account_export.py",
+          "guardian/tests/core/test_pgdb_account_export.py",
+          "tests/routes/test_account_export.py"
         ],
-        "sha": "f0596e1dee48ad14c280765c4884b7c6c511bab2",
-        "subject": "docs(proof): add fresh supported-path proof for runtime contract behavior"
+        "sha": "6abd595d245f829131c827610b963132d5dadbab",
+        "subject": "Stream account exports and snapshot PG reads"
       },
       {
         "files": [
-          "frontend/src/components/SessionRail/SessionRail.tsx",
-          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx"
+          "docs/architecture/2026-04-01-current-head-supported-path-proof.md"
         ],
-        "sha": "5318886dd69d11835494da0a850ab4ddcbe7bc03",
-        "subject": "fix(chat): apply segmented styling to session rail"
+        "sha": "a9cb170165c6cadd05c2d7ce0c32e8b6aa95803d",
+        "subject": "docs(proof): add current-head supported-path proof after retrieval-boundary changes"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-          "frontend/src/index.css"
+          "frontend/src/contracts/runtimeTokens.ts",
+          "frontend/src/features/commandCenter/CommandCenterPage.tsx",
+          "frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx"
         ],
-        "sha": "72ebb44110c520351332b8144ca581cb597bc6f5",
-        "subject": "refactor(workspace): localize session rail styles"
+        "sha": "48d8411840e10e65d3a700f8bf7ff0c27a184deb",
+        "subject": "refactor(command-center): canonicalize runtime status chips"
       },
       {
         "files": [
-          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-          "frontend/src/components/persona/layout/AppShell.tsx",
+          "guardian/core/pgdb.py",
+          "guardian/routes/api_exports.py",
+          "guardian/services/account_export.py",
+          "tests/routes/test_account_export.py"
+        ],
+        "sha": "0e334f30ecb556353b60724c5d2376ad97c2a231",
+        "subject": "feat: add canonical account export zip"
+      },
+      {
+        "files": [
+          "frontend/src/features/commandCenter/CommandCenterPage.tsx",
+          "frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx"
+        ],
+        "sha": "99f359d278f7975356d3fcbc6d993e51eeec31da",
+        "subject": "refactor(command-center): improve legibility and library convergence"
+      },
+      {
+        "files": [
+          "frontend/src/features/commandCenter/CommandCenterPage.tsx",
+          "frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx"
+        ],
+        "sha": "c5ff19c1105d0252c94b0c9fa45e46fb54ce9f10",
+        "subject": "refactor(command-center): emphasize signal over detail"
+      },
+      {
+        "files": [
+          "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+          "frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx"
+        ],
+        "sha": "7759b432cf1b68110f943eb8267f10a6c5c3ee88",
+        "subject": "refactor(persona-studio): strengthen editor hierarchy"
+      },
+      {
+        "files": [
+          "frontend/src/features/personaStudio/__tests__/PersonaStudio.tabs.test.tsx",
+          "frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx"
+        ],
+        "sha": "45ff9b4d0e505200d23ccf685b8f04f0cda96146",
+        "subject": "persona-studio: promote Truth Matrix to first-class tab and separate from diagnostics"
+      },
+      {
+        "files": [
+          "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+          "frontend/src/features/personaStudio/components/DiagnosticsPanel.tsx",
+          "frontend/src/features/personaStudio/components/TruthMatrix.tsx",
+          "frontend/src/features/personaStudio/personaStudioStore.ts"
+        ],
+        "sha": "83c1068c82707fee226c9c4c2630337eaf9a154b",
+        "subject": "Promote Truth Matrix to first-class Persona Studio tab"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/__tests__/useChat.test.ts",
           "frontend/src/features/chat/useChat.ts"
         ],
-        "sha": "902112ce544731be139ee2a345a693050115afcb",
-        "subject": "feat(chat): implement frontend runtime contract for provider and request state"
+        "sha": "671aedc2e0e8fcb127efa1b47aa3acc99d1f7b63",
+        "subject": "fix(chat): reconcile persisted assistant messages after completion"
       },
       {
         "files": [
-          "guardian/cognition/prompts.py",
-          "tests/core/test_chat_completion_service_retrieval_plan.py"
+          "docs/architecture/account-export-restore-contract.md"
         ],
-        "sha": "5880120e7a7bcefbc79a80925eb95a7e2e831990",
-        "subject": "fix(chat): make retrieval boundary language truthful"
+        "sha": "97f7c8028bc32204e726180c50ff0ac05f71f65f",
+        "subject": "docs: add account export restore contract"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-          "frontend/src/index.css"
+          "backend/rag/chatgpt_migration.py",
+          "guardian/tests/migration/test_chatgpt_import_flat_structure.py",
+          "guardian/tests/migration/test_chatgpt_ingest.py"
         ],
-        "sha": "d5abf63535791b32918c021ae0a9b4e6904afed0",
-        "subject": "refactor(workspace): enforce segmented session rail tabs"
+        "sha": "809c4d76c3e932952a8da42a91a0b751563dec33",
+        "subject": "Flatten ChatGPT imports and preserve grouping as metadata"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
-          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
+          "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+          "frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx"
         ],
-        "sha": "8f7d6f6e0f29f721c6ee120bd13214cb1cafabea",
-        "subject": "feat(workspace): connect shelf documents to inspector"
+        "sha": "6b8189a5db8c5cef2230f606badd6eccf944addb",
+        "subject": "Add Persona Studio truth matrix"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
+          "docs/audits/investigations/2026-04-01-account-export-status.md"
         ],
-        "sha": "1b33c01b9d3d4cb948a212f3d1b72013820b38ae",
-        "subject": "feat(workspace): wire shelf to thread and project artifacts"
+        "sha": "acd5fd37c63fe1b64543d3aa89ecd6904f3ea78d",
+        "subject": "docs: add account export status investigation"
       },
       {
         "files": [
-          "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
-          "tests/routes/test_chat_profile_trace.py"
+          "docs/architecture/README.md",
+          "docs/architecture/persona-studio.md"
         ],
-        "sha": "0d0bc059869b75ac03809b739da6dd8ce0b48e72",
-        "subject": "docs(chat): add end-to-end rag trace proof"
+        "sha": "8c89d4d2c867a0df1379ae53c7b1fe1e505dca34",
+        "subject": "Document Persona Studio architecture and data flow"
       },
       {
         "files": [
-          "guardian/core/chat_completion_service.py",
-          "guardian/routes/chat.py",
-          "tests/core/test_chat_completion_service_retrieval_plan.py",
-          "tests/routes/test_chat_profile_trace.py"
+          "frontend/src/App.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx"
         ],
-        "sha": "9e8bd6d8dc29550cae4875bcce7b63631a4696be",
-        "subject": "fix(chat): restore latest rag trace persistence"
+        "sha": "ce0afeede6c4488292a7299efbd7ba59f707f27a",
+        "subject": "Add persona studio route syncing to AppShell"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+          "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+          "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
+          "frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx",
+          "frontend/src/features/personaStudio/personaStudioStore.ts"
         ],
-        "sha": "6be727c355e50859e9f14d35acc82370f3065fb4",
-        "subject": "refactor(workspace): strengthen tab switcher hierarchy"
+        "sha": "b2799e59c7adfddfadb4710921db0095f11a8e73",
+        "subject": "Persist Persona Studio local drafts"
       },
       {
         "files": [
-          "guardian/cognition/prompts.py"
+          "docker-compose.yml",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+          "frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx",
+          "frontend/src/features/workspace/WorkspaceViewer.tsx"
         ],
-        "sha": "bfd2046060d649a2e146a26fbefbba1c22944b5d",
-        "subject": "Refine Guardian base prompt for co-creative companion behavior"
+        "sha": "64dbe1f0143d37b64e9b1a6c6e6182eeb75df215",
+        "subject": "Integrate Persona Studio into app shell"
       },
       {
         "files": [
-          "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-          "frontend/src/features/chat/panels/RAGTracePanel.tsx",
-          "frontend/src/features/settings/SettingsView.test.tsx",
-          "frontend/src/features/settings/SettingsView.tsx",
-          "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx"
-        ],
-        "sha": "368afb1b41b3b5b032cdce9e958994575ba46df6",
-        "subject": "fix(diagnostics): bind rag trace surfaces to active thread"
-      },
-      {
-        "files": [
-          "frontend/src/package.json"
-        ],
-        "sha": "37c2162c2bff89b1a20046ca426f0228c20276ea",
-        "subject": "Force Vite re-optimization on frontend dev startup"
-      },
-      {
-        "files": [
-          "frontend/src/components/SessionRail/SessionRail.tsx",
-          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx"
-        ],
-        "sha": "2ea451bc13a2526cb06de4164af0a3a39a5f2f64",
-        "subject": "refactor(shell): simplify session rail visual hierarchy"
-      },
-      {
-        "files": [
-          "guardian/context/broker.py",
-          "tests/core/test_context_broker_source_mode.py"
-        ],
-        "sha": "a90b2c33f4ad9a3babe09ded27a21efa78fff267",
-        "subject": "fix(chat): replace weak local hit during widening"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/components/Composer.tsx",
-          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx"
-        ],
-        "sha": "e64dec215ea9aa290f721c3d930ffe29e1a74395",
-        "subject": "fix(chat): simplify source selector trigger label"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx"
-        ],
-        "sha": "06af0f2351b0f140487e0a02b08b45696bdb1c5d",
-        "subject": "fix(workspace): remove redundant internal close button"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
-        ],
-        "sha": "727f8f0918be6674c8c2733218bdbbb158817b1d",
-        "subject": "refactor(workspace): polish header and scratchpad layout"
-      },
-      {
-        "files": [
+          "docs/architecture/persona-studio-spec.md",
+          "docs/audits/daily/morning/2026-04-01-audit.json",
+          "docs/audits/daily/morning/2026-04-01-audit.md",
           "docs/audits/daily/morning/latest.json",
           "docs/audits/daily/morning/latest.md",
           "docs/audits/latest.json",
           "docs/audits/latest.md"
         ],
-        "sha": "85da3a91874857400f88c83b50d9c07fc4536f86",
-        "subject": "Refresh latest audit reports"
+        "sha": "1bfadb556f40c52b54a5270a0d6b2936d5accbc0",
+        "subject": "Wire ChatGPT import into personal fact review inbox"
       },
       {
         "files": [
-          "docs/architecture/2026-03-31-source-selector-proof.md",
+          "docs/architecture/2026-04-01-deterministic-retrieval-proof.md",
           "guardian/context/broker.py",
           "guardian/routes/chat.py",
-          "tests/core/test_chat_completion_service_source_mode_fallback.py",
           "tests/core/test_context_broker_source_mode.py",
-          "tests/routes/test_chat_source_mode.py"
+          "tests/routes/test_chat_profile_trace.py"
         ],
-        "sha": "e2539f35eaa319c8f337561f2b47ed00e4778c3f",
-        "subject": "test(chat): harden source selector proof and fallback behavior"
+        "sha": "b53219f7cdd0b4828cc42bf212b0fd4b00f3cea3",
+        "subject": "docs(rag): add deterministic retrieval proof matrix"
       },
       {
         "files": [
-          "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
-          "frontend/src/components/ui/dropdown-menu.tsx",
-          "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
-          "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx"
+          "backend/rag/chatgpt_migration.py",
+          "backend/rag/personal_fact_extraction.py",
+          "guardian/tests/migration/test_chatgpt_personal_fact_ingest.py"
         ],
-        "sha": "0c35af4239c51f36640c8e87322dc00abc371d82",
-        "subject": "fix(ui): constrain model menu and open upward"
+        "sha": "e34697b6a0fa42f11c4969b9ba4fa490ce23bb6a",
+        "subject": "Wire ChatGPT import into personal fact review inbox"
       },
       {
         "files": [
-          "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/features/chat/components/Composer.tsx",
-          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
-          "guardian/context/broker.py",
-          "guardian/core/chat_completion_service.py",
-          "guardian/routes/chat.py",
-          "tests/core/test_context_broker_source_mode.py",
-          "tests/routes/test_chat_source_mode.py"
+          "docs/architecture/2026-04-01-supported-path-proof.md"
         ],
-        "sha": "61c696b92e1c15ab6fea85ac725c2cce279b75c3",
-        "subject": "feat(chat): add source selector for retrieval boundary"
-      },
-      {
-        "files": [
-          "docs/architecture/runtime-protocol-token-contract.md"
-        ],
-        "sha": "757fc402acf42d3ea57f0629bcc5c9737481332a",
-        "subject": "docs(runtime): expand protocol token contract to include provider and request lifecycle domains"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
-        ],
-        "sha": "afec57d252d210da38167975fd75688c8b430a04",
-        "subject": "fix(workspace): clean up posture header affordances"
+        "sha": "66020c9b63d9aa34dfdf3a9d293086a0f4dd01e1",
+        "subject": "docs(proof): add fresh supported-path proof after embed lifecycle fix"
       },
       {
         "files": [
@@ -318,132 +278,141 @@
           "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
           "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
         ],
-        "sha": "45eb65e5457fc55128b192cc9e409908345e7303",
-        "subject": "feat(workspace): make workspace focus visually dominant"
+        "sha": "07571f2823a5d2ec68568fcd7f26e467f402c090",
+        "subject": "feat(workspace): add per-thread posture preset control"
       },
       {
         "files": [
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+          "frontend/src/features/workspace/WorkspaceViewer.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx"
         ],
-        "sha": "03f128bc50135c278042e8e534c95d485660e204",
-        "subject": "feat(workspace): add layout mode state contract"
+        "sha": "59589eee32b242c3cf17aaf80fb0f16e2d249e6c",
+        "subject": "fix(workspace): normalize markdown image sources"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
-          "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts"
+          "frontend/src/features/workspace/WorkspacePane.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx"
         ],
-        "sha": "8228f4f284bf64531de159afd92b905641cba841",
-        "subject": "feat(workspace): add per-thread scratchpad staging"
+        "sha": "4eea960f76b9ce655fbc40a57487f0d6edbfd3ab",
+        "subject": "fix(workspace): detect signed image preview urls"
       },
       {
         "files": [
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-          "frontend/src/features/workspace/state/useWorkspaceUiState.ts"
+          "frontend/src/features/workspace/WorkspaceViewer.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx"
         ],
-        "sha": "93c5b34b66e33c481e8ba5a2f2208c57b863c056",
-        "subject": "feat(workspace): add shell scaffold and persisted tabs"
+        "sha": "a593c0adb77cbc4baafb51ad233a2aacbf0600a1",
+        "subject": "fix(workspace): restore unsupported preview link"
       },
       {
         "files": [
+          "frontend/src/features/workspace/WorkspaceViewer.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx"
+        ],
+        "sha": "487131abc9a873c370cd6d1e8c3e65608f5644bb",
+        "subject": "fix(workspace): avoid auth headers on external preview urls"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/WorkspacePane.tsx",
+          "frontend/src/features/workspace/WorkspaceViewer.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx"
+        ],
+        "sha": "45ffc5c08da570f17a0ef2b1e4721dfaf44019ca",
+        "subject": "feat(workspace): render markdown previews in inspector"
+      },
+      {
+        "files": [
+          "docs/audits/daily/evening/2026-03-31-audit.json",
+          "docs/audits/daily/evening/2026-03-31-audit.md",
           "docs/audits/daily/evening/latest.json",
           "docs/audits/daily/evening/latest.md",
           "docs/audits/latest.json",
           "docs/audits/latest.md",
-          "prompts.py"
+          "frontend/src/contracts/runtimeTokens.ts",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/main.tsx"
         ],
-        "sha": "bdb09774fbb5c5ca11faddaefcf60c3870c5d3e7",
-        "subject": "Refresh evening audit snapshot"
+        "sha": "969355bf438b3e7d678c506ec7f46052b0f297bf",
+        "subject": "Refresh daily evening audit snapshot"
       },
       {
         "files": [
-          "docs/audits/daily/evening/2026-03-30-audit.json",
-          "docs/audits/daily/evening/2026-03-30-audit.md"
+          "frontend/src/features/workspace/WorkspacePane.tsx",
+          "frontend/src/features/workspace/WorkspaceViewer.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx",
+          "frontend/src/features/workspace/workspace.css"
         ],
-        "sha": "7f39d88199e6aa6c9f4998ee2028f0347538acf4",
-        "subject": "docs: add evening audit snapshot"
+        "sha": "ecedc62f47dca40539d2bf5341fc7a4134aa7724",
+        "subject": "feat(workspace): render actual document previews in inspector"
       }
     ],
     "files_changed": [
-      "backend/rag/embedder.py",
-      "docker-compose.yml",
-      "guardian/core/config.py",
-      "guardian/workers/document_embed_worker.py",
-      "tests/backend/rag/test_embedder.py",
-      "tests/workers/test_document_embed_worker.py",
-      "docs/architecture/2026-03-31-supported-path-proof.md",
-      "frontend/src/components/SessionRail/SessionRail.tsx",
-      "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
-      "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-      "frontend/src/index.css",
-      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-      "frontend/src/components/persona/layout/AppShell.tsx",
+      "guardian/core/pgdb.py",
+      "guardian/services/account_export.py",
+      "tests/routes/test_account_export.py",
+      "guardian/routes/api_exports.py",
+      "guardian/tests/core/test_pgdb_account_export.py",
+      "docs/architecture/2026-04-01-current-head-supported-path-proof.md",
+      "frontend/src/contracts/runtimeTokens.ts",
+      "frontend/src/features/commandCenter/CommandCenterPage.tsx",
+      "frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx",
+      "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+      "frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx",
+      "frontend/src/features/personaStudio/__tests__/PersonaStudio.tabs.test.tsx",
+      "frontend/src/features/personaStudio/components/DiagnosticsPanel.tsx",
+      "frontend/src/features/personaStudio/components/TruthMatrix.tsx",
+      "frontend/src/features/personaStudio/personaStudioStore.ts",
+      "frontend/src/features/chat/__tests__/useChat.test.ts",
       "frontend/src/features/chat/useChat.ts",
-      "guardian/cognition/prompts.py",
-      "tests/core/test_chat_completion_service_retrieval_plan.py",
-      "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-      "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
-      "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
-      "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
-      "tests/routes/test_chat_profile_trace.py",
-      "guardian/core/chat_completion_service.py",
-      "guardian/routes/chat.py",
-      "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-      "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
-      "frontend/src/features/chat/GuardianChat.tsx",
-      "frontend/src/features/chat/panels/RAGTracePanel.tsx",
-      "frontend/src/features/settings/SettingsView.test.tsx",
-      "frontend/src/features/settings/SettingsView.tsx",
-      "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
-      "frontend/src/package.json",
-      "guardian/context/broker.py",
-      "tests/core/test_context_broker_source_mode.py",
-      "frontend/src/features/chat/components/Composer.tsx",
-      "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
+      "docs/architecture/account-export-restore-contract.md",
+      "backend/rag/chatgpt_migration.py",
+      "guardian/tests/migration/test_chatgpt_import_flat_structure.py",
+      "guardian/tests/migration/test_chatgpt_ingest.py",
+      "docs/audits/investigations/2026-04-01-account-export-status.md",
+      "docs/architecture/README.md",
+      "docs/architecture/persona-studio.md",
+      "frontend/src/App.tsx",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
+      "docker-compose.yml",
+      "frontend/src/features/workspace/WorkspaceViewer.tsx",
+      "docs/architecture/persona-studio-spec.md",
+      "docs/audits/daily/morning/2026-04-01-audit.json",
+      "docs/audits/daily/morning/2026-04-01-audit.md",
       "docs/audits/daily/morning/latest.json",
       "docs/audits/daily/morning/latest.md",
       "docs/audits/latest.json",
       "docs/audits/latest.md",
-      "docs/architecture/2026-03-31-source-selector-proof.md",
-      "tests/core/test_chat_completion_service_source_mode_fallback.py",
-      "tests/routes/test_chat_source_mode.py",
-      "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
-      "frontend/src/components/ui/dropdown-menu.tsx",
-      "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
-      "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
-      "docs/architecture/runtime-protocol-token-contract.md",
-      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "docs/architecture/2026-04-01-deterministic-retrieval-proof.md",
+      "guardian/context/broker.py",
+      "guardian/routes/chat.py",
+      "tests/core/test_context_broker_source_mode.py",
+      "tests/routes/test_chat_profile_trace.py",
+      "backend/rag/personal_fact_extraction.py",
+      "guardian/tests/migration/test_chatgpt_personal_fact_ingest.py",
+      "docs/architecture/2026-04-01-supported-path-proof.md",
+      "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
       "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts",
-      "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
-      "frontend/src/features/workspace/state/useWorkspaceUiState.ts",
+      "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx",
+      "frontend/src/features/workspace/WorkspacePane.tsx",
+      "docs/audits/daily/evening/2026-03-31-audit.json",
+      "docs/audits/daily/evening/2026-03-31-audit.md",
       "docs/audits/daily/evening/latest.json",
       "docs/audits/daily/evening/latest.md",
-      "prompts.py",
-      "docs/audits/daily/evening/2026-03-30-audit.json",
-      "docs/audits/daily/evening/2026-03-30-audit.md"
+      "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+      "frontend/src/main.tsx",
+      "frontend/src/features/workspace/workspace.css"
     ],
-    "window_end": "2026-03-31T21:00:42.372575-04:00",
+    "window_end": "2026-04-01T21:00:45.191600-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-30T21:00:42.372575-04:00"
+    "window_start": "2026-03-31T21:00:45.191600-04:00"
   },
-  "date": "2026-03-31",
-  "generated_at": "2026-03-31T21:00:42.372575-04:00",
+  "date": "2026-04-01",
+  "generated_at": "2026-04-01T21:00:45.191600-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -452,15 +421,11 @@
   "phase": "evening",
   "repo": {
     "branch": "main",
-    "date": "2026-03-31",
-    "dirty": true,
-    "head": "a7d9f8200ceba78358df9a21ef4eaffe811ce3d1",
+    "date": "2026-04-01",
+    "dirty": false,
+    "head": "a330261f7f7ea2e9dfe76ac5f49d3d8f7f24a14e",
     "status_error": "",
-    "status_lines": [
-      " M frontend/src/contracts/runtimeTokens.ts",
-      " M frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-      " M frontend/src/main.tsx"
-    ]
+    "status_lines": []
   },
   "risk_flags": [
     {
@@ -517,16 +482,19 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 8,
+      "count": 11,
       "files": [
+        "docs/audits/investigations/2026-04-01-account-export-status.md",
+        "docs/audits/daily/morning/2026-04-01-audit.json",
+        "docs/audits/daily/morning/2026-04-01-audit.md",
         "docs/audits/daily/morning/latest.json",
         "docs/audits/daily/morning/latest.md",
         "docs/audits/latest.json",
         "docs/audits/latest.md",
+        "docs/audits/daily/evening/2026-03-31-audit.json",
+        "docs/audits/daily/evening/2026-03-31-audit.md",
         "docs/audits/daily/evening/latest.json",
-        "docs/audits/daily/evening/latest.md",
-        "docs/audits/daily/evening/2026-03-30-audit.json",
-        "docs/audits/daily/evening/2026-03-30-audit.md"
+        "docs/audits/daily/evening/latest.md"
       ]
     },
     "chat": {
@@ -535,57 +503,45 @@
         "guardian/routes/chat.py"
       ]
     },
-    "config": {
-      "count": 1,
-      "files": [
-        "guardian/core/config.py"
-      ]
-    },
     "docs": {
-      "count": 4,
+      "count": 7,
       "files": [
-        "docs/architecture/2026-03-31-supported-path-proof.md",
-        "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
-        "docs/architecture/2026-03-31-source-selector-proof.md",
-        "docs/architecture/runtime-protocol-token-contract.md"
+        "docs/architecture/2026-04-01-current-head-supported-path-proof.md",
+        "docs/architecture/account-export-restore-contract.md",
+        "docs/architecture/README.md",
+        "docs/architecture/persona-studio.md",
+        "docs/architecture/persona-studio-spec.md",
+        "docs/architecture/2026-04-01-deterministic-retrieval-proof.md",
+        "docs/architecture/2026-04-01-supported-path-proof.md"
       ]
     },
     "frontend": {
-      "count": 33,
+      "count": 24,
       "files": [
-        "frontend/src/components/SessionRail/SessionRail.tsx",
-        "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
-        "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-        "frontend/src/index.css",
-        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-        "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/contracts/runtimeTokens.ts",
+        "frontend/src/features/commandCenter/CommandCenterPage.tsx",
+        "frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx",
+        "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+        "frontend/src/features/personaStudio/__tests__/PersonaStudioShell.test.tsx",
+        "frontend/src/features/personaStudio/__tests__/PersonaStudio.tabs.test.tsx",
+        "frontend/src/features/personaStudio/components/DiagnosticsPanel.tsx",
+        "frontend/src/features/personaStudio/components/TruthMatrix.tsx",
+        "frontend/src/features/personaStudio/personaStudioStore.ts",
+        "frontend/src/features/chat/__tests__/useChat.test.ts",
         "frontend/src/features/chat/useChat.ts",
-        "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-        "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
-        "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-        "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
-        "frontend/src/features/chat/GuardianChat.tsx",
-        "frontend/src/features/chat/panels/RAGTracePanel.tsx",
-        "frontend/src/features/settings/SettingsView.test.tsx",
-        "frontend/src/features/settings/SettingsView.tsx",
-        "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
-        "frontend/src/package.json",
-        "frontend/src/features/chat/components/Composer.tsx",
-        "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
-        "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
-        "frontend/src/components/ui/dropdown-menu.tsx",
-        "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
-        "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
+        "frontend/src/App.tsx",
+        "frontend/src/components/persona/layout/AppShell.tsx",
         "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+        "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
+        "frontend/src/features/workspace/WorkspaceViewer.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
         "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts",
-        "frontend/src/features/workspace/state/useWorkspaceScratchpadState.ts",
-        "frontend/src/features/workspace/state/useWorkspaceUiState.ts"
+        "frontend/src/features/workspace/__tests__/WorkspacePane.preview.test.tsx",
+        "frontend/src/features/workspace/WorkspacePane.tsx",
+        "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+        "frontend/src/main.tsx",
+        "frontend/src/features/workspace/workspace.css"
       ]
     },
     "infra": {
@@ -597,29 +553,29 @@
     "ingestion": {
       "count": 2,
       "files": [
-        "guardian/workers/document_embed_worker.py",
-        "tests/workers/test_document_embed_worker.py"
+        "guardian/tests/migration/test_chatgpt_ingest.py",
+        "guardian/tests/migration/test_chatgpt_personal_fact_ingest.py"
       ]
     },
     "tests": {
-      "count": 6,
+      "count": 5,
       "files": [
-        "tests/backend/rag/test_embedder.py",
-        "tests/core/test_chat_completion_service_retrieval_plan.py",
-        "tests/routes/test_chat_profile_trace.py",
+        "tests/routes/test_account_export.py",
+        "guardian/tests/core/test_pgdb_account_export.py",
+        "guardian/tests/migration/test_chatgpt_import_flat_structure.py",
         "tests/core/test_context_broker_source_mode.py",
-        "tests/core/test_chat_completion_service_source_mode_fallback.py",
-        "tests/routes/test_chat_source_mode.py"
+        "tests/routes/test_chat_profile_trace.py"
       ]
     },
     "unknown": {
-      "count": 5,
+      "count": 6,
       "files": [
-        "backend/rag/embedder.py",
-        "guardian/cognition/prompts.py",
-        "guardian/core/chat_completion_service.py",
+        "guardian/core/pgdb.py",
+        "guardian/services/account_export.py",
+        "guardian/routes/api_exports.py",
+        "backend/rag/chatgpt_migration.py",
         "guardian/context/broker.py",
-        "prompts.py"
+        "backend/rag/personal_fact_extraction.py"
       ]
     }
   }
