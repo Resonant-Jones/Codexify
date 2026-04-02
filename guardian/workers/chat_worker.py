@@ -1400,6 +1400,7 @@ def _run_chat_completion_task_compat(
     task: ChatCompletionTask,
     *,
     token_callback: Any = None,
+    chunk_callback: Any = None,
     cancel_check: Any = None,
     persist_assistant_message: bool = True,
     state_callback: Any = None,
@@ -1500,6 +1501,8 @@ def _run_chat_completion_task_compat(
                         assistant_output += visible_token
                         if token_callback:
                             token_callback(visible_token)
+                        if callable(chunk_callback):
+                            chunk_callback(visible_token)
             finally:
                 token_stream.close()
 
@@ -2007,6 +2010,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                         token[:4096] if isinstance(token, str) else token
                     ),
                     "thread_id": task.thread_id,
+                },
+            ),
+            chunk_callback=lambda delta: _safe_publish(
+                task.task_id,
+                "task.chunk",
+                {
+                    "run_id": run_id,
+                    "task_id": task.task_id,
+                    "delta": delta[:4096] if isinstance(delta, str) else delta,
+                    "thread_id": task.thread_id,
+                    "turn_id": turn_id,
                 },
             ),
             cancel_check=lambda: is_cancelled(task.task_id),

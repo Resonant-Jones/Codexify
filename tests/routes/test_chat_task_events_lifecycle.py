@@ -79,6 +79,18 @@ def test_task_event_stream_surfaces_lifecycle_states(test_client, monkeypatch):
         (
             "1-4",
             {
+                "type": "task.chunk",
+                "task_id": task_id,
+                "data": {
+                    "delta": "Hel",
+                    "thread_id": 7,
+                },
+                "created_at": "2026-04-02T00:00:00+00:00",
+            },
+        ),
+        (
+            "1-5",
+            {
                 "type": "task.state",
                 "task_id": task_id,
                 "data": {
@@ -89,7 +101,7 @@ def test_task_event_stream_surfaces_lifecycle_states(test_client, monkeypatch):
             },
         ),
         (
-            "1-5",
+            "1-6",
             {
                 "type": "task.completed",
                 "task_id": task_id,
@@ -123,6 +135,10 @@ def test_task_event_stream_surfaces_lifecycle_states(test_client, monkeypatch):
         TaskLifecycleState.STREAMING.value,
         TaskLifecycleState.COMPLETED.value,
     ]
+    assert any(
+        event_type == "task.chunk" and payload["delta"] == "Hel"
+        for event_type, payload in parsed_events
+    )
     assert parsed_events[-1][0] == "task.completed"
     assert parsed_events[-1][1]["message_id"] == 42
     read_events_spy.assert_called_once()
