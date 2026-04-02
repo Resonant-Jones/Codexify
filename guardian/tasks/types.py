@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Dict, List, Optional, Type
 
 
@@ -30,6 +31,21 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+class TaskLifecycleState(str, Enum):
+    QUEUED = "QUEUED"
+    DISPATCHING = "DISPATCHING"
+    AWAITING_ACK = "AWAITING_ACK"
+    AWAITING_MODEL = "AWAITING_MODEL"
+    AWAITING_FIRST_TOKEN = "AWAITING_FIRST_TOKEN"
+    STREAMING = "STREAMING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+TASK_LIFECYCLE_STATES = frozenset(state.value for state in TaskLifecycleState)
 
 
 @dataclass

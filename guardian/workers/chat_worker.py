@@ -59,7 +59,11 @@ from guardian.queue.redis_queue import (
     is_cancelled,
 )
 from guardian.queue.turn_lock import release_turn_lock
-from guardian.tasks.types import ChatCompletionTask, task_from_dict
+from guardian.tasks.types import (
+    ChatCompletionTask,
+    TaskLifecycleState,
+    task_from_dict,
+)
 from guardian.voice.audio_assets import (
     compute_text_hash,
     find_cached_asset,
@@ -146,6 +150,7 @@ _MIRRORED_LIVE_EVENT_TYPES = {
     "task.failed",
     "task.cancelled",
 }
+_TASK_STATE_EVENT_TYPE = "task.state"
 _ASSISTANT_AUDIO_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(
         1,
@@ -460,6 +465,68 @@ def _safe_publish(task_id: str, event_type: str, data: dict) -> dict[str, Any]:
         _safe_emit_live_event(event_type, mirror_payload)
 
     return publish_result
+
+
+def _task_state_payload(
+    task: ChatCompletionTask,
+    state: TaskLifecycleState,
+    *,
+    run_id: str | None = None,
+    message_id: int | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "state": state.value,
+        "task_type": task.type,
+        "thread_id": task.thread_id,
+        "origin": task.origin,
+    }
+    turn_id = _extract_turn_id(task)
+    if turn_id:
+        payload["turn_id"] = turn_id
+    latest_turn_message_id = _extract_latest_turn_message_id(task)
+    if latest_turn_message_id is not None:
+        payload["latest_turn_message_id"] = latest_turn_message_id
+    if run_id:
+        payload["run_id"] = run_id
+    if message_id is not None:
+        payload["message_id"] = message_id
+    if provider:
+        payload["provider"] = provider
+    if model:
+        payload["model"] = model
+    if extra:
+        for key, value in extra.items():
+            if value is not None:
+                payload[key] = value
+    return payload
+
+
+def _publish_task_state(
+    task: ChatCompletionTask,
+    state: TaskLifecycleState,
+    *,
+    run_id: str | None = None,
+    message_id: int | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _safe_publish(
+        task.task_id,
+        _TASK_STATE_EVENT_TYPE,
+        _task_state_payload(
+            task,
+            state,
+            run_id=run_id,
+            message_id=message_id,
+            provider=provider,
+            model=model,
+            extra=extra,
+        ),
+    )
 
 
 def _describe_task_error(exc: Exception) -> str:
@@ -1296,6 +1363,7 @@ def _run_chat_completion_task_compat(
     token_callback: Any = None,
     cancel_check: Any = None,
     persist_assistant_message: bool = True,
+    state_callback: Any = None,
 ) -> dict[str, Any]:
     build_result = asyncio.run(_build_messages_for_llm(task))
     (
@@ -1311,6 +1379,14 @@ def _run_chat_completion_task_compat(
         provider=provider,
         model=model,
     )
+    if callable(state_callback):
+        state_callback(
+            TaskLifecycleState.AWAITING_MODEL,
+            {
+                "provider": provider,
+                "model": model,
+            },
+        )
     settings = get_settings()
     attempted_provider = provider
     attempted_model = model
@@ -1342,6 +1418,30 @@ def _run_chat_completion_task_compat(
         execution_model: str,
     ) -> str:
         assistant_output = ""
+        streaming_emitted = False
+
+        def _publish_streaming() -> None:
+            nonlocal streaming_emitted
+            if streaming_emitted:
+                return
+            streaming_emitted = True
+            if callable(state_callback):
+                state_callback(
+                    TaskLifecycleState.STREAMING,
+                    {
+                        "provider": execution_provider,
+                        "model": execution_model,
+                    },
+                )
+
+        if callable(state_callback):
+            state_callback(
+                TaskLifecycleState.AWAITING_FIRST_TOKEN,
+                {
+                    "provider": execution_provider,
+                    "model": execution_model,
+                },
+            )
         if execution_provider == "local":
             streamed_any = False
             token_stream = stream_local(
@@ -1355,6 +1455,7 @@ def _run_chat_completion_task_compat(
                         raise ChatTaskCancelled("task_cancelled")
                     visible_token = _extract_visible_stream_text(token)
                     if visible_token:
+                        _publish_streaming()
                         streamed_any = True
                         assistant_output += visible_token
                         if token_callback:
@@ -1376,6 +1477,7 @@ def _run_chat_completion_task_compat(
                         ),
                     )
                 )
+                _publish_streaming()
                 if token_callback and (not streamed_any) and assistant_output:
                     token_callback(extract_assistant_response(assistant_output))
             return assistant_output
@@ -1395,6 +1497,7 @@ def _run_chat_completion_task_compat(
                 ),
             )
         )
+        _publish_streaming()
         if token_callback:
             token_callback(extract_assistant_response(assistant_output))
         return assistant_output
@@ -1606,6 +1709,15 @@ def _run_chat_completion_task_compat(
     result["persistence_outcome"] = "persisted"
     completion_truth["completed"] = True
     final_provider_truth["completed"] = True
+    if callable(state_callback):
+        state_callback(
+            TaskLifecycleState.COMPLETED,
+            {
+                "message_id": message_id,
+                "provider": final_provider,
+                "model": final_model,
+            },
+        )
 
     with suppress(Exception):
         _persist_message_extra_meta(
@@ -1660,6 +1772,11 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     started = time.monotonic()
     turn_id = _extract_turn_id(task)
     latest_turn_message_id = _extract_latest_turn_message_id(task)
+    _publish_task_state(
+        task,
+        TaskLifecycleState.QUEUED,
+        run_id=run_id,
+    )
     _safe_publish(
         task.task_id,
         "task.running",
@@ -1672,6 +1789,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "latest_turn_message_id": latest_turn_message_id,
         },
     )
+
+    def _state_callback(
+        state: TaskLifecycleState, details: dict[str, Any] | None = None
+    ) -> None:
+        _publish_task_state(
+            task,
+            state,
+            run_id=run_id,
+            extra=dict(details or {}),
+        )
+
     logger.info(
         "[task] running type=%s id=%s run_id=%s origin=%s thread=%s turn_id=%s",
         task.type,
@@ -1792,6 +1920,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             ),
             cancel_check=lambda: is_cancelled(task.task_id),
             persist_assistant_message=True,
+            state_callback=_state_callback,
         )
         result_trace = (
             result.get("trace") if isinstance(result.get("trace"), dict) else {}
