@@ -19,6 +19,7 @@ function buildState(
     statusText: null,
     detailText: null,
     errorText: null,
+    latencyMetrics: [],
     canCancel: false,
     canSwitchToFast: false,
     isPendingCancel: false,
@@ -61,5 +62,28 @@ describe("InferenceStatusBanner", () => {
 
     rerender(<InferenceStatusBanner state={buildState({ phase: "completed" })} />);
     expect(screen.queryByText("Replying…")).not.toBeInTheDocument();
+  });
+
+  it("renders a compact latency readout beneath the lifecycle label", () => {
+    render(
+      <InferenceStatusBanner
+        state={buildState({
+          phase: "thinking",
+          latencyMetrics: [
+            { label: "Queued", value: "1.0s" },
+            { label: "Warmup", value: "2.0s" },
+            { label: "First token", value: "1.5s" },
+            { label: "Total", value: "6.0s" },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText("Thinking…")).toBeInTheDocument();
+    expect(screen.getByTestId("inference-latency-readout")).toBeInTheDocument();
+    expect(screen.getByText("Queued: 1.0s")).toBeInTheDocument();
+    expect(screen.getByText("Warmup: 2.0s")).toBeInTheDocument();
+    expect(screen.getByText("First token: 1.5s")).toBeInTheDocument();
+    expect(screen.getByText("Total: 6.0s")).toBeInTheDocument();
   });
 });

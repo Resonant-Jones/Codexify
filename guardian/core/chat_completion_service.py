@@ -1250,6 +1250,7 @@ def run_chat_completion_task(
     task: ChatCompletionTask,
     *,
     token_callback: Callable[[str], None] | None = None,
+    chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     persist_assistant_message: bool = True,
 ) -> dict[str, Any]:
@@ -1312,6 +1313,8 @@ def run_chat_completion_task(
                     assistant_text += token
                     if token_callback:
                         token_callback(token)
+                    if chunk_callback:
+                        chunk_callback(token)
         finally:
             token_stream.close()
 
