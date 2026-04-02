@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from guardian.cognition.identity_policy import (
@@ -23,7 +23,13 @@ from guardian.cognition.system_docs import store as system_doc_store
 from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt,
 )
-from guardian.cognition.user_settings import store as user_settings_store
+from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.services import (
+    iddb_settings_service,
+    imprint_proposal_service,
+    imprint_scope_service,
+    imprint_signal_snapshot_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +38,21 @@ try:
 except Exception:
     chatlog_db = None
 
-router = APIRouter(prefix="/api/imprint", tags=["Imprint"])
-system_prompt_router = APIRouter(
-    prefix="/api/system_prompt", tags=["SystemPrompt"]
+router = APIRouter(
+    prefix="/api/imprint",
+    tags=["Imprint"],
+    dependencies=[Depends(require_api_key)],
 )
-system_docs_router = APIRouter(prefix="/api/system_docs", tags=["SystemDocs"])
+system_prompt_router = APIRouter(
+    prefix="/api/system_prompt",
+    tags=["SystemPrompt"],
+    dependencies=[Depends(require_api_key)],
+)
+system_docs_router = APIRouter(
+    prefix="/api/system_docs",
+    tags=["SystemDocs"],
+    dependencies=[Depends(require_api_key)],
+)
 
 DEFAULT_WARN_TOKENS = 6000
 DEFAULT_HARD_TOKENS = 8000
@@ -124,24 +140,19 @@ def _threshold_status(
 
 
 def _resolve_user_project(
-    thread_id: int | None, project_id: int | None
+    current_user: str,
+    thread_id: int | None,
+    project_id: int | None,
+    *,
+    mutation: bool = False,
 ) -> tuple[str, int | None, dict[str, Any] | None]:
-    user_id = "default"
-    resolved_project = project_id
-    thread: dict[str, Any] | None = None
-    if thread_id and chatlog_db:
-        try:
-            th = chatlog_db.get_chat_thread(thread_id)
-            if th:
-                user_id = th.get("user_id") or user_id
-                if resolved_project is None:
-                    resolved_project = th.get("project_id")
-                thread = th
-        except Exception as e:
-            logger.warning(
-                "[imprint] failed to resolve thread %s: %s", thread_id, e
-            )
-    return user_id, resolved_project, thread
+    return imprint_scope_service.resolve_user_project_scope(
+        current_user,
+        thread_id,
+        project_id,
+        chatlog_backend=chatlog_db,
+        mutation=mutation,
+    )
 
 
 def _resolve_project_identity_depth(project_id: int | None) -> str:
@@ -168,7 +179,7 @@ def _identity_updates_allowed(
     project_identity_depth: str = "light",
     requested_depth: str = "light",
 ) -> bool:
-    settings = user_settings_store.get_user_settings(user_id)
+    settings = iddb_settings_service.get_user_settings(user_id)
     memory_mode = settings.get("memory_mode", "deep")
     if thread_blocks_identity_modeling(thread):
         return False
@@ -200,12 +211,15 @@ def _safe_snippet(text: str | None, length: int = 200) -> str | None:
 def get_imprint_status(
     thread_id: int | None = Query(None),
     project_id: int | None = Query(None),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Return active imprint/persona and system prompt meta for current user/project.
     """
     user_id, resolved_project, _thread = _resolve_user_project(
-        thread_id, project_id
+        current_user,
+        thread_id,
+        project_id,
     )
 
     imprint = imprint_store.get_active_imprint(user_id, resolved_project)
@@ -264,40 +278,21 @@ def get_imprint_status(
     }
 
 
-def _generate_name(user_id: str, project_id: int | None) -> str:
-    """
-    Lightweight, deterministic-ish fallback name generator inspired by ImprintName.ts vibe categories.
-    For v1 we use a simple hash-based name to avoid porting the TS generator fully.
-    """
-    seed = f"{user_id}:{project_id}".encode()
-    val = sum(seed) % 10000
-    syllables = [
-        "Ari",
-        "Len",
-        "Vor",
-        "Ny",
-        "Sol",
-        "Kai",
-        "Ren",
-        "Lio",
-        "Mira",
-        "Cen",
-    ]
-    return (
-        syllables[val % len(syllables)]
-        + syllables[(val // len(syllables)) % len(syllables)]
-    )
-
-
 @router.post("/proposal")
-def create_imprint_proposal(body: dict[str, Any] = Body(default_factory=dict)):
+def create_imprint_proposal(
+    body: dict[str, Any] = Body(default_factory=dict),
+    current_user: str = Depends(get_current_user),
+):
     """
     Create a draft Imprint_Zero proposal (imprint + persona text). Does not activate.
     """
     project_id = body.get("project_id")
     thread_id = body.get("thread_id")
     user_id, resolved_project, thread = _resolve_user_project(
-        thread_id, project_id
+        current_user,
+        thread_id,
+        project_id,
+        mutation=True,
     )
     requested_depth = str(
         body.get("requested_depth")
@@ -316,30 +311,36 @@ def create_imprint_proposal(body: dict[str, Any] = Body(default_factory=dict)):
             status_code=403, detail="identity updates disabled for this context"
         )
 
-    # In a fuller implementation, we would compute marker signals and call the TS name generator.
-    name = _generate_name(user_id, resolved_project)
-    preferred_name = "friend"
-
-    persona_text = (
-        f"You are {name}, the Guardian assistant for this user inside Codexify. "
-        f'When the user asks for your name, always reply first with exactly "{name}". '
-        "You may optionally add that you are their Guardian inside Codexify.\n\n"
-        f'Address the user as "{preferred_name}" when it feels natural. '
-        "Respond concisely, with clarity and kindness. Keep answers grounded; when unsure, ask a clarifying question."
+    snapshot = imprint_signal_snapshot_service.build_imprint_signal_snapshot(
+        user_id=user_id,
+        project_id=resolved_project,
+        requested_depth=requested_depth,
+        project_identity_depth=project_identity_depth,
     )
+    proposal = imprint_proposal_service.build_imprint_proposal(snapshot)
 
     imprint = imprint_store.save_imprint(
         user_id=user_id,
         project_id=resolved_project,
         status="draft",
-        guardian_name=name,
-        preferred_name=preferred_name,
-        style="playful-dry",
-        heat_score=0.7,
-        metrics={"persona_draft": persona_text, "proposed_name": name},
+        guardian_name=proposal.proposal_name,
+        preferred_name=proposal.preferred_name,
+        style=proposal.prompt_metadata.get("style"),
+        grammar_prefs=proposal.prompt_metadata.get("grammar_prefs") or {},
+        heat_score=proposal.prompt_metadata.get("heat_score"),
+        metrics={
+            "proposal_name": proposal.proposal_name,
+            "persona_draft": proposal.persona_draft,
+            "prompt_metadata": proposal.prompt_metadata,
+            "snapshot_version": snapshot.snapshot_version,
+            "snapshot_hash": snapshot.snapshot_hash,
+            "proposal_version": proposal.proposal_version,
+            "generator_version": proposal.generator_version,
+        },
     )
 
     return {
+        "proposal": proposal.to_dict(),
         "imprint_draft": {
             "id": imprint.id,
             "user_id": imprint.user_id,
@@ -349,13 +350,17 @@ def create_imprint_proposal(body: dict[str, Any] = Body(default_factory=dict)):
             "status": imprint.status,
             "heat_score": imprint.heat_score,
         },
-        "persona_draft": persona_text,
-        "name": name,
+        "persona_draft": proposal.persona_draft,
+        "name": proposal.proposal_name,
+        "prompt_metadata": proposal.prompt_metadata,
     }
 
 
 @router.post("/accept")
-def accept_imprint(body: dict[str, Any] = Body(...)):
+def accept_imprint(
+    body: dict[str, Any] = Body(...),
+    current_user: str = Depends(get_current_user),
+):
     """
     Activate a draft imprint and upsert persona.
     """
@@ -368,9 +373,17 @@ def accept_imprint(body: dict[str, Any] = Body(...)):
     if not imprint:
         raise HTTPException(status_code=404, detail="imprint not found")
 
-    user_id, resolved_project = imprint.user_id, imprint.project_id
-    _, _, thread = _resolve_user_project(
-        body.get("thread_id"), resolved_project
+    if str(imprint.user_id).strip() != current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="imprint does not belong to the current user",
+        )
+
+    user_id, resolved_project, thread = _resolve_user_project(
+        current_user,
+        body.get("thread_id"),
+        imprint.project_id,
+        mutation=True,
     )
     project_identity_depth = _resolve_project_identity_depth(resolved_project)
     if not _identity_updates_allowed(
@@ -399,19 +412,6 @@ def accept_imprint(body: dict[str, Any] = Body(...)):
         source="user" if persona_override else "imprint_zero_seed",
     )
 
-    # Best-effort: sync persona text into user settings system prompt, if supported.
-    try:
-        if hasattr(user_settings_store, "set_system_prompt"):
-            user_settings_store.set_system_prompt(
-                user_id=user_id,
-                project_id=resolved_project,
-                system_prompt=persona.body,
-            )
-    except Exception as e:
-        logger.warning(
-            "[imprint] failed to sync persona to user settings: %s", e
-        )
-
     return {
         "imprint": {
             "id": activated.id,
@@ -430,14 +430,19 @@ def accept_imprint(body: dict[str, Any] = Body(...)):
 
 
 @router.post("/reject")
-def reject_imprint(body: dict[str, Any] = Body(...)):
+def reject_imprint(
+    body: dict[str, Any] = Body(...),
+    current_user: str = Depends(get_current_user),
+):
     """Reject a draft imprint; mark as superseded."""
     imprint_id = body.get("imprint_id")
     if imprint_id is None:
         raise HTTPException(status_code=400, detail="imprint_id is required")
-    imprint = imprint_store.supersede_imprint(imprint_id)
-    if not imprint:
-        raise HTTPException(status_code=404, detail="imprint not found")
+    imprint = imprint_scope_service.resolve_owned_imprint_for_mutation(
+        current_user,
+        imprint_id,
+    )
+    imprint = imprint_store.supersede_imprint(imprint.id)
     return {"status": "rejected", "imprint_id": imprint_id}
 
 
@@ -445,9 +450,14 @@ def reject_imprint(body: dict[str, Any] = Body(...)):
 def system_prompt_summary(
     thread_id: int | None = Query(None),
     project_id: int | None = Query(None),
+    current_user: str = Depends(get_current_user),
 ):
     """Return system prompt meta for the current user/project."""
-    user_id, resolved_project, _ = _resolve_user_project(thread_id, project_id)
+    user_id, resolved_project, _ = _resolve_user_project(
+        current_user,
+        thread_id,
+        project_id,
+    )
     warn_tokens, hard_tokens = _resolve_prompt_thresholds()
     generated_at = datetime.now(timezone.utc).isoformat()
     try:
@@ -519,7 +529,10 @@ def system_prompt_summary(
 
 
 @router.post("/persona")
-def update_persona(body: dict[str, Any] = Body(...)):
+def update_persona(
+    body: dict[str, Any] = Body(...),
+    current_user: str = Depends(get_current_user),
+):
     """Explicitly set persona text (source=user) for the current user/project."""
     logger.info("[api/system-prompt/save] incoming body %s", body)
     text = (
@@ -532,7 +545,10 @@ def update_persona(body: dict[str, Any] = Body(...)):
     if not text or not str(text).strip():
         raise HTTPException(status_code=400, detail="body is required")
     user_id, resolved_project, thread = _resolve_user_project(
-        thread_id, project_id
+        current_user,
+        thread_id,
+        project_id,
+        mutation=True,
     )
     project_identity_depth = _resolve_project_identity_depth(resolved_project)
     if not _identity_updates_allowed(
@@ -555,18 +571,6 @@ def update_persona(body: dict[str, Any] = Body(...)):
             "[persona_prompt_versions] inserting version row %s",
             {"userId": user_id, "personaId": persona.id},
         )
-        # Best-effort: sync explicit persona changes into user settings system prompt, if supported.
-        try:
-            if hasattr(user_settings_store, "set_system_prompt"):
-                user_settings_store.set_system_prompt(
-                    user_id=user_id,
-                    project_id=resolved_project,
-                    system_prompt=persona.body,
-                )
-        except Exception as e:
-            logger.warning(
-                "[imprint] failed to sync persona to user settings: %s", e
-            )
         return {
             "id": persona.id,
             "body": persona.body,
@@ -585,9 +589,14 @@ def update_persona(body: dict[str, Any] = Body(...)):
 def list_system_docs(
     thread_id: int | None = Query(None),
     project_id: int | None = Query(None),
+    current_user: str = Depends(get_current_user),
 ):
     """List system docs for current user/project with enable state."""
-    user_id, resolved_project, _ = _resolve_user_project(thread_id, project_id)
+    user_id, resolved_project, _ = _resolve_user_project(
+        current_user,
+        thread_id,
+        project_id,
+    )
     docs = system_doc_store.list_docs_with_links(user_id, resolved_project)
     out = []
     for doc, enabled in docs:
@@ -606,7 +615,10 @@ def list_system_docs(
 
 
 @system_docs_router.post("/toggle")
-def toggle_system_doc(body: dict[str, Any] = Body(...)):
+def toggle_system_doc(
+    body: dict[str, Any] = Body(...),
+    current_user: str = Depends(get_current_user),
+):
     """Enable/disable a system doc link for current user/project."""
     doc_id = body.get("doc_id")
     enabled = body.get("enabled")
@@ -616,7 +628,12 @@ def toggle_system_doc(body: dict[str, Any] = Body(...)):
         raise HTTPException(
             status_code=400, detail="doc_id and enabled are required"
         )
-    user_id, resolved_project, _ = _resolve_user_project(thread_id, project_id)
+    user_id, resolved_project, _ = _resolve_user_project(
+        current_user,
+        thread_id,
+        project_id,
+        mutation=True,
+    )
     try:
         system_doc_store.set_doc_link(
             user_id, resolved_project, int(doc_id), bool(enabled)
