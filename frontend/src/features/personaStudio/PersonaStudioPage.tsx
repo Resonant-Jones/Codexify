@@ -723,6 +723,7 @@ export default function PersonaStudioPage() {
     selectedProfileId,
     activeTab,
     selectedProfile,
+    selectedSavedProfile,
     isDirty,
     hasSavedVersion,
     setSelectedProfileId,
@@ -863,6 +864,8 @@ export default function PersonaStudioPage() {
             role="region"
             aria-label="Persona Studio editor"
             data-testid="persona-studio-editor"
+            data-saved-profile-id={selectedSavedProfile?.id ?? ""}
+            data-draft-state={isDirty ? "dirty" : "clean"}
             style={{
               background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
               borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
