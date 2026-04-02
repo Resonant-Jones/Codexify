@@ -346,6 +346,16 @@ class PgDB(ChatDB):
             row["active_profile_id"] = None
         elif not isinstance(active_profile_id, str):
             row["active_profile_id"] = str(active_profile_id)
+        thread_config = row.get("thread_config")
+        if isinstance(thread_config, str):
+            try:
+                parsed = json.loads(thread_config)
+            except Exception:
+                parsed = None
+            thread_config = parsed if isinstance(parsed, dict) else None
+        elif thread_config is not None and not isinstance(thread_config, dict):
+            thread_config = None
+        row["thread_config"] = thread_config
         metadata = row.get("metadata")
         if isinstance(metadata, str):
             try:
@@ -405,7 +415,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (
                             user_id,
@@ -491,7 +501,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (
                             thread_id,
@@ -551,7 +561,7 @@ class PgDB(ChatDB):
                         SELECT
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         FROM chat_threads
                         WHERE user_id = %s
                         ORDER BY created_at DESC
@@ -600,7 +610,7 @@ class PgDB(ChatDB):
                         SELECT
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         FROM chat_threads
                         WHERE id = %s
                         """,
@@ -643,7 +653,7 @@ class PgDB(ChatDB):
             "SELECT "
             "id, user_id, title, summary, project_id, parent_id, archived_at, "
             "is_diary, diary_mode, exclude_from_identity, modeling_excluded, "
-            "metadata, active_profile_id, created_at, updated_at "
+            "metadata, active_profile_id, thread_config, created_at, updated_at "
             "FROM chat_threads"
         )
         if clauses:
@@ -793,7 +803,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (now, now, thread_id),
                     )
@@ -832,7 +842,7 @@ class PgDB(ChatDB):
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
                         (now, thread_id),
                     )
@@ -1056,7 +1066,7 @@ class PgDB(ChatDB):
                         SELECT
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, created_at, updated_at
+                            metadata, active_profile_id, thread_config, created_at, updated_at
                         FROM chat_threads
                         WHERE parent_id = %s
                         """,

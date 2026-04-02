@@ -245,14 +245,21 @@ type ThreadRow = {
   title: string;
   last_message?: string;
   project_id?: number | null;
+  thread_config?: Record<string, unknown> | null;
 };
 
-function t(id: number, title?: string, projectId: number | null = null): ThreadRow {
+function t(
+  id: number,
+  title?: string,
+  projectId: number | null = null,
+  threadConfig: Record<string, unknown> | null = null
+): ThreadRow {
   return {
     id,
     title: title ?? `Thread ${id}`,
     last_message: "",
     project_id: projectId,
+    thread_config: threadConfig,
   };
 }
 
@@ -350,6 +357,37 @@ describe("GuardianChatWithSidebar stability contract", () => {
     await screen.findByTestId("thread-3");
 
     expect(screen.getByTestId("active-thread-id").textContent).toBe("2");
+  });
+
+  it("preserves thread_config from backend rows when restoring the active thread", async () => {
+    const persistedConfig = {
+      providerId: "local",
+      modelId: "qwen3.5:14b",
+      inferenceMode: "fast",
+      retrievalSource: "project",
+      personaId: null,
+    };
+
+    setupThreadApi({
+      all: {
+        0: {
+          threads: [t(1, "Thread 1"), t(2, "Thread 2", null, persistedConfig)],
+          has_more: false,
+        },
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("thread-2");
+    await user.click(screen.getByTestId("thread-2"));
+
+    await waitFor(() => {
+      const activeThread = guardianPropsSpy.mock.calls.at(-1)?.[0]?.activeThread;
+      expect(activeThread?.id).toBe("2");
+      expect(activeThread?.threadConfig).toEqual(persistedConfig);
+    });
   });
 
   it("keeps click selection consistent after loading more and dedupes by id", async () => {
