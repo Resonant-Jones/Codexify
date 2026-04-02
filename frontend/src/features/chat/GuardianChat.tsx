@@ -26,7 +26,7 @@ import {
   Zap,
   Volume2,
 } from "lucide-react";
-import { Thread } from "@/types/ui";
+import { Thread, type ThreadConfig } from "@/types/ui";
 import { Composer } from "./components";
 import type { ComposerSendOptions } from "./components/Composer";
 import ChatView from "@/features/chat/ChatView";
@@ -35,6 +35,7 @@ import api, {
   buildChatCompletePath,
   clearInFlightCompletionTurnId,
   getInFlightCompletionTurnId,
+  updateThreadConfig,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
@@ -237,6 +238,93 @@ function promoteStoredSourceMode(
     }
     window.localStorage.setItem(threadKey, normalizeSourceMode(tabValue));
   } catch {}
+}
+
+function normalizeThreadConfigInferenceMode(
+  value: unknown
+): ComposerInferenceMode {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "think") return "think";
+  if (normalized === "fast" || normalized === "no_think") return "no_think";
+  return DEFAULT_COMPOSER_INFERENCE_MODE;
+}
+
+function threadConfigInferenceModeFromComposer(
+  mode: ComposerInferenceMode
+): string {
+  if (mode === "think") return "think";
+  if (mode === "no_think") return "fast";
+  return "auto";
+}
+
+function normalizeThreadConfig(raw: unknown): ThreadConfig | null {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return normalizeThreadConfig(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+
+  const payload = raw as Record<string, unknown>;
+  const providerId = String(
+    payload.providerId ?? payload.provider_id ?? payload.provider ?? ""
+  ).trim();
+  const modelId = String(
+    payload.modelId ?? payload.model_id ?? payload.model ?? ""
+  ).trim();
+  const inferenceMode = String(
+    payload.inferenceMode ??
+      payload.inference_mode ??
+      payload.reasoningMode ??
+      payload.reasoning_mode ??
+      ""
+  )
+    .trim()
+    .toLowerCase();
+  if (!providerId || !modelId || !inferenceMode) {
+    return null;
+  }
+
+  const retrievalSource = String(
+    payload.retrievalSource ??
+      payload.retrieval_source ??
+      payload.sourceMode ??
+      payload.source_mode ??
+      "project"
+  )
+    .trim()
+    .toLowerCase();
+  const personaRaw = payload.personaId ?? payload.persona_id ?? null;
+  const personaId =
+    personaRaw == null ? null : String(personaRaw).trim() || null;
+
+  return {
+    providerId,
+    modelId,
+    inferenceMode,
+    retrievalSource:
+      retrievalSource === "personal_knowledge"
+        ? "personal_knowledge"
+        : "project",
+    personaId,
+  };
+}
+
+function normalizeThreadConfigResponse(
+  response: unknown
+): ThreadConfig | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+  const payload = response as Record<string, unknown>;
+  return normalizeThreadConfig(
+    payload.thread_config ?? payload.threadConfig ?? payload
+  );
 }
 
 type VoiceCapabilitiesStatus = "loading" | "ready" | "error";
@@ -594,6 +682,27 @@ export function GuardianChat({
   const effectiveThreadIdRef = useRef<number | null>(null);
   const activeSessionTabIdRef = useRef<TabId | null>(activeSessionTabId);
   const sourceScopeKeyRef = useRef<string | null>(null);
+  const persistedThreadConfig = useMemo(
+    () =>
+      normalizeThreadConfig(
+        activeThread.threadConfig ??
+          (activeThread as any)?.thread_config ??
+          null
+      ),
+    [activeThread.id, activeThread.threadConfig, (activeThread as any)?.thread_config]
+  );
+  const persistedThreadConfigKey = useMemo(() => {
+    if (!persistedThreadConfig) return null;
+    return [
+      activeThread.id,
+      persistedThreadConfig.providerId,
+      persistedThreadConfig.modelId,
+      persistedThreadConfig.inferenceMode,
+      persistedThreadConfig.retrievalSource,
+      persistedThreadConfig.personaId ?? "",
+    ].join("|");
+  }, [activeThread.id, persistedThreadConfig]);
+  const hydratedThreadConfigKeyRef = useRef<string | null>(null);
   const pendingFastRetryRef = useRef<{
     threadId: number;
     providerId: string | null;
@@ -868,19 +977,6 @@ export function GuardianChat({
       onSessionModelChange?.(selectedModel.id);
     }
   }, [activeModelId, onSessionModelChange, selectedModel]);
-
-  useEffect(() => {
-    if (
-      !supportsManualInferenceMode &&
-      activeInferenceMode !== DEFAULT_COMPOSER_INFERENCE_MODE
-    ) {
-      onSessionInferenceModeChange?.(DEFAULT_COMPOSER_INFERENCE_MODE);
-    }
-  }, [
-    activeInferenceMode,
-    onSessionInferenceModeChange,
-    supportsManualInferenceMode,
-  ]);
 
   useEffect(() => {
     if (!selectedProvider && !selectedModel) return;
@@ -1407,13 +1503,24 @@ export function GuardianChat({
 
   useLayoutEffect(() => {
     sourceScopeKeyRef.current = sourceScopeKey;
+    if (persistedThreadConfig) {
+      setSourceMode(
+        normalizeSourceMode(persistedThreadConfig.retrievalSource)
+      );
+      return;
+    }
     setSourceMode(
       readStoredSourceMode({
         threadId: effectiveThreadId,
         tabId: activeSessionTabId,
       })
     );
-  }, [activeSessionTabId, effectiveThreadId, sourceScopeKey]);
+  }, [
+    activeSessionTabId,
+    effectiveThreadId,
+    persistedThreadConfig,
+    sourceScopeKey,
+  ]);
 
   useEffect(() => {
     if (sourceScopeKeyRef.current !== sourceScopeKey) {
@@ -1427,6 +1534,161 @@ export function GuardianChat({
       sourceMode
     );
   }, [activeSessionTabId, effectiveThreadId, sourceMode, sourceScopeKey]);
+
+  const currentThreadConfigSnapshot = useMemo<ThreadConfig | null>(() => {
+    const providerId = selectedProvider?.id ?? activeProviderId ?? null;
+    const modelId = selectedModel?.id ?? activeModelId ?? null;
+    if (!providerId || !modelId) {
+      return null;
+    }
+    return {
+      providerId,
+      modelId,
+      inferenceMode: threadConfigInferenceModeFromComposer(activeInferenceMode),
+      retrievalSource: normalizeSourceMode(sourceMode),
+      personaId: persistedThreadConfig?.personaId ?? null,
+    };
+  }, [
+    activeInferenceMode,
+    activeModelId,
+    activeProviderId,
+    persistedThreadConfig?.personaId,
+    selectedModel?.id,
+    selectedProvider?.id,
+    sourceMode,
+  ]);
+
+  const applyThreadConfigSnapshot = useCallback(
+    (threadConfig: ThreadConfig | null) => {
+      if (!threadConfig) {
+        return null;
+      }
+
+      if (threadConfig.providerId !== (activeProviderId ?? null)) {
+        onSessionProviderChange?.(threadConfig.providerId);
+      }
+      if (threadConfig.modelId !== activeModelId) {
+        onSessionModelChange?.(threadConfig.modelId);
+      }
+
+      const nextInferenceMode = normalizeThreadConfigInferenceMode(
+        threadConfig.inferenceMode
+      );
+      if (nextInferenceMode !== activeInferenceMode) {
+        onSessionInferenceModeChange?.(nextInferenceMode);
+      }
+
+      const nextSourceMode = normalizeSourceMode(threadConfig.retrievalSource);
+      if (nextSourceMode !== sourceMode) {
+        setSourceMode(nextSourceMode);
+      }
+
+      return threadConfig;
+    },
+    [
+      activeInferenceMode,
+      activeModelId,
+      activeProviderId,
+      onSessionInferenceModeChange,
+      onSessionModelChange,
+      onSessionProviderChange,
+      sourceMode,
+    ]
+  );
+
+  useEffect(() => {
+    if (!persistedThreadConfig) {
+      hydratedThreadConfigKeyRef.current = null;
+      return;
+    }
+    if (hydratedThreadConfigKeyRef.current === persistedThreadConfigKey) {
+      return;
+    }
+    hydratedThreadConfigKeyRef.current = persistedThreadConfigKey;
+    applyThreadConfigSnapshot(persistedThreadConfig);
+  }, [
+    applyThreadConfigSnapshot,
+    persistedThreadConfig,
+    persistedThreadConfigKey,
+  ]);
+
+  const saveThreadConfigSnapshot = useCallback(
+    async (threadConfig: ThreadConfig) => {
+      const threadId = effectiveThreadId;
+      if (threadId == null) {
+        return applyThreadConfigSnapshot(threadConfig);
+      }
+
+      try {
+        const response = await updateThreadConfig(threadId, {
+          providerId: threadConfig.providerId,
+          modelId: threadConfig.modelId,
+          inferenceMode: threadConfig.inferenceMode,
+          retrievalSource: threadConfig.retrievalSource,
+        });
+        const saved =
+          normalizeThreadConfigResponse(response) ?? threadConfig;
+        applyThreadConfigSnapshot(saved);
+        emitThreadsRefresh("refresh", {
+          reason: "thread-config-update",
+          id: String(threadId),
+        });
+        return saved;
+      } catch (error) {
+        console.warn("[guardian] thread config update failed", error);
+        showToast("Failed to save thread settings.");
+        return null;
+      }
+    },
+    [applyThreadConfigSnapshot, effectiveThreadId, showToast]
+  );
+
+  const mergeThreadConfigSnapshot = useCallback(
+    (overrides: Partial<ThreadConfig>): ThreadConfig | null => {
+      const providerId =
+        overrides.providerId ??
+        currentThreadConfigSnapshot?.providerId ??
+        selectedProvider?.id ??
+        activeProviderId ??
+        null;
+      const modelId =
+        overrides.modelId ??
+        currentThreadConfigSnapshot?.modelId ??
+        selectedModel?.id ??
+        activeModelId ??
+        null;
+      if (!providerId || !modelId) {
+        return null;
+      }
+
+      return {
+        providerId,
+        modelId,
+        inferenceMode:
+          overrides.inferenceMode ??
+          currentThreadConfigSnapshot?.inferenceMode ??
+          threadConfigInferenceModeFromComposer(activeInferenceMode),
+        retrievalSource:
+          overrides.retrievalSource ??
+          currentThreadConfigSnapshot?.retrievalSource ??
+          normalizeSourceMode(sourceMode),
+        personaId:
+          currentThreadConfigSnapshot?.personaId ??
+          persistedThreadConfig?.personaId ??
+          null,
+      };
+    },
+    [
+      activeInferenceMode,
+      activeModelId,
+      activeProviderId,
+      currentThreadConfigSnapshot,
+      persistedThreadConfig?.personaId,
+      selectedModel?.id,
+      selectedProvider?.id,
+      sourceMode,
+    ]
+  );
 
   const refreshPromptCostSummary = useCallback(async (threadId: number | null) => {
     if (!systemPromptCapabilityReady) {
@@ -2816,9 +3078,6 @@ export function GuardianChat({
 
                   const nextProvider =
                     catalogProviders.find((p) => p.id === providerId) ?? null;
-
-                  onSessionProviderChange?.(providerId);
-
                   const nextModelId =
                     nextProvider?.models.find(isChatSelectableModel)?.id ?? null;
 
@@ -2829,24 +3088,51 @@ export function GuardianChat({
                         ) ?? null
                       : null;
 
-                  if (
-                    !nextSelectedModel ||
-                    !isChatSelectableModel(nextSelectedModel)
-                  ) {
-                    onSessionModelChange?.(nextModelId);
+                  const nextSnapshot = mergeThreadConfigSnapshot({
+                    providerId,
+                    modelId:
+                      !nextSelectedModel ||
+                      !isChatSelectableModel(nextSelectedModel)
+                        ? nextModelId ?? selectedModel?.id ?? activeModelId ?? "default"
+                        : nextSelectedModel.id,
+                  });
+
+                  if (nextSnapshot) {
+                    void saveThreadConfigSnapshot(nextSnapshot);
                   }
                 }}
                 activeModelId={selectedModel?.id ?? activeModelId}
                 modelOptions={modelOptions}
-                onModelChange={(modelId) => onSessionModelChange?.(modelId)}
+                onModelChange={(modelId) => {
+                  const nextSnapshot = mergeThreadConfigSnapshot({
+                    modelId,
+                  });
+                  if (nextSnapshot) {
+                    void saveThreadConfigSnapshot(nextSnapshot);
+                  }
+                }}
                 activeInferenceMode={effectiveInferenceMode}
                 inferenceModeOptions={inferenceModeOptions}
-                onInferenceModeChange={(mode) =>
-                  onSessionInferenceModeChange?.(mode)
-                }
+                onInferenceModeChange={(mode) => {
+                  const nextSnapshot = mergeThreadConfigSnapshot({
+                    inferenceMode: threadConfigInferenceModeFromComposer(
+                      mode
+                    ),
+                  });
+                  if (nextSnapshot) {
+                    void saveThreadConfigSnapshot(nextSnapshot);
+                  }
+                }}
                 sourceMode={sourceMode}
                 sourceOptions={sourceOptions}
-                onSourceModeChange={setSourceMode}
+                onSourceModeChange={(mode) => {
+                  const nextSnapshot = mergeThreadConfigSnapshot({
+                    retrievalSource: mode,
+                  });
+                  if (nextSnapshot) {
+                    void saveThreadConfigSnapshot(nextSnapshot);
+                  }
+                }}
                 depthMode={depth}
                 depthOptions={depthOptions}
                 onDepthModeChange={setDepth}

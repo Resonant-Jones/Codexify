@@ -8,7 +8,7 @@ import clsx from "clsx";
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
-import { Thread, Message } from "@/types/ui";
+import { Thread, Message, type ThreadConfig } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import api from "@/lib/api";
 import FrameCard from "@/components/surface/FrameCard";
@@ -82,6 +82,17 @@ function PanelShell({ className, surfaceStyle, disabled, children }: PanelShellP
 }
 
 const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
+  const sameThreadConfig = (
+    left: ThreadConfig | null | undefined,
+    right: ThreadConfig | null | undefined
+  ): boolean => {
+    return (left?.providerId ?? null) === (right?.providerId ?? null)
+      && (left?.modelId ?? null) === (right?.modelId ?? null)
+      && (left?.inferenceMode ?? null) === (right?.inferenceMode ?? null)
+      && (left?.retrievalSource ?? null) === (right?.retrievalSource ?? null)
+      && (left?.personaId ?? null) === (right?.personaId ?? null);
+  };
+
   return a.id === b.id
     && a.title === b.title
     && a.lastMessage === b.lastMessage
@@ -91,8 +102,67 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && (a.archivedAt ?? null) === (b.archivedAt ?? null)
     && (a.activeProfileId ?? null) === (b.activeProfileId ?? null)
     && (a.providerOverride ?? null) === (b.providerOverride ?? null)
-    && (a.modelOverride ?? null) === (b.modelOverride ?? null);
+    && (a.modelOverride ?? null) === (b.modelOverride ?? null)
+    && sameThreadConfig(a.threadConfig, b.threadConfig);
 };
+
+function normalizeThreadConfig(raw: unknown): ThreadConfig | null {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return normalizeThreadConfig(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+
+  const payload = raw as Record<string, unknown>;
+  const providerId = String(
+    payload.providerId ?? payload.provider_id ?? payload.provider ?? ""
+  ).trim();
+  const modelId = String(
+    payload.modelId ?? payload.model_id ?? payload.model ?? ""
+  ).trim();
+  const inferenceMode = String(
+    payload.inferenceMode ??
+      payload.inference_mode ??
+      payload.reasoningMode ??
+      payload.reasoning_mode ??
+      ""
+  )
+    .trim()
+    .toLowerCase();
+  if (!providerId || !modelId || !inferenceMode) {
+    return null;
+  }
+
+  const retrievalSource = String(
+    payload.retrievalSource ??
+      payload.retrieval_source ??
+      payload.sourceMode ??
+      payload.source_mode ??
+      "project"
+  )
+    .trim()
+    .toLowerCase();
+  const personaRaw = payload.personaId ?? payload.persona_id ?? null;
+  const personaId =
+    personaRaw == null ? null : String(personaRaw).trim() || null;
+
+  return {
+    providerId,
+    modelId,
+    inferenceMode,
+    retrievalSource:
+      retrievalSource === "personal_knowledge"
+        ? "personal_knowledge"
+        : "project",
+    personaId,
+  };
+}
 
 const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
 const THREAD_PAGE_SIZE = 50;
@@ -519,6 +589,9 @@ export default function GuardianChatWithSidebar({
       const providerOverrideVal =
         raw.provider_override ?? raw.providerOverride ?? null;
       const modelOverrideVal = raw.model_override ?? raw.modelOverride ?? null;
+      const threadConfig = normalizeThreadConfig(
+        raw.thread_config ?? raw.threadConfig ?? null
+      );
       const metadata = raw.metadata ?? raw.meta ?? null;
       return {
         id: String(rawId),
@@ -539,6 +612,7 @@ export default function GuardianChatWithSidebar({
           providerOverrideVal != null ? String(providerOverrideVal) : null,
         modelOverride:
           modelOverrideVal != null ? String(modelOverrideVal) : null,
+        threadConfig,
         metadata: metadata,
       };
     },
@@ -845,7 +919,7 @@ export default function GuardianChatWithSidebar({
         }
         return;
       }
-      if (kind !== "refresh" && kind !== "import") return;
+      if (kind !== "refresh" && kind !== "import" && kind !== "create") return;
       void loadThreads({ reset: true });
     };
     window.addEventListener("cfy:threads:refresh", onThreadsRefresh as EventListener);
@@ -1241,6 +1315,11 @@ export default function GuardianChatWithSidebar({
             title: threadPayload?.title ?? t.title,
             projectId: threadPayload?.project_id ?? threadPayload?.projectId ?? t.projectId,
             archivedAt: threadPayload?.archived_at ?? threadPayload?.archivedAt ?? t.archivedAt,
+            threadConfig: normalizeThreadConfig(
+              threadPayload?.thread_config ??
+                threadPayload?.threadConfig ??
+                t.threadConfig
+            ),
           };
           if (!sameThreadSnapshot(t, updated)) {
             touched = true;
