@@ -970,7 +970,8 @@ async def build_messages_for_llm(
         raise ValueError("thread_has_no_usable_context")
 
     conversation_messages = [*history_messages, latest_turn]
-    latest_message = render_content_for_inference(latest_turn.get("content"))
+    # Retrieval must follow the latest user turn, not earlier history.
+    retrieval_query = render_content_for_inference(latest_turn.get("content"))
 
     context: list[dict[str, str]] = []
     latest_user_meta: dict[str, Any] | None = None
@@ -1018,7 +1019,7 @@ async def build_messages_for_llm(
         bundle, trace = await _assemble_context_bundle(
             broker,
             thread_id=thread_id,
-            query=latest_message,
+            query=retrieval_query,
             depth_mode=depth,
             user_id=user_for_context,
             project_id=project_id_for_prompt,
@@ -1136,7 +1137,7 @@ async def build_messages_for_llm(
 
     try:
         retrieval_plan = resolve_retrieval_plan(
-            latest_message,
+            retrieval_query,
             depth,
             active_thread_id=thread_id,
             active_project_id=project_id_for_prompt,
