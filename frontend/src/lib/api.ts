@@ -7,6 +7,7 @@ import {
   getRuntimeConfigSync,
   resolveApiUrl,
 } from "@/lib/runtimeConfig";
+import type { ThreadConfig } from "@/types/ui";
 import {
   clearRuntimeApiKey as clearRuntimeApiKeyState,
   getRuntimeApiKey,
@@ -240,6 +241,32 @@ export function buildChatCompletePath(threadId: string | number): string {
 
 export function buildLatestRagTracePath(threadId: string | number): string {
   return `/api/chat/debug/rag-trace/${normalizePathSegment(threadId)}/latest`;
+}
+
+export type ThreadConfigUpdate = {
+  providerId?: string;
+  modelId?: string;
+  inferenceMode?: string;
+  retrievalSource?: string;
+  personaId?: string | null;
+};
+
+export type ThreadConfigUpdateResponse = {
+  ok?: boolean;
+  thread_id?: number;
+  thread_config?: ThreadConfig;
+  threadConfig?: ThreadConfig;
+};
+
+export async function updateThreadConfig(
+  threadId: string | number,
+  patch: ThreadConfigUpdate
+): Promise<ThreadConfigUpdateResponse> {
+  const response = await api.patch(
+    `/chat/threads/${normalizePathSegment(threadId)}/config`,
+    patch
+  );
+  return response?.data ?? {};
 }
 
 function isAbsoluteUrl(value: string): boolean {

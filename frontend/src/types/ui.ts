@@ -22,6 +22,14 @@ export type Message = {
 
 export type ProfileMode = "local" | "cloud";
 
+export type ThreadConfig = {
+  providerId: string;
+  modelId: string;
+  inferenceMode: string;
+  retrievalSource: string;
+  personaId: string | null;
+};
+
 export type Thread = {
   id: string;
   title: string;
@@ -38,6 +46,7 @@ export type Thread = {
   profileMode?: ProfileMode | null;
   providerOverride?: string | null;
   modelOverride?: string | null;
+  threadConfig?: ThreadConfig | null;
 };
 
 export type ExtColors = {

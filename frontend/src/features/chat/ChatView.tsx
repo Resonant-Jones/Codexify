@@ -13,6 +13,7 @@ import React, {
 import type {
   ChatMessage,
   CompletionState,
+  StreamingDraft,
 } from "@/features/chat/useChat";
 import ChatBubble from "@/features/chat/components/ChatBubble";
 import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
@@ -71,6 +72,7 @@ export function ChatView({
   depthMode: _depthMode = "normal",
   profileId: _profileId = null,
   inferenceState = createIdleInferenceRequestState(),
+  streamingDraft = null,
   onCancelInference,
   onSwitchToFast,
 }: {
@@ -92,6 +94,7 @@ export function ChatView({
   depthMode?: DepthMode;
   profileId?: string | null;
   inferenceState?: InferenceRequestState;
+  streamingDraft?: StreamingDraft | null;
   onCancelInference?: () => void;
   onSwitchToFast?: () => void;
 }) {
@@ -132,6 +135,11 @@ export function ChatView({
 
   const showCompletionIndicator =
     isCompletingForThread || isActiveInferencePhase(activeInferenceState.phase);
+  const streamingDraftText =
+    streamingDraft && streamingDraft.threadId === threadId
+      ? streamingDraft.content
+      : "";
+  const showStreamingDraft = Boolean(streamingDraftText.trim());
 
   const showToast = useCallback((message: string) => {
     try {
@@ -483,6 +491,26 @@ export function ChatView({
               </div>
             );
           })}
+
+          {showStreamingDraft ? (
+            <div
+              className="w-full flex justify-start"
+              data-testid="chat-streaming-draft"
+            >
+              <div className="max-w-[min(34rem,calc(100%-1rem))] opacity-90">
+                <ChatBubble
+                  message={{
+                    id: `${threadId}-streaming-draft`,
+                    authorId: "bot",
+                    authorName: guardianName || "Guardian",
+                    content: streamingDraftText,
+                    createdAt: streamingDraft?.updatedAt ?? null,
+                  }}
+                  isGuardian
+                />
+              </div>
+            </div>
+          ) : null}
 
           {showCompletionIndicator ? (
             <div
