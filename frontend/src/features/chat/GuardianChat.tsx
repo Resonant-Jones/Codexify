@@ -664,6 +664,7 @@ export function GuardianChat({
     handleIncomingAssistantMessage,
     isCompletionInFlight,
     setCompletionInFlight,
+    streamingDraft,
   } = useChat();
   const inferenceRequest = useInferenceRequestState();
   const {
@@ -2601,8 +2602,8 @@ export function GuardianChat({
     description: depthDescriptions[mode],
   }));
   const composerInferenceState =
-    effectiveThreadId != null &&
-    inferenceRequest.state.threadId === effectiveThreadId
+    numericThreadId != null &&
+    inferenceRequest.state.threadId === numericThreadId
       ? inferenceRequest.state
       : createIdleInferenceRequestState();
   const handleCancelInference = () => {
@@ -2996,6 +2997,7 @@ export function GuardianChat({
             voiceReadAloudEnabled={voiceReadAloudEnabled}
             voiceCapabilitiesFailed={voiceCapabilitiesFailed}
             inferenceState={composerInferenceState}
+            streamingDraft={streamingDraft}
             onCancelInference={handleCancelInference}
             onSwitchToFast={handleSwitchToNoThink}
           />
