@@ -47,6 +47,7 @@ from guardian.core.chat_completion_service import (
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
     _merge_thread_metadata_patch,
     resolve_thread_completion_settings,
+    split_history_and_latest_turn,
 )
 from guardian.core.event_graph import get_event_writer
 from guardian.depth import (
@@ -243,6 +244,7 @@ def _publish_completion_start_event(
         "thread_id": thread_id,
         "origin": task.origin,
         "turn_id": turn_id,
+        "latest_turn_message_id": getattr(task, "latest_turn_message_id", None),
     }
     try:
         publish_result = task_events.publish_with_visibility(
@@ -2147,6 +2149,10 @@ async def chat_complete(
 
     limit = int(body.max_context or 50)
     items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
+    try:
+        items = sorted(items, key=lambda m: m.get("id") or 0)
+    except Exception:
+        pass
     context: List[Dict[str, str]] = []
     for msg in items:
         role = str(msg.get("role") or "").strip()
@@ -2161,6 +2167,16 @@ async def chat_complete(
         raise HTTPException(
             status_code=400, detail="Thread has no usable context"
         )
+    latest_turn = split_history_and_latest_turn(items)["latest_turn"]
+    if latest_turn is None:
+        raise HTTPException(
+            status_code=400, detail="Thread has no usable context"
+        )
+    latest_turn_message_id = (
+        _coerce_message_id(latest_turn.get("id"))
+        if isinstance(latest_turn, dict)
+        else None
+    )
 
     requested_depth_raw = normalize_requested_depth_raw(body.depth_mode)
     # Binary projection: deep iff raw request is exactly "deep".
@@ -2275,6 +2291,7 @@ async def chat_complete(
 
     task = ChatCompletionTask(
         thread_id=thread_id,
+        latest_turn_message_id=latest_turn_message_id,
         provider=provider,
         model=model,
         requested_provider=body.provider,

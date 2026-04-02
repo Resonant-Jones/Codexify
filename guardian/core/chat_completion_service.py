@@ -315,6 +315,103 @@ def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
     return -1
 
 
+def _coerce_message_id(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def split_history_and_latest_turn(
+    messages: list[dict[str, Any]] | None,
+    *,
+    latest_turn_message_id: int | None = None,
+) -> dict[str, Any]:
+    """Partition thread messages into prior history and the latest user turn."""
+
+    safe_messages = [
+        dict(message)
+        for message in (messages or [])
+        if isinstance(message, dict)
+    ]
+    explicit_latest_turn_message_id = _coerce_message_id(latest_turn_message_id)
+    if explicit_latest_turn_message_id is not None:
+        for index, message in enumerate(safe_messages):
+            if (
+                _coerce_message_id(message.get("id"))
+                != explicit_latest_turn_message_id
+            ):
+                continue
+            if str(message.get("role") or "").strip().lower() != "user":
+                return {"history": safe_messages[:index], "latest_turn": None}
+            return {
+                "history": safe_messages[:index],
+                "latest_turn": message,
+            }
+        return {"history": safe_messages, "latest_turn": None}
+    latest_user_index = _find_last_message_index(safe_messages, "user")
+    if latest_user_index < 0:
+        return {"history": safe_messages, "latest_turn": None}
+    return {
+        "history": safe_messages[:latest_user_index],
+        "latest_turn": safe_messages[latest_user_index],
+    }
+
+
+def _latest_turn_instruction_message(
+    completion_assembly: dict[str, Any] | None,
+) -> str | None:
+    """Return the explicit instruction for latest-turn-only answering."""
+
+    if not isinstance(completion_assembly, dict):
+        return None
+    latest_turn = completion_assembly.get("latest_turn")
+    if not isinstance(latest_turn, dict):
+        return None
+    return (
+        "Completion targeting guidance:\n"
+        "- Use prior messages as context only.\n"
+        "- Treat the most recent user message as the only response target.\n"
+        "- Do not re-answer older turns unless the most recent user message "
+        "explicitly asks you to revisit them."
+    )
+
+
+def _trace_content_snippet(content: Any, *, limit: int = 240) -> str | None:
+    text = render_content_for_inference(content).strip()
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def _latest_turn_trace_fields(
+    latest_turn: dict[str, Any] | None,
+    *,
+    retrieval_query: str | None,
+) -> dict[str, Any]:
+    if not isinstance(latest_turn, dict):
+        return {}
+
+    fields: dict[str, Any] = {
+        "retrieval_query": str(retrieval_query or ""),
+        "retrieval_target": "latest_turn",
+        "retrieval_query_matches_latest_turn": True,
+    }
+
+    latest_turn_id = latest_turn.get("id")
+    if latest_turn_id is not None:
+        fields["latest_turn_message_id"] = latest_turn_id
+
+    latest_turn_content = _trace_content_snippet(latest_turn.get("content"))
+    if latest_turn_content is not None:
+        fields["latest_turn_content"] = latest_turn_content
+
+    return fields
+
+
 def _image_attachments_from_meta(
     latest_user_meta: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
@@ -925,9 +1022,31 @@ async def build_messages_for_llm(
     except Exception:
         pass
 
+    explicit_latest_turn_message_id = _coerce_message_id(
+        getattr(task, "latest_turn_message_id", None)
+    )
+    turn_split = split_history_and_latest_turn(
+        items,
+        latest_turn_message_id=explicit_latest_turn_message_id,
+    )
+    history_messages = turn_split["history"]
+    latest_turn = turn_split["latest_turn"]
+    if latest_turn is None:
+        if explicit_latest_turn_message_id is not None:
+            raise ValueError("thread_target_turn_missing")
+        raise ValueError("thread_has_no_usable_context")
+
+    conversation_messages = [*history_messages, latest_turn]
+    # Retrieval must follow the latest user turn, not earlier history.
+    retrieval_query = render_content_for_inference(latest_turn.get("content"))
+    latest_turn_trace_fields = _latest_turn_trace_fields(
+        latest_turn,
+        retrieval_query=retrieval_query,
+    )
+
     context: list[dict[str, str]] = []
     latest_user_meta: dict[str, Any] | None = None
-    for msg in items:
+    for msg in conversation_messages:
         role = str(msg.get("role") or "").strip()
         raw_content = msg.get("content")
         if isinstance(raw_content, str):
@@ -944,14 +1063,6 @@ async def build_messages_for_llm(
 
     if not context:
         raise ValueError("thread_has_no_usable_context")
-
-    latest_message = ""
-    for msg in reversed(items):
-        if str(msg.get("role") or "").strip() == "user":
-            lm = render_content_for_inference(msg.get("content"))
-            if lm:
-                latest_message = lm
-                break
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
@@ -979,7 +1090,7 @@ async def build_messages_for_llm(
         bundle, trace = await _assemble_context_bundle(
             broker,
             thread_id=thread_id,
-            query=latest_message,
+            query=retrieval_query,
             depth_mode=depth,
             user_id=user_for_context,
             project_id=project_id_for_prompt,
@@ -1005,6 +1116,13 @@ async def build_messages_for_llm(
 
     messages_for_llm: list[dict[str, str]] = []
     prompt_meta: dict[str, Any] = {}
+    retrieved_context_messages: list[dict[str, str]] = []
+    completion_assembly = {
+        "history": history_messages,
+        "latest_turn": latest_turn,
+        "retrieved_context": retrieved_context_messages,
+    }
+    completion_assembly.update(latest_turn_trace_fields)
 
     try:
         if build_guardian_system_prompt:
@@ -1040,6 +1158,10 @@ async def build_messages_for_llm(
             "Answer concisely, avoid speculation, and clearly mark any uncertainty."
         )
 
+    latest_turn_instruction = _latest_turn_instruction_message(
+        completion_assembly
+    )
+
     if isinstance(bundle, dict):
         try:
             existing_meta = bundle.get("_prompt_meta") or {}
@@ -1050,16 +1172,24 @@ async def build_messages_for_llm(
             bundle["_prompt_meta"] = dict(prompt_meta or {})
 
     messages_for_llm.append({"role": "system", "content": system_content})
+    if latest_turn_instruction:
+        messages_for_llm.append(
+            {"role": "system", "content": latest_turn_instruction}
+        )
 
     doc_message, doc_count = _build_document_context_message(bundle)
     if doc_message:
-        messages_for_llm.append({"role": "system", "content": doc_message})
+        retrieved_context_messages.append(
+            {"role": "system", "content": doc_message}
+        )
 
     context_message, context_meta = build_context_system_message_with_meta(
         bundle
     )
     if context_message:
-        messages_for_llm.append({"role": "system", "content": context_message})
+        retrieved_context_messages.append(
+            {"role": "system", "content": context_message}
+        )
     prompt_meta["context"] = context_meta
     prompt_meta.setdefault("docs", {})
     prompt_meta["docs"].update(
@@ -1075,10 +1205,17 @@ async def build_messages_for_llm(
         bundle["_attachment_meta"] = {
             "latest_user": latest_user_meta,
         }
+        bundle["_completion_assembly"] = completion_assembly
+
+    if trace is None:
+        trace = dict(latest_turn_trace_fields)
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace.update(latest_turn_trace_fields)
 
     try:
         retrieval_plan = resolve_retrieval_plan(
-            latest_message,
+            retrieval_query,
             depth,
             active_thread_id=thread_id,
             active_project_id=project_id_for_prompt,
@@ -1101,6 +1238,7 @@ async def build_messages_for_llm(
 
     _persist_thread_trace_candidate(task, trace)
 
+    messages_for_llm.extend(retrieved_context_messages)
     messages_for_llm.extend(context)
 
     model = thread_execution.model
@@ -1226,6 +1364,13 @@ def run_chat_completion_task(
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
     }
+    if isinstance(trace, dict):
+        result["latest_turn_message_id"] = trace.get("latest_turn_message_id")
+        result["retrieval_query"] = trace.get("retrieval_query")
+        result["retrieval_target"] = trace.get("retrieval_target")
+        result["retrieval_query_matches_latest_turn"] = trace.get(
+            "retrieval_query_matches_latest_turn"
+        )
 
     if not persist_assistant_message:
         return result
