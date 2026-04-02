@@ -498,6 +498,7 @@ class ThreadDTO(BaseModel):
     archived_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    thread_config: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1348,6 +1349,18 @@ def _thread_config_payload_dict(raw: Any) -> dict[str, Any]:
     return {}
 
 
+def _extract_thread_config(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    value = raw.get("thread_config")
+    if value is None:
+        value = raw.get("threadConfig")
+    if isinstance(value, dict):
+        return dict(value)
+    parsed = _thread_config_payload_dict(value)
+    return parsed or None
+
+
 def _merge_thread_config_update(
     existing_config: Any, patch: ThreadConfigUpdate
 ) -> dict[str, Any]:
@@ -1823,6 +1836,8 @@ def chat_create_thread(
             metadata=metadata,
         )
         _persist_thread_config_snapshot(int(record["id"]), thread_config)
+        if isinstance(record, dict):
+            record["thread_config"] = thread_config
         chatlog_db.write_audit_log(
             "create", "chat_thread", str(record["id"]), user_id=user_id
         )
@@ -2732,7 +2747,27 @@ thread_router = APIRouter(prefix="/thread", tags=["Threads"])
 @thread_router.get("/{thread_id}")
 def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
     """Get details for a specific thread by thread_id."""
-    row = chatlog_db.get_thread(thread_id)
+    thread_payload = None
+    get_chat_thread = getattr(chatlog_db, "get_chat_thread", None)
+    if callable(get_chat_thread):
+        try:
+            thread_payload = get_chat_thread(thread_id)
+        except Exception:
+            thread_payload = None
+
+    if isinstance(thread_payload, dict):
+        return {
+            "thread_id": thread_payload.get("id"),
+            "parent_thread_id": thread_payload.get("parent_id"),
+            "session_id": None,
+            "summary": thread_payload.get("summary"),
+            "created_at": thread_payload.get("created_at"),
+            "user_id": thread_payload.get("user_id"),
+            "project_id": thread_payload.get("project_id"),
+            "thread_config": _extract_thread_config(thread_payload),
+        }
+
+    row = getattr(chatlog_db, "get_thread", lambda _thread_id: None)(thread_id)
     if not row:
         raise HTTPException(status_code=404, detail="Thread not found")
     return {
@@ -2743,6 +2778,7 @@ def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
         "created_at": row[4],
         "user_id": row[5],
         "project_id": row[6],
+        "thread_config": None,
     }
 
 
@@ -2761,6 +2797,7 @@ def get_child_threads(thread_id: int, api_key: str = Depends(require_api_key)):
             "archived_at": row.get("archived_at"),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
+            "thread_config": _extract_thread_config(row),
         }
         for row in rows
     ]
