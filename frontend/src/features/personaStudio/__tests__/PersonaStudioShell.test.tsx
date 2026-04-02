@@ -1,9 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
 import AppShell from "@/components/persona/layout/AppShell";
+import {
+  personaStudioApiMock,
+  resetPersonaStudioApiMock,
+} from "./personaStudioApiMock";
 
 vi.mock("@/lib/authState", () => ({
   checkAuthGate: () => true,
@@ -22,6 +26,10 @@ vi.mock("@/hooks/useWallpaperUrl", () => ({
   useWallpaperUrl: () => null,
 }));
 
+vi.mock("@/features/personaStudio/personaStudioApi", async () =>
+  (await import("./personaStudioApiMock")).personaStudioApiMock
+);
+
 vi.mock("@/lib/runtimeRouteCapabilities", () => ({
   useRuntimeRouteCapability: () => ({ ready: true, state: "available" }),
   SUPPORTED_PROFILE_ROUTE_LABELS: { CODEX: "codex", IMPRINT: "imprint", CONNECTORS: "connectors" },
@@ -37,6 +45,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
 beforeEach(() => {
   window.localStorage.clear();
   window.history.pushState({}, "", "/");
+  resetPersonaStudioApiMock();
 });
 
 function renderAppShell() {
@@ -195,7 +204,11 @@ describe("Persona Studio Shell Integration", () => {
         .map((cell) => cell.textContent?.trim());
     };
 
-    expect(getRowValues("Persona Name")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
+    expect(getRowValues("Persona Name")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
+    expect(getRowValues("System Prompt")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
+    expect(getRowValues("Model Provider")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
+    expect(getRowValues("Model ID")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
+    expect(getRowValues("Temperature")).toEqual(["Yes", "Yes", "Yes", "Yes", "Yes"]);
     expect(getRowValues("Generation Top K")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
     expect(getRowValues("Retrieval Top K")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);
     expect(getRowValues("Voice Enabled")).toEqual(["Yes", "Yes", "Yes", "No", "No"]);

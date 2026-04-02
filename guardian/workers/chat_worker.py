@@ -1235,6 +1235,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
 
     requested_provider = _normalize_provider_override(task.provider)
     requested_model = _normalize_model_override(task.model)
+    temperature = getattr(task, "temperature", None)
     selection_source = (
         str(getattr(task, "selection_source", "") or "").strip() or None
     )
@@ -1337,10 +1338,16 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
                     )
                 model = fallback_model
 
+    if temperature is None and profile is not None:
+        profile_temperature = getattr(profile, "temperature_override", None)
+        if isinstance(profile_temperature, (int, float)):
+            temperature = float(profile_temperature)
+
     return replace(
         task,
         provider=provider,
         model=model,
+        temperature=temperature,
         requested_provider=requested_provider,
         requested_model=requested_model,
         selection_source=selection_source
@@ -1381,6 +1388,11 @@ async def _build_messages_for_llm(
     )
     provider = _normalize_provider_override(resolved_task.provider) or provider
     model = _normalize_model_override(resolved_task.model) or model
+    task.provider = provider
+    task.model = model
+    task.temperature = getattr(resolved_task, "temperature", None)
+    if getattr(resolved_task, "selection_source", None):
+        task.selection_source = resolved_task.selection_source
 
     extra_system_messages: list[str] = []
     media_items = _resolve_media_items(resolved_task, bundle, provider=provider)
@@ -1489,6 +1501,7 @@ def _run_chat_completion_task_compat(
                 messages_for_llm,
                 execution_model,
                 reasoning_mode=getattr(task, "reasoning_mode", None),
+                temperature=getattr(task, "temperature", None),
             )
             try:
                 for token in token_stream:
@@ -1513,6 +1526,7 @@ def _run_chat_completion_task_compat(
                         model=execution_model,
                         provider=execution_provider,
                         reasoning_mode=getattr(task, "reasoning_mode", None),
+                        temperature=getattr(task, "temperature", None),
                         prompt_meta=(
                             dict(bundle.get("_prompt_meta") or {})
                             if isinstance(bundle, dict)
@@ -1533,6 +1547,7 @@ def _run_chat_completion_task_compat(
                 model=execution_model,
                 provider=execution_provider,
                 reasoning_mode=getattr(task, "reasoning_mode", None),
+                temperature=getattr(task, "temperature", None),
                 prompt_meta=(
                     dict(bundle.get("_prompt_meta") or {})
                     if isinstance(bundle, dict)
