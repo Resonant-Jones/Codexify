@@ -61,6 +61,7 @@ class ChatCompletionTask(BaseTask):
     thread_id: int = 0
     model: str | None = None
     provider: str | None = None
+    temperature: float | None = None
     requested_model: str | None = None
     requested_provider: str | None = None
     selection_source: str | None = None
@@ -74,10 +75,20 @@ class ChatCompletionTask(BaseTask):
     def from_dict(cls, payload: dict[str, Any]) -> ChatCompletionTask:
         base = _base_kwargs(payload or {})
         base.setdefault("type", cls.type)
+        raw_temperature = payload.get("temperature")
+        temperature: float | None
+        if raw_temperature is None:
+            temperature = None
+        else:
+            try:
+                temperature = float(raw_temperature)
+            except (TypeError, ValueError):
+                temperature = None
         return cls(
             thread_id=int(payload.get("thread_id") or 0),
             model=payload.get("model"),
             provider=payload.get("provider"),
+            temperature=temperature,
             requested_model=payload.get("requested_model"),
             requested_provider=payload.get("requested_provider"),
             selection_source=payload.get("selection_source"),

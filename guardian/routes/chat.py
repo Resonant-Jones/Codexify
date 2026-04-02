@@ -1891,10 +1891,8 @@ async def chat_complete(
     turn_id = _normalize_turn_id(body.turn_id)
     source_mode = normalize_source_mode(body.source_mode)
 
-    provider = str(
-        body.provider
-        or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
-    ).lower()
+    provider = str(body.provider or "").strip().lower() or None
+    requested_model = str(body.model or "").strip() or None
 
     user_system_override = body.system_override
     if isinstance(user_system_override, str):
@@ -2041,11 +2039,11 @@ async def chat_complete(
     task = ChatCompletionTask(
         thread_id=thread_id,
         provider=provider,
-        model=body.model,
+        model=requested_model,
         requested_provider=provider,
-        requested_model=body.model,
-        selection_source="explicit" if (provider or body.model) else "default",
-        provider_pinned=bool(str(provider or "").strip()),
+        requested_model=requested_model,
+        selection_source="explicit" if (provider or requested_model) else None,
+        provider_pinned=bool(provider),
         reasoning_mode=body.reasoning_mode,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
