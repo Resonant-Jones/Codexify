@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from guardian.protocol_tokens import ErrorCode, TaskEventType
 from guardian.queue.redis_queue import _with_reconnect  # type: ignore
+from guardian.queue.redis_queue import get_queue_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,10 @@ _TERMINAL_EVENT_TYPES = {
 _TERMINAL_EVENT_SCAN_BATCH_SIZE = 100
 _TASK_EVENT_FALLBACK_TYPE = TaskEventType.TASK_EVENT.value
 _TASK_EVENT_PUBLISH_ERROR_CODE = ErrorCode.TASK_EVENT_PUBLISH_FAILED.value
+_READ_EVENTS_BLOCK_MS = 5000
+_READ_EVENTS_BATCH_SIZE = 50
+_READ_EVENTS_INITIAL_BACKOFF_SECONDS = 0.5
+_READ_EVENTS_MAX_BACKOFF_SECONDS = 2.0
 
 
 class TaskEventPublishError(RuntimeError):
@@ -187,39 +193,52 @@ def read_events(
     task_id: str,
     last_id: str,
     *,
-    block_ms: int = 15000,
-    count: int = 100,
+    block_ms: int = _READ_EVENTS_BLOCK_MS,
+    count: int = _READ_EVENTS_BATCH_SIZE,
 ) -> list[tuple[str, dict[str, Any]]]:
     stream_key = _stream_key(task_id)
+    backoff = _READ_EVENTS_INITIAL_BACKOFF_SECONDS
 
-    def _read(client) -> list[tuple[str, dict[str, Any]]]:
-        result = client.xread(
-            {stream_key: last_id}, count=count, block=block_ms
-        )
-        if not result:
-            return []
-        _, entries = result[0]
-        events: list[tuple[str, dict[str, Any]]] = []
-        for event_id, fields in entries:
-            data_raw = fields.get("data", "{}")
-            try:
-                data = json.loads(data_raw)
-            except Exception:
-                data = {}
-            events.append(
-                (
-                    event_id,
-                    {
-                        "type": fields.get("type") or _TASK_EVENT_FALLBACK_TYPE,
-                        "task_id": fields.get("task_id") or task_id,
-                        "data": data,
-                        "created_at": fields.get("created_at"),
-                    },
-                )
+    while True:
+        try:
+            redis = get_queue_redis_client()
+            result = redis.xread(
+                streams={stream_key: last_id},
+                block=block_ms,
+                count=count,
             )
-        return events
+            backoff = _READ_EVENTS_INITIAL_BACKOFF_SECONDS
+            break
+        except Exception as exc:
+            logger.warning("[task-events] read failed: %s", str(exc))
+            time.sleep(backoff)
+            backoff = min(
+                backoff * 2,
+                _READ_EVENTS_MAX_BACKOFF_SECONDS,
+            )
 
-    return _with_reconnect(_read)
+    if not result:
+        return []
+    _, entries = result[0]
+    events: list[tuple[str, dict[str, Any]]] = []
+    for event_id, fields in entries:
+        data_raw = fields.get("data", "{}")
+        try:
+            data = json.loads(data_raw)
+        except Exception:
+            data = {}
+        events.append(
+            (
+                event_id,
+                {
+                    "type": fields.get("type") or _TASK_EVENT_FALLBACK_TYPE,
+                    "task_id": fields.get("task_id") or task_id,
+                    "data": data,
+                    "created_at": fields.get("created_at"),
+                },
+            )
+        )
+    return events
 
 
 def describe_terminal_state(task_id: str) -> dict[str, Any]:

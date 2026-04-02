@@ -1,0 +1,595 @@
+{
+  "audit_cli": {
+    "attempts": [
+      {
+        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "exit_code": 0,
+        "stderr": "",
+        "stdout_is_json": false
+      },
+      {
+        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "exit_code": 0,
+        "stderr": ""
+      }
+    ],
+    "parsed_text": {
+      "strongest_domains": [
+        "Core Loop Integrity",
+        "Primitive Stability",
+        "Extension Boundary"
+      ],
+      "suggested_score_bands": {
+        "Alternate Surface Readiness": "manual review required",
+        "Core Loop Integrity": "1-2 likely",
+        "Durability & Recovery": "1-2 likely",
+        "Extension Boundary": "1-2 likely",
+        "Federation Readiness": "0-1 likely",
+        "Governance Readiness": "manual review required",
+        "Observability": "1-2 likely",
+        "Primitive Stability": "1-2 likely"
+      },
+      "summary_counts": {
+        "fail": 0,
+        "pass": 40,
+        "warn": 11
+      },
+      "weakest_domains": [
+        "Federation Readiness",
+        "Governance Readiness",
+        "Alternate Surface Readiness"
+      ]
+    },
+    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/tech-debt-and-risks.md contains 'Legacy `/tools` behavior and command bus behavior coexist'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Tools route present: guardian/routes/tools.py exists\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [PASS] Architecture docs describe command-bus and cron execution seams: docs/architecture/system-overview.md matches 'legacy `/tools` compatibility shim', 'Cron and job execution'\n  [PASS] Config docs expose provider selection as configuration: docs/architecture/config-and-ops.md matches 'LLM_PROVIDER', 'ALLOW_CLOUD_PROVIDERS'\n  [WARN] Legacy tools shim still carries process-local behavior: docs/architecture/flows.md contains 'still keeps some process-local job state'\nEvidence summary:\n  Tools, cron, provider configuration, and command-bus documentation give Codexify clear extension seams. The repo also documents that the legacy tools shim still carries process-local behavior, which weakens confidence that every new workflow can stay outside kernel edits.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths prefer durable command-bus or cron lanes over compatibility shims?\n  - Manual review required: is provider switching fully configuration-driven in real deployments, not just in local defaults?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [WARN] IDDB policy documentation present: missing expected path(s): docs/iddb_policy_v1.md, iddb_policy_v1.md\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 40\n  WARN: 11\n  FAIL: 0\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Core Loop Integrity, Primitive Stability, Extension Boundary\n  Clearest structural weakness signals: Federation Readiness, Governance Readiness, Alternate Surface Readiness\n",
+    "selected_mode": "text_fallback"
+  },
+  "baseline": {
+    "phase_gate": {
+      "label": "Early-Adopter Ready",
+      "ready": false,
+      "value": "❌ Not yet"
+    },
+    "scores": {
+      "Alternate Surface Readiness": 2,
+      "Core Loop Integrity": 2,
+      "Durability & Recovery": 1,
+      "Extension Boundary": 2,
+      "Federation Readiness": 1,
+      "Governance Readiness": 2,
+      "Observability": 2,
+      "Primitive Stability": 2
+    },
+    "source": "docs/audits/history/2026-03-19-platform-readiness-baseline.md",
+    "summary": "Codexify has progressed beyond prototype into an operational substrate."
+  },
+  "changes_last_24h": {
+    "commit_count": 29,
+    "commits": [
+      {
+        "files": [
+          "docs/audits/daily/evening/2026-03-31-audit.json",
+          "docs/audits/daily/evening/2026-03-31-audit.md",
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md",
+          "frontend/src/contracts/runtimeTokens.ts",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/main.tsx"
+        ],
+        "sha": "969355bf438b3e7d678c506ec7f46052b0f297bf",
+        "subject": "Refresh daily evening audit snapshot"
+      },
+      {
+        "files": [
+          "backend/rag/embedder.py",
+          "docker-compose.yml",
+          "guardian/core/config.py",
+          "guardian/workers/document_embed_worker.py",
+          "tests/backend/rag/test_embedder.py",
+          "tests/workers/test_document_embed_worker.py"
+        ],
+        "sha": "a7d9f8200ceba78358df9a21ef4eaffe811ce3d1",
+        "subject": "fix(embed): complete document embed lifecycle and terminal status handling"
+      },
+      {
+        "files": [
+          "docs/architecture/2026-03-31-supported-path-proof.md"
+        ],
+        "sha": "f0596e1dee48ad14c280765c4884b7c6c511bab2",
+        "subject": "docs(proof): add fresh supported-path proof for runtime contract behavior"
+      },
+      {
+        "files": [
+          "frontend/src/components/SessionRail/SessionRail.tsx",
+          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx"
+        ],
+        "sha": "5318886dd69d11835494da0a850ab4ddcbe7bc03",
+        "subject": "fix(chat): apply segmented styling to session rail"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/index.css"
+        ],
+        "sha": "72ebb44110c520351332b8144ca581cb597bc6f5",
+        "subject": "refactor(workspace): localize session rail styles"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/features/chat/useChat.ts"
+        ],
+        "sha": "902112ce544731be139ee2a345a693050115afcb",
+        "subject": "feat(chat): implement frontend runtime contract for provider and request state"
+      },
+      {
+        "files": [
+          "guardian/cognition/prompts.py",
+          "tests/core/test_chat_completion_service_retrieval_plan.py"
+        ],
+        "sha": "5880120e7a7bcefbc79a80925eb95a7e2e831990",
+        "subject": "fix(chat): make retrieval boundary language truthful"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+          "frontend/src/index.css"
+        ],
+        "sha": "d5abf63535791b32918c021ae0a9b4e6904afed0",
+        "subject": "refactor(workspace): enforce segmented session rail tabs"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
+          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
+        ],
+        "sha": "8f7d6f6e0f29f721c6ee120bd13214cb1cafabea",
+        "subject": "feat(workspace): connect shelf documents to inspector"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
+        ],
+        "sha": "1b33c01b9d3d4cb948a212f3d1b72013820b38ae",
+        "subject": "feat(workspace): wire shelf to thread and project artifacts"
+      },
+      {
+        "files": [
+          "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
+          "tests/routes/test_chat_profile_trace.py"
+        ],
+        "sha": "0d0bc059869b75ac03809b739da6dd8ce0b48e72",
+        "subject": "docs(chat): add end-to-end rag trace proof"
+      },
+      {
+        "files": [
+          "guardian/core/chat_completion_service.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_chat_completion_service_retrieval_plan.py",
+          "tests/routes/test_chat_profile_trace.py"
+        ],
+        "sha": "9e8bd6d8dc29550cae4875bcce7b63631a4696be",
+        "subject": "fix(chat): restore latest rag trace persistence"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+        ],
+        "sha": "6be727c355e50859e9f14d35acc82370f3065fb4",
+        "subject": "refactor(workspace): strengthen tab switcher hierarchy"
+      },
+      {
+        "files": [
+          "guardian/cognition/prompts.py"
+        ],
+        "sha": "bfd2046060d649a2e146a26fbefbba1c22944b5d",
+        "subject": "Refine Guardian base prompt for co-creative companion behavior"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+          "frontend/src/features/chat/panels/RAGTracePanel.tsx",
+          "frontend/src/features/settings/SettingsView.test.tsx",
+          "frontend/src/features/settings/SettingsView.tsx",
+          "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx"
+        ],
+        "sha": "368afb1b41b3b5b032cdce9e958994575ba46df6",
+        "subject": "fix(diagnostics): bind rag trace surfaces to active thread"
+      },
+      {
+        "files": [
+          "frontend/src/package.json"
+        ],
+        "sha": "37c2162c2bff89b1a20046ca426f0228c20276ea",
+        "subject": "Force Vite re-optimization on frontend dev startup"
+      },
+      {
+        "files": [
+          "frontend/src/components/SessionRail/SessionRail.tsx",
+          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx"
+        ],
+        "sha": "2ea451bc13a2526cb06de4164af0a3a39a5f2f64",
+        "subject": "refactor(shell): simplify session rail visual hierarchy"
+      },
+      {
+        "files": [
+          "guardian/context/broker.py",
+          "tests/core/test_context_broker_source_mode.py"
+        ],
+        "sha": "a90b2c33f4ad9a3babe09ded27a21efa78fff267",
+        "subject": "fix(chat): replace weak local hit during widening"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx"
+        ],
+        "sha": "e64dec215ea9aa290f721c3d930ffe29e1a74395",
+        "subject": "fix(chat): simplify source selector trigger label"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx"
+        ],
+        "sha": "06af0f2351b0f140487e0a02b08b45696bdb1c5d",
+        "subject": "fix(workspace): remove redundant internal close button"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+        ],
+        "sha": "727f8f0918be6674c8c2733218bdbbb158817b1d",
+        "subject": "refactor(workspace): polish header and scratchpad layout"
+      },
+      {
+        "files": [
+          "docs/audits/daily/morning/latest.json",
+          "docs/audits/daily/morning/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
+        ],
+        "sha": "85da3a91874857400f88c83b50d9c07fc4536f86",
+        "subject": "Refresh latest audit reports"
+      },
+      {
+        "files": [
+          "docs/architecture/2026-03-31-source-selector-proof.md",
+          "guardian/context/broker.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_chat_completion_service_source_mode_fallback.py",
+          "tests/core/test_context_broker_source_mode.py",
+          "tests/routes/test_chat_source_mode.py"
+        ],
+        "sha": "e2539f35eaa319c8f337561f2b47ed00e4778c3f",
+        "subject": "test(chat): harden source selector proof and fallback behavior"
+      },
+      {
+        "files": [
+          "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
+          "frontend/src/components/ui/dropdown-menu.tsx",
+          "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+          "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx"
+        ],
+        "sha": "0c35af4239c51f36640c8e87322dc00abc371d82",
+        "subject": "fix(ui): constrain model menu and open upward"
+      },
+      {
+        "files": [
+          "frontend/src/features/chat/GuardianChat.tsx",
+          "frontend/src/features/chat/components/Composer.tsx",
+          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
+          "guardian/context/broker.py",
+          "guardian/core/chat_completion_service.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_context_broker_source_mode.py",
+          "tests/routes/test_chat_source_mode.py"
+        ],
+        "sha": "61c696b92e1c15ab6fea85ac725c2cce279b75c3",
+        "subject": "feat(chat): add source selector for retrieval boundary"
+      },
+      {
+        "files": [
+          "docs/architecture/runtime-protocol-token-contract.md"
+        ],
+        "sha": "757fc402acf42d3ea57f0629bcc5c9737481332a",
+        "subject": "docs(runtime): expand protocol token contract to include provider and request lifecycle domains"
+      },
+      {
+        "files": [
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+        ],
+        "sha": "afec57d252d210da38167975fd75688c8b430a04",
+        "subject": "fix(workspace): clean up posture header affordances"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+        ],
+        "sha": "45eb65e5457fc55128b192cc9e409908345e7303",
+        "subject": "feat(workspace): make workspace focus visually dominant"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+          "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+        ],
+        "sha": "03f128bc50135c278042e8e534c95d485660e204",
+        "subject": "feat(workspace): add layout mode state contract"
+      }
+    ],
+    "files_changed": [
+      "docs/audits/daily/evening/2026-03-31-audit.json",
+      "docs/audits/daily/evening/2026-03-31-audit.md",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/evening/latest.md",
+      "docs/audits/latest.json",
+      "docs/audits/latest.md",
+      "frontend/src/contracts/runtimeTokens.ts",
+      "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+      "frontend/src/main.tsx",
+      "backend/rag/embedder.py",
+      "docker-compose.yml",
+      "guardian/core/config.py",
+      "guardian/workers/document_embed_worker.py",
+      "tests/backend/rag/test_embedder.py",
+      "tests/workers/test_document_embed_worker.py",
+      "docs/architecture/2026-03-31-supported-path-proof.md",
+      "frontend/src/components/SessionRail/SessionRail.tsx",
+      "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
+      "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+      "frontend/src/index.css",
+      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/features/chat/useChat.ts",
+      "guardian/cognition/prompts.py",
+      "tests/core/test_chat_completion_service_retrieval_plan.py",
+      "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
+      "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+      "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
+      "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
+      "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
+      "tests/routes/test_chat_profile_trace.py",
+      "guardian/core/chat_completion_service.py",
+      "guardian/routes/chat.py",
+      "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+      "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+      "frontend/src/features/chat/GuardianChat.tsx",
+      "frontend/src/features/chat/panels/RAGTracePanel.tsx",
+      "frontend/src/features/settings/SettingsView.test.tsx",
+      "frontend/src/features/settings/SettingsView.tsx",
+      "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
+      "frontend/src/package.json",
+      "guardian/context/broker.py",
+      "tests/core/test_context_broker_source_mode.py",
+      "frontend/src/features/chat/components/Composer.tsx",
+      "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/daily/morning/latest.md",
+      "docs/architecture/2026-03-31-source-selector-proof.md",
+      "tests/core/test_chat_completion_service_source_mode_fallback.py",
+      "tests/routes/test_chat_source_mode.py",
+      "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
+      "frontend/src/components/ui/dropdown-menu.tsx",
+      "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+      "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
+      "docs/architecture/runtime-protocol-token-contract.md",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+    ],
+    "window_end": "2026-04-01T09:00:39.832491-04:00",
+    "window_hours": 24,
+    "window_start": "2026-03-31T09:00:39.832491-04:00"
+  },
+  "date": "2026-04-01",
+  "generated_at": "2026-04-01T09:00:39.832491-04:00",
+  "manual_notes": {
+    "blocked": "",
+    "finished_today": "",
+    "next_priority": ""
+  },
+  "phase": "morning",
+  "repo": {
+    "branch": "main",
+    "date": "2026-04-01",
+    "dirty": true,
+    "head": "969355bf438b3e7d678c506ec7f46052b0f297bf",
+    "status_error": "",
+    "status_lines": [
+      "?? docs/architecture/persona-studio-spec.md"
+    ]
+  },
+  "risk_flags": [
+    {
+      "active": true,
+      "description": "Chat completion is queue-coupled and depends on Redis plus worker availability.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "chat_depends_on_redis_and_workers",
+      "severity": "high"
+    },
+    {
+      "active": true,
+      "description": "Canonical and legacy config paths still coexist, so startup and operator state can drift.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "config_split_brain_risk",
+      "severity": "high"
+    },
+    {
+      "active": true,
+      "description": "Legacy /tools behavior and the command bus still overlap, which increases contract drift risk.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "legacy_tools_and_command_bus_duality",
+      "severity": "high"
+    },
+    {
+      "active": true,
+      "description": "Sync subscriptions are still process-local rather than durable across restarts.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md",
+        "docs/architecture/data-and-storage.md"
+      ],
+      "flag": "sync_not_durable",
+      "severity": "medium"
+    },
+    {
+      "active": true,
+      "description": "Federation remains sensitive to trust policy, feature flags, and egress behavior.",
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md",
+        "docs/architecture/roadmap-signals.md"
+      ],
+      "flag": "federation_high_blast_radius",
+      "severity": "high"
+    }
+  ],
+  "subsystems_touched": {
+    "audit": {
+      "count": 8,
+      "files": [
+        "docs/audits/daily/evening/2026-03-31-audit.json",
+        "docs/audits/daily/evening/2026-03-31-audit.md",
+        "docs/audits/daily/evening/latest.json",
+        "docs/audits/daily/evening/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md",
+        "docs/audits/daily/morning/latest.json",
+        "docs/audits/daily/morning/latest.md"
+      ]
+    },
+    "chat": {
+      "count": 1,
+      "files": [
+        "guardian/routes/chat.py"
+      ]
+    },
+    "config": {
+      "count": 1,
+      "files": [
+        "guardian/core/config.py"
+      ]
+    },
+    "docs": {
+      "count": 4,
+      "files": [
+        "docs/architecture/2026-03-31-supported-path-proof.md",
+        "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
+        "docs/architecture/2026-03-31-source-selector-proof.md",
+        "docs/architecture/runtime-protocol-token-contract.md"
+      ]
+    },
+    "frontend": {
+      "count": 33,
+      "files": [
+        "frontend/src/contracts/runtimeTokens.ts",
+        "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
+        "frontend/src/main.tsx",
+        "frontend/src/components/SessionRail/SessionRail.tsx",
+        "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
+        "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+        "frontend/src/index.css",
+        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+        "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/features/chat/useChat.ts",
+        "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
+        "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
+        "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
+        "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
+        "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+        "frontend/src/features/chat/GuardianChat.tsx",
+        "frontend/src/features/chat/panels/RAGTracePanel.tsx",
+        "frontend/src/features/settings/SettingsView.test.tsx",
+        "frontend/src/features/settings/SettingsView.tsx",
+        "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
+        "frontend/src/package.json",
+        "frontend/src/features/chat/components/Composer.tsx",
+        "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
+        "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
+        "frontend/src/components/ui/dropdown-menu.tsx",
+        "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
+        "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
+        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+        "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+      ]
+    },
+    "infra": {
+      "count": 1,
+      "files": [
+        "docker-compose.yml"
+      ]
+    },
+    "ingestion": {
+      "count": 2,
+      "files": [
+        "guardian/workers/document_embed_worker.py",
+        "tests/workers/test_document_embed_worker.py"
+      ]
+    },
+    "tests": {
+      "count": 6,
+      "files": [
+        "tests/backend/rag/test_embedder.py",
+        "tests/core/test_chat_completion_service_retrieval_plan.py",
+        "tests/routes/test_chat_profile_trace.py",
+        "tests/core/test_context_broker_source_mode.py",
+        "tests/core/test_chat_completion_service_source_mode_fallback.py",
+        "tests/routes/test_chat_source_mode.py"
+      ]
+    },
+    "unknown": {
+      "count": 4,
+      "files": [
+        "backend/rag/embedder.py",
+        "guardian/cognition/prompts.py",
+        "guardian/core/chat_completion_service.py",
+        "guardian/context/broker.py"
+      ]
+    }
+  }
+}

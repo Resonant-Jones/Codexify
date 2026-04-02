@@ -631,6 +631,13 @@ def get_request_redis_client() -> Any:
     return client
 
 
+def get_queue_redis_client() -> Any:
+    client = _get_queue_client()
+    if _running_under_pytest() and _is_mock_client(client):
+        client = _set_queue_client(_InMemoryRedis())
+    return client
+
+
 def get_redis_client() -> Any:
     # WARNING:
     # This client is NOT safe for blocking operations.

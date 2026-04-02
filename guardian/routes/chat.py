@@ -35,6 +35,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.core.chat_completion_service import (
+    DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
+    DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
+    DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
+    _merge_thread_metadata_patch,
+)
 from guardian.core.event_graph import get_event_writer
 from guardian.depth import (
     DepthDowngradeReason,
@@ -1181,6 +1187,138 @@ def _coerce_project_id(raw: Any) -> Optional[int]:
         return _ensure_default_project_id()
 
 
+def _thread_config_payload_value(
+    payload: dict[str, Any], *keys: str
+) -> str | None:
+    for key in keys:
+        raw = payload.get(key)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            return text
+    return None
+
+
+def _thread_config_inference_mode(provider: str, model: str) -> str:
+    try:
+        from guardian.core.ai_router import resolve_local_reasoning_directive
+    except Exception:
+        resolve_local_reasoning_directive = None
+
+    if provider != "local" or resolve_local_reasoning_directive is None:
+        return "fast"
+    if not llm_settings:
+        return "fast"
+
+    directive = resolve_local_reasoning_directive(model, settings=llm_settings)
+    if directive.mode == "think":
+        return "think"
+    return "fast"
+
+
+def _build_thread_config_snapshot(
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from guardian.core.provider_registry import (
+        default_model_for_provider,
+        normalize_model_id,
+        normalize_provider,
+    )
+
+    payload = payload or {}
+    raw_provider = _thread_config_payload_value(
+        payload,
+        "providerId",
+        "provider_id",
+        "provider",
+    )
+    default_provider = (
+        getattr(llm_settings, "LLM_PROVIDER", None)
+        if llm_settings
+        else CHAT_PROVIDER
+    )
+    provider = normalize_provider(raw_provider or default_provider)
+
+    raw_model = _thread_config_payload_value(
+        payload,
+        "modelId",
+        "model_id",
+        "model",
+    )
+    model = normalize_model_id(raw_model) if raw_model is not None else ""
+    if not model:
+        if llm_settings is not None:
+            try:
+                model = default_model_for_provider(provider, llm_settings)
+            except Exception:
+                model = ""
+        if not model:
+            model = normalize_model_id(DEFAULT_MODEL)
+
+    raw_inference_mode = _thread_config_payload_value(
+        payload,
+        "inferenceMode",
+        "inference_mode",
+        "reasoningMode",
+        "reasoning_mode",
+    )
+    inference_mode = (
+        raw_inference_mode.strip().lower()
+        if raw_inference_mode is not None
+        else _thread_config_inference_mode(provider, model)
+    )
+
+    raw_retrieval_source = _thread_config_payload_value(
+        payload,
+        "retrievalSource",
+        "retrieval_source",
+        "sourceMode",
+        "source_mode",
+    )
+    retrieval_source = (
+        raw_retrieval_source.strip().lower()
+        if raw_retrieval_source
+        else "project"
+    )
+
+    raw_persona_id = (
+        payload["personaId"]
+        if "personaId" in payload
+        else payload.get("persona_id")
+    )
+    persona_id = None
+    if raw_persona_id is not None:
+        persona_text = str(raw_persona_id).strip()
+        persona_id = persona_text or None
+
+    return {
+        "providerId": provider,
+        "modelId": model,
+        "inferenceMode": inference_mode,
+        "retrievalSource": retrieval_source,
+        "personaId": persona_id,
+    }
+
+
+def _persist_thread_config_snapshot(
+    thread_id: int, thread_config: dict[str, Any]
+) -> None:
+    from guardian.core.pgdb import PgDB
+    from guardian.db.models import ChatThread
+
+    if not isinstance(chatlog_db, PgDB):
+        return
+
+    with chatlog_db._sa_session() as session:
+        thread = session.get(ChatThread, thread_id)
+        if thread is None:
+            raise RuntimeError(
+                f"chat thread {thread_id} not found while persisting thread_config"
+            )
+        thread.thread_config = thread_config
+
+
 def _coerce_positive_int(raw: Any) -> Optional[int]:
     try:
         value = int(raw)
@@ -1326,6 +1464,125 @@ def _fetch_message_extra_meta(
     return backfill
 
 
+def _fetch_thread_metadata(thread_id: int) -> dict[str, Any]:
+    getter = getattr(chatlog_db, "get_chat_thread", None)
+    if callable(getter):
+        try:
+            thread = getter(thread_id)
+        except Exception:
+            thread = None
+        if isinstance(thread, dict):
+            metadata = _coerce_message_meta(thread.get("metadata"))
+            if metadata:
+                return metadata
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return {}
+
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT metadata
+                    FROM chat_threads
+                    WHERE id = %s
+                    """,
+                    (thread_id,),
+                )
+                row = cur.fetchone()
+    except Exception:
+        logger.debug(
+            "[chat.trace] failed to read thread metadata thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+        return {}
+
+    if row is None:
+        return {}
+    if isinstance(row, dict):
+        return _coerce_message_meta(row.get("metadata"))
+    if hasattr(row, "keys"):
+        return _coerce_message_meta(dict(row).get("metadata"))
+    if isinstance(row, (list, tuple)) and row:
+        return _coerce_message_meta(row[0])
+    return {}
+
+
+def _thread_trace_entry(
+    metadata: dict[str, Any],
+    *,
+    key: str,
+    thread_id: int,
+    task_id: str | None = None,
+) -> dict[str, Any] | None:
+    entry = metadata.get(key)
+    if not isinstance(entry, dict):
+        return None
+
+    entry_task_id = str(entry.get("task_id") or "").strip()
+    if task_id is not None and entry_task_id != task_id:
+        return None
+
+    entry_thread_id = _coerce_positive_int(entry.get("thread_id"))
+    if entry_thread_id is not None and entry_thread_id != thread_id:
+        return None
+
+    trace = entry.get("trace")
+    if not isinstance(trace, dict):
+        return None
+    return dict(trace)
+
+
+def _thread_latest_task_id(
+    thread_id: int,
+    metadata: dict[str, Any],
+) -> str | None:
+    task_id = _thread_latest_task.get(thread_id)
+    if task_id:
+        return task_id
+    fallback = _normalize_task_identity(
+        metadata.get(DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY)
+    )
+    if fallback:
+        _thread_latest_task[thread_id] = fallback
+    return fallback
+
+
+def _persist_thread_latest_task_id(thread_id: int, task_id: str) -> None:
+    normalized = _normalize_task_identity(task_id)
+    if normalized is None:
+        return
+    _merge_thread_metadata_patch(
+        thread_id,
+        {DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: normalized},
+    )
+
+
+def _persist_thread_latest_rag_trace(
+    thread_id: int,
+    task_id: str,
+    trace: dict[str, Any],
+) -> None:
+    normalized = _normalize_task_identity(task_id)
+    if normalized is None or not isinstance(trace, dict):
+        return
+    _merge_thread_metadata_patch(
+        thread_id,
+        {
+            DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: normalized,
+            DEBUG_LATEST_RAG_TRACE_METADATA_KEY: {
+                "task_id": normalized,
+                "thread_id": thread_id,
+                "trace": dict(trace),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        },
+    )
+
+
 def _build_scoped_doc_override(
     docs_bundle: Dict[str, Any] | None,
     *,
@@ -1469,7 +1726,7 @@ def chat_create_thread(
         # Idempotency guard: check for recent empty thread from same user
         recent_thread = chatlog_db.get_recent_thread(user_id)
         if recent_thread:
-            # If recent thread exists and has no messages, reuse it
+            # If recent thread exists and has no messages, reuse it.
             recent_id = recent_thread.get("id")
             if recent_id and chatlog_db.count_messages(recent_id) == 0:
                 logger.info(
@@ -1477,8 +1734,13 @@ def chat_create_thread(
                     recent_id,
                     user_id,
                 )
-                return {"ok": True, "id": recent_id, "thread": recent_thread}
+                return {
+                    "ok": True,
+                    "id": recent_id,
+                    "thread": recent_thread,
+                }
 
+        thread_config = _build_thread_config_snapshot(payload)
         record = chatlog_db.create_chat_thread(
             user_id=user_id,
             title=title,
@@ -1486,6 +1748,7 @@ def chat_create_thread(
             project_id=normalized_project,
             metadata=metadata,
         )
+        _persist_thread_config_snapshot(int(record["id"]), thread_config)
         chatlog_db.write_audit_log(
             "create", "chat_thread", str(record["id"]), user_id=user_id
         )
@@ -2009,6 +2272,7 @@ async def chat_complete(
 
     # Track latest task for debug endpoint
     _thread_latest_task[thread_id] = task_identity
+    _persist_thread_latest_task_id(thread_id, task_identity)
 
     task_created_publish_error: task_events.TaskEventPublishError | None = None
     try:
@@ -2525,6 +2789,7 @@ def get_latest_rag_trace(
     """
     trace: Dict[str, Any] | None = None
     payload_summary: Dict[str, Any] | None = None
+    metadata = _fetch_thread_metadata(thread_id)
     profile_debug: Dict[str, Any] = {
         "active_profile_id": None,
         "provider_override": None,
@@ -2534,15 +2799,31 @@ def get_latest_rag_trace(
         "model_mode": None,
     }
 
-    # Try to get trace + profile data from task events if we have a recent task
-    task_id = _thread_latest_task.get(thread_id)
+    # Try to get trace + profile data from task events if we have a recent task.
+    task_id = _thread_latest_task_id(thread_id, metadata)
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
-        if completed_payload:
+        if isinstance(completed_payload, dict):
             payload_trace = completed_payload.get("trace")
             if isinstance(payload_trace, dict):
                 trace = dict(payload_trace)
                 _rag_traces[thread_id] = trace  # Cache it
+                _persist_thread_latest_rag_trace(thread_id, task_id, trace)
+            elif trace is None:
+                candidate_trace = _thread_trace_entry(
+                    metadata,
+                    key=DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
+                    thread_id=thread_id,
+                    task_id=task_id,
+                )
+                if candidate_trace is not None:
+                    trace = candidate_trace
+                    _rag_traces[thread_id] = trace
+                    _persist_thread_latest_rag_trace(
+                        thread_id,
+                        task_id,
+                        trace,
+                    )
             if isinstance(completed_payload.get("payload_summary"), dict):
                 payload_summary = dict(completed_payload.get("payload_summary"))
                 if trace is not None:
@@ -2558,6 +2839,15 @@ def get_latest_rag_trace(
             ):
                 profile_debug[key] = completed_payload.get(key)
 
+    if trace is None:
+        persisted = _thread_trace_entry(
+            metadata,
+            key=DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
+            thread_id=thread_id,
+        )
+        if persisted is not None:
+            trace = persisted
+
     # Fall back to in-memory cache
     if trace is None:
         cached = _rag_traces.get(thread_id)
@@ -2572,6 +2862,12 @@ def get_latest_rag_trace(
 
     if payload_summary is not None:
         trace["payload_summary"] = payload_summary
+
+    trace.setdefault("thread_id", thread_id)
+    trace.setdefault("project_id", None)
+    trace.setdefault("depth_mode", None)
+    trace.setdefault("source_mode", None)
+    trace.setdefault("widen_reason", "none")
 
     if resolve_thread_system_profile and (
         profile_debug["active_profile_id"] is None

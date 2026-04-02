@@ -445,6 +445,9 @@ class ContextBroker:
         # Keep source-boundary diagnostics stable while source_mode still
         # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
+            "thread_id": thread_id,
+            "project_id": resolved_project_id,
+            "depth_mode": normalized_depth,
             "documents": [
                 {
                     "id": str(item.get("id", "")),
@@ -1016,7 +1019,7 @@ class ContextBroker:
             and target_count > 0
             and len(limited_hits) >= target_count
         ):
-            preserve_count = max(target_count - 1, 1)
+            preserve_count = max(target_count - 1, 0)
             return limited_hits[:preserve_count]
         return limited_hits[:target_count]
 

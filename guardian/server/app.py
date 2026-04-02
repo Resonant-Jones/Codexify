@@ -39,6 +39,7 @@ from guardian.routes.chat import threads_router as chat_threads_router
 from guardian.routes.documents import configure_db as configure_documents_db
 from guardian.routes.documents import router as documents_router
 from guardian.routes.flows import router as flows_router
+from guardian.routes.imprint import router as imprint_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import router as projects_router
 from guardian.routes.threads import api_router as api_threads_router
@@ -104,6 +105,7 @@ app.include_router(simple_chat_router)
 app.include_router(chat_threads_router)
 app.include_router(chat_thread_router)
 app.include_router(api_chat_router)
+app.include_router(imprint_router)
 app.include_router(projects_router)
 app.include_router(api_projects_router)
 app.include_router(threads_router)

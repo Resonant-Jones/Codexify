@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from guardian.core.dependencies import (
@@ -9,6 +10,10 @@ from guardian.core.dependencies import (
     chatlog_db,
     get_request_user_id,
     require_api_key,
+)
+from guardian.services.account_restore import (
+    AccountRestoreError,
+    AccountRestoreService,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +38,66 @@ class EmbeddingRetryStats(BaseModel):
     embeddings_persisted: int = 0
     embeddings_failed: int = 0
     embedding_coverage_degraded: bool = False
+
+
+@router.post("/api/imports/account/metadata")
+@router.post("/imports/account/metadata")
+async def import_account_metadata(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    Import a canonical Codexify account export ZIP as a metadata-only restore.
+
+    This slice restores relational metadata and links only. Blob write-back is
+    not implemented here.
+    """
+    _ = api_key
+
+    if chatlog_db is None:
+        error = AccountRestoreError(
+            "Account database is not available",
+            code="restore_backend_unavailable",
+            status_code=503,
+            validated=False,
+            notes=[
+                "Metadata restore is unavailable until the account database is configured.",
+            ],
+        )
+        return JSONResponse(
+            status_code=error.status_code, content=error.to_payload()
+        )
+
+    try:
+        chunks = bytearray()
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            chunks.extend(chunk)
+
+        service = AccountRestoreService(chatlog_db)
+        report = service.restore_from_zip(bytes(chunks), user_id=user_id)
+        return report
+    except AccountRestoreError as exc:
+        return JSONResponse(
+            status_code=exc.status_code, content=exc.to_payload()
+        )
+    except Exception:
+        logger.exception("Account metadata restore failed")
+        error = AccountRestoreError(
+            "Unexpected account metadata restore failure",
+            code="account_restore_unexpected_error",
+            status_code=500,
+            validated=False,
+            notes=[
+                "The archive was not restored.",
+            ],
+        )
+        return JSONResponse(
+            status_code=error.status_code, content=error.to_payload()
+        )
 
 
 from backend.rag.chatgpt_migration import ingest_chatgpt_export

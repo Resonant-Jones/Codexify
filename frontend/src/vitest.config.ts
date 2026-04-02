@@ -9,15 +9,17 @@ export default defineConfig({
     css: true,
     include: [
       "components/**/*.test.{ts,tsx}",
+      "contracts/**/*.test.{ts,tsx}",
       "features/**/*.test.{ts,tsx}",
+      "lib/**/*.test.{ts,tsx}",
       "persona/**/*.test.{ts,tsx}",
-      "test/**/*.test.{ts,tsx}"
+      "test/**/*.test.{ts,tsx}",
     ],
     exclude: [
       "node_modules/**",
       "components/persona/__tests__/appshell-*.test.tsx",
       "components/persona/__tests__/theme-toggle-and-storage.test.tsx",
-      "components/persona/__tests__/wallpaper-demo-to-glass.test.tsx"
+      "components/persona/__tests__/wallpaper-demo-to-glass.test.tsx",
     ],
   },
   resolve: {

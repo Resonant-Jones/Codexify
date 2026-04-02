@@ -40,6 +40,9 @@ from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
 RETRIEVAL_PLAN_TRACE_KEY = "retrieval_plan"
+DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY = "debug_latest_completion_task_id"
+DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY = "debug_rag_trace_candidate"
+DEBUG_LATEST_RAG_TRACE_METADATA_KEY = "debug_latest_rag_trace"
 
 try:  # pragma: no cover - prompts are optional in some deployments
     from guardian.cognition.system_prompt_builder import (
@@ -587,6 +590,104 @@ def _serialize_retrieval_plan_trace(
     }
 
 
+def _merge_thread_metadata_patch(
+    thread_id: int,
+    patch: dict[str, Any],
+) -> bool:
+    if thread_id <= 0 or not isinstance(patch, dict) or not patch:
+        return False
+
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return False
+
+    connect = getattr(chatlog_db, "_connect", None)
+    if callable(connect):
+        try:
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb,
+                            updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (json.dumps(patch), thread_id),
+                    )
+                    rowcount = getattr(cur, "rowcount", 0)
+                    return bool(rowcount)
+        except Exception:
+            logger.debug(
+                "[chat-completion] failed to merge thread metadata thread_id=%s",
+                thread_id,
+                exc_info=True,
+            )
+
+    getter = getattr(chatlog_db, "get_chat_thread", None)
+    updater = getattr(chatlog_db, "update_thread_metadata", None)
+    if not callable(updater):
+        return False
+
+    metadata: dict[str, Any] = {}
+    if callable(getter):
+        try:
+            thread = getter(thread_id)
+        except Exception:
+            thread = None
+        if isinstance(thread, dict):
+            raw_metadata = thread.get("metadata")
+            if isinstance(raw_metadata, dict):
+                metadata.update(raw_metadata)
+            elif isinstance(raw_metadata, str):
+                try:
+                    parsed = json.loads(raw_metadata)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    metadata.update(parsed)
+
+    metadata.update(patch)
+    try:
+        return bool(updater(thread_id, metadata))
+    except Exception:
+        logger.debug(
+            "[chat-completion] failed to update thread metadata thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+        return False
+
+
+def _persist_thread_trace_candidate(
+    task: ChatCompletionTask,
+    trace: dict[str, Any] | None,
+) -> None:
+    if not isinstance(trace, dict):
+        return
+
+    task_id = str(getattr(task, "task_id", "") or "").strip()
+    thread_id = int(getattr(task, "thread_id", 0) or 0)
+    if not task_id or thread_id <= 0:
+        return
+
+    patch = {
+        DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: task_id,
+        DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY: {
+            "task_id": task_id,
+            "thread_id": thread_id,
+            "trace": dict(trace),
+            "updated_at": datetime.now(UTC).isoformat(),
+        },
+    }
+    if not _merge_thread_metadata_patch(thread_id, patch):
+        logger.debug(
+            "[chat-completion] failed to persist rag trace candidate thread_id=%s task_id=%s",
+            thread_id,
+            task_id,
+        )
+
+
 async def build_messages_for_llm(
     task: ChatCompletionTask,
 ) -> tuple[
@@ -803,6 +904,8 @@ async def build_messages_for_llm(
             depth,
             exc,
         )
+
+    _persist_thread_trace_candidate(task, trace)
 
     messages_for_llm.extend(context)
 
