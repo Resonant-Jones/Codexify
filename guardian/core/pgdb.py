@@ -3138,3 +3138,510 @@ def fetch_imported_chatgpt_messages_for_thread(
                 conn_err,
                 exc_info=True,
             )
+
+
+ACCOUNT_EXPORT_PAYLOAD_ORDER = (
+    "projects",
+    "chat_threads",
+    "chat_messages",
+    "uploaded_documents",
+    "generated_documents",
+    "uploaded_images",
+    "generated_images",
+    "media_assets",
+    "media_aliases",
+    "thread_documents",
+    "project_document_links",
+)
+
+
+def _normalize_export_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _normalize_export_value(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_normalize_export_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_export_value(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    return value
+
+
+def _normalize_export_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: _normalize_export_value(value) for key, value in dict(row).items()
+    }
+
+
+def _export_rows(
+    cur,
+    query: str,
+    params: tuple[Any, ...] | list[Any] = (),
+) -> list[dict[str, Any]]:
+    cur.execute(query, params)
+    return [_normalize_export_row(dict(row)) for row in cur.fetchall()]
+
+
+def _export_scope_clause(
+    *clauses: tuple[str, Any | None]
+) -> tuple[str, list[Any]]:
+    active_clauses: list[str] = []
+    params: list[Any] = []
+    for clause, value in clauses:
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple, set)) and len(value) == 0:
+            continue
+        active_clauses.append(f"({clause})")
+        params.append(list(value) if isinstance(value, set) else value)
+    if not active_clauses:
+        return "FALSE", params
+    return " OR ".join(active_clauses), params
+
+
+def _append_unique(values: list[Any], row_values: list[Any]) -> list[Any]:
+    seen = set(values)
+    for value in row_values:
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+    return values
+
+
+def fetch_account_export_bundle_for_user(
+    user_id: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Return the complete canonical account export payload bundle for a user.
+
+    The bundle is keyed by logical family name and keeps user scoping explicit.
+    """
+    if not user_id:
+        return {family: [] for family in ACCOUNT_EXPORT_PAYLOAD_ORDER}
+
+    dsn = _resolve_dsn()
+    conn = psycopg.connect(dsn, row_factory=dict_row)
+    try:
+        with conn.cursor() as cur:
+            bundles: dict[str, list[dict[str, Any]]] = {
+                family: [] for family in ACCOUNT_EXPORT_PAYLOAD_ORDER
+            }
+
+            bundles["chat_threads"] = _export_rows(
+                cur,
+                """
+                SELECT
+                    id, user_id, title, summary, project_id,
+                    active_profile_id, parent_id, archived_at,
+                    is_diary, diary_mode, exclude_from_identity,
+                    modeling_excluded, created_at, updated_at
+                FROM chat_threads
+                WHERE user_id = %s
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (user_id,),
+            )
+
+            thread_ids = [row.get("id") for row in bundles["chat_threads"]]
+            project_ids = _append_unique(
+                [],
+                [
+                    row.get("project_id")
+                    for row in bundles["chat_threads"]
+                    if row.get("project_id") is not None
+                ],
+            )
+
+            bundles["chat_messages"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, thread_id, role, content, event_at,
+                        kind, extra_meta, created_at
+                    FROM chat_messages
+                    WHERE thread_id = ANY(%s)
+                    ORDER BY COALESCE(event_at, created_at) ASC, id ASC
+                    """,
+                    (
+                        [
+                            thread_id
+                            for thread_id in thread_ids
+                            if thread_id is not None
+                        ],
+                    ),
+                )
+                if thread_ids
+                else []
+            )
+
+            document_scope_clause, document_scope_params = _export_scope_clause(
+                ("user_id = %s", user_id),
+                (
+                    "thread_id = ANY(%s)",
+                    [t for t in thread_ids if t is not None],
+                ),
+                ("project_id = ANY(%s)", project_ids),
+            )
+
+            bundles["uploaded_documents"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, asset_id, project_id, thread_id, user_id,
+                    filename, filesize, mime_type, src_url, source_tag,
+                    parsed_text, embedding_status, embedding_error,
+                    embedding_started_at, embedding_completed_at,
+                    created_at, updated_at, deleted_at
+                FROM uploaded_documents
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+            bundles["generated_documents"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, project_id, thread_id, user_id, title, content,
+                    format, model, created_at, updated_at, deleted_at
+                FROM generated_documents
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+            bundles["uploaded_images"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, asset_id, project_id, thread_id, user_id,
+                    src_url, filename, filesize, mime_type, source_tag,
+                    created_at, updated_at, deleted_at
+                FROM uploaded_images
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+            bundles["generated_images"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, asset_id, project_id, thread_id, user_id,
+                    src_url, prompt, model, created_at, updated_at, deleted_at
+                FROM generated_images
+                WHERE {document_scope_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(document_scope_params),
+            )
+
+            for family in (
+                "uploaded_documents",
+                "generated_documents",
+                "uploaded_images",
+                "generated_images",
+            ):
+                project_ids = _append_unique(
+                    project_ids,
+                    [
+                        row.get("project_id")
+                        for row in bundles[family]
+                        if row.get("project_id") is not None
+                    ],
+                )
+
+            asset_ids = _append_unique(
+                [],
+                [
+                    row.get("asset_id")
+                    for row in bundles["uploaded_documents"]
+                    + bundles["uploaded_images"]
+                    + bundles["generated_images"]
+                    if row.get("asset_id") is not None
+                ],
+            )
+
+            media_scope_clause, media_scope_params = _export_scope_clause(
+                ("user_id = %s", user_id),
+                (
+                    "thread_id = ANY(%s)",
+                    [t for t in thread_ids if t is not None],
+                ),
+                ("project_id = ANY(%s)", project_ids),
+                ("id = ANY(%s)", asset_ids),
+            )
+            bundles["media_assets"] = _export_rows(
+                cur,
+                f"""
+                SELECT
+                    id, project_id, thread_id, user_id, media_kind,
+                    provenance, source_tag, content_hash,
+                    deterministic_id, normalized_slug, system_name,
+                    storage_prefix, src_url, mime_type, filesize,
+                    ingested_at, deleted_at
+                FROM media_assets
+                WHERE {media_scope_clause}
+                ORDER BY ingested_at ASC, id ASC
+                """,
+                tuple(media_scope_params),
+            )
+
+            project_ids = _append_unique(
+                project_ids,
+                [
+                    row.get("project_id")
+                    for row in bundles["media_assets"]
+                    if row.get("project_id") is not None
+                ],
+            )
+            asset_ids = _append_unique(
+                asset_ids,
+                [
+                    row.get("id")
+                    for row in bundles["media_assets"]
+                    if row.get("id") is not None
+                ],
+            )
+
+            bundles["media_aliases"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, asset_id, alias, alias_normalized,
+                        alias_type, created_at
+                    FROM media_aliases
+                    WHERE asset_id = ANY(%s)
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (
+                        [
+                            asset_id
+                            for asset_id in asset_ids
+                            if asset_id is not None
+                        ],
+                    ),
+                )
+                if asset_ids
+                else []
+            )
+
+            bundles["thread_documents"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT id, thread_id, document_id, relation, created_at
+                    FROM thread_documents
+                    WHERE thread_id = ANY(%s)
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (
+                        [
+                            thread_id
+                            for thread_id in thread_ids
+                            if thread_id is not None
+                        ],
+                    ),
+                )
+                if thread_ids
+                else []
+            )
+
+            bundles["project_document_links"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, project_id, document_id, document_type,
+                        is_enabled, attached_at, attached_by
+                    FROM project_document_links
+                    WHERE project_id = ANY(%s)
+                    ORDER BY attached_at ASC, id ASC
+                    """,
+                    (
+                        [
+                            project_id
+                            for project_id in project_ids
+                            if project_id is not None
+                        ],
+                    ),
+                )
+                if project_ids
+                else []
+            )
+
+            bundles["projects"] = (
+                _export_rows(
+                    cur,
+                    """
+                    SELECT
+                        id, name, description, icon,
+                        identity_depth, created_at, updated_at
+                    FROM projects
+                    WHERE id = ANY(%s)
+                    ORDER BY id ASC
+                    """,
+                    (
+                        [
+                            project_id
+                            for project_id in project_ids
+                            if project_id is not None
+                        ],
+                    ),
+                )
+                if project_ids
+                else []
+            )
+
+            return bundles
+    finally:
+        try:
+            conn.close()
+        except Exception as conn_err:
+            logger.debug(
+                "Failed to close account export bundle connection: %s",
+                conn_err,
+                exc_info=True,
+            )
+
+
+def _bundle_family_rows(user_id: str, family: str) -> list[dict[str, Any]]:
+    bundle = fetch_account_export_bundle_for_user(user_id)
+    return bundle.get(family, [])
+
+
+def fetch_account_export_projects_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "projects")
+
+
+def fetch_account_export_chat_threads_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "chat_threads")
+
+
+def fetch_account_export_chat_messages_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "chat_messages")
+
+
+def fetch_account_export_uploaded_documents_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "uploaded_documents")
+
+
+def fetch_account_export_generated_documents_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "generated_documents")
+
+
+def fetch_account_export_uploaded_images_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "uploaded_images")
+
+
+def fetch_account_export_generated_images_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "generated_images")
+
+
+def fetch_account_export_media_assets_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "media_assets")
+
+
+def fetch_account_export_media_aliases_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "media_aliases")
+
+
+def fetch_account_export_thread_documents_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "thread_documents")
+
+
+def fetch_account_export_project_document_links_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "project_document_links")
+
+
+def iter_account_export_payloads_for_user(
+    user_id: str,
+):
+    bundle = fetch_account_export_bundle_for_user(user_id)
+    for family, path, _reader_name in (
+        (
+            "projects",
+            "entities/projects.json",
+            "fetch_account_export_projects_for_user",
+        ),
+        (
+            "chat_threads",
+            "entities/chat_threads.json",
+            "fetch_account_export_chat_threads_for_user",
+        ),
+        (
+            "chat_messages",
+            "entities/chat_messages.json",
+            "fetch_account_export_chat_messages_for_user",
+        ),
+        (
+            "uploaded_documents",
+            "entities/uploaded_documents.json",
+            "fetch_account_export_uploaded_documents_for_user",
+        ),
+        (
+            "generated_documents",
+            "entities/generated_documents.json",
+            "fetch_account_export_generated_documents_for_user",
+        ),
+        (
+            "uploaded_images",
+            "entities/uploaded_images.json",
+            "fetch_account_export_uploaded_images_for_user",
+        ),
+        (
+            "generated_images",
+            "entities/generated_images.json",
+            "fetch_account_export_generated_images_for_user",
+        ),
+        (
+            "media_assets",
+            "entities/media_assets.json",
+            "fetch_account_export_media_assets_for_user",
+        ),
+        (
+            "media_aliases",
+            "entities/media_aliases.json",
+            "fetch_account_export_media_aliases_for_user",
+        ),
+        (
+            "thread_documents",
+            "entities/thread_documents.json",
+            "fetch_account_export_thread_documents_for_user",
+        ),
+        (
+            "project_document_links",
+            "entities/project_document_links.json",
+            "fetch_account_export_project_document_links_for_user",
+        ),
+    ):
+        yield family, path, bundle.get(family, [])
