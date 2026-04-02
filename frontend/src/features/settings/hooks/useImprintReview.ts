@@ -29,6 +29,7 @@ export type UseImprintReviewResult = {
   error: string | null;
   loading: boolean;
   outcome: ImprintReviewOutcome | null;
+  generateProposal: () => Promise<void>;
   proposal: ImprintProposal | null;
   refresh: () => Promise<void>;
   rejecting: boolean;
@@ -146,6 +147,8 @@ export function useImprintReview(
     }
   }, [projectId, proposal?.imprintDraft?.id, threadId]);
 
+  const generateProposal = refresh;
+
   const rejectProposal = useCallback(async () => {
     const imprintId = proposal?.imprintDraft?.id;
     if (!imprintId) {
@@ -178,6 +181,7 @@ export function useImprintReview(
   return {
     accepting,
     error,
+    generateProposal,
     loading,
     outcome,
     proposal,

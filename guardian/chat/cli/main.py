@@ -30,6 +30,7 @@ from guardian.utils.groq_helpers import (
 
 app = typer.Typer()
 
+# Keep the imprint-zero group wired to the shared Typer app in guardian.cli.imprint_zero_cli.
 app.add_typer(ImprintZero, name="imprint-zero")
 
 
