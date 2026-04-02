@@ -15,6 +15,15 @@ from pydantic import (
     model_validator,
 )
 
+try:  # pragma: no cover - optional backend catalog
+    from guardian.cognition.system_profiles import (
+        store as persona_profile_store,
+    )
+except (
+    Exception
+):  # pragma: no cover - backend store may be unavailable in tests
+    persona_profile_store = None
+
 
 def _clean_text(value: Any) -> str | None:
     if value is None:
@@ -247,9 +256,38 @@ def _load_env_catalog() -> dict[str, SystemProfilePayload]:
     return catalog
 
 
+def _load_backend_catalog() -> dict[str, SystemProfilePayload]:
+    if persona_profile_store is None:
+        return {}
+    try:
+        backend_profiles = persona_profile_store.list_persona_profiles()
+    except Exception:
+        return {}
+
+    catalog: dict[str, SystemProfilePayload] = {}
+    for profile in backend_profiles:
+        try:
+            raw = persona_profile_store.persona_profile_to_dict(profile)
+            payload = {
+                "profile_id": raw.get("id"),
+                "name": raw.get("name"),
+                "provider_override": raw.get("model_provider"),
+                "model_override": raw.get("model_id"),
+                "temperature_override": raw.get("temperature"),
+                "system_prompt": raw.get("system_prompt"),
+                "system_prompt_blocks": {},
+            }
+            parsed = SystemProfilePayload.model_validate(payload)
+        except Exception:
+            continue
+        catalog[parsed.profile_id] = parsed
+    return catalog
+
+
 def _profile_catalog() -> dict[str, SystemProfilePayload]:
     catalog = _default_profile_catalog()
     catalog.update(_load_env_catalog())
+    catalog.update(_load_backend_catalog())
     if "default" not in catalog:
         catalog["default"] = SystemProfilePayload(
             profile_id="default",
@@ -431,6 +469,9 @@ def list_available_system_profiles(
                 or _normalize_mode(None, profile.provider_override),
                 "provider_override": profile.provider_override,
                 "model_override": profile.model_override,
+                "temperature_override": profile.temperature_override,
+                "system_prompt": profile.system_prompt,
+                "system_prompt_blocks": profile.system_prompt_blocks,
             }
         )
     return output

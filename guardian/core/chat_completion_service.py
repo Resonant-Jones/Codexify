@@ -35,7 +35,14 @@ from guardian.core.config import (
     get_settings,
     validate_llm_config,
 )
-from guardian.core.provider_registry import model_supports_capability
+from guardian.core.llm_catalog import first_enabled_provider
+from guardian.core.provider_registry import (
+    default_model_for_provider,
+    model_supports_capability,
+    normalize_model_id,
+    normalize_provider,
+    resolve_provider_for_model,
+)
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -50,6 +57,13 @@ try:  # pragma: no cover - prompts are optional in some deployments
     )
 except Exception:  # pragma: no cover - optional dependency
     build_guardian_system_prompt = None
+
+try:  # pragma: no cover - profile store may be unavailable in some tests
+    from guardian.cognition.system_profiles.resolver import (
+        resolve_thread_system_profile,
+    )
+except Exception:  # pragma: no cover - optional dependency
+    resolve_thread_system_profile = None
 
 
 class ChatTaskCancelled(RuntimeError):
@@ -699,21 +713,10 @@ async def build_messages_for_llm(
 ]:
     """Build contextual messages and provider/model selection for one task."""
     settings = get_settings()
+    raw_task_provider = str(task.provider or "").strip()
     provider = (
-        (task.provider or settings.LLM_PROVIDER or dependencies.CHAT_PROVIDER)
-        .strip()
-        .lower()
+        normalize_provider(raw_task_provider) if raw_task_provider else ""
     )
-
-    if validate_llm_config:
-        try:
-            validate_llm_config(settings, provider_override=provider)
-        except LLMConfigError as exc:
-            logger.warning(
-                "[chat-completion] LLM config error provider=%s detail=%s",
-                provider,
-                exc,
-            )
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -729,6 +732,77 @@ async def build_messages_for_llm(
     )
     if not thread_info:
         raise ValueError("thread_not_found")
+
+    resolved_profile = None
+    if resolve_thread_system_profile is not None:
+        try:
+            resolved_profile = resolve_thread_system_profile(
+                thread_id,
+                chatlog_db=getattr(dependencies, "chatlog_db", None),
+            )
+        except Exception as exc:
+            logger.debug(
+                "[chat-completion] thread profile resolution failed thread_id=%s err=%s",
+                thread_id,
+                exc,
+            )
+            resolved_profile = None
+
+    profile_provider = None
+    profile_model = None
+    profile_temperature = None
+    if resolved_profile is not None:
+        raw_profile_provider = getattr(
+            resolved_profile, "provider_override", None
+        )
+        if raw_profile_provider is not None:
+            profile_provider = normalize_provider(raw_profile_provider)
+        raw_profile_model = getattr(resolved_profile, "model_override", None)
+        if raw_profile_model is not None:
+            profile_model = normalize_model_id(raw_profile_model)
+        profile_temperature = getattr(
+            resolved_profile, "temperature_override", None
+        )
+
+    if not provider and task.model:
+        try:
+            raw_inferred_provider = resolve_provider_for_model(
+                task.model, settings=settings
+            )
+            inferred_provider = (
+                normalize_provider(raw_inferred_provider)
+                if raw_inferred_provider is not None
+                else None
+            )
+        except Exception:
+            inferred_provider = None
+        if inferred_provider:
+            provider = inferred_provider
+
+    if not provider and profile_provider:
+        provider = profile_provider
+
+    if not provider:
+        raw_provider = str(
+            settings.LLM_PROVIDER or dependencies.CHAT_PROVIDER or ""
+        ).strip()
+        if raw_provider:
+            provider = normalize_provider(raw_provider)
+
+    if not provider:
+        first_provider = first_enabled_provider(settings=settings)
+        if first_provider:
+            provider = normalize_provider(first_provider)
+
+    if validate_llm_config and provider:
+        try:
+            validate_llm_config(settings, provider_override=provider)
+        except LLMConfigError as exc:
+            logger.warning(
+                "[chat-completion] LLM config error provider=%s detail=%s",
+                provider,
+                exc,
+            )
 
     limit = int(task.max_context or 50)
     items = dependencies.chatlog_db.list_messages(
@@ -819,6 +893,7 @@ async def build_messages_for_llm(
                 project_id=project_id_for_prompt,
                 depth=depth,
                 bundle=bundle,
+                profile=resolved_profile,
             )
             token_est = prompt_meta.get(
                 "estimated_tokens", _estimate_tokens(system_content)
@@ -909,16 +984,25 @@ async def build_messages_for_llm(
 
     messages_for_llm.extend(context)
 
-    model = task.model
-    if not model and provider == "local":
+    model = normalize_model_id(task.model)
+    if not model and profile_model:
+        model = profile_model
+    if not model and provider:
         model = (
-            settings.LOCAL_LLM_MODEL
-            or settings.DEFAULT_LOCAL_MODEL
-            or settings.LLM_MODEL
+            default_model_for_provider(provider, settings)
+            or dependencies.DEFAULT_MODEL
             or ""
         )
     if not model:
         model = dependencies.DEFAULT_MODEL or ""
+
+    temperature = getattr(task, "temperature", None)
+    if temperature is None and profile_temperature is not None:
+        temperature = profile_temperature
+
+    task.provider = provider or None
+    task.model = model or None
+    task.temperature = temperature if temperature is not None else None
 
     return messages_for_llm, provider, model, bundle, trace
 
@@ -979,6 +1063,7 @@ def run_chat_completion_task(
             messages_for_llm,
             model,
             reasoning_mode=getattr(task, "reasoning_mode", None),
+            temperature=getattr(task, "temperature", None),
         )
         try:
             for token in token_stream:
@@ -1003,6 +1088,7 @@ def run_chat_completion_task(
                     model=model,
                     provider=provider,
                     reasoning_mode=getattr(task, "reasoning_mode", None),
+                    temperature=getattr(task, "temperature", None),
                     prompt_meta=(
                         dict(bundle.get("_prompt_meta") or {})
                         if isinstance(bundle, dict)
@@ -1022,6 +1108,7 @@ def run_chat_completion_task(
                 model=model,
                 provider=provider,
                 reasoning_mode=getattr(task, "reasoning_mode", None),
+                temperature=getattr(task, "temperature", None),
                 prompt_meta=(
                     dict(bundle.get("_prompt_meta") or {})
                     if isinstance(bundle, dict)

@@ -1,10 +1,19 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
 import PersonaStudioPage from "../PersonaStudioPage";
+import {
+  personaStudioApiMock,
+  resetPersonaStudioApiMock,
+} from "./personaStudioApiMock";
+
+vi.mock("@/features/personaStudio/personaStudioApi", async () =>
+  (await import("./personaStudioApiMock")).personaStudioApiMock
+);
 
 beforeEach(() => {
   window.localStorage.clear();
+  resetPersonaStudioApiMock();
 });
 
 describe("Persona Studio tabs", () => {
