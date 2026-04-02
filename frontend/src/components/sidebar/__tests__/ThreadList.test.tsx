@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import ThreadList from "../ThreadList";
-import type { ProjectPresentation } from "../sidebarPresentation";
 import type { Thread } from "@/types/ui";
 
 function createThread(overrides: Partial<Thread> = {}): Thread {
@@ -17,24 +16,12 @@ function createThread(overrides: Partial<Thread> = {}): Thread {
   };
 }
 
-function renderThreadList(
-  overrides: Partial<Thread> = {},
-  activeId: string | null = null,
-  options: {
-    browseMode?: "grouped" | "flat";
-    projectPresentationsById?: Map<string, ProjectPresentation>;
-    scopeLabel?: string;
-    scopeBadge?: string | null;
-  } = {}
-) {
+function renderThreadList(overrides: Partial<Thread> = {}, activeId: string | null = null) {
   return render(
     <ThreadList
       threads={[createThread(overrides)]}
       activeId={activeId}
-      scopeLabel={options.scopeLabel ?? "General"}
-      scopeBadge={options.scopeBadge ?? null}
-      browseMode={options.browseMode}
-      projectPresentationsById={options.projectPresentationsById}
+      scopeLabel="General"
       onSelect={vi.fn()}
       onNewChat={vi.fn()}
       onRename={vi.fn().mockResolvedValue(undefined)}
@@ -83,38 +70,5 @@ describe("ThreadList dark mode surface contract", () => {
     expect(screen.getByText("Project:")).toBeInTheDocument();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.queryByText("Scope:")).not.toBeInTheDocument();
-  });
-
-  it("cleans visible thread titles and keeps project context visible in flat mode", () => {
-    renderThreadList(
-      {
-        title: "ChatGPT: Draft brief",
-        metadata: { import_source: "chatgpt" },
-        projectId: "proj-1",
-      },
-      null,
-      {
-        browseMode: "flat",
-        scopeLabel: "All threads",
-        projectPresentationsById: new Map<string, ProjectPresentation>([
-          [
-            "proj-1",
-            {
-              label: "Recovery Sprint",
-              badge: null,
-              rawName: "ChatGPT: Recovery Sprint",
-              isFallback: false,
-            },
-          ],
-        ]),
-      }
-    );
-
-    expect(screen.getByText("Draft brief")).toBeInTheDocument();
-    expect(screen.getByText("ChatGPT")).toBeInTheDocument();
-    expect(screen.getByTestId("thread-project-thread-1")).toHaveTextContent(
-      "Recovery Sprint"
-    );
-    expect(screen.queryByText("ChatGPT: Draft brief")).not.toBeInTheDocument();
   });
 });

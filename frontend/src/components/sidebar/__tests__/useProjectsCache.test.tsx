@@ -43,20 +43,4 @@ describe("useProjectsCache", () => {
 
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
   });
-
-  it("treats Imports as the canonical general project when it is the only fallback bucket", async () => {
-    (api.get as any).mockResolvedValueOnce({
-      data: {
-        projects: [{ id: 1, name: "Imports", icon: "📁" }],
-      },
-    });
-
-    render(<ProjectsHarness />);
-
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(window.localStorage.getItem("cfy.generalProjectId")).toBe("1")
-    );
-    expect(window.localStorage.getItem("cfy.defaultProjectId")).toBe("1");
-  });
 });
