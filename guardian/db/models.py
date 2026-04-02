@@ -1423,6 +1423,117 @@ class UserSettings(Base):
 
 
 # =========================
+# Imprint Semantic Core
+# =========================
+
+
+class ImprintObservation(Base):
+    """Append-only durable imprint signal evidence."""
+
+    __tablename__ = "imprint_observations"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    provenance: Mapped[dict] = mapped_column(
+        JSON, nullable=False, server_default="{}"
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    signal_payload: Mapped[dict] = mapped_column(
+        JSON, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "schema_version >= 1",
+            name="imprint_observations_schema_version_check",
+        ),
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_imprint_observations_idempotency_key",
+        ),
+        Index(
+            "ix_imprint_observations_user_project_created",
+            "user_id",
+            "project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_imprint_observations_user_scope",
+            "user_id",
+            "project_id",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ImprintFoldState(Base):
+    """Materialized imprint state folded from append-only observations."""
+
+    __tablename__ = "imprint_fold_states"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    scope_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    scope_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fold_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    source_observation_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    source_observation_max_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    state_payload: Mapped[dict] = mapped_column(
+        JSON, nullable=False, server_default="{}"
+    )
+    state_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=""
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "scope_kind IN ('user_global','project_scoped')",
+            name="imprint_fold_states_scope_kind_check",
+        ),
+        UniqueConstraint(
+            "scope_key",
+            name="uq_imprint_fold_states_scope_key",
+        ),
+        Index("ix_imprint_fold_states_user_scope", "user_id", "scope_kind"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Imprints, Personas, System Docs
 # =========================
 

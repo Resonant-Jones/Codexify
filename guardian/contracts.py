@@ -5,6 +5,11 @@ CONTRACTS_DIR = os.path.join(
     os.path.dirname(__file__), "../guardian-codex/integrity"
 )
 
+# Allow `guardian.contracts` to act as a package namespace so callers can
+# import `guardian.contracts.imprint_snapshot` without breaking the legacy
+# contract helper module that already lives at this path.
+__path__ = [os.path.join(os.path.dirname(__file__), "contracts")]
+
 _contract_cache = {}
 
 

@@ -24,7 +24,12 @@ from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt,
 )
 from guardian.core.dependencies import get_current_user, require_api_key
-from guardian.services import iddb_settings_service, imprint_scope_service
+from guardian.services import (
+    iddb_settings_service,
+    imprint_proposal_service,
+    imprint_scope_service,
+    imprint_signal_snapshot_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -273,31 +278,6 @@ def get_imprint_status(
     }
 
 
-def _generate_name(user_id: str, project_id: int | None) -> str:
-    """
-    Lightweight, deterministic-ish fallback name generator inspired by ImprintName.ts vibe categories.
-    For v1 we use a simple hash-based name to avoid porting the TS generator fully.
-    """
-    seed = f"{user_id}:{project_id}".encode()
-    val = sum(seed) % 10000
-    syllables = [
-        "Ari",
-        "Len",
-        "Vor",
-        "Ny",
-        "Sol",
-        "Kai",
-        "Ren",
-        "Lio",
-        "Mira",
-        "Cen",
-    ]
-    return (
-        syllables[val % len(syllables)]
-        + syllables[(val // len(syllables)) % len(syllables)]
-    )
-
-
 @router.post("/proposal")
 def create_imprint_proposal(
     body: dict[str, Any] = Body(default_factory=dict),
@@ -331,30 +311,36 @@ def create_imprint_proposal(
             status_code=403, detail="identity updates disabled for this context"
         )
 
-    # In a fuller implementation, we would compute marker signals and call the TS name generator.
-    name = _generate_name(user_id, resolved_project)
-    preferred_name = "friend"
-
-    persona_text = (
-        f"You are {name}, the Guardian assistant for this user inside Codexify. "
-        f'When the user asks for your name, always reply first with exactly "{name}". '
-        "You may optionally add that you are their Guardian inside Codexify.\n\n"
-        f'Address the user as "{preferred_name}" when it feels natural. '
-        "Respond concisely, with clarity and kindness. Keep answers grounded; when unsure, ask a clarifying question."
+    snapshot = imprint_signal_snapshot_service.build_imprint_signal_snapshot(
+        user_id=user_id,
+        project_id=resolved_project,
+        requested_depth=requested_depth,
+        project_identity_depth=project_identity_depth,
     )
+    proposal = imprint_proposal_service.build_imprint_proposal(snapshot)
 
     imprint = imprint_store.save_imprint(
         user_id=user_id,
         project_id=resolved_project,
         status="draft",
-        guardian_name=name,
-        preferred_name=preferred_name,
-        style="playful-dry",
-        heat_score=0.7,
-        metrics={"persona_draft": persona_text, "proposed_name": name},
+        guardian_name=proposal.proposal_name,
+        preferred_name=proposal.preferred_name,
+        style=proposal.prompt_metadata.get("style"),
+        grammar_prefs=proposal.prompt_metadata.get("grammar_prefs") or {},
+        heat_score=proposal.prompt_metadata.get("heat_score"),
+        metrics={
+            "proposal_name": proposal.proposal_name,
+            "persona_draft": proposal.persona_draft,
+            "prompt_metadata": proposal.prompt_metadata,
+            "snapshot_version": snapshot.snapshot_version,
+            "snapshot_hash": snapshot.snapshot_hash,
+            "proposal_version": proposal.proposal_version,
+            "generator_version": proposal.generator_version,
+        },
     )
 
     return {
+        "proposal": proposal.to_dict(),
         "imprint_draft": {
             "id": imprint.id,
             "user_id": imprint.user_id,
@@ -364,8 +350,9 @@ def create_imprint_proposal(
             "status": imprint.status,
             "heat_score": imprint.heat_score,
         },
-        "persona_draft": persona_text,
-        "name": name,
+        "persona_draft": proposal.persona_draft,
+        "name": proposal.proposal_name,
+        "prompt_metadata": proposal.prompt_metadata,
     }
 
 

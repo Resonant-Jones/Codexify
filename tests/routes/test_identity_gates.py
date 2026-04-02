@@ -8,9 +8,18 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from guardian.db.models import Base, UserSettings
+from guardian.db.models import (
+    Base,
+    ImprintFoldState,
+    ImprintObservation,
+    UserSettings,
+)
 from guardian.routes import imprint as imprint_routes
-from guardian.services import iddb_settings_service
+from guardian.services import (
+    iddb_settings_service,
+    imprint_fold_service,
+    imprint_observation_service,
+)
 
 AUTH_HEADERS = {"X-API-Key": "test-api-key", "X-User-Id": "u1"}
 
@@ -29,11 +38,20 @@ def _settings_db():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(bind=engine, tables=[UserSettings.__table__])
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            UserSettings.__table__,
+            ImprintObservation.__table__,
+            ImprintFoldState.__table__,
+        ],
+    )
     Session = sessionmaker(
         bind=engine, autoflush=False, autocommit=False, future=True
     )
     iddb_settings_service._set_session_factory(Session)
+    imprint_observation_service._set_session_factory(Session)
+    imprint_fold_service._set_session_factory(Session)
     yield
 
 
