@@ -5,6 +5,7 @@ import logging
 import multiprocessing as mp
 import os
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 from guardian.core import dependencies
@@ -37,6 +38,48 @@ _MAX_EMBED_TEXT_CHARS = int(
 _EMBED_SUBPROCESS_TIMEOUT_S = float(
     os.getenv("CODEXIFY_CHATGPT_IMPORT_EMBED_TIMEOUT_SECONDS", "180")
 )
+
+
+def _parse_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid %s=%r; using default=%d",
+            name,
+            raw,
+            default,
+        )
+        return default
+    if value <= 0:
+        logger.warning(
+            "Invalid %s=%r; using default=%d",
+            name,
+            raw,
+            default,
+        )
+        return default
+    return value
+
+
+_IMPORT_EMBED_BATCH_SIZE = _parse_positive_int_env(
+    "CODEXIFY_CHATGPT_IMPORT_EMBED_BATCH_SIZE", 16
+)
+
+
+def _iter_embedding_batches(
+    items: List[Dict[str, Any]],
+    message_ids: List[int],
+    batch_size: int,
+):
+    for start in range(0, len(items), batch_size):
+        yield (
+            items[start : start + batch_size],
+            message_ids[start : start + batch_size],
+        )
 
 
 def _detect_non_json_hint(content: bytes) -> Optional[str]:
@@ -95,19 +138,21 @@ def _embed_items_best_effort(
         "embeddings_persisted": 0,
         "embeddings_failed": candidates,
         "embedding_coverage_degraded": candidates > 0,
+        "failure_class": None,
     }
     if not items:
         diagnostics["embedding_coverage_degraded"] = False
         return diagnostics
 
     if vector_store is None:
+        diagnostics["failure_class"] = "vector_store_unavailable"
         logger.warning(
             "ChatGPT import embedding unavailable; skipped candidate batch size=%d",
             candidates,
         )
         return diagnostics
 
-    def _embed_in_process() -> Dict[str, Any]:
+    if not _IMPORT_EMBED_ISOLATED:
         try:
             persisted = vector_store.add_texts(items)
             if persisted is None:
@@ -122,15 +167,15 @@ def _embed_items_best_effort(
             diagnostics["embedding_coverage_degraded"] = (
                 diagnostics["embeddings_failed"] > 0
             )
+            if diagnostics["embedding_coverage_degraded"]:
+                diagnostics["failure_class"] = "partial_write"
         except Exception as exc:
+            diagnostics["failure_class"] = type(exc).__name__
             logger.warning(
                 "ChatGPT import embedding write failed in-process: %s",
                 exc,
             )
         return diagnostics
-
-    if not _IMPORT_EMBED_ISOLATED:
-        return _embed_in_process()
 
     try:
         ctx = mp.get_context("spawn")
@@ -140,29 +185,32 @@ def _embed_items_best_effort(
         if proc.is_alive():
             proc.terminate()
             proc.join(timeout=5.0)
+            diagnostics["failure_class"] = "subprocess_timeout"
             logger.warning(
                 "ChatGPT import embedding timed out after %.1fs; skipped batch size=%d",
                 _EMBED_SUBPROCESS_TIMEOUT_S,
                 candidates,
             )
-            return _embed_in_process()
+            return diagnostics
         if proc.exitcode != 0:
+            diagnostics["failure_class"] = f"subprocess_exit_{proc.exitcode}"
             logger.warning(
                 "ChatGPT import embedding subprocess failed with exit code=%s for batch size=%d",
                 proc.exitcode,
                 candidates,
             )
-            return _embed_in_process()
+            return diagnostics
         diagnostics["embeddings_persisted"] = candidates
         diagnostics["embeddings_failed"] = 0
         diagnostics["embedding_coverage_degraded"] = False
         return diagnostics
     except Exception as exc:
+        diagnostics["failure_class"] = type(exc).__name__
         logger.warning(
             "ChatGPT import embedding subprocess launch failed: %s",
             exc,
         )
-        return _embed_in_process()
+        return diagnostics
 
 
 def _fetch_retryable_chatgpt_embedding_items(
@@ -337,6 +385,96 @@ def _persist_chatgpt_embedding_attempt_outcome(
             len(message_ids),
             exc,
         )
+
+
+def _log_chatgpt_embedding_batch(
+    *,
+    operation: str,
+    batch_index: int,
+    batch_total: int,
+    candidate_count: int,
+    persisted_count: int,
+    failed_count: int,
+    elapsed_ms: float,
+    failure_class: Optional[str],
+) -> None:
+    level = logger.warning if failed_count > 0 else logger.info
+    level(
+        "ChatGPT %s embedding batch batch_index=%d batch_total=%d candidate_count=%d persisted_count=%d failed_count=%d elapsed_ms=%.1f failure_class=%s",
+        operation,
+        batch_index,
+        batch_total,
+        candidate_count,
+        persisted_count,
+        failed_count,
+        elapsed_ms,
+        failure_class or "none",
+    )
+
+
+def _process_chatgpt_embedding_batches(
+    *,
+    chatlog_db,
+    items: List[Dict[str, Any]],
+    message_ids: List[int],
+    vector_store: Any,
+    operation: str,
+    failure_reason: str,
+) -> Dict[str, Any]:
+    diagnostics: Dict[str, Any] = {
+        "embedding_candidates": 0,
+        "embeddings_persisted": 0,
+        "embeddings_failed": 0,
+        "embedding_coverage_degraded": False,
+    }
+    if not items:
+        return diagnostics
+
+    batch_size = max(1, int(_IMPORT_EMBED_BATCH_SIZE))
+    batch_total = (len(items) + batch_size - 1) // batch_size
+    for batch_index, (batch_items, batch_message_ids) in enumerate(
+        _iter_embedding_batches(items, message_ids, batch_size),
+        start=1,
+    ):
+        started_at = perf_counter()
+        batch_diagnostics = _embed_items_best_effort(batch_items, vector_store)
+        elapsed_ms = (perf_counter() - started_at) * 1000.0
+
+        persisted_count = int(batch_diagnostics.get("embeddings_persisted", 0))
+        failed_count = int(batch_diagnostics.get("embeddings_failed", 0))
+        _persist_chatgpt_embedding_attempt_outcome(
+            chatlog_db,
+            message_ids=batch_message_ids,
+            persisted_count=persisted_count,
+            failure_reason=(
+                failure_reason
+                if batch_diagnostics.get("embedding_coverage_degraded")
+                else None
+            ),
+        )
+        _log_chatgpt_embedding_batch(
+            operation=operation,
+            batch_index=batch_index,
+            batch_total=batch_total,
+            candidate_count=int(
+                batch_diagnostics.get("embedding_candidates", 0)
+            ),
+            persisted_count=persisted_count,
+            failed_count=failed_count,
+            elapsed_ms=elapsed_ms,
+            failure_class=batch_diagnostics.get("failure_class"),
+        )
+
+        diagnostics["embedding_candidates"] += int(
+            batch_diagnostics.get("embedding_candidates", 0)
+        )
+        diagnostics["embeddings_persisted"] += persisted_count
+        diagnostics["embeddings_failed"] += failed_count
+
+    diagnostics["embedding_coverage_degraded"] = (
+        diagnostics["embeddings_failed"] > 0
+    )
+    return diagnostics
 
 
 def _validate_chatgpt_export_payload(data: Any) -> List[Dict[str, Any]]:
@@ -1292,26 +1430,13 @@ def ingest_chatgpt_export(
             logger.error("Failed to import conversation: %s", e)
             continue
 
-    if _vector_store and pending_embed_items:
-        embedding_diagnostics = _embed_items_best_effort(
-            pending_embed_items, _vector_store
-        )
-    else:
-        embedding_diagnostics = _embed_items_best_effort(
-            pending_embed_items, None
-        )
-
-    _persist_chatgpt_embedding_attempt_outcome(
-        chatlog_db,
+    embedding_diagnostics = _process_chatgpt_embedding_batches(
+        chatlog_db=chatlog_db,
+        items=pending_embed_items,
         message_ids=pending_embed_message_ids,
-        persisted_count=int(
-            embedding_diagnostics.get("embeddings_persisted", 0)
-        ),
-        failure_reason=(
-            "embedding_coverage_degraded"
-            if embedding_diagnostics.get("embedding_coverage_degraded")
-            else None
-        ),
+        vector_store=_vector_store,
+        operation="import",
+        failure_reason="embedding_coverage_degraded",
     )
 
     return {
@@ -1330,7 +1455,7 @@ def ingest_chatgpt_export(
 
 
 def retry_chatgpt_import_embeddings(
-    *, user_id: Optional[str] = None
+    *, user_id: Optional[str] = None, limit: int = 5000
 ) -> Dict[str, Any]:
     if not user_id:
         raise ValueError(
@@ -1344,7 +1469,9 @@ def retry_chatgpt_import_embeddings(
         raise RuntimeError("Database not available")
 
     retryable_items = _fetch_retryable_chatgpt_embedding_items(
-        chatlog_db, user_id=user_id
+        chatlog_db,
+        user_id=user_id,
+        limit=limit,
     )
     if not retryable_items:
         return {
@@ -1367,16 +1494,13 @@ def retry_chatgpt_import_embeddings(
     if _IMPORT_EMBEDDINGS_ENABLED:
         vector_store = getattr(dependencies, "_vector_store", None) or None
 
-    diagnostics = _embed_items_best_effort(payload_items, vector_store)
-    _persist_chatgpt_embedding_attempt_outcome(
-        chatlog_db,
+    diagnostics = _process_chatgpt_embedding_batches(
+        chatlog_db=chatlog_db,
+        items=payload_items,
         message_ids=message_ids,
-        persisted_count=int(diagnostics.get("embeddings_persisted", 0)),
-        failure_reason=(
-            "embedding_retry_degraded"
-            if diagnostics.get("embedding_coverage_degraded")
-            else None
-        ),
+        vector_store=vector_store,
+        operation="retry",
+        failure_reason="embedding_retry_degraded",
     )
     return {
         "embedding_candidates": int(diagnostics.get("embedding_candidates", 0)),
