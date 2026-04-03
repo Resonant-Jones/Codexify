@@ -2,6 +2,11 @@ import * as React from "react";
 import clsx from "clsx";
 import { FolderOpen, Loader2, PlusCircle, Trash2 } from "lucide-react";
 import type { Project } from "@/types/common";
+import {
+  cleanSidebarProjectTitle,
+  normalizeSidebarProjects,
+  projectMatchesSidebarQuery,
+} from "./sidebarPresentation";
 
 type Props = {
   projects: Project[];
@@ -24,12 +29,15 @@ export default function ProjectList({
 }: Props) {
   const [deletingProjectId, setDeletingProjectId] = React.useState<string | null>(null);
   const query = search.toLowerCase();
-  const filtered = query ? projects.filter((p) => p.name.toLowerCase().includes(query)) : projects;
+  const visibleProjects = React.useMemo(() => normalizeSidebarProjects(projects), [projects]);
+  const filtered = query
+    ? visibleProjects.filter((project) => projectMatchesSidebarQuery(project, query))
+    : visibleProjects;
   const handleDeleteProject = React.useCallback(
     async (project: Project) => {
       if (!onDeleteProject) return;
       const projectId = String(project.id);
-      const projectName = String(project.name || "").trim() || "this project";
+      const projectName = cleanSidebarProjectTitle(project as any) || "this project";
       const confirmed = window.confirm(
         `Delete project "${projectName}"? This will remove the project and unassign its threads.`
       );
@@ -50,7 +58,7 @@ export default function ProjectList({
         {filtered.map((p) => (
           <ProjectTileCard
             key={p.id}
-            label={p.name}
+            label={cleanSidebarProjectTitle(p as any)}
             icon={p.icon}
             active={currentId === String(p.id)}
             onClick={() => onPick(String(p.id))}

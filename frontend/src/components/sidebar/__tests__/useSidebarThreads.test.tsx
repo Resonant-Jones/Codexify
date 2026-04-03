@@ -17,7 +17,7 @@ const mockApi = api as unknown as {
   delete: ReturnType<typeof vi.fn>;
 };
 
-function createThread(id: string, title?: string): Thread {
+function createThread(id: string, title?: string, projectId?: string | null): Thread {
   return {
     id,
     title: title ?? `Thread ${id}`,
@@ -25,6 +25,7 @@ function createThread(id: string, title?: string): Thread {
     unread: 0,
     participants: [],
     messages: [],
+    projectId,
   };
 }
 
@@ -127,5 +128,36 @@ describe("useSidebarThreads delete flow", () => {
       )
     ).toBe(true);
     toastCapture.cleanup();
+  });
+
+  it("treats unknown project ids as General in the sidebar bucket", () => {
+    const initialThreads = [
+      createThread("11", "General thread"),
+      createThread("22", "Imported thread", "imported-project"),
+      createThread("33", "Scoped thread", "project-1"),
+    ];
+
+    const projects = [
+      { id: "general-1", name: "General", icon: "📁" },
+      { id: "project-1", name: "Engineering", icon: "🧭" },
+    ];
+
+    const { result } = renderHook(
+      ({ threads, sidebarProjects }) =>
+        useSidebarThreads({
+          initialThreads: threads,
+          projects: sidebarProjects,
+        }),
+      {
+        initialProps: {
+          threads: initialThreads,
+          sidebarProjects: projects,
+        },
+      }
+    );
+
+    expect(result.current.scopeLabel).toBe("General");
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11", "22"]);
+    expect(result.current.looseCount).toBe(2);
   });
 });
