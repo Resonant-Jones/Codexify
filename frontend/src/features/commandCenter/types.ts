@@ -12,6 +12,35 @@ export type CommandCenterRunStatus =
   | "unknown";
 
 export type CommandCenterHealthStatus = "OK" | "FAIL" | "UNKNOWN";
+export type CommandCenterRunIdentityKind =
+  | "task"
+  | "request"
+  | "run"
+  | "synthetic";
+
+export type CommandCenterRunLifecycleState =
+  | "created"
+  | "running"
+  | "state"
+  | "chunk"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "unknown";
+
+export type CommandCenterRunTerminalOutcome =
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type CommandCenterCanonicalTaskEventType =
+  | "task.created"
+  | "task.running"
+  | "task.state"
+  | "task.chunk"
+  | "task.completed"
+  | "task.failed"
+  | "task.cancelled";
 
 export type CommandCenterJson = Record<string, unknown> | null;
 export type CommandCenterRagTraceUnavailableReason =
@@ -25,25 +54,40 @@ export interface CommandCenterEvent {
   kind: string | null;
   raw: string;
   receivedAt: number;
+  requestId: string | null;
   runId: string | null;
+  taskType: string | null;
   sseType: string | null;
   status: string | null;
   summary: string;
   taskId: string | null;
+  latestTurnMessageId: string | null;
+  state: string | null;
+  terminalOutcome: CommandCenterRunTerminalOutcome | null;
+  threadId: number | null;
+  turnId: string | null;
   type: string | null;
 }
 
 export interface CommandCenterRun {
   eventCount: number;
+  events?: CommandCenterEvent[];
+  identityKind?: CommandCenterRunIdentityKind;
   key: string;
   lastEvent: CommandCenterEvent;
   lastEventAt: number;
   lastKind: string | null;
   lastType: string | null;
+  latestTurnMessageId?: string | null;
+  requestId?: string | null;
   runId: string | null;
+  runType?: string | null;
+  state?: CommandCenterRunLifecycleState | string | null;
   status: CommandCenterRunStatus;
   summary: string;
   taskId: string | null;
+  terminalOutcome?: CommandCenterRunTerminalOutcome | null;
+  turnId?: string | null;
   threadId?: number | null;
   traceUrl?: string | null;
 }

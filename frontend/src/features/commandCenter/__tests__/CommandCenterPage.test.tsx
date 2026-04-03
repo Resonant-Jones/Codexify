@@ -69,51 +69,160 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
 const mockedRuns: CommandCenterRun[] = [
   {
     eventCount: 4,
-    key: "run-alpha",
+    events: [
+      {
+        eventId: "evt-1",
+        json: { type: "chat.completion", thread_id: 42 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"type":"chat.completion","thread_id":42}',
+        receivedAt: Date.parse("2026-04-01T15:58:00Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.created",
+        state: "created",
+        status: null,
+        summary: "chat completion created",
+        taskId: "task-alpha",
+        taskType: "chat.completion",
+        terminalOutcome: null,
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.created",
+      },
+      {
+        eventId: "evt-2",
+        json: { thread_id: 42 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"thread_id":42}',
+        receivedAt: Date.parse("2026-04-01T15:58:10Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.running",
+        state: "running",
+        status: null,
+        summary: "chat completion running",
+        taskId: "task-alpha",
+        taskType: null,
+        terminalOutcome: null,
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.running",
+      },
+      {
+        eventId: "evt-3",
+        json: { thread_id: 42 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"thread_id":42}',
+        receivedAt: Date.parse("2026-04-01T15:58:20Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.chunk",
+        state: "chunk",
+        status: null,
+        summary: "chat completion chunk",
+        taskId: "task-alpha",
+        taskType: null,
+        terminalOutcome: null,
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.chunk",
+      },
+      {
+        eventId: "evt-4",
+        json: { thread_id: 42, message_id: 501 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"thread_id":42,"message_id":501}',
+        receivedAt: Date.parse("2026-04-01T15:58:30Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.completed",
+        state: "completed",
+        status: null,
+        summary: "chat completion completed",
+        taskId: "task-alpha",
+        taskType: null,
+        terminalOutcome: "succeeded",
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.completed",
+      },
+    ],
+    identityKind: "task",
+    key: "task-alpha",
     lastEvent: {
-      eventId: "evt-1",
-      json: { message: "Processing alpha" },
-      kind: "task.started",
-      raw: '{"message":"Processing alpha"}',
+      eventId: "evt-4",
+      json: { thread_id: 42, message_id: 501 },
+      kind: null,
+      latestTurnMessageId: "501",
+      raw: '{"thread_id":42,"message_id":501}',
       receivedAt: Date.parse("2026-04-01T15:58:30Z"),
+      requestId: null,
       runId: "run-alpha",
-      sseType: "message",
-      status: "running",
-      summary: "Processing alpha",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
       taskId: "task-alpha",
-      type: "task.started",
+      taskType: null,
+      terminalOutcome: "succeeded",
+      threadId: 42,
+      turnId: "turn-alpha",
+      type: "task.completed",
     },
     lastEventAt: Date.parse("2026-04-01T15:58:30Z"),
-    lastKind: "task.started",
-    lastType: "task.started",
+    lastKind: null,
+    lastType: "task.completed",
+    latestTurnMessageId: "501",
+    requestId: null,
     runId: "run-alpha",
-    status: "running",
-    summary: "Processing alpha",
+    runType: "chat completion",
+    state: "completed",
+    status: "succeeded",
+    summary: "chat completion · completed",
     taskId: "task-alpha",
+    terminalOutcome: "succeeded",
+    threadId: 42,
+    turnId: "turn-alpha",
   },
   {
-    eventCount: 2,
-    key: "run-bravo",
+    eventCount: 1,
+    identityKind: "synthetic",
+    key: "event-raw-bravo",
     lastEvent: {
-      eventId: "evt-2",
+      eventId: "evt-raw-1",
       json: { message: "No classification yet" },
-      kind: "task.updated",
+      kind: null,
+      latestTurnMessageId: null,
       raw: '{"message":"No classification yet"}',
       receivedAt: Date.parse("2026-04-01T15:57:30Z"),
-      runId: "run-bravo",
+      requestId: null,
+      runId: null,
       sseType: "message",
+      state: null,
       status: "unknown",
       summary: "No classification yet",
-      taskId: "task-bravo",
-      type: "task.updated",
+      taskId: null,
+      taskType: null,
+      terminalOutcome: null,
+      threadId: null,
+      turnId: null,
+      type: null,
     },
     lastEventAt: Date.parse("2026-04-01T15:57:30Z"),
-    lastKind: "task.updated",
-    lastType: "task.updated",
-    runId: "run-bravo",
+    lastKind: null,
+    lastType: null,
+    requestId: null,
+    runId: null,
+    runType: null,
+    state: null,
     status: "unknown",
-    summary: "No classification yet",
-    taskId: "task-bravo",
+    summary: "unclassified event",
+    taskId: null,
+    terminalOutcome: null,
   },
 ];
 
@@ -258,24 +367,31 @@ describe("CommandCenterPage", () => {
     expect(within(healthStrip).getAllByText("Inspect raw details").length).toBeGreaterThan(0);
 
     const runsFeed = screen.getByTestId("command-center-runs-feed");
-    expect(within(runsFeed).getByText("Processing alpha")).toBeInTheDocument();
-    expect(within(runsFeed).getByText("No classification yet")).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-run-alpha")).getByText("running")).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-run-bravo")).getByText("unknown")).toBeInTheDocument();
+    expect(within(runsFeed).getByText("chat completion")).toBeInTheDocument();
+    expect(within(runsFeed).getByText("Unknown run")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText(/^completed$/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText(/^succeeded$/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-event-raw-bravo")).getByText(/^unknown$/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Events: 4")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Task: task-alpha")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Thread: 42")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Latest turn message: 501")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Turn: turn-alpha")).toBeInTheDocument();
     expect(
-      within(runsFeed).getByRole("button", { name: /open details for processing alpha/i })
+      within(runsFeed).getByRole("button", { name: /open details for chat completion/i })
     ).toBeInTheDocument();
     expect(
-      within(runsFeed).getByRole("button", { name: /open details for no classification yet/i })
+      within(runsFeed).getByRole("button", { name: /open details for unknown run/i })
     ).toBeInTheDocument();
-    expect(within(runsFeed).getAllByText("Inspect event details").length).toBeGreaterThan(0);
+    expect(within(runsFeed).getAllByText("Inspect raw events").length).toBeGreaterThan(0);
     expect(screen.getByText("attention")).toBeInTheDocument();
     expect(screen.getByText("mystery signal")).toBeInTheDocument();
+    expect(within(runsFeed).queryByText("Unknown")).not.toBeInTheDocument();
 
     fireEvent.click(
-      within(runsFeed).getByRole("button", { name: /open details for processing alpha/i })
+      within(runsFeed).getByRole("button", { name: /open details for chat completion/i })
     );
-    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("run-alpha");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("task-alpha");
 
     expect(screen.getByText("Approvals")).toBeInTheDocument();
     expect(screen.getByText("attention")).toBeInTheDocument();
