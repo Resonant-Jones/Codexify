@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import RunDetailDrawer from "@/features/commandCenter/components/RunDetailDrawer";
+import RunSummaryCard from "@/features/commandCenter/components/RunSummaryCard";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
 import type {
@@ -238,23 +239,6 @@ function resolveSelectedRunTraceUrl(run: CommandCenterRun): string | null {
     response?.traceUrl,
     result?.trace_url,
     result?.traceUrl
-  );
-}
-
-function getRunLabel(run: CommandCenterRun): string {
-  return firstString(run.summary, run.taskId, run.runId, run.key) ?? "Unknown run";
-}
-
-function getRunEventType(run: CommandCenterRun): string {
-  return (
-    firstString(
-      run.lastType,
-      run.lastKind,
-      run.lastEvent.type,
-      run.lastEvent.kind,
-      run.lastEvent.sseType,
-      run.lastEvent.status
-    ) ?? "unknown"
   );
 }
 
@@ -528,117 +512,13 @@ function RunFeed({
         ) : (
           runs.map((run) => {
             const selected = run.key === selectedRunKey;
-            const runLabel = getRunLabel(run);
-            const runSummary = run.summary && run.summary !== runLabel ? run.summary : null;
-            const eventType = getRunEventType(run);
-            const eventIds = [
-              run.lastEvent.eventId ? `Event: ${run.lastEvent.eventId}` : null,
-              run.runId ? `Run: ${run.runId}` : null,
-              run.taskId ? `Task: ${run.taskId}` : null,
-            ].filter((value): value is string => Boolean(value));
-
             return (
-              <Card
+              <RunSummaryCard
                 key={run.key}
-                className="bezel-none border"
-                data-testid={`command-center-run-${run.key}`}
-                style={{
-                  ...tileSurfaceStyle,
-                  borderColor: selected ? "var(--accent)" : tileSurfaceStyle.borderColor,
-                }}
-              >
-                <CardContent className="space-y-3 p-[var(--card-pad)]">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1.5">
-                      <div className="text-sm font-semibold leading-5" style={{ color: "var(--text)" }}>
-                        {runLabel}
-                      </div>
-                      {runSummary ? (
-                        <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                          {runSummary}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-start gap-2">
-                      <StatusPill
-                        ariaLabelPrefix={`${runLabel} status`}
-                        status={run.status}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onSelectRun(run)}
-                        aria-label={`Open details for ${runLabel}`}
-                      >
-                        Open
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <BadgePill tone="subtle">Events: {run.eventCount}</BadgePill>
-                    <BadgePill tone="subtle">Updated: {formatTimestamp(run.lastEventAt)}</BadgePill>
-                  </div>
-
-                  <details className="text-xs" style={{ color: "var(--muted)" }}>
-                    <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.16em]">
-                      Inspect event details
-                    </summary>
-                    <div className="mt-3 space-y-2">
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Event type
-                        </div>
-                        <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                          {eventType}
-                        </div>
-                      </div>
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Event identifiers
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {eventIds.length > 0 ? (
-                            eventIds.map((value) => (
-                              <BadgePill key={value} tone="subtle">
-                                {value}
-                              </BadgePill>
-                            ))
-                          ) : (
-                            <span style={{ color: "var(--muted)" }}>
-                              No raw event identifiers available.
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Raw message
-                        </div>
-                        <pre
-                          className="mt-2 overflow-x-auto rounded-[var(--tile-radius)] border p-3 text-[11px] leading-5"
-                          style={{
-                            ...rawSurfaceStyle,
-                            color: "var(--muted)",
-                          }}
-                        >
-                          {run.lastEvent.raw || "No raw message available."}
-                        </pre>
-                      </div>
-                    </div>
-                  </details>
-                </CardContent>
-              </Card>
+                onOpen={onSelectRun}
+                run={run}
+                selected={selected}
+              />
             );
           })
         )}
