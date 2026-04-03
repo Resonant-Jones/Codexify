@@ -2120,7 +2120,7 @@ async def chat_complete(
     turn_id = _normalize_turn_id(body.turn_id)
     source_mode = normalize_source_mode(body.source_mode)
 
-        provider = str(body.provider or "").strip().lower() or None
+    provider = str(body.provider or "").strip().lower() or None
     requested_model = str(body.model or "").strip() or None
 
     user_system_override = body.system_override

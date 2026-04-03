@@ -31,7 +31,7 @@ sys.exit(1)
 PY
 
 echo "[migrate] Running Alembic migrations"
-alembic -c /app/backend/alembic.ini upgrade head || echo "[migrate] No migrations or already up to date"
+alembic -c /app/backend/alembic.ini upgrade heads || echo "[migrate] No migrations or already up to date"
 
 echo "[run] Launching Uvicorn"
 exec python -m uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8000 --reload
