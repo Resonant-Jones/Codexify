@@ -11,7 +11,11 @@ export type CommandCenterRunStatus =
   | "needs_attention"
   | "unknown";
 
-export type CommandCenterHealthStatus = "OK" | "FAIL" | "UNKNOWN";
+export type CommandCenterHealthStatus =
+  | "OK"
+  | "DEGRADED"
+  | "DOWN"
+  | "UNKNOWN";
 
 export type CommandCenterJson = Record<string, unknown> | null;
 export type CommandCenterRagTraceUnavailableReason =
@@ -67,6 +71,7 @@ export interface CommandCenterHealthItem {
   httpStatus: number | null;
   key: "core" | "llm" | "deps" | "vector" | "memory";
   label: string;
+  details?: Record<string, unknown> | null;
   raw: string | null;
   status: CommandCenterHealthStatus;
 }
