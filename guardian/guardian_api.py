@@ -67,6 +67,7 @@ from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
     ENABLE_OUTBOX,
     allowed_origins,
+    get_single_user_id,
     init_database,
     init_services,
     require_api_key,
@@ -207,7 +208,29 @@ def _env_bool(name: str, default: bool) -> bool:
     return str(raw).strip().lower() in _TRUTHY_VALUES
 
 
+def _env_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "[startup] invalid %s=%r; using default=%d", name, raw, default
+        )
+        return default
+    if value <= 0:
+        logger.warning(
+            "[startup] invalid %s=%r; using default=%d", name, raw, default
+        )
+        return default
+    return value
+
+
 _BETA_CORE_ONLY = _env_bool("CODEXIFY_BETA_CORE_ONLY", default=False)
+_CHATGPT_IMPORT_STARTUP_RETRY_CAP = _env_positive_int(
+    "CODEXIFY_CHATGPT_IMPORT_STARTUP_RETRY_CAP", 128
+)
 _SUPPORTED_PROFILE_MANIFEST = get_active_supported_profile()
 
 
@@ -276,6 +299,41 @@ def _codex_routes_enabled() -> bool:
     if _BETA_CORE_ONLY:
         return False
     return _env_bool("CODEXIFY_ENABLE_CODEX_ROUTES", default=True)
+
+
+def _run_chatgpt_import_startup_sweep() -> None:
+    user_id = get_single_user_id()
+    retry_cap = _CHATGPT_IMPORT_STARTUP_RETRY_CAP
+    try:
+        from backend.rag.chatgpt_migration import (
+            retry_chatgpt_import_embeddings as retry_chatgpt_import_embeddings_service,
+        )
+
+        stats = retry_chatgpt_import_embeddings_service(
+            user_id=user_id,
+            limit=retry_cap,
+        )
+        level = (
+            logger.warning
+            if stats.get("embedding_coverage_degraded")
+            else logger.info
+        )
+        level(
+            "[startup] ChatGPT import sweep user_id=%s limit=%d candidates=%d persisted=%d failed=%d degraded=%s",
+            user_id,
+            retry_cap,
+            int(stats.get("embedding_candidates", 0)),
+            int(stats.get("embeddings_persisted", 0)),
+            int(stats.get("embeddings_failed", 0)),
+            bool(stats.get("embedding_coverage_degraded", False)),
+        )
+    except Exception as exc:
+        logger.warning(
+            "[startup] ChatGPT import sweep failed user_id=%s limit=%d: %s",
+            user_id,
+            retry_cap,
+            exc,
+        )
 
 
 from guardian.realtime import collaboration
@@ -533,6 +591,8 @@ async def app_lifespan(app: FastAPI):
         logger.warning(
             "[startup] Failed to sync inference provider rows: %s", exc
         )
+
+    _run_chatgpt_import_startup_sweep()
 
     # Initialize Neo4j connection if graph logging is enabled
     if (

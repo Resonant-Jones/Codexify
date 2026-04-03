@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -24,44 +24,46 @@ def _single_user_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
 class StubVectorStore:
     def __init__(self) -> None:
         self.items: list[dict] = []
+        self.batch_sizes: list[int] = []
 
     def add_texts(self, items: list[dict]) -> int:
+        self.batch_sizes.append(len(items))
         self.items.extend(items)
         return len(items)
 
 
-def _build_mainline_export() -> bytes:
+def _build_mainline_export(
+    turns: list[tuple[str, str, float]] | None = None,
+) -> bytes:
+    if turns is None:
+        turns = [
+            ("user", "Route-imported fact: ORBIT-ROUTE-314.", 1),
+            ("assistant", "Stored for recall.", 2),
+        ]
     payload = [
         {
             "id": "route-conv-1",
             "title": "Route Recall Fixture",
-            "current_node": "m2",
-            "mapping": {
-                "m1": {
-                    "id": "m1",
-                    "parent": None,
-                    "children": ["m2"],
-                    "message": {
-                        "author": {"role": "user"},
-                        "content": {
-                            "parts": ["Route-imported fact: ORBIT-ROUTE-314."]
-                        },
-                        "create_time": 1,
-                    },
-                },
-                "m2": {
-                    "id": "m2",
-                    "parent": "m1",
-                    "children": [],
-                    "message": {
-                        "author": {"role": "assistant"},
-                        "content": {"parts": ["Stored for recall."]},
-                        "create_time": 2,
-                    },
-                },
-            },
+            "current_node": f"m{len(turns)}",
+            "mapping": {},
         }
     ]
+    parent = None
+    for idx, (role, text, create_time) in enumerate(turns, start=1):
+        node_id = f"m{idx}"
+        payload[0]["mapping"][node_id] = {
+            "id": node_id,
+            "parent": parent,
+            "children": [],
+            "message": {
+                "author": {"role": role},
+                "content": {"parts": [text]},
+                "create_time": create_time,
+            },
+        }
+        if parent is not None:
+            payload[0]["mapping"][parent]["children"].append(node_id)
+        parent = node_id
     return json.dumps(payload).encode("utf-8")
 
 
@@ -408,6 +410,84 @@ def test_migration_route_executes_real_ingest_and_embeds(
     )
 
 
+def test_migration_route_batches_embedding_follow_up(
+    test_client,
+    mock_db,
+    monkeypatch,
+):
+    vector_store = StubVectorStore()
+    message_ids = iter([91, 92, 93, 94, 95])
+
+    def fake_create_message(
+        thread_id: int,
+        role: str,
+        content: str,
+        created_at: str | None = None,
+    ) -> int:
+        _ = thread_id, role, content, created_at
+        return next(message_ids)
+
+    mock_db.create_chat_thread.return_value = {"id": 42}
+    mock_db.create_message.side_effect = fake_create_message
+    mock_db.ensure_project.return_value = 1
+
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_BATCH_SIZE", 2)
+    monkeypatch.setattr(dependencies, "_vector_store", vector_store)
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+
+    files = {
+        "file": (
+            "conversations-batched.json",
+            _build_mainline_export(
+                [
+                    ("user", "Route chunk 1", 1),
+                    ("assistant", "Route chunk 2", 2),
+                    ("user", "Route chunk 3", 3),
+                    ("assistant", "Route chunk 4", 4),
+                    ("user", "Route chunk 5", 5),
+                ]
+            ),
+            "application/json",
+        )
+    }
+
+    response = test_client.post(
+        "/api/upload-chatgpt-export",
+        files=files,
+        headers={"X-User-Id": "spoofed_user"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["threads_imported"] == 1
+    assert data["messages_imported"] == 5
+    assert data["embedding_candidates"] == 5
+    assert data["embeddings_persisted"] == 5
+    assert data["embeddings_failed"] == 0
+    assert data["embedding_coverage_degraded"] is False
+    assert vector_store.batch_sizes == [2, 2, 1]
+    assert len(vector_store.items) == 5
+    assert mock_db.create_message.call_count == 5
+
+
 def test_embed_items_best_effort_handles_subprocess_segfault(monkeypatch):
     class _FakeProcess:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -435,16 +515,19 @@ def test_embed_items_best_effort_handles_subprocess_segfault(monkeypatch):
     monkeypatch.setattr(
         chatgpt_migration.mp, "get_context", lambda *_: _FakeContext()
     )
+    vector_store = MagicMock()
 
     # Should swallow subprocess failure and return explicit degradation diagnostics.
     diagnostics = chatgpt_migration._embed_items_best_effort(
         items=[{"text": "hello", "meta": {"thread_id": 1}}],
-        vector_store=object(),
+        vector_store=vector_store,
     )
     assert diagnostics["embedding_candidates"] == 1
     assert diagnostics["embeddings_persisted"] == 0
     assert diagnostics["embeddings_failed"] == 1
     assert diagnostics["embedding_coverage_degraded"] is True
+    assert diagnostics["failure_class"] == "subprocess_exit_139"
+    vector_store.add_texts.assert_not_called()
 
 
 def test_migration_route_reports_embedding_degradation_on_exit_139(
