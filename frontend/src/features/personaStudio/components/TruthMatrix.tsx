@@ -15,6 +15,14 @@ const TRUTH_MATRIX_BASE_TRUTH = {
   appliedToRuntime: false,
 } as const;
 
+const FIRST_WAVE_RUNTIME_CONTROLS = new Set([
+  "Persona Name",
+  "System Prompt",
+  "Model Provider",
+  "Model ID",
+  "Temperature",
+]);
+
 const TRUTH_MATRIX_CONTROLS = [
   "Persona Name",
   "Description",
@@ -46,10 +54,14 @@ const TRUTH_MATRIX_CONTROLS = [
   "Retrieval Rerank",
 ] as const;
 
-const TRUTH_MATRIX_ROWS: TruthMatrixRow[] = TRUTH_MATRIX_CONTROLS.map((control) => ({
-  control,
-  ...TRUTH_MATRIX_BASE_TRUTH,
-}));
+const TRUTH_MATRIX_ROWS: TruthMatrixRow[] = TRUTH_MATRIX_CONTROLS.map(
+  (control) => ({
+    control,
+    ...TRUTH_MATRIX_BASE_TRUTH,
+    backendPersisted: FIRST_WAVE_RUNTIME_CONTROLS.has(control),
+    appliedToRuntime: FIRST_WAVE_RUNTIME_CONTROLS.has(control),
+  })
+);
 
 function TruthValuePill({ value }: { value: boolean }) {
   return (
@@ -75,7 +87,7 @@ export default function TruthMatrix() {
             Field-by-field implementation truth
           </p>
           <p className="text-[11px] leading-tight text-[var(--muted)]">
-            Backend Persisted and Applied to Runtime remain No.
+            First-wave rows are backend-persisted and runtime-applied; the rest remain local-only.
           </p>
         </div>
       </div>

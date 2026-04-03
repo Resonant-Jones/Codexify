@@ -11,6 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import AppShell from "../AppShell";
+import {
+  personaStudioApiMock,
+  resetPersonaStudioApiMock,
+} from "@/features/personaStudio/__tests__/personaStudioApiMock";
 import api from "@/lib/api";
 import {
   LIVE_EVENT_CONNECTION_STATES,
@@ -73,6 +77,11 @@ vi.mock("@/hooks/useLiveEvents", () => ({
 vi.mock("@/hooks/useWallpaperUrl", () => ({
   useWallpaperUrl: () => ({ wallpaperUrl: null }),
 }));
+
+vi.mock("@/features/personaStudio/personaStudioApi", async () =>
+  (await import("@/features/personaStudio/__tests__/personaStudioApiMock"))
+    .personaStudioApiMock
+);
 
 vi.mock("@/hooks/useUploader", () => ({
   default: (config: {
@@ -284,10 +293,11 @@ describe("AppShell logo wordmark color contract", () => {
     installMatchMedia(false);
     document.documentElement.classList.remove("dark");
     setRouteThread(null);
-    routeCapabilityState.ready = true;
-    routeCapabilityState.state = "available";
-    listCodexEntriesSpy.mockClear();
-    mockApi.get.mockClear();
+  routeCapabilityState.ready = true;
+  routeCapabilityState.state = "available";
+  resetPersonaStudioApiMock();
+  listCodexEntriesSpy.mockClear();
+  mockApi.get.mockClear();
     mockApi.post.mockClear();
     mockApi.delete.mockClear();
   });
