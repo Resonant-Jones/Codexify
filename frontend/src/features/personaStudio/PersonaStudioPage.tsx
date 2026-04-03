@@ -98,12 +98,18 @@ function ModelEditor({
   config: PersonaConfig;
   onChange: (config: PersonaConfig) => void;
 }) {
+  const providerId = "persona-studio-model-provider";
+  const modelId = "persona-studio-model-id";
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Provider</label>
+          <label className="text-sm font-medium" htmlFor={providerId}>
+            Provider
+          </label>
           <select
+            id={providerId}
             className="w-full h-9 px-3 rounded-md border text-sm"
             style={{
               background: "transparent",
@@ -125,8 +131,11 @@ function ModelEditor({
           </select>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Model</label>
+          <label className="text-sm font-medium" htmlFor={modelId}>
+            Model
+          </label>
           <Input
+            id={modelId}
             value={config.model.model}
             onChange={(e) =>
               onChange({

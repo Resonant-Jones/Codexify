@@ -7,7 +7,7 @@ No raw DDL creation in application code.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -1537,6 +1537,41 @@ class ImprintFoldState(Base):
 # =========================
 # Imprints, Personas, System Docs
 # =========================
+
+
+class PersonaProfile(Base):
+    """Backend-backed persona profile used by Persona Studio."""
+
+    __tablename__ = "persona_profiles"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    model_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    temperature: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "temperature >= 0.0 AND temperature <= 2.0",
+            name="persona_profiles_temperature_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
 
 
 class Imprint(Base):

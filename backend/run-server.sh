@@ -12,7 +12,7 @@ RUN /bin/sh -lc "if [ -f /app/run-server.sh ]; then \
         'python /app/wait_for_db.py || true' \
         '# run migrations (best-effort)' \
         'if command -v alembic >/dev/null 2>&1; then' \
-        '  alembic -c /app/backend/alembic.ini upgrade head || true' \
+        '  alembic -c /app/backend/alembic.ini upgrade heads || true' \
         'fi' \
         '# run uvicorn app' \
         'exec python -m uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8000' \

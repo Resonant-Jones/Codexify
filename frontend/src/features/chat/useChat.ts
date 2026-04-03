@@ -54,6 +54,12 @@ export type CompletionState = {
   requestState: ChatRequestState | null;
 };
 
+export type StreamingDraft = {
+  threadId: number | null;
+  content: string;
+  updatedAt: number | null;
+};
+
 type CompletionTerminalState = "completed" | "failed" | "cancelled" | "error";
 
 type CompletionSessionInput = {
@@ -299,6 +305,10 @@ function normalizeStreamTaskId(raw: unknown): string | null {
   const normalized = normalizeTaskId(raw);
   if (!normalized) return null;
   return normalized.startsWith("pending-") ? null : normalized;
+}
+
+function normalizeTaskChunkDelta(raw: unknown): string {
+  return typeof raw === "string" ? raw : "";
 }
 
 function normalizeExecution(raw: unknown): ChatExecution | undefined {
@@ -607,6 +617,11 @@ export function useChat(options: UseChatOptions = {}) {
     activeThreadId: null,
     startedAt: null,
   });
+  const [streamingDraft, setStreamingDraft] = useState<StreamingDraft>({
+    threadId: null,
+    content: "",
+    updatedAt: null,
+  });
 
   const activeThreadRef = useRef<number | null>(null);
   const snapshotMessagesRef = useRef<ChatMessage[]>([]);
@@ -709,6 +724,44 @@ export function useChat(options: UseChatOptions = {}) {
     setStreamTaskId(nextTaskId);
   }, []);
 
+  const clearStreamingDraft = useCallback(() => {
+    setStreamingDraft((previous) => {
+      if (
+        previous.threadId === null &&
+        previous.content === "" &&
+        previous.updatedAt === null
+      ) {
+        return previous;
+      }
+      return {
+        threadId: null,
+        content: "",
+        updatedAt: null,
+      };
+    });
+  }, []);
+
+  const appendStreamingDraft = useCallback((threadId: number, delta: string) => {
+    const chunk = String(delta ?? "");
+    if (!chunk) return;
+
+    setStreamingDraft((previous) => {
+      if (previous.threadId !== threadId) {
+        return {
+          threadId,
+          content: chunk,
+          updatedAt: Date.now(),
+        };
+      }
+
+      return {
+        threadId,
+        content: previous.content + chunk,
+        updatedAt: Date.now(),
+      };
+    });
+  }, []);
+
   const cancelScheduledRefresh = useCallback(() => {
     if (refreshTimeoutRef.current !== null) {
       window.clearTimeout(refreshTimeoutRef.current);
@@ -776,10 +829,16 @@ export function useChat(options: UseChatOptions = {}) {
       }
       stopAudioReconcile();
       cancelScheduledRefresh();
+      clearStreamingDraft();
       setActiveStreamTaskId(null);
       completionSessionRef.current = null;
     },
-    [cancelScheduledRefresh, setActiveStreamTaskId, stopAudioReconcile]
+    [
+      cancelScheduledRefresh,
+      clearStreamingDraft,
+      setActiveStreamTaskId,
+      stopAudioReconcile,
+    ]
   );
 
   const findAssociatedAssistantMessage = useCallback(
@@ -1325,7 +1384,11 @@ export function useChat(options: UseChatOptions = {}) {
         return false;
       }
       if (session.finalSnapshotStatus === "done") {
-        return Boolean(findAssociatedAssistantMessage(session));
+        const matched = findAssociatedAssistantMessage(session);
+        if (matched) {
+          clearStreamingDraft();
+        }
+        return Boolean(matched);
       }
       if (session.finalSnapshotStatus === "running" && session.finalSnapshotPromise) {
         return session.finalSnapshotPromise;
@@ -1350,6 +1413,9 @@ export function useChat(options: UseChatOptions = {}) {
             current.finalSnapshotError = "Assistant response failed. Please retry.";
             disposeCompletionSession(sessionId);
             return false;
+          }
+          if (matched) {
+            clearStreamingDraft();
           }
           current.finalSnapshotStatus = "done";
           current.finalSnapshotError = null;
@@ -1391,6 +1457,7 @@ export function useChat(options: UseChatOptions = {}) {
     },
     [
       disposeCompletionSession,
+      clearStreamingDraft,
       findAssociatedAssistantMessage,
       scheduleRefresh,
       scheduleAudioReconcile,
@@ -1559,13 +1626,14 @@ export function useChat(options: UseChatOptions = {}) {
       }
 
       current.assistantMatchedMessageId = message.id;
+      clearStreamingDraft();
       endCompletion();
       if (current.taskTerminalState != null) {
         void ensureFinalSnapshot(current.sessionId);
       }
       return true;
     },
-    [appendMessage, endCompletion, ensureFinalSnapshot]
+    [appendMessage, clearStreamingDraft, endCompletion, ensureFinalSnapshot]
   );
 
   const finalizeCompletionSession = useCallback(
@@ -1596,6 +1664,13 @@ export function useChat(options: UseChatOptions = {}) {
         return;
       }
 
+      const rawThreadId = Number(event.thread_id ?? event.threadId);
+      const eventThreadId = Number.isFinite(rawThreadId) ? rawThreadId : null;
+      const session = findCurrentSessionByTaskId(eventTaskId, eventThreadId);
+      if (!session) {
+        return;
+      }
+
       updateCompletionTaskId(eventTaskId);
 
       const eventTurnId = normalizeTurnId(event.turn_id ?? event.turnId);
@@ -1604,19 +1679,32 @@ export function useChat(options: UseChatOptions = {}) {
       }
 
       switch (event.type) {
+        case "task.chunk": {
+          const chunkDelta = normalizeTaskChunkDelta(
+            event.delta ?? event.content ?? event.text ?? event.value
+          );
+          if (chunkDelta) {
+            appendStreamingDraft(session.threadId, chunkDelta);
+          }
+          return;
+        }
         case "task.running": {
-          const session = findCurrentSessionByTaskId(currentTaskId);
-          if (session && canTransitionRequestState(session.requestState, CHAT_REQUEST_STATES.STREAMING)) {
+          if (
+            canTransitionRequestState(
+              session.requestState,
+              CHAT_REQUEST_STATES.STREAMING
+            )
+          ) {
             session.requestState = CHAT_REQUEST_STATES.STREAMING;
           }
           return;
         }
         case "task.completed": {
-          setActiveStreamTaskId(null);
-          const session = findCurrentSessionByTaskId(eventTaskId);
-          if (session) {
-            session.requestState = CHAT_REQUEST_STATES.COMPLETED;
+          if (findAssociatedAssistantMessage(session)) {
+            clearStreamingDraft();
           }
+          setActiveStreamTaskId(null);
+          session.requestState = CHAT_REQUEST_STATES.COMPLETED;
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "completed",
@@ -1624,11 +1712,9 @@ export function useChat(options: UseChatOptions = {}) {
           return;
         }
         case "task.failed": {
+          clearStreamingDraft();
           setActiveStreamTaskId(null);
-          const session = findCurrentSessionByTaskId(eventTaskId);
-          if (session) {
-            session.requestState = CHAT_REQUEST_STATES.FAILED_RETRYABLE;
-          }
+          session.requestState = CHAT_REQUEST_STATES.FAILED_RETRYABLE;
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "failed",
@@ -1636,11 +1722,9 @@ export function useChat(options: UseChatOptions = {}) {
           return;
         }
         case "task.cancelled": {
+          clearStreamingDraft();
           setActiveStreamTaskId(null);
-          const session = findCurrentSessionByTaskId(eventTaskId);
-          if (session) {
-            session.requestState = CHAT_REQUEST_STATES.CANCELLED;
-          }
+          session.requestState = CHAT_REQUEST_STATES.CANCELLED;
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "cancelled",
@@ -1648,11 +1732,9 @@ export function useChat(options: UseChatOptions = {}) {
           return;
         }
         case "completion.error": {
+          clearStreamingDraft();
           setActiveStreamTaskId(null);
-          const session = findCurrentSessionByTaskId(eventTaskId);
-          if (session) {
-            session.requestState = CHAT_REQUEST_STATES.FAILED_FATAL;
-          }
+          session.requestState = CHAT_REQUEST_STATES.FAILED_FATAL;
           finalizeCompletionSession({
             taskId: eventTaskId,
             terminalState: "error",
@@ -1664,7 +1746,10 @@ export function useChat(options: UseChatOptions = {}) {
       }
     },
     [
+      appendStreamingDraft,
+      clearStreamingDraft,
       finalizeCompletionSession,
+      findAssociatedAssistantMessage,
       findCurrentSessionByTaskId,
       setActiveStreamTaskId,
       updateCompletionSessionTurnId,
@@ -1747,6 +1832,7 @@ export function useChat(options: UseChatOptions = {}) {
     deleteMessage,
     refreshSnapshot: refreshSnapshot ?? noopRefreshSnapshot,
     completionState,
+    streamingDraft,
     startCompletion,
     endCompletion,
     updateCompletionTaskId,
