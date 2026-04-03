@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-03-29
+2026-04-03
 
 ## Interpretation rule
 
@@ -17,61 +17,57 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is in release-gate remediation on `main` for the local Docker Compose beta profile. The latest merged release-gate proof on `main` (2026-03-28) confirms profile flags and route quarantine behavior, but does not close readiness because fresh completion and retrieval proofs failed on the live stack.
+Codexify is in post-merge release revalidation on `main` for the local Docker Compose beta profile. `main` absorbed major chat runtime, thread-config, and persona-profile changes on 2026-04-02, while the latest full live supported-path proof artifact on `main` remains 2026-04-01 (`docs/architecture/2026-04-01-current-head-supported-path-proof.md` at commit `2226d833...`).
 
 ## What changed recently
 
-- Added fresh release-gate artifact on `main` (`docs/architecture/2026-03-28-release-gate-proof.md`) with explicit pass/fail evidence.
-- Chat runtime now surfaces execution truth and fallback model details to the UI and tests for completion semantics were updated.
-- Provider/model classification was hardened with soft fallback logic and catalog/provider tests.
-- Architecture docs now include a normative chat runtime contract plus gap analysis for warmup, timeout, replay, and transcript-integrity semantics.
-- Browser-dev media rendering was fixed across chat/workspace surfaces with new coverage.
-- Composer layout contract and send-button placement were tightened across multiple merged UI fixes.
+- Merged thread-config runtime contract work: `chat_threads.thread_config`, create/update/read surfaces, and completion precedence coverage on `main`.
+- Merged latest-turn completion targeting changes: prompt assembly, retrieval targeting, queued-task identity propagation, and trace visibility.
+- Merged lifecycle observability changes: first-output timing, lifecycle latency display, and assistant chunk streaming over task events.
+- Merged first-wave Persona Studio runtime wiring: persona profile storage/routes/runtime resolver integration plus frontend wiring/tests.
+- Merged account export/restore improvements: canonical export zip bundling and metadata account-restore route/tests.
+- Added architecture artifacts on `main`: current-head supported-path proof (2026-04-01) and capabilities audit (2026-04-02).
 
 ## Current supported reality
 
 - Supported install path remains local Docker Compose with backend, frontend, Postgres, Redis, and workers.
 - Thread chat is the core supported flow, with queue-backed completion and persisted task/message state.
-- Supported-profile flags were live-verified on `main`: `CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
-- Quarantined non-core routes were live-verified as unavailable (`404`) in supported profile.
-- Chat request acceptance path works on `main` (thread creation, message persistence, completion acceptance with task id/turn id).
-- Document upload and embed lifecycle reached `embedding_status=ready` in the latest release-gate run.
-- Chat runtime state on `main` now uses normalized live events and consolidated per-thread agent-runs state.
-- `docs/architecture/chat-runtime-contract.md` is now the normative frontend/shared-runtime vocabulary for provider warmup, request lifecycle ambiguity, and replay semantics; this is documentation alignment, not fresh live-runtime proof.
-- Runtime now degrades explicitly when Redis coordination is unavailable instead of silently drifting.
-- `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog` are available but currently not reconciled into one release-signoff truth.
+- Latest live proof artifact on `main` (2026-04-01 current-head run) validated supported-profile flags, cloud-route quarantine, reconciled health surfaces, accepted-then-persisted completion, and upload -> embed -> retrieval via `GET /api/health/retrieval?q=...`.
+- Backend retrieval seam behavior is validated by tests/artifacts on `main` (`tests/core/test_context_broker_source_mode.py`, `tests/routes/test_chat_profile_trace.py`, `docs/architecture/2026-04-01-deterministic-retrieval-proof.md`).
+- Thread configuration is now persisted and consumed as completion input on `main`, with route/service coverage for create, update, read, and precedence behavior.
+- Chat lifecycle status now includes first-output and latency instrumentation with backend/frontend test coverage on `main`.
+- Persona profile runtime surfaces exist on `main` (DB/model/routes/resolver/frontend wiring), with test coverage for persistence and runtime integration.
 
 ## Not yet true / do not assume
 
-- Do not assume accepted completions produce persisted assistant output on current `main`; latest proof captured worker `502` after local inference endpoint `404`s.
-- Do not assume retrieval is proven on current `main`; latest proof saw `/api/retrieve` return `404`.
-- Do not assume backend and embed worker use the same vector-store backend in the live supported profile.
-- Do not assume health/collateral routes are alias-consistent (`/health*` vs `/api/health*`) without explicit probe evidence.
-- Do not assume older supported-path proof artifacts still represent current `main` without a fresh rerun.
-- Do not assume `/tools` and command-bus surfaces are one finalized release contract unless stated here.
+- Do not assume 2026-04-01 live proof coverage still holds unchanged on current `main` after 2026-04-02 runtime merges; it has not been re-run on latest HEAD.
+- Do not assume the legacy standalone retrieval route (`POST /api/retrieve`) is part of the current supported contract; the latest supported-path proof uses `GET /api/health/retrieval?q=...`.
+- Do not assume newly merged Persona Studio profile wiring is release-ready end-to-end in the supported Compose path without fresh live validation.
+- Do not assume new lifecycle streaming/latency UX implies proven operator SLOs; current evidence is code/test-level plus pre-merge live proof.
+- Do not assume unmerged branches, local-only runs, or draft audit notes change release truth until reflected on `main` and repeated here.
 
 ## Active blockers
 
-- Chat completion execution fails after acceptance on current supported profile because local inference endpoints return `404`, producing worker `502`.
-- Retrieval evidence is not closed: `/api/retrieve` is missing in the proven stack and backend retrieval did not return the fresh sentinel.
-- Vector-store backend mismatch in live runtime (`backend` observed `faiss`, `worker-document-embed` observed `chroma`) blocks reliable retrieval signoff.
-- Release-gate reconciliation is incomplete across `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog`.
+- No fresh supported-path rerun exists on current `main` HEAD after the 2026-04-02 runtime merges; release readiness is currently unproven for latest HEAD.
+- Supported retrieval contract is still boundary-sensitive (`/api/health/retrieval` proven, legacy `/api/retrieve` not mounted in latest artifact) and must be explicitly locked for release language.
+- Migration and upgrade confidence is incomplete for latest schema changes (`thread_config`, `persona_profiles`, recent alembic head merge) without a fresh clean-start verification on current HEAD.
 
 ## This week's priorities
 
-1. Fix local inference endpoint/model wiring so accepted completions persist assistant responses on supported profile.
-2. Align backend and embed-worker vector-store configuration and re-prove retrieval with a fresh sentinel document.
-3. Restore and verify one supported retrieval API path used by release proof (`/api/retrieve` or documented replacement).
-4. Publish one fresh end-to-end supported-path proof on `main` that passes create -> complete -> upload -> embed -> retrieve.
-5. Reconcile and document health/catalog route expectations for operator signoff.
+1. Re-run and publish a fresh supported-path proof on current `main` HEAD (create -> complete -> upload -> embed -> retrieve) using the supported Compose profile.
+2. Re-verify health/catalog/retrieval surfaces from one runtime session and record exact release contract endpoints.
+3. Run clean migration + startup validation on current `main` for new schema heads and document pass/fail evidence.
+4. Confirm thread-config + latest-turn behavior in a live run (not only tests) and record trace evidence.
+5. Reconcile Persona Studio profile runtime scope with release promise (supported now vs present-but-not-committed-to-support).
 
 ## Release definition right now
 
 - [ ] Supported-profile flags are active in live runtime (`CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`).
 - [ ] Quarantined non-core routes return the expected unsupported behavior in the running stack.
-- [ ] One fresh supported-path run on `main` proves thread create, completion execution, assistant persistence, document upload, embed readiness, and retrieval evidence.
-- [ ] Retrieval runtime uses one aligned vector-store backend across backend and embed worker on the supported profile.
-- [ ] `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog` are reconciled with the actual supported model/runtime contract.
+- [ ] One fresh supported-path run on current `main` HEAD proves thread create, completion execution, assistant persistence, document upload, embed readiness, and retrieval evidence.
+- [ ] Retrieval contract is explicit for release (mounted endpoint(s), expected status codes, and proof path) and matches runtime wiring.
+- [ ] `/health`, `/health/chat`, `/api/health/llm`, `/api/llm/catalog`, and retrieval health are reconciled in the same runtime session.
+- [ ] Latest schema migrations apply cleanly on a fresh database and the stack reaches healthy state without manual repair.
 - [ ] No release claim depends on internal-only or dev-only surfaces.
 
 ## How to read the rest of the KB

@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-01
+Last updated: 2026-04-03
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -21,7 +21,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Start Here
 
-When you need current-state interpretation instead of structural architecture, start with [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
+When you need current-state interpretation instead of structural architecture, begin with [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
 ## KB Validity and Diagram Source Sets
 
