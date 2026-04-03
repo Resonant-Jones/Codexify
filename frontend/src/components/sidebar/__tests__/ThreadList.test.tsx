@@ -71,4 +71,15 @@ describe("ThreadList dark mode surface contract", () => {
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.queryByText("Scope:")).not.toBeInTheDocument();
   });
+
+  it("does not render provider badges in the main thread list", () => {
+    const { container } = renderThreadList({
+      profileMode: "cloud",
+      providerOverride: "openai",
+      modelOverride: "gpt-4",
+    });
+
+    expect(container.querySelector("svg[data-lucide='bolt'], svg.lucide-bolt")).toBeNull();
+    expect(screen.getByText("Research notes")).toBeInTheDocument();
+  });
 });

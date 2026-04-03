@@ -17,7 +17,13 @@ vi.mock("@/lib/logging/logOnce", () => ({
 function ProjectsHarness() {
   const { projectList } = useProjectsCache();
 
-  return <div data-testid="project-count">{projectList.length}</div>;
+  return (
+    <div>
+      <div data-testid="project-count">{projectList.length}</div>
+      <div data-testid="project-names">{projectList.map((project) => project.name).join("|")}</div>
+      <div data-testid="project-meta">{JSON.stringify(projectList[0] ?? null)}</div>
+    </div>
+  );
 }
 
 describe("useProjectsCache", () => {
@@ -42,5 +48,29 @@ describe("useProjectsCache", () => {
     document.dispatchEvent(new Event("visibilitychange"));
 
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+  });
+
+  it("cleans imported project labels and collapses duplicate General aliases", async () => {
+    (api.get as any).mockResolvedValueOnce({
+      data: {
+        projects: [
+          {
+            id: 1,
+            name: "ChatGPT - Quarterly Planning",
+            icon: "📁",
+            metadata: { import_source: "chatgpt" },
+          },
+          { id: 2, name: "General", icon: "📁" },
+          { id: 3, name: "Loose Threads", icon: "📁" },
+        ],
+      },
+    });
+
+    render(<ProjectsHarness />);
+
+    expect(await screen.findByTestId("project-count")).toHaveTextContent("2");
+    expect(screen.getByTestId("project-names")).toHaveTextContent("Quarterly Planning|General");
+    expect(screen.getByTestId("project-names")).not.toHaveTextContent("ChatGPT - Quarterly Planning");
+    expect(screen.getByTestId("project-meta")).toHaveTextContent('"import_source":"chatgpt"');
   });
 });

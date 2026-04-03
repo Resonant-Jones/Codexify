@@ -9,6 +9,10 @@ import ProjectList from "./ProjectList";
 import CreateProjectModal from "./CreateProjectModal";
 import useSidebarThreads from "./useSidebarThreads";
 import useProjectsCache from "./useProjectsCache";
+import {
+  cleanSidebarProjectTitle,
+  isSidebarGeneralProjectName,
+} from "./sidebarPresentation";
 import { useLegacyThreads } from "@/contexts/LegacyThreadsContext";
 import api from "@/lib/api";
 
@@ -75,18 +79,6 @@ function getComputedStyleVar(name: string, fallback = ""): string {
   }
 }
 
-function normalizeProjectName(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-function isDefaultProjectAlias(value: unknown): boolean {
-  const normalized = normalizeProjectName(value);
-  return normalized === "general" || normalized === "loose threads";
-}
-
 async function deleteProjectApi(projectId: string | number) {
   const paths = [`/api/projects/${projectId}`, `/projects/${projectId}`];
   let lastErr: any = null;
@@ -150,7 +142,12 @@ export default function SidebarRoot({
   const [projectModalError, setProjectModalError] = React.useState<string | null>(null);
 
   const {
-    threads: sidebarThreads,
+    projectList,
+    setProjectList,
+    refreshProjectsFromServer,
+  } = useProjectsCache({ initialProjects: projects, threadsForLooseCount: threads });
+
+  const {
     displayThreads,
     scopeLabel: hookScopeLabel,
     currentProjectId,
@@ -158,30 +155,34 @@ export default function SidebarRoot({
     renameThread,
     toggleArchiveThread,
     deleteThread,
-  } = useSidebarThreads({ initialThreads: threads, projectId, onProjectChange });
-
-  const {
-    projectList,
-    setProjectList,
-    refreshProjectsFromServer,
-  } = useProjectsCache({ initialProjects: projects, threadsForLooseCount: sidebarThreads });
+  } = useSidebarThreads({ initialThreads: threads, projectId, onProjectChange, projects: projectList });
 
   const scopeLabel = React.useMemo(() => {
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projectList.find((p) => String(p.id) === String(currentProjectId));
-      return proj?.name ?? hookScopeLabel;
+      return proj ? cleanSidebarProjectTitle(proj as any) : hookScopeLabel;
     }
     return hookScopeLabel;
   }, [currentProjectId, hookScopeLabel, projectList]);
 
   React.useEffect(() => {
-    if (currentProjectId !== null) return;
+    if (!projectList.length) return;
     const defaultProject = projectList.find((project) =>
-      isDefaultProjectAlias(project?.name)
+      isSidebarGeneralProjectName(project?.name)
     );
-    if (!defaultProject?.id) return;
-    setScope(String(defaultProject.id));
+    const defaultProjectId = defaultProject?.id != null ? String(defaultProject.id) : null;
+    if (currentProjectId === null) {
+      if (defaultProjectId) {
+        setScope(defaultProjectId);
+      }
+      return;
+    }
+    const currentProjectExists = projectList.some(
+      (project) => String(project.id) === String(currentProjectId)
+    );
+    if (currentProjectExists) return;
+    setScope(defaultProjectId);
   }, [currentProjectId, projectList, setScope]);
 
   const columnClass = clsx("w-full", SIDEBAR_RAIL);
@@ -350,7 +351,7 @@ export default function SidebarRoot({
       const fallbackProjectId = deletingSelectedProject
         ? (() => {
             const generalProject = remaining.find((project) =>
-              isDefaultProjectAlias(project?.name)
+              isSidebarGeneralProjectName(project?.name)
             );
             if (generalProject?.id != null) {
               return String(generalProject.id);
@@ -372,7 +373,7 @@ export default function SidebarRoot({
             new CustomEvent("cfy:toast", {
               detail: {
                 kind: "success",
-                message: `Project "${existing.name}" deleted`,
+                message: `Project "${cleanSidebarProjectTitle(existing as any)}" deleted`,
               },
             })
           );
