@@ -71,4 +71,17 @@ describe("ThreadList dark mode surface contract", () => {
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.queryByText("Scope:")).not.toBeInTheDocument();
   });
+
+  it("does not render inline provider badges in the thread title", () => {
+    const { container } = renderThreadList(
+      {
+        profileMode: "cloud",
+        providerOverride: "anthropic",
+        modelOverride: "claude-3.5-sonnet",
+      },
+      "thread-1"
+    );
+
+    expect(container.querySelector(".thread-title svg")).toBeNull();
+  });
 });

@@ -17,14 +17,15 @@ const mockApi = api as unknown as {
   delete: ReturnType<typeof vi.fn>;
 };
 
-function createThread(id: string, title?: string): Thread {
+function createThread(id: string, overrides: Partial<Thread> = {}): Thread {
   return {
     id,
-    title: title ?? `Thread ${id}`,
+    title: `Thread ${id}`,
     lastMessage: "",
     unread: 0,
     participants: [],
     messages: [],
+    ...overrides,
   };
 }
 
@@ -127,5 +128,93 @@ describe("useSidebarThreads delete flow", () => {
       )
     ).toBe(true);
     toastCapture.cleanup();
+  });
+});
+
+describe("useSidebarThreads provenance filters", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("derives provenance options from loaded metadata and filters the visible thread list", () => {
+    const initialThreads = [
+      createThread("11", {
+        projectId: "project-1",
+        title: "ChatGPT import",
+        metadata: { import_source: "chatgpt" },
+      }),
+      createThread("22", {
+        projectId: "project-1",
+        title: "Claude import",
+        metadata: { provider: "claude" },
+      }),
+      createThread("33", {
+        projectId: "project-1",
+        title: "Anthropic import",
+        metadata: { provenance: { source: "anthropic" } },
+      }),
+      createThread("44", {
+        projectId: "project-1",
+        title: "Gemini import",
+        metadata: { provenance: { provider: "gemini" } },
+      }),
+      createThread("55", {
+        projectId: "project-1",
+        title: "OpenAI import",
+        metadata: { source: "openai" },
+      }),
+      createThread("66", {
+        projectId: "project-1",
+        title: "Native thread",
+      }),
+    ];
+
+    const { result } = renderHook(
+      ({ threads }) =>
+        useSidebarThreads({
+          initialThreads: threads,
+          projectId: "project-1",
+        }),
+      { initialProps: { threads: initialThreads } }
+    );
+
+    expect(result.current.provenanceOptions.map((option) => option.label)).toEqual([
+      "ChatGPT",
+      "Claude",
+      "Anthropic",
+      "Gemini",
+      "OpenAI",
+    ]);
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
+      "11",
+      "22",
+      "33",
+      "44",
+      "55",
+      "66",
+    ]);
+
+    act(() => {
+      result.current.setProvenanceFilter("ChatGPT");
+    });
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11"]);
+
+    act(() => {
+      result.current.setProvenanceFilter("OpenAI");
+    });
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["55"]);
+
+    act(() => {
+      result.current.setProvenanceFilter(null);
+    });
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
+      "11",
+      "22",
+      "33",
+      "44",
+      "55",
+      "66",
+    ]);
   });
 });
