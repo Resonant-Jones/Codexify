@@ -48,8 +48,10 @@ def _build_mainline_export(
 class DeterministicVectorStore:
     def __init__(self) -> None:
         self._items: list[dict[str, Any]] = []
+        self.batch_sizes: list[int] = []
 
     def add_texts(self, items: list[dict[str, Any]]) -> int:
+        self.batch_sizes.append(len(items))
         for item in items:
             text = str(item.get("text") or "")
             meta = dict(item.get("meta") or {})
@@ -358,6 +360,7 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     monkeypatch.setattr(
         chat_worker.event_bus, "emit_event", lambda *_args, **_kwargs: None
     )
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
 
     stats = ingest_chatgpt_export(
         json.dumps(export).encode("utf-8"),
@@ -701,3 +704,131 @@ def test_ingest_is_idempotent_on_reimport(monkeypatch):
     assert stats_first["messages_imported"] == 2
     assert stats_second["threads_imported"] == 0
     assert stats_second["messages_imported"] == 0
+
+
+def test_ingest_batches_embedding_follow_up_and_skips_hot_replay(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.ensure_project.return_value = 1
+    mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
+    mock_db.create_chat_thread.return_value = {"id": 42}
+
+    message_ids = iter([1, 2, 3, 4, 5])
+
+    def fake_create_message(*_args, **_kwargs):
+        return next(message_ids)
+
+    batch_sizes: list[int] = []
+
+    def fake_add_texts(items: list[dict[str, Any]]) -> int:
+        batch_sizes.append(len(items))
+        if len(batch_sizes) == 2:
+            raise RuntimeError("hot batch failed")
+        return len(items)
+
+    vector_store = MagicMock()
+    vector_store.add_texts.side_effect = fake_add_texts
+
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "_vector_store", vector_store)
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_BATCH_SIZE", 2)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    mock_db.create_message.side_effect = fake_create_message
+
+    export = _build_mainline_export(
+        [
+            ("user", "Alpha", 1),
+            ("assistant", "Bravo", 2),
+            ("user", "Charlie", 3),
+            ("assistant", "Delta", 4),
+            ("user", "Echo", 5),
+        ],
+        thread_id="batch-thread",
+    )
+
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+
+    assert stats["threads_imported"] == 1
+    assert stats["messages_imported"] == 5
+    assert stats["embedding_candidates"] == 5
+    assert stats["embeddings_persisted"] == 3
+    assert stats["embeddings_failed"] == 2
+    assert stats["embedding_coverage_degraded"] is True
+    assert vector_store.add_texts.call_count == 3
+    assert batch_sizes == [2, 2, 1]
+    assert mock_db.create_message.call_count == 5
+
+
+def test_retry_chatgpt_import_embeddings_batches_retry_items(monkeypatch):
+    dummy_db = object()
+    retry_items = [
+        {
+            "message_id": 301,
+            "text": "Recovered import chunk A",
+            "meta": {"message_id": 301, "thread_id": 21},
+        },
+        {
+            "message_id": 302,
+            "text": "Recovered import chunk B",
+            "meta": {"message_id": 302, "thread_id": 21},
+        },
+        {
+            "message_id": 303,
+            "text": "Recovered import chunk C",
+            "meta": {"message_id": 303, "thread_id": 21},
+        },
+        {
+            "message_id": 304,
+            "text": "Recovered import chunk D",
+            "meta": {"message_id": 304, "thread_id": 21},
+        },
+        {
+            "message_id": 305,
+            "text": "Recovered import chunk E",
+            "meta": {"message_id": 305, "thread_id": 21},
+        },
+    ]
+
+    monkeypatch.setattr(dependencies, "chatlog_db", dummy_db)
+    monkeypatch.setattr(
+        dependencies, "_vector_store", DeterministicVectorStore()
+    )
+    monkeypatch.setattr(dependencies, "init_database", lambda: dummy_db)
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
+    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_BATCH_SIZE", 2)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_fetch_retryable_chatgpt_embedding_items",
+        lambda _db, *, user_id, limit=5000: retry_items
+        if user_id == "tester"
+        else [],
+    )
+
+    stats = chatgpt_migration.retry_chatgpt_import_embeddings(
+        user_id="tester",
+        limit=5,
+    )
+
+    assert stats["embedding_candidates"] == 5
+    assert stats["embeddings_persisted"] == 5
+    assert stats["embeddings_failed"] == 0
+    assert stats["embedding_coverage_degraded"] is False
+    assert dependencies._vector_store.batch_sizes == [2, 2, 1]

@@ -10,6 +10,8 @@ _GUARDIAN_API_ENV_KEYS = (
     "GUARDIAN_API_KEY",
     "ENABLE_CONNECTOR_WORKER",
     "CODEXIFY_SUPPORTED_PROFILE",
+    "CODEXIFY_SINGLE_USER_ID",
+    "CODEXIFY_CHATGPT_IMPORT_STARTUP_RETRY_CAP",
     "LLM_PROVIDER",
     "ALLOW_CLOUD_PROVIDERS",
     "CODEXIFY_LOCAL_ONLY_MODE",
@@ -37,6 +39,10 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     fake_db = _fake_db()
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
     monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
+    monkeypatch.setenv(
+        "CODEXIFY_BETA_CORE_ONLY",
+        env_overrides.pop("CODEXIFY_BETA_CORE_ONLY", "false"),
+    )
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
     monkeypatch.setenv(
         "LLM_PROVIDER", env_overrides.pop("LLM_PROVIDER", "local")
@@ -80,6 +86,9 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     import guardian.guardian_api as guardian_api
 
     guardian_api = importlib.reload(guardian_api)
+    monkeypatch.setattr(
+        guardian_api, "assert_config_coherence", lambda _settings: None
+    )
     monkeypatch.setattr(
         guardian_api.dependencies, "init_database", lambda: fake_db
     )
@@ -171,3 +180,64 @@ def test_supported_profile_startup_fails_on_provider_drift(monkeypatch) -> None:
             guardian_api._refresh_supported_profile_state(
                 guardian_api.app, guardian_api.get_settings()
             )
+
+
+def test_startup_chatgpt_import_sweep_uses_single_user_cap(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    with _loaded_guardian_api(
+        monkeypatch,
+        CODEXIFY_SINGLE_USER_ID="single-user",
+        CODEXIFY_CHATGPT_IMPORT_STARTUP_RETRY_CAP="7",
+    ) as guardian_api:
+
+        def fake_retry(*, user_id, limit=5000):
+            captured["user_id"] = user_id
+            captured["limit"] = limit
+            return {
+                "embedding_candidates": 0,
+                "embeddings_persisted": 0,
+                "embeddings_failed": 0,
+                "embedding_coverage_degraded": False,
+            }
+
+        monkeypatch.setattr(
+            "backend.rag.chatgpt_migration.retry_chatgpt_import_embeddings",
+            fake_retry,
+        )
+
+        with TestClient(guardian_api.app):
+            pass
+
+    assert captured["user_id"] == "single-user"
+    assert captured["limit"] == 7
+
+
+def test_startup_chatgpt_import_sweep_uses_default_cap(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    with _loaded_guardian_api(
+        monkeypatch,
+        CODEXIFY_SINGLE_USER_ID="single-user",
+    ) as guardian_api:
+
+        def fake_retry(*, user_id, limit=5000):
+            captured["user_id"] = user_id
+            captured["limit"] = limit
+            return {
+                "embedding_candidates": 0,
+                "embeddings_persisted": 0,
+                "embeddings_failed": 0,
+                "embedding_coverage_degraded": False,
+            }
+
+        monkeypatch.setattr(
+            "backend.rag.chatgpt_migration.retry_chatgpt_import_embeddings",
+            fake_retry,
+        )
+
+        with TestClient(guardian_api.app):
+            pass
+
+    assert captured["user_id"] == "single-user"
+    assert captured["limit"] == 128
