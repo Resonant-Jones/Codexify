@@ -990,6 +990,12 @@ async def build_messages_for_llm(
     provider = (
         normalize_provider(raw_task_provider) if raw_task_provider else ""
     )
+    thread_id = task.thread_id
+    thread_info: dict[str, Any] | None = (
+        dependencies.chatlog_db.get_chat_thread(thread_id)
+        if hasattr(dependencies.chatlog_db, "get_chat_thread")
+        else None
+    )
     if not thread_info:
         raise ValueError("thread_not_found")
 
@@ -1010,15 +1016,6 @@ async def build_messages_for_llm(
         user_system_override = user_system_override.strip() or None
     else:
         user_system_override = None
-
-    thread_id = task.thread_id
-    thread_info = (
-        dependencies.chatlog_db.get_chat_thread(thread_id)
-        if hasattr(dependencies.chatlog_db, "get_chat_thread")
-        else None
-    )
-    if not thread_info:
-        raise ValueError("thread_not_found")
 
     resolved_profile = None
     if resolve_thread_system_profile is not None:
@@ -1494,7 +1491,7 @@ def run_chat_completion_task(
         )
     except Exception:
         pass
-                    
+
     try:
         event_bus.emit_event(
             "message.created",
