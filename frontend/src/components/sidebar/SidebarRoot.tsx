@@ -155,6 +155,9 @@ export default function SidebarRoot({
     scopeLabel: hookScopeLabel,
     currentProjectId,
     setScope,
+    provenanceFilter,
+    setProvenanceFilter,
+    provenanceOptions,
     renameThread,
     toggleArchiveThread,
     deleteThread,
@@ -184,7 +187,7 @@ export default function SidebarRoot({
     setScope(String(defaultProject.id));
   }, [currentProjectId, projectList, setScope]);
 
-  const columnClass = clsx("w-full", SIDEBAR_RAIL);
+  const columnClass = clsx("w-full min-w-0", SIDEBAR_RAIL);
 
   const accentColor = React.useMemo(() => getComputedStyleVar("--accent", "#6B7280"), []);
   const successBg = React.useMemo(
@@ -404,7 +407,7 @@ export default function SidebarRoot({
   return (
     <div
       className={clsx(
-        "flex min-h-0 h-full flex-col gap-3 transition-[width] duration-300",
+        "flex min-h-0 min-w-0 h-full flex-col gap-3 transition-[width] duration-300",
         "items-stretch"
       )}
       style={{ color: "var(--text)" }}
@@ -426,7 +429,7 @@ export default function SidebarRoot({
       )}
 
       <div
-        className="flex flex-col min-h-0 flex-1 gap-3 rounded-[var(--card-radius)]"
+        className="flex flex-col min-h-0 min-w-0 flex-1 gap-3 rounded-[var(--card-radius)]"
         style={{
           background: "var(--panel-sheet, #1f1f1f)",
           border: "1px solid transparent",
@@ -516,6 +519,9 @@ export default function SidebarRoot({
             threads={filteredThreads}
             activeId={activeId}
             scopeLabel={scopeLabel}
+            provenanceFilter={provenanceFilter}
+            provenanceOptions={provenanceOptions}
+            onProvenanceFilterChange={setProvenanceFilter}
             onSelect={onSelect}
             onNewChat={onNewChat}
             creatingThread={creatingThread}
