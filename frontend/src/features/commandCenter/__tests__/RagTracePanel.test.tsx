@@ -14,6 +14,23 @@ vi.mock("@/lib/api", async () => {
 });
 
 const fetchLatestRagTraceMock = vi.mocked(fetchLatestRagTrace);
+const canonicalTraceEvidence: NonNullable<CommandCenterRun["traceEvidence"]> = {
+  documentCount: 4,
+  graphCount: 1,
+  latestTurnContentPresent: true,
+  latestTurnMessageId: "msg-4",
+  latestTurnTracePresent: true,
+  memoryCount: 2,
+  retrievalQuery: "How does the cache behave?",
+  retrievalQueryMatchesLatestTurn: true,
+  retrievalQueryPresent: true,
+  retrievalTarget: "search-index",
+  sourceMode: "personal_knowledge",
+  tracePresenceState: "latest_turn_trace_present",
+  tracePresent: true,
+  traceUrl: "/api/chat/debug/rag-trace/42/latest",
+  widenReason: "explicit_personal_knowledge",
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -47,12 +64,14 @@ function buildRun(
     lastEventAt: Date.now(),
     lastKind: "task.completed",
     lastType: "task.completed",
+    latestTurnMessageId: "msg-4",
     runId: "run_001",
-    status: "succeeded",
+    status: "completed",
     summary: "Task completed",
     taskId: "task_001",
     threadId: 42,
     traceUrl: "/api/chat/debug/rag-trace/42/latest",
+    traceEvidence: null,
     ...overrides,
   };
 }
@@ -74,8 +93,10 @@ describe("RagTracePanel", () => {
 
     pending.resolve({ documents: [], graph: [] });
     expect(
-      await screen.findByText("No retrieval evidence available for this thread yet.")
+      await screen.findByText("No trace evidence exists for this run.")
     ).toBeInTheDocument();
+    expect(screen.getByText("Thread: 42")).toBeInTheDocument();
+    expect(screen.getByText("Latest turn message: msg-4")).toBeInTheDocument();
   });
 
   test("renders explicit empty states for no selected run and no resolvable thread", async () => {
@@ -96,7 +117,7 @@ describe("RagTracePanel", () => {
     );
 
     expect(
-      await screen.findByText("No resolvable thread available for this run.")
+      await screen.findByText("No thread identity available for this run.")
     ).toBeInTheDocument();
     expect(fetchLatestRagTraceMock).not.toHaveBeenCalled();
   });
@@ -120,10 +141,20 @@ describe("RagTracePanel", () => {
       graph: [],
     });
 
-    render(<RagTracePanel run={buildRun()} />);
+    render(
+      <RagTracePanel
+        run={buildRun({
+          traceEvidence: canonicalTraceEvidence,
+        })}
+      />
+    );
 
     expect(await screen.findByRole("heading", { name: "Semantic Results" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Memory Results" })).not.toBeInTheDocument();
+    expect(screen.getByText("Thread: 42")).toBeInTheDocument();
+    expect(screen.getByText("Latest turn message: msg-4")).toBeInTheDocument();
+    expect(screen.getByText("Trace summary: Latest turn trace present")).toBeInTheDocument();
+    expect(screen.getByText("Live trace: Aligned to this run/thread")).toBeInTheDocument();
     expect(
       screen.getByText("Original evidence text: keep this wording intact.")
     ).toBeInTheDocument();
@@ -173,7 +204,13 @@ describe("RagTracePanel", () => {
       ],
     });
 
-    render(<RagTracePanel run={buildRun()} />);
+    render(
+      <RagTracePanel
+        run={buildRun({
+          traceEvidence: canonicalTraceEvidence,
+        })}
+      />
+    );
 
     const semanticHeading = await screen.findByRole("heading", {
       name: "Semantic Results",
@@ -181,6 +218,10 @@ describe("RagTracePanel", () => {
     const memoryHeading = screen.getByRole("heading", {
       name: "Memory Results",
     });
+    expect(screen.getByText("Thread: 42")).toBeInTheDocument();
+    expect(screen.getByText("Latest turn message: msg-4")).toBeInTheDocument();
+    expect(screen.getByText("Trace summary: Latest turn trace present")).toBeInTheDocument();
+    expect(screen.getByText("Live trace: Aligned to this run/thread")).toBeInTheDocument();
     expect(
       semanticHeading.compareDocumentPosition(memoryHeading) &
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -201,7 +242,7 @@ describe("RagTracePanel", () => {
     ).toBeTruthy();
   });
 
-  test("renders an unavailable state when the resolved thread has no trace yet", async () => {
+  test("renders a truthful no-trace state when no trace evidence exists", async () => {
     fetchLatestRagTraceMock.mockResolvedValue({
       documents: [],
       graph: [],
@@ -210,7 +251,32 @@ describe("RagTracePanel", () => {
     render(<RagTracePanel run={buildRun()} />);
 
     expect(
-      await screen.findByText("No retrieval evidence available for this thread yet.")
+      await screen.findByText("No trace evidence exists for this run.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Trace summary: No trace evidence exists for this run")).toBeInTheDocument();
+    expect(screen.getByText("Live trace: No trace evidence exists for this run")).toBeInTheDocument();
+  });
+
+  test("renders a mismatch state when trace summary is present but the live trace is empty", async () => {
+    fetchLatestRagTraceMock.mockResolvedValue({
+      documents: [],
+      graph: [],
+    });
+
+    render(
+      <RagTracePanel
+        run={buildRun({
+          traceEvidence: canonicalTraceEvidence,
+        })}
+      />
+    );
+
+    expect(
+      await screen.findByText("Trace summary present, live trace unavailable.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Trace summary: Latest turn trace present")).toBeInTheDocument();
+    expect(
+      screen.getByText("Live trace: Trace summary present, live trace unavailable")
     ).toBeInTheDocument();
   });
 

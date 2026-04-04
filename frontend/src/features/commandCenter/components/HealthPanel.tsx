@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import type { CommandCenterHealthItem } from "@/features/commandCenter/types";
+import { describeCommandCenterHealthStatePresentation } from "@/features/commandCenter/types";
 
 type HealthPanelProps = {
   healthItems: CommandCenterHealthItem[];
@@ -68,20 +69,6 @@ function badgeToneStyle(tone: BadgeTone): React.CSSProperties {
   }
 }
 
-function statusTone(status: CommandCenterHealthItem["status"]): BadgeTone {
-  switch (status) {
-    case "OK":
-      return "active";
-    case "DEGRADED":
-      return "attention";
-    case "DOWN":
-      return "danger";
-    case "UNKNOWN":
-    default:
-      return "subtle";
-  }
-}
-
 function StatusBadge({
   ariaLabelPrefix,
   status,
@@ -89,16 +76,16 @@ function StatusBadge({
   ariaLabelPrefix?: string;
   status: CommandCenterHealthItem["status"];
 }) {
-  const tone = statusTone(status);
+  const presentation = describeCommandCenterHealthStatePresentation(status);
   return (
     <Badge
       aria-label={
-        ariaLabelPrefix ? `${ariaLabelPrefix} ${status}` : status
+        ariaLabelPrefix ? `${ariaLabelPrefix} ${presentation.label}` : presentation.label
       }
       className="border text-[11px] font-medium leading-none"
-      style={badgeToneStyle(tone)}
+      style={badgeToneStyle(presentation.tone as BadgeTone)}
     >
-      {status}
+      {presentation.label}
     </Badge>
   );
 }

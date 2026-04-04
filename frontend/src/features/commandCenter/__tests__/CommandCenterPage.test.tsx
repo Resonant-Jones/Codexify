@@ -10,6 +10,12 @@ import type {
   CommandCenterHealthItem,
   CommandCenterRun,
 } from "@/features/commandCenter/types";
+import {
+  COMMAND_CENTER_HEALTH_STATES,
+  COMMAND_CENTER_RUN_STATUSES,
+  COMMAND_CENTER_RUN_TERMINAL_OUTCOMES,
+  describeCommandCenterHealthStatePresentation,
+} from "@/features/commandCenter/types";
 
 const mockRefresh = vi.fn();
 
@@ -22,7 +28,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "core",
     label: "Core",
     raw: '{"ok":true}',
-    status: "OK",
+    status: COMMAND_CENTER_HEALTH_STATES.OK,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:01Z"),
@@ -32,7 +38,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "llm",
     label: "LLM",
     raw: '{"status":"degraded"}',
-    status: "UNKNOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.DEGRADED,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:02Z"),
@@ -42,7 +48,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "deps",
     label: "Deps",
     raw: '{"status":"fail"}',
-    status: "FAIL",
+    status: COMMAND_CENTER_HEALTH_STATES.DOWN,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:03Z"),
@@ -52,7 +58,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "vector",
     label: "Vector",
     raw: '{"ok":true}',
-    status: "OK",
+    status: COMMAND_CENTER_HEALTH_STATES.OK,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:04Z"),
@@ -61,59 +67,187 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     httpStatus: 200,
     key: "memory",
     label: "Memory",
-    raw: '{"ok":true}',
-    status: "OK",
+    raw: '{"status":"unknown"}',
+    status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
   },
 ];
 
 const mockedRuns: CommandCenterRun[] = [
   {
     eventCount: 4,
-    key: "run-alpha",
+    events: [
+      {
+        eventId: "evt-1",
+        json: { type: "chat.completion", thread_id: 42 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"type":"chat.completion","thread_id":42}',
+        receivedAt: Date.parse("2026-04-01T15:58:00Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.created",
+        state: "created",
+        status: null,
+        summary: "chat completion created",
+        taskId: "task-alpha",
+        taskType: "chat.completion",
+        terminalOutcome: null,
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.created",
+      },
+      {
+        eventId: "evt-2",
+        json: { thread_id: 42 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"thread_id":42}',
+        receivedAt: Date.parse("2026-04-01T15:58:10Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.running",
+        state: "running",
+        status: null,
+        summary: "chat completion running",
+        taskId: "task-alpha",
+        taskType: null,
+        terminalOutcome: null,
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.running",
+      },
+      {
+        eventId: "evt-3",
+        json: { thread_id: 42 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"thread_id":42}',
+        receivedAt: Date.parse("2026-04-01T15:58:20Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.chunk",
+        state: "chunk",
+        status: null,
+        summary: "chat completion chunk",
+        taskId: "task-alpha",
+        taskType: null,
+        terminalOutcome: null,
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.chunk",
+      },
+      {
+        eventId: "evt-4",
+        json: { thread_id: 42, message_id: 501 },
+        kind: null,
+        latestTurnMessageId: "501",
+        raw: '{"thread_id":42,"message_id":501}',
+        receivedAt: Date.parse("2026-04-01T15:58:30Z"),
+        requestId: null,
+        runId: "run-alpha",
+        sseType: "task.completed",
+        state: "completed",
+        status: null,
+        summary: "chat completion completed",
+        taskId: "task-alpha",
+        taskType: null,
+        terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+        threadId: 42,
+        turnId: "turn-alpha",
+        type: "task.completed",
+      },
+    ],
+    identityKind: "task",
+    key: "task-alpha",
     lastEvent: {
-      eventId: "evt-1",
-      json: { message: "Processing alpha" },
-      kind: "task.started",
-      raw: '{"message":"Processing alpha"}',
+      eventId: "evt-4",
+      json: { thread_id: 42, message_id: 501 },
+      kind: null,
+      latestTurnMessageId: "501",
+      raw: '{"thread_id":42,"message_id":501}',
       receivedAt: Date.parse("2026-04-01T15:58:30Z"),
+      requestId: null,
       runId: "run-alpha",
-      sseType: "message",
-      status: "running",
-      summary: "Processing alpha",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
       taskId: "task-alpha",
-      type: "task.started",
+      taskType: null,
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 42,
+      turnId: "turn-alpha",
+      type: "task.completed",
     },
     lastEventAt: Date.parse("2026-04-01T15:58:30Z"),
-    lastKind: "task.started",
-    lastType: "task.started",
+    lastKind: null,
+    lastType: "task.completed",
+    latestTurnMessageId: "501",
+    requestId: null,
     runId: "run-alpha",
-    status: "running",
-    summary: "Processing alpha",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
     taskId: "task-alpha",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    traceEvidence: {
+      documentCount: 4,
+      graphCount: 1,
+      latestTurnContentPresent: true,
+      latestTurnMessageId: "501",
+      latestTurnTracePresent: true,
+      memoryCount: 2,
+      retrievalQuery: "How does the cache behave?",
+      retrievalQueryMatchesLatestTurn: true,
+      retrievalQueryPresent: true,
+      retrievalTarget: "search-index",
+      sourceMode: "personal_knowledge",
+      tracePresenceState: "latest_turn_trace_present",
+      tracePresent: true,
+      traceUrl: "/api/chat/debug/rag-trace/42/latest",
+      widenReason: "explicit_personal_knowledge",
+    },
+    traceUrl: "/api/chat/debug/rag-trace/42/latest",
+    threadId: 42,
+    turnId: "turn-alpha",
   },
   {
-    eventCount: 2,
-    key: "run-bravo",
+    eventCount: 1,
+    identityKind: "synthetic",
+    key: "event-raw-bravo",
     lastEvent: {
-      eventId: "evt-2",
+      eventId: "evt-raw-1",
       json: { message: "No classification yet" },
-      kind: "task.updated",
+      kind: null,
+      latestTurnMessageId: null,
       raw: '{"message":"No classification yet"}',
       receivedAt: Date.parse("2026-04-01T15:57:30Z"),
-      runId: "run-bravo",
+      requestId: null,
+      runId: null,
       sseType: "message",
+      state: null,
       status: "unknown",
       summary: "No classification yet",
-      taskId: "task-bravo",
-      type: "task.updated",
+      taskId: null,
+      taskType: null,
+      terminalOutcome: null,
+      threadId: null,
+      turnId: null,
+      type: null,
     },
     lastEventAt: Date.parse("2026-04-01T15:57:30Z"),
-    lastKind: "task.updated",
-    lastType: "task.updated",
-    runId: "run-bravo",
+    lastKind: null,
+    lastType: null,
+    requestId: null,
+    runId: null,
+    runType: null,
+    state: null,
     status: "unknown",
-    summary: "No classification yet",
-    taskId: "task-bravo",
+    summary: "unclassified event",
+    taskId: null,
+    terminalOutcome: null,
   },
 ];
 
@@ -189,7 +323,13 @@ vi.mock("../hooks/useHealthSummary", () => ({
 
 vi.mock("../components/RunDetailDrawer", () => ({
   default: ({ run }: { run: CommandCenterRun | null }) =>
-    run ? <div data-testid="run-detail-drawer">Selected run: {run.key}</div> : null,
+    run ? (
+      <div data-testid="run-detail-drawer">
+        Selected run: {run.key} · thread {run.threadId ?? "none"} · latest turn{" "}
+        {run.latestTurnMessageId ?? "none"} · trace{" "}
+        {run.traceEvidence?.tracePresent ? "present" : "none"}
+      </div>
+    ) : null,
 }));
 
 beforeEach(() => {
@@ -222,6 +362,20 @@ describe("CommandCenterPage", () => {
       tone: "subtle",
       isFallback: true,
     });
+
+    const healthSamples = [
+      [COMMAND_CENTER_HEALTH_STATES.OK, { label: "OK", tone: "active", isFallback: false }],
+      [
+        COMMAND_CENTER_HEALTH_STATES.DEGRADED,
+        { label: "Degraded", tone: "attention", isFallback: false },
+      ],
+      [COMMAND_CENTER_HEALTH_STATES.DOWN, { label: "Down", tone: "danger", isFallback: false }],
+      [COMMAND_CENTER_HEALTH_STATES.UNKNOWN, { label: "Unknown", tone: "subtle", isFallback: false }],
+    ] as const;
+
+    for (const [status, expected] of healthSamples) {
+      expect(describeCommandCenterHealthStatePresentation(status)).toMatchObject(expected);
+    }
   });
 
   it("renders a signal-first hierarchy for operators", () => {
@@ -252,30 +406,40 @@ describe("CommandCenterPage", () => {
     expect(within(healthStrip).getByText("Memory")).toBeInTheDocument();
     expect(within(screen.getByTestId("command-center-health-core")).getByText("OK")).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("command-center-health-llm")).getByText("UNKNOWN")
+      within(screen.getByTestId("command-center-health-llm")).getByText("Degraded")
     ).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-health-deps")).getByText("FAIL")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-health-deps")).getByText("Down")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-health-memory")).getByText("Unknown")).toBeInTheDocument();
     expect(within(healthStrip).getAllByText("Inspect raw details").length).toBeGreaterThan(0);
 
     const runsFeed = screen.getByTestId("command-center-runs-feed");
-    expect(within(runsFeed).getByText("Processing alpha")).toBeInTheDocument();
-    expect(within(runsFeed).getByText("No classification yet")).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-run-alpha")).getByText("running")).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-run-bravo")).getByText("unknown")).toBeInTheDocument();
+    expect(within(runsFeed).getByText("chat completion")).toBeInTheDocument();
+    expect(within(runsFeed).getByText("Unknown run")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getAllByText("Completed").length).toBeGreaterThan(1);
+    expect(within(screen.getByTestId("command-center-run-event-raw-bravo")).getByText("Unknown")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Events: 4")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Task: task-alpha")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Thread: 42")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Latest turn message: 501")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Turn: turn-alpha")).toBeInTheDocument();
     expect(
-      within(runsFeed).getByRole("button", { name: /open details for processing alpha/i })
+      within(runsFeed).getByRole("button", { name: /open details for chat completion/i })
     ).toBeInTheDocument();
     expect(
-      within(runsFeed).getByRole("button", { name: /open details for no classification yet/i })
+      within(runsFeed).getByRole("button", { name: /open details for unknown run/i })
     ).toBeInTheDocument();
-    expect(within(runsFeed).getAllByText("Inspect event details").length).toBeGreaterThan(0);
+    expect(within(runsFeed).getAllByText("Inspect raw events").length).toBeGreaterThan(0);
     expect(screen.getByText("attention")).toBeInTheDocument();
     expect(screen.getByText("mystery signal")).toBeInTheDocument();
+    expect(within(runsFeed).getByText("Unknown")).toBeInTheDocument();
 
     fireEvent.click(
-      within(runsFeed).getByRole("button", { name: /open details for processing alpha/i })
+      within(runsFeed).getByRole("button", { name: /open details for chat completion/i })
     );
-    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("run-alpha");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("task-alpha");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("thread 42");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("latest turn 501");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("trace present");
 
     expect(screen.getByText("Approvals")).toBeInTheDocument();
     expect(screen.getByText("attention")).toBeInTheDocument();

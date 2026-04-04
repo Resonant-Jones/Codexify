@@ -12,8 +12,9 @@ import {
 
 import type {
   CommandCenterHealthItem,
-  CommandCenterHealthStatus,
+  CommandCenterHealthState,
 } from "@/features/commandCenter/types";
+import { COMMAND_CENTER_HEALTH_STATES } from "@/features/commandCenter/types";
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -41,7 +42,7 @@ type HealthInterpretation = {
   details: Record<string, unknown> | null;
   error: string | null;
   raw: string | null;
-  status: CommandCenterHealthStatus;
+  status: CommandCenterHealthState;
 };
 
 const HEALTH_DEFINITIONS: HealthDefinition[] = [
@@ -85,10 +86,7 @@ function resolveHealthUrl(definition: HealthDefinition, index: number): string {
 function resolveBackendHealthUrl(path: string): string {
   const runtimeConfig = getRuntimeConfigSync();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  if (
-    runtimeConfig.backendBaseUrl &&
-    /^https?:\/\//i.test(runtimeConfig.backendBaseUrl)
-  ) {
+  if (runtimeConfig.backendBaseUrl) {
     return resolveBackendUrl(normalizedPath, runtimeConfig);
   }
 
@@ -135,16 +133,16 @@ function firstString(...values: unknown[]): string | null {
 
 function normalizeHealthStatus(
   rawStatus: string | null | undefined
-): CommandCenterHealthStatus {
+): CommandCenterHealthState {
   const token = String(rawStatus ?? "")
     .trim()
     .toLowerCase();
-  if (!token) return "UNKNOWN";
+  if (!token) return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
   if (["ok", "healthy", "online"].includes(token)) {
-    return "OK";
+    return COMMAND_CENTER_HEALTH_STATES.OK;
   }
-  if (["degraded", "warning", "stale", "unknown"].includes(token)) {
-    return "DEGRADED";
+  if (["degraded", "warning", "warn", "stale"].includes(token)) {
+    return COMMAND_CENTER_HEALTH_STATES.DEGRADED;
   }
   if (
     [
@@ -158,9 +156,9 @@ function normalizeHealthStatus(
       "dependency_unavailable",
     ].includes(token)
   ) {
-    return "DOWN";
+    return COMMAND_CENTER_HEALTH_STATES.DOWN;
   }
-  return "UNKNOWN";
+  return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
 }
 
 function readHealthStatus(data: Record<string, unknown> | null): string | null {
@@ -174,22 +172,39 @@ function readHealthStatus(data: Record<string, unknown> | null): string | null {
 
 function classifyStatus(
   data: Record<string, unknown> | null
-): CommandCenterHealthStatus {
-  if (!data) return "UNKNOWN";
-  const directStatus = readHealthStatus(data);
-  const normalized = normalizeHealthStatus(directStatus);
-  if (normalized !== "UNKNOWN") {
+): CommandCenterHealthState {
+  if (!data) return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
+
+  const details = asRecord(data.details);
+  const health = asRecord(data.health);
+  const normalized = normalizeHealthStatus(readHealthStatus(data));
+  if (normalized !== COMMAND_CENTER_HEALTH_STATES.UNKNOWN) {
     return normalized;
   }
 
-  if (data.ok === true || asRecord(data.details)?.ok === true) {
-    return "OK";
+  if (data.ok === true || details?.ok === true || health?.ok === true) {
+    return COMMAND_CENTER_HEALTH_STATES.OK;
   }
-  if (data.ok === false || asRecord(data.details)?.ok === false) {
-    return "DOWN";
+  if (
+    data.degraded === true ||
+    details?.degraded === true ||
+    health?.degraded === true
+  ) {
+    return COMMAND_CENTER_HEALTH_STATES.DEGRADED;
+  }
+  if (data.ok === false || details?.ok === false || health?.ok === false) {
+    return COMMAND_CENTER_HEALTH_STATES.DOWN;
   }
 
-  return "UNKNOWN";
+  return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
+}
+
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 export function interpretHealthPayload(rawText: string): HealthInterpretation {
@@ -199,7 +214,7 @@ export function interpretHealthPayload(rawText: string): HealthInterpretation {
       details: null,
       error: "Invalid health response",
       raw: null,
-      status: "UNKNOWN",
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
     };
   }
 
@@ -208,7 +223,7 @@ export function interpretHealthPayload(rawText: string): HealthInterpretation {
       details: null,
       error: "Invalid health response",
       raw: trimmed,
-      status: "UNKNOWN",
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
     };
   }
 
@@ -218,7 +233,7 @@ export function interpretHealthPayload(rawText: string): HealthInterpretation {
       details: null,
       error: "Invalid health response",
       raw: trimmed,
-      status: "UNKNOWN",
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
     };
   }
 
@@ -230,25 +245,17 @@ export function interpretHealthPayload(rawText: string): HealthInterpretation {
   };
 }
 
-function parseJson(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function createDefaultItems(): CommandCenterHealthItem[] {
   return HEALTH_DEFINITIONS.map((definition) => ({
     checkedAt: null,
+    details: null,
     endpoint: resolveHealthUrl(definition, 0),
     error: null,
     httpStatus: null,
     key: definition.key,
     label: definition.label,
-    details: null,
     raw: null,
-    status: "UNKNOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
   }));
 }
 
@@ -278,7 +285,7 @@ async function fetchHealthItem(
       }
 
       if (
-        interpretation.status === "UNKNOWN" &&
+        interpretation.status === COMMAND_CENTER_HEALTH_STATES.UNKNOWN &&
         interpretation.error &&
         index < definition.paths.length - 1
       ) {
@@ -287,9 +294,9 @@ async function fetchHealthItem(
 
       return {
         checkedAt: Date.now(),
-        endpoint: url,
         details: interpretation.details,
-        error: interpretation.error ?? (response.ok ? null : `HTTP ${response.status}`),
+        endpoint: url,
+        error: response.ok ? interpretation.error : `HTTP ${response.status}`,
         httpStatus: response.status,
         key: definition.key,
         label: definition.label,
@@ -306,28 +313,28 @@ async function fetchHealthItem(
           : "Request failed";
       return {
         checkedAt: Date.now(),
+        details: null,
         endpoint: url,
         error: message,
         httpStatus: null,
         key: definition.key,
         label: definition.label,
-        details: null,
         raw: toRaw(message),
-        status: "DOWN",
+        status: COMMAND_CENTER_HEALTH_STATES.DOWN,
       };
     }
   }
 
   return {
     checkedAt: Date.now(),
+    details: null,
     endpoint: resolveHealthUrl(definition, definition.paths.length - 1),
     error: "Request failed",
     httpStatus: null,
     key: definition.key,
     label: definition.label,
-    details: null,
     raw: null,
-    status: "DOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.DOWN,
   };
 }
 
@@ -356,7 +363,7 @@ export function useHealthSummary(
           checkedAt: Date.now(),
           error: "Backend outage fuse active",
           raw: "Backend outage fuse active",
-          status: "DOWN",
+          status: COMMAND_CENTER_HEALTH_STATES.DOWN,
         }))
       );
       setLastCheckedAt(Date.now());
