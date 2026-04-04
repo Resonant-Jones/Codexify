@@ -6,12 +6,14 @@ import api from "@/lib/api";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import {
+  collectSidebarProvenanceOptions,
+  getSidebarThreadProvenanceKey,
+  isSidebarGeneralProjectName,
   cleanSidebarProjectTitle,
   resolveSidebarThreadBucketId,
   resolveSidebarGeneralProjectId,
   threadBelongsToGeneral,
   collectSidebarProvenanceOptions,
-  getSidebarThreadProvenanceKey,
   threadMatchesSidebarProvenance,
   type SidebarProvenanceOption,
 } from "./sidebarPresentation";
@@ -130,6 +132,7 @@ export function useSidebarThreads({
   const stableTitleRef = useRef<Map<string, string>>(new Map());
   const lastEventSigRef = useRef<string | null>(null);
   const lastEventTsRef = useRef<number>(0);
+  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(null);
 
   // Local project scope fallback if parent does not control it
   const [localProjectId, setLocalProjectId] = useState<string | null>(() => {
@@ -375,7 +378,11 @@ export function useSidebarThreads({
 
   const currentProjectId = onProjectChange ? (projectId ?? null) : localProjectId;
   const generalProjectId = useMemo(() => {
-    return resolveSidebarGeneralProjectId(projects, readStoredGeneralProjectId());
+    const fromProjects = projects.find((project) => isSidebarGeneralProjectName(project?.name));
+    if (fromProjects?.id != null) {
+      return String(fromProjects.id);
+    }
+    return readStoredGeneralProjectId();
   }, [projects]);
 
   const scopedThreads = useMemo(() => {
@@ -396,6 +403,19 @@ export function useSidebarThreads({
 
     return base.filter((thread) => !thread.archivedAt);
   }, [currentProjectId, generalProjectId, projects, threadList]);
+
+  const provenanceOptions = useMemo(
+    () => collectSidebarProvenanceOptions(scopedThreads),
+    [scopedThreads]
+  );
+
+  useEffect(() => {
+    if (!provenanceFilter) return;
+    if (provenanceOptions.some((option) => option.value === provenanceFilter)) {
+      return;
+    }
+    setProvenanceFilter(null);
+  }, [provenanceFilter, provenanceOptions]);
 
   const provenanceOptions = useMemo(
     () => collectSidebarProvenanceOptions(scopedThreads),
