@@ -12,6 +12,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
+from guardian.db.models import UploadedDocument
+
 # Set environment variables early
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
@@ -784,6 +786,147 @@ class TestUploadDedupeAndResolve:
         metadata = enqueue_kwargs["metadata"]
         assert metadata["project_id"] == 7
         assert metadata["thread_id"] is None
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media.enqueue_document_embed")
+    @patch("guardian.routes.media._ensure_project_document_link")
+    @patch("guardian.routes.media._ensure_thread_document_link")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_status_transitions_pending_to_ready(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_create_asset,
+        mock_get_db,
+        mock_ensure_thread_document_link,
+        mock_ensure_project_document_link,
+        mock_enqueue_embed,
+        mock_storage,
+        client,
+    ):
+        from guardian.workers import document_embed_worker
+
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260213-status-check--notes.txt",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded_doc.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(
+            id="asset-doc-status",
+            deterministic_id="20260213-status-check",
+            system_name="20260213-status-check--notes.txt",
+            normalized_slug="notes",
+            media_kind="document",
+            provenance="uploaded",
+            source_tag="uploaded",
+            content_hash="status-check",
+        )
+        mock_storage.upload_file.return_value = (
+            "/media/documents/20260213-status-check--notes.txt"
+        )
+
+        mock_db, mock_session = _mock_db_with_context(
+            thread=SimpleNamespace(id=9, project_id=1),
+            project=SimpleNamespace(id=1),
+            projects=[{"id": 1, "name": "General"}],
+        )
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/document",
+            data={"project_id": 1, "thread_id": 9, "user_id": "u-1"},
+            files={"file": ("notes.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["embedding_status"] == "pending"
+        mock_enqueue_embed.assert_called_once()
+
+        uploaded_doc = mock_session.add.call_args[0][0]
+        assert uploaded_doc.embedding_status == "pending"
+
+        class _WorkerQuery:
+            def __init__(self, doc):
+                self.doc = doc
+                self.updates: list[dict] = []
+
+            def filter_by(self, **_kwargs):
+                return self
+
+            def first(self):
+                return self.doc
+
+            def update(self, values):
+                self.updates.append(values)
+                return 1
+
+        worker_query = _WorkerQuery(uploaded_doc)
+        worker_session = MagicMock()
+        worker_session.query.return_value = worker_query
+        worker_db = MagicMock()
+        worker_db.get_session.return_value.__enter__ = MagicMock(
+            return_value=worker_session
+        )
+        worker_db.get_session.return_value.__exit__ = MagicMock(
+            return_value=False
+        )
+
+        class _RecordingEmbedder:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def embed_and_index(self, docs, metadatas=None, ids=None):
+                self.calls.append(
+                    {
+                        "docs": docs,
+                        "metadatas": metadatas,
+                        "ids": ids,
+                    }
+                )
+                return {"count": len(docs)}
+
+        embedder = _RecordingEmbedder()
+
+        with patch.object(
+            document_embed_worker,
+            "chunk_document_text",
+            return_value=[SimpleNamespace(text="hello world", index=0)],
+        ):
+            ok = document_embed_worker.process_document_embed_task(
+                {"doc_id": uploaded_doc.id},
+                db=worker_db,
+                embedder_factory=lambda: embedder,
+            )
+
+        assert ok is True
+        assert [
+            u[UploadedDocument.embedding_status] for u in worker_query.updates
+        ] == [
+            "processing",
+            "ready",
+        ]
+        assert len(embedder.calls) == 1
+        assert embedder.calls[0]["docs"] == ["hello world"]
+        assert embedder.calls[0]["ids"] is None
+        metadata = embedder.calls[0]["metadatas"][0]
+        assert metadata["source"] == "document"
+        assert metadata["filename"] == "notes.txt"
+        assert metadata["doc_id"] == uploaded_doc.id
+        assert metadata["user_id"] == "u-1"
+        assert metadata["project_id"] == 1
+        assert metadata["thread_id"] == 9
+        assert metadata["chunk_index"] == 0
+        assert metadata["chunk_count"] == 1
 
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media.enqueue_document_embed")

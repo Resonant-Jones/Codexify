@@ -9,6 +9,11 @@ import {
   collectSidebarProvenanceOptions,
   getSidebarThreadProvenanceKey,
   isSidebarGeneralProjectName,
+  cleanSidebarProjectTitle,
+  resolveSidebarThreadBucketId,
+  resolveSidebarGeneralProjectId,
+  threadBelongsToGeneral,
+  collectSidebarProvenanceOptions,
   threadMatchesSidebarProvenance,
   type SidebarProvenanceOption,
 } from "./sidebarPresentation";
@@ -137,6 +142,7 @@ export function useSidebarThreads({
     if (stored === "null") return null;
     return stored || null;
   });
+  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(null);
 
   // Mirror incoming threads (sanitized) while avoiding no-op state churn
   useEffect(() => {
@@ -380,32 +386,36 @@ export function useSidebarThreads({
   }, [projects]);
 
   const scopedThreads = useMemo(() => {
-    const includesUnassignedAndGeneral = (scopeId: string | null): boolean => {
-      if (!scopeId) return false;
-      if (!generalProjectId) return false;
-      return String(scopeId) === String(generalProjectId);
-    };
+    const isGeneralScope =
+      currentProjectId === null
+      || (generalProjectId != null && String(currentProjectId) === String(generalProjectId));
+
+    const resolveBucket = (thread: Thread) =>
+      resolveSidebarThreadBucketId(thread, projects, generalProjectId);
 
     const base =
-      currentProjectId === null
-        ? threadList.filter((t) => {
-            if (!t.projectId) return true;
-            if (!generalProjectId) return false;
-            return String(t.projectId) === String(generalProjectId);
-          })
-        : currentProjectId
-        ? includesUnassignedAndGeneral(currentProjectId)
-          ? threadList.filter(
-              (t) =>
-                !t.projectId
-                || String(t.projectId ?? "") === String(currentProjectId)
-            )
-          : threadList.filter(
-              (t) => String(t.projectId ?? "") === String(currentProjectId)
-            )
-        : threadList;
-    return base.filter((t) => !t.archivedAt);
-  }, [currentProjectId, generalProjectId, threadList]);
+      currentProjectId === null || isGeneralScope
+        ? threadList.filter((thread) => threadBelongsToGeneral(thread, projects, generalProjectId))
+        : threadList.filter((thread) => {
+            const bucketId = resolveBucket(thread);
+            return bucketId != null && String(bucketId) === String(currentProjectId);
+          });
+
+    return base.filter((thread) => !thread.archivedAt);
+  }, [currentProjectId, generalProjectId, projects, threadList]);
+
+  const provenanceOptions = useMemo(
+    () => collectSidebarProvenanceOptions(scopedThreads),
+    [scopedThreads]
+  );
+
+  useEffect(() => {
+    if (!provenanceFilter) return;
+    if (provenanceOptions.some((option) => option.value === provenanceFilter)) {
+      return;
+    }
+    setProvenanceFilter(null);
+  }, [provenanceFilter, provenanceOptions]);
 
   const provenanceOptions = useMemo(
     () => collectSidebarProvenanceOptions(scopedThreads),
@@ -444,12 +454,15 @@ export function useSidebarThreads({
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projects.find((p) => String(p.id) === String(currentProjectId));
-      return proj?.name ?? "Project";
+      return proj ? cleanSidebarProjectTitle(proj) : "Project";
     }
     return "All";
   }, [currentProjectId, projects]);
 
-  const looseCount = useMemo(() => threadList.filter((t) => !t.projectId).length, [threadList]);
+  const looseCount = useMemo(
+    () => threadList.filter((thread) => threadBelongsToGeneral(thread, projects, generalProjectId)).length,
+    [generalProjectId, projects, threadList]
+  );
 
   return {
     threads: threadList,
