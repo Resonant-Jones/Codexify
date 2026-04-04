@@ -336,6 +336,27 @@ def _run_chatgpt_import_startup_sweep() -> None:
         )
 
 
+def _schedule_background_startup_task(
+    app: FastAPI, task: asyncio.Task[Any]
+) -> None:
+    background_tasks = getattr(app.state, "startup_background_tasks", None)
+    if background_tasks is None:
+        background_tasks = set()
+        app.state.startup_background_tasks = background_tasks
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
+
+
+def _schedule_chatgpt_import_startup_sweep(app: FastAPI) -> asyncio.Task[Any]:
+    task = asyncio.create_task(
+        asyncio.to_thread(_run_chatgpt_import_startup_sweep),
+        name="chatgpt-import-startup-sweep",
+    )
+    _schedule_background_startup_task(app, task)
+    logger.info("[startup] ChatGPT import sweep scheduled in background")
+    return task
+
+
 from guardian.realtime import collaboration
 
 
@@ -593,7 +614,7 @@ async def app_lifespan(app: FastAPI):
             "[startup] Failed to sync inference provider rows: %s", exc
         )
 
-    _run_chatgpt_import_startup_sweep()
+    _schedule_chatgpt_import_startup_sweep(app)
 
     # Initialize Neo4j connection if graph logging is enabled
     if (
@@ -690,6 +711,14 @@ async def app_lifespan(app: FastAPI):
             await _CONNECTOR_WORKER_TASK
         except asyncio.CancelledError:
             pass
+
+    startup_background_tasks = getattr(
+        app.state, "startup_background_tasks", None
+    )
+    if startup_background_tasks:
+        for task in list(startup_background_tasks):
+            task.cancel()
+        await asyncio.gather(*startup_background_tasks, return_exceptions=True)
 
     logger.info("[shutdown] Guardian API stopped")
 
