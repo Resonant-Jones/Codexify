@@ -28,6 +28,22 @@ function formatDuration(value: number | null): string {
   return `${value} ms`;
 }
 
+function formatSourceMode(value: string | null): string {
+  switch (String(value ?? "").trim()) {
+    case "project":
+      return "Project";
+    case "personal_knowledge":
+      return "Personal Knowledge";
+    default:
+      return value ? value.replace(/[._-]+/g, " ") : "—";
+  }
+}
+
+function clipInlineText(value: string, limit = 96): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(0, limit - 1))}…`;
+}
+
 function getEvents(run: CommandCenterRun): CommandCenterEvent[] {
   return run.events?.length ? run.events : [run.lastEvent];
 }
@@ -311,32 +327,76 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
         )}
       </SectionCard>
 
-      <SectionCard title="Trace" note="Presence flags only. The raw trace viewer lives elsewhere.">
+      <SectionCard
+        title="Trace / Retrieval"
+        note="Compact retrieval context and trace presence. Raw trace details stay secondary."
+      >
         {traceEvidence ? (
-          <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
-            <Chip label="Trace present" value={traceEvidence.tracePresent ? "Yes" : "No"} />
-            <Chip
-              label="Latest-turn trace present"
-              value={traceEvidence.latestTurnTracePresent ? "Yes" : "No"}
-            />
-            <Chip
-              label="Retrieval query present"
-              value={traceEvidence.retrievalQueryPresent ? "Yes" : "No"}
-            />
-            <Chip
-              label="Retrieval query matched latest turn"
-              value={
-                traceEvidence.retrievalQueryMatchesLatestTurn == null
-                  ? "—"
-                  : traceEvidence.retrievalQueryMatchesLatestTurn
-                    ? "Yes"
-                    : "No"
-              }
-            />
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
+              {traceEvidence.sourceMode ? (
+                <Chip label="Source" value={formatSourceMode(traceEvidence.sourceMode)} />
+              ) : null}
+              {traceEvidence.widenReason != null ? (
+                <Chip label="Widen reason" value={traceEvidence.widenReason} />
+              ) : null}
+              <Chip label="Trace status" value={traceEvidence.tracePresenceState} />
+              {traceEvidence.latestTurnMessageId ?? run.latestTurnMessageId ? (
+                <Chip
+                  label="Latest turn message"
+                  value={traceEvidence.latestTurnMessageId ?? run.latestTurnMessageId}
+                />
+              ) : null}
+            </div>
+
+            {traceEvidence.retrievalQuery ? (
+              <div
+                className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+                style={{
+                  background: "var(--surface-soft)",
+                  borderColor: "var(--panel-border)",
+                  color: "var(--muted)",
+                }}
+              >
+                <span className="font-semibold" style={{ color: "var(--text)" }}>
+                  Retrieval query:
+                </span>{" "}
+                <span title={traceEvidence.retrievalQuery}>
+                  {clipInlineText(traceEvidence.retrievalQuery)}
+                </span>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
+              {traceEvidence.documentCount != null ? (
+                <Chip label="Documents" value={traceEvidence.documentCount} />
+              ) : null}
+              {traceEvidence.memoryCount != null ? (
+                <Chip label="Memory" value={traceEvidence.memoryCount} />
+              ) : null}
+              {traceEvidence.graphCount != null ? (
+                <Chip label="Graph" value={traceEvidence.graphCount} />
+              ) : null}
+            </div>
+
+            {!traceEvidence.tracePresent ? (
+              <div
+                className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+                style={{
+                  borderColor: "var(--panel-border)",
+                  color: "var(--muted)",
+                }}
+              >
+                No trace evidence recorded.
+              </div>
+            ) : null}
           </div>
         ) : (
-          <div className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}>
-            No structured trace evidence recorded.
+          <div
+            className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+            style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+          >
+            No retrieval or trace evidence recorded.
           </div>
         )}
       </SectionCard>

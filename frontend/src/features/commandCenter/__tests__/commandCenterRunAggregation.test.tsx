@@ -49,6 +49,7 @@ describe("commandCenterRunAggregation", () => {
         "task.running",
         {
           latest_turn_message_id: "msg-2",
+          origin: "api:chat.complete|turn_id=turn-1|source_mode=personal_knowledge",
           warmup_at: "2026-04-01T16:00:02Z",
           run_id: "run-1",
           task_id: "task-1",
@@ -66,6 +67,20 @@ describe("commandCenterRunAggregation", () => {
         {
           latest_turn_message_id: "msg-3",
           first_token_at: "2026-04-01T16:00:03Z",
+          trace: {
+            latest_turn_message_id: "msg-4",
+            retrieval_query: "How does the cache behave?",
+            retrieval_query_matches_latest_turn: true,
+            retrieval_target: "search-index",
+            source_mode: "personal_knowledge",
+            trace_url: "/api/chat/debug/rag-trace/42/latest",
+            widen_reason: "explicit_personal_knowledge",
+            payload_summary: {
+              graph_count: 1,
+              memory_count: 2,
+              semantic_count: 4,
+            },
+          },
           run_id: "run-1",
           state: "awaiting_first_token",
           task_id: "task-1",
@@ -160,13 +175,20 @@ describe("commandCenterRunAggregation", () => {
     });
     expect(run?.traceUrl).toBe("/api/chat/debug/rag-trace/42/latest");
     expect(run?.traceEvidence).toMatchObject({
+      documentCount: 4,
+      graphCount: 1,
       latestTurnTracePresent: true,
+      latestTurnMessageId: "msg-4",
+      memoryCount: 2,
       retrievalQuery: "How does the cache behave?",
       retrievalQueryMatchesLatestTurn: true,
       retrievalQueryPresent: true,
       retrievalTarget: "search-index",
+      sourceMode: "personal_knowledge",
+      tracePresenceState: "latest-turn trace present",
       tracePresent: true,
       traceUrl: "/api/chat/debug/rag-trace/42/latest",
+      widenReason: "explicit_personal_knowledge",
     });
     expect(
       run?.events?.some(
@@ -278,6 +300,7 @@ describe("commandCenterRunAggregation", () => {
     expect(run?.status).toBe("succeeded");
     expect(run?.summary).toBe("chat completion · completed");
     expect(run?.lastEventAt).toBe(completed.receivedAt);
+    expect(run?.traceEvidence).toBeNull();
     expect(run?.timings).toMatchObject({
       completedAt: Date.parse("2026-04-01T16:10:05Z"),
       totalDurationMs: 1800,
