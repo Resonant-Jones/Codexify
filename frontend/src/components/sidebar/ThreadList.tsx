@@ -13,11 +13,15 @@ import {
 import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import TileShell from "@/components/surface/TileShell";
+import type { SidebarProvenanceOption } from "./sidebarPresentation";
 
 type ThreadListProps = {
   threads: Thread[];
   activeId: string | null;
   scopeLabel: string;
+  provenanceFilter?: string | null;
+  provenanceOptions?: SidebarProvenanceOption[];
+  onProvenanceFilterChange?: (label: string | null) => void;
   onSelect: (id: string) => void;
   onNewChat: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
@@ -70,6 +74,9 @@ export default function ThreadList({
   threads,
   activeId,
   scopeLabel,
+  provenanceFilter = null,
+  provenanceOptions = [],
+  onProvenanceFilterChange,
   onSelect,
   onNewChat,
   onRename,
@@ -90,6 +97,9 @@ export default function ThreadList({
       rectH={60}
       showHeader
       scopeLabel={scopeLabel}
+      provenanceFilter={provenanceFilter}
+      provenanceOptions={provenanceOptions}
+      onProvenanceFilterChange={onProvenanceFilterChange}
       onNewChat={onNewChat}
       onRename={onRename}
       onArchiveToggle={onArchiveToggle}
@@ -110,6 +120,9 @@ function ThreadPreviewList({
   rectH = 60,
   showHeader = false,
   scopeLabel,
+  provenanceFilter = null,
+  provenanceOptions = [],
+  onProvenanceFilterChange,
   onNewChat,
   onRename,
   onArchiveToggle,
@@ -125,6 +138,9 @@ function ThreadPreviewList({
   rectH?: number;
   showHeader?: boolean;
   scopeLabel?: string;
+  provenanceFilter?: string | null;
+  provenanceOptions?: SidebarProvenanceOption[];
+  onProvenanceFilterChange?: (label: string | null) => void;
   onNewChat?: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
   onArchiveToggle: (threadId: string, archived: boolean) => Promise<void>;
@@ -169,6 +185,43 @@ function ThreadPreviewList({
               <Plus className="h-4 w-4" />
             </button>
           )}
+        </div>
+      )}
+      {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
+        <div className="pb-2">
+          <div
+            className="glass-pill w-full max-w-full overflow-x-auto px-1 py-1"
+            role="toolbar"
+            aria-label="Imported source filter"
+          >
+            <span className="pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
+              Source
+            </span>
+            <button
+              type="button"
+              className="pill-tab text-[11px]"
+              data-state={!provenanceFilter ? "active" : undefined}
+              aria-pressed={!provenanceFilter}
+              onClick={() => onProvenanceFilterChange(null)}
+            >
+              All
+            </button>
+            {provenanceOptions.map((option) => {
+              const active = provenanceFilter === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className="pill-tab text-[11px]"
+                  data-state={active ? "active" : undefined}
+                  aria-pressed={active}
+                  onClick={() => onProvenanceFilterChange(option.value)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
       <div className="space-y-2">

@@ -1,15 +1,21 @@
 import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import RunDetailDrawer from "@/features/commandCenter/components/RunDetailDrawer";
+import HealthPanel from "@/features/commandCenter/components/HealthPanel";
+import RunSummaryCard from "@/features/commandCenter/components/RunSummaryCard";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
 import type {
+  CommandCenterConnectionState,
   CommandCenterHealthItem,
   CommandCenterRun,
+} from "@/features/commandCenter/types";
+import {
+  COMMAND_CENTER_HEALTH_STATES,
+  COMMAND_CENTER_RUN_STATUSES,
 } from "@/features/commandCenter/types";
 import {
   describeRuntimeStatusPresentation,
@@ -196,6 +202,19 @@ function SummaryTile({
   );
 }
 
+function countUnknownItems(
+  healthItems: CommandCenterHealthItem[],
+  runs: CommandCenterRun[]
+): number {
+  const healthUnknownCount = healthItems.filter(
+    (item) => item.status === COMMAND_CENTER_HEALTH_STATES.UNKNOWN
+  ).length;
+  const runUnknownCount = runs.filter(
+    (run) => run.status === COMMAND_CENTER_RUN_STATUSES.UNKNOWN
+  ).length;
+  return healthUnknownCount + runUnknownCount;
+}
+
 function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
   const payload = asRecord(run.lastEvent.json);
   const thread = asRecord(payload?.thread);
@@ -239,32 +258,6 @@ function resolveSelectedRunTraceUrl(run: CommandCenterRun): string | null {
     result?.trace_url,
     result?.traceUrl
   );
-}
-
-function getRunLabel(run: CommandCenterRun): string {
-  return firstString(run.summary, run.taskId, run.runId, run.key) ?? "Unknown run";
-}
-
-function getRunEventType(run: CommandCenterRun): string {
-  return (
-    firstString(
-      run.lastType,
-      run.lastKind,
-      run.lastEvent.type,
-      run.lastEvent.kind,
-      run.lastEvent.sseType,
-      run.lastEvent.status
-    ) ?? "unknown"
-  );
-}
-
-function countUnknownItems(
-  healthItems: CommandCenterHealthItem[],
-  runs: CommandCenterRun[]
-): number {
-  const healthUnknownCount = healthItems.filter((item) => item.status === "UNKNOWN").length;
-  const runUnknownCount = runs.filter((run) => run.status === "unknown").length;
-  return healthUnknownCount + runUnknownCount;
 }
 
 function SummaryStrip({
@@ -367,128 +360,6 @@ function SummaryStrip({
   );
 }
 
-function HealthStrip({
-  healthItems,
-  lastCheckedAt,
-  loading,
-  onRefresh,
-}: {
-  healthItems: CommandCenterHealthItem[];
-  lastCheckedAt: number | null;
-  loading: boolean;
-  onRefresh: () => Promise<void>;
-  }) {
-  return (
-    <Card
-      className="bezel-none border"
-      role="region"
-      aria-label="Command Center health strip"
-      data-testid="command-center-health-strip"
-      style={{
-        ...sectionSurfaceStyle,
-      }}
-    >
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-            Health
-          </CardTitle>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            Per-endpoint snapshots from the current health checks. Last checked:{" "}
-            {formatTimestamp(lastCheckedAt)}
-          </p>
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => void onRefresh()}>
-          {loading ? "Refreshing..." : "Refresh"}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {healthItems.map((item) => (
-          <Card
-            key={item.key}
-            className="bezel-none border"
-            data-testid={`command-center-health-${item.key}`}
-            style={{
-              ...tileSurfaceStyle,
-            }}
-          >
-            <CardContent className="space-y-3 p-[var(--card-pad)]">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <div className="text-sm font-semibold leading-5" style={{ color: "var(--text)" }}>
-                    {item.label}
-                  </div>
-                  <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                    {item.endpoint}
-                  </div>
-                </div>
-                <StatusPill
-                  ariaLabelPrefix={`${item.label} status`}
-                  status={item.status}
-                />
-              </div>
-
-              <details className="text-xs" style={{ color: "var(--muted)" }}>
-                <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.16em]">
-                  Inspect raw details
-                </summary>
-                <div className="mt-3 space-y-2">
-                  <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                    <div
-                      className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Checked
-                    </div>
-                    <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                      {formatTimestamp(item.checkedAt)}
-                    </div>
-                  </div>
-                  {item.httpStatus != null ? (
-                    <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                      <div
-                        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        HTTP status
-                      </div>
-                      <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                        {item.httpStatus}
-                      </div>
-                    </div>
-                  ) : null}
-                  {item.error ? (
-                    <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                      <div
-                        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        Error
-                      </div>
-                      <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                        {item.error}
-                      </div>
-                    </div>
-                  ) : null}
-                  <pre
-                    className="overflow-x-auto rounded-[var(--tile-radius)] border p-3 text-[11px] leading-5"
-                    style={{
-                      ...rawSurfaceStyle,
-                      color: "var(--muted)",
-                    }}
-                  >
-                    {item.raw ?? "No raw payload available."}
-                  </pre>
-                </div>
-              </details>
-            </CardContent>
-          </Card>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
 function RunFeed({
   onSelectRun,
   runs,
@@ -528,117 +399,13 @@ function RunFeed({
         ) : (
           runs.map((run) => {
             const selected = run.key === selectedRunKey;
-            const runLabel = getRunLabel(run);
-            const runSummary = run.summary && run.summary !== runLabel ? run.summary : null;
-            const eventType = getRunEventType(run);
-            const eventIds = [
-              run.lastEvent.eventId ? `Event: ${run.lastEvent.eventId}` : null,
-              run.runId ? `Run: ${run.runId}` : null,
-              run.taskId ? `Task: ${run.taskId}` : null,
-            ].filter((value): value is string => Boolean(value));
-
             return (
-              <Card
+              <RunSummaryCard
                 key={run.key}
-                className="bezel-none border"
-                data-testid={`command-center-run-${run.key}`}
-                style={{
-                  ...tileSurfaceStyle,
-                  borderColor: selected ? "var(--accent)" : tileSurfaceStyle.borderColor,
-                }}
-              >
-                <CardContent className="space-y-3 p-[var(--card-pad)]">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1.5">
-                      <div className="text-sm font-semibold leading-5" style={{ color: "var(--text)" }}>
-                        {runLabel}
-                      </div>
-                      {runSummary ? (
-                        <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                          {runSummary}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-start gap-2">
-                      <StatusPill
-                        ariaLabelPrefix={`${runLabel} status`}
-                        status={run.status}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onSelectRun(run)}
-                        aria-label={`Open details for ${runLabel}`}
-                      >
-                        Open
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <BadgePill tone="subtle">Events: {run.eventCount}</BadgePill>
-                    <BadgePill tone="subtle">Updated: {formatTimestamp(run.lastEventAt)}</BadgePill>
-                  </div>
-
-                  <details className="text-xs" style={{ color: "var(--muted)" }}>
-                    <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.16em]">
-                      Inspect event details
-                    </summary>
-                    <div className="mt-3 space-y-2">
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Event type
-                        </div>
-                        <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                          {eventType}
-                        </div>
-                      </div>
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Event identifiers
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {eventIds.length > 0 ? (
-                            eventIds.map((value) => (
-                              <BadgePill key={value} tone="subtle">
-                                {value}
-                              </BadgePill>
-                            ))
-                          ) : (
-                            <span style={{ color: "var(--muted)" }}>
-                              No raw event identifiers available.
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Raw message
-                        </div>
-                        <pre
-                          className="mt-2 overflow-x-auto rounded-[var(--tile-radius)] border p-3 text-[11px] leading-5"
-                          style={{
-                            ...rawSurfaceStyle,
-                            color: "var(--muted)",
-                          }}
-                        >
-                          {run.lastEvent.raw || "No raw message available."}
-                        </pre>
-                      </div>
-                    </div>
-                  </details>
-                </CardContent>
-              </Card>
+                onOpen={onSelectRun}
+                run={run}
+                selected={selected}
+              />
             );
           })
         )}
@@ -874,7 +641,7 @@ export default function CommandCenterPage({
           unauthorized={unauthorized}
         />
 
-        <HealthStrip
+        <HealthPanel
           healthItems={healthItems}
           lastCheckedAt={lastCheckedAt}
           loading={loading}
