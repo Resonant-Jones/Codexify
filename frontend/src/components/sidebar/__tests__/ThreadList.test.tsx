@@ -86,6 +86,37 @@ function SourceDockHarness({
   );
 }
 
+function SourceDockHarness({
+  initialFilter = null,
+  onChange,
+}: {
+  initialFilter?: string | null;
+  onChange?: (sourceKey: string | null) => void;
+}) {
+  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(initialFilter);
+
+  const handleChange = (sourceKey: string | null) => {
+    onChange?.(sourceKey);
+    setProvenanceFilter(sourceKey);
+  };
+
+  return (
+    <ThreadList
+      threads={[createThread()]}
+      activeId={null}
+      scopeLabel="General"
+      provenanceFilter={provenanceFilter}
+      provenanceOptions={SOURCE_OPTIONS}
+      onProvenanceFilterChange={handleChange}
+      onSelect={vi.fn()}
+      onNewChat={vi.fn()}
+      onRename={vi.fn().mockResolvedValue(undefined)}
+      onArchiveToggle={vi.fn().mockResolvedValue(undefined)}
+      onDelete={vi.fn().mockResolvedValue(undefined)}
+    />
+  );
+}
+
 describe("ThreadList dark mode surface contract", () => {
   afterEach(() => {
     document.documentElement.classList.remove("dark");
@@ -149,6 +180,61 @@ describe("ThreadList dark mode surface contract", () => {
     );
 
     expect(container.querySelector(".thread-title svg")).toBeNull();
+  });
+});
+
+describe("ThreadList source dock", () => {
+  it("keeps the source dock contained and scrollable inside the card", () => {
+    render(
+      <ThreadList
+        threads={[createThread()]}
+        activeId={null}
+        scopeLabel="General"
+        provenanceFilter={null}
+        provenanceOptions={SOURCE_OPTIONS}
+        onProvenanceFilterChange={vi.fn()}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+        onRename={vi.fn().mockResolvedValue(undefined)}
+        onArchiveToggle={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
+    expect(toolbar).toHaveClass("glass-pill", "flex", "w-full", "min-w-0", "overflow-hidden");
+
+    const scrollRail = toolbar.querySelector(".overflow-x-auto");
+    expect(scrollRail).not.toBeNull();
+    expect(scrollRail).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
+  });
+
+  it("keeps All mutually exclusive with the canonical source pills", () => {
+    const onChange = vi.fn();
+    render(<SourceDockHarness onChange={onChange} />);
+
+    const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
+    const allButton = within(toolbar).getByRole("button", { name: "All" });
+    const chatgptButton = within(toolbar).getByRole("button", { name: "ChatGPT" });
+    const openaiButton = within(toolbar).getByRole("button", { name: "OpenAI" });
+
+    expect(allButton).toHaveAttribute("aria-pressed", "true");
+    expect(chatgptButton).toHaveAttribute("aria-pressed", "false");
+    expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(chatgptButton);
+
+    expect(onChange).toHaveBeenCalledWith("chatgpt");
+    expect(allButton).toHaveAttribute("aria-pressed", "false");
+    expect(chatgptButton).toHaveAttribute("aria-pressed", "true");
+    expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(allButton);
+
+    expect(onChange).toHaveBeenLastCalledWith(null);
+    expect(allButton).toHaveAttribute("aria-pressed", "true");
+    expect(chatgptButton).toHaveAttribute("aria-pressed", "false");
+    expect(openaiButton).toHaveAttribute("aria-pressed", "false");
   });
 });
 

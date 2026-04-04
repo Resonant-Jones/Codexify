@@ -61,9 +61,7 @@ function hasImportedProvenance(project: Record<string, unknown>): boolean {
 function stripImportedProviderPrefix(name: string): string {
   const trimmed = normalizeText(name);
   for (const provider of IMPORTED_PROVIDER_PREFIXES) {
-    const match = trimmed.match(
-      new RegExp(`^${provider}\\s*[-–—:|/]\\s*`, "i")
-    );
+    const match = trimmed.match(new RegExp(`^${provider}\\s*[-–—:|/]\\s*`, "i"));
     if (!match) continue;
     const rest = trimmed.slice(match[0].length).trim();
     if (rest) return rest;
@@ -101,9 +99,7 @@ export function normalizeSidebarProjects<T extends SidebarProjectRecord>(
 export function selectSidebarGeneralProject<T extends SidebarProjectRecord>(
   projects: readonly T[]
 ): T | null {
-  const candidates = projects.filter((project) =>
-    isSidebarGeneralProjectName(project.name)
-  );
+  const candidates = projects.filter((project) => isSidebarGeneralProjectName(project.name));
 
   return candidates[0] ?? null;
 }
@@ -186,6 +182,8 @@ const CANONICAL_PROVENANCE_LABELS = new Map<string, string>([
 const CANONICAL_PROVENANCE_KEY_ALIASES = new Map<string, string>([
   ["chatgpt-import", "chatgpt"],
   ["chat-gpt", "chatgpt"],
+  ["imported-from-chatgpt", "chatgpt"],
+  ["chatgpt-imported", "chatgpt"],
   ["open-ai", "openai"],
 ]);
 
@@ -222,7 +220,11 @@ export function normalizeSidebarProvenanceKey(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = normalizeLookupKey(value);
   if (!normalized) return null;
-  return CANONICAL_PROVENANCE_KEY_ALIASES.get(normalized) ?? normalized;
+  const alias = CANONICAL_PROVENANCE_KEY_ALIASES.get(normalized);
+  if (alias) return alias;
+  if (normalized.includes("chatgpt")) return "chatgpt";
+  if (normalized.includes("openai")) return "openai";
+  return normalized;
 }
 
 function resolveSidebarProvenanceDescriptor(
