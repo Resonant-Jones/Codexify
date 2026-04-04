@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-03-29
+2026-04-04
 
 ## Interpretation rule
 
@@ -17,62 +17,51 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is in release-gate remediation on `main` for the local Docker Compose beta profile. The latest merged release-gate proof on `main` (2026-03-28) confirms profile flags and route quarantine behavior, but does not close readiness because fresh completion and retrieval proofs failed on the live stack.
+Codexify is still in release-gate remediation on `main` for the local Docker Compose beta profile. A fresh clean-start migration proof on current `HEAD` now closes the empty-database bootstrap question on the supported path, but upgrade-from-existing-instance evidence remains open.
 
 ## What changed recently
 
-- Added fresh release-gate artifact on `main` (`docs/architecture/2026-03-28-release-gate-proof.md`) with explicit pass/fail evidence.
-- Chat runtime now surfaces execution truth and fallback model details to the UI and tests for completion semantics were updated.
-- Provider/model classification was hardened with soft fallback logic and catalog/provider tests.
-- Architecture docs now include a normative chat runtime contract plus gap analysis for warmup, timeout, replay, and transcript-integrity semantics.
-- Browser-dev media rendering was fixed across chat/workspace surfaces with new coverage.
-- Composer layout contract and send-button placement were tightened across multiple merged UI fixes.
+- Added a fresh clean-start migration / upgrade proof on current `HEAD` (`docs/architecture/2026-04-04-migration-upgrade-proof.md`) with explicit pass/fail evidence.
+- The supported local Docker Compose path was re-proved after migration: backend and workers booted cleanly, `chat_threads.thread_config` persisted, assistant output persisted, document embedding reached `ready`, and supported retrieval succeeded on `GET /api/health/retrieval?q=...`.
+- The supported runtime still quarantines the dedicated persona-profile API route under `CODEXIFY_BETA_CORE_ONLY=true`; the supported profile surface remains route-quarantined even though the schema migration landed.
+- The runtime health surfaces now reconcile cleanly with the supported local stack after migration, including the migrated chat and retrieval path.
 
 ## Current supported reality
 
-- Supported install path remains local Docker Compose with backend, frontend, Postgres, Redis, and workers.
-- Thread chat is the core supported flow, with queue-backed completion and persisted task/message state.
-- Supported-profile flags were live-verified on `main`: `CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
-- Quarantined non-core routes were live-verified as unavailable (`404`) in supported profile.
-- Chat request acceptance path works on `main` (thread creation, message persistence, completion acceptance with task id/turn id).
-- Document upload and embed lifecycle reached `embedding_status=ready` in the latest release-gate run.
-- Chat runtime state on `main` now uses normalized live events and consolidated per-thread agent-runs state.
-- `docs/architecture/chat-runtime-contract.md` is now the normative frontend/shared-runtime vocabulary for provider warmup, request lifecycle ambiguity, and replay semantics; this is documentation alignment, not fresh live-runtime proof.
-- Runtime now degrades explicitly when Redis coordination is unavailable instead of silently drifting.
-- `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog` are available but currently not reconciled into one release-signoff truth.
+- Supported install path remains local Docker Compose with backend, Postgres, Redis, Neo4j, and workers.
+- Supported-profile flags were live-verified on current `HEAD`: `CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
+- Quarantined non-core routes remain unavailable in the supported profile, including the dedicated persona-profile API route.
+- Clean-start migration on empty volumes is now proven on current `HEAD`.
+- Thread creation, `chat_threads.thread_config` persistence, completion persistence, document upload, embed readiness, and supported retrieval all passed on the migrated runtime.
+- `/health`, `/health/chat`, `/api/health/llm`, and `/api/health/retrieval` reconcile with the supported local runtime after migration.
+- The retrieval runtime reports `same_runtime_as_worker: true`, so backend search and worker write paths are aligned on the supported proof surface.
 
 ## Not yet true / do not assume
 
-- Do not assume accepted completions produce persisted assistant output on current `main`; latest proof captured worker `502` after local inference endpoint `404`s.
-- Do not assume retrieval is proven on current `main`; latest proof saw `/api/retrieve` return `404`.
-- Do not assume backend and embed worker use the same vector-store backend in the live supported profile.
-- Do not assume health/collateral routes are alias-consistent (`/health*` vs `/api/health*`) without explicit probe evidence.
+- Do not assume upgrade-from-existing-instance has been proven; the fresh proof is clean-start only.
+- Do not assume the dedicated persona-profile API route is part of the supported beta surface; it is still quarantined under the supported profile.
 - Do not assume older supported-path proof artifacts still represent current `main` without a fresh rerun.
 - Do not assume `/tools` and command-bus surfaces are one finalized release contract unless stated here.
 
 ## Active blockers
 
-- Chat completion execution fails after acceptance on current supported profile because local inference endpoints return `404`, producing worker `502`.
-- Retrieval evidence is not closed: `/api/retrieve` is missing in the proven stack and backend retrieval did not return the fresh sentinel.
-- Vector-store backend mismatch in live runtime (`backend` observed `faiss`, `worker-document-embed` observed `chroma`) blocks reliable retrieval signoff.
-- Release-gate reconciliation is incomplete across `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog`.
+- Existing-instance upgrade confidence is still open; the current proof does not cover a pre-migration snapshot upgrade.
 
 ## This week's priorities
 
-1. Fix local inference endpoint/model wiring so accepted completions persist assistant responses on supported profile.
-2. Align backend and embed-worker vector-store configuration and re-prove retrieval with a fresh sentinel document.
-3. Restore and verify one supported retrieval API path used by release proof (`/api/retrieve` or documented replacement).
-4. Publish one fresh end-to-end supported-path proof on `main` that passes create -> complete -> upload -> embed -> retrieve.
-5. Reconcile and document health/catalog route expectations for operator signoff.
+1. If release signoff needs it, run a snapshot-based upgrade proof from an existing populated database state.
+2. Keep the migration / supported-path proof artifact current as schema/runtime changes land.
+3. Reconcile any future persona-profile release claims with the supported-profile quarantine boundary before widening the surface.
 
 ## Release definition right now
 
-- [ ] Supported-profile flags are active in live runtime (`CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`).
-- [ ] Quarantined non-core routes return the expected unsupported behavior in the running stack.
-- [ ] One fresh supported-path run on `main` proves thread create, completion execution, assistant persistence, document upload, embed readiness, and retrieval evidence.
-- [ ] Retrieval runtime uses one aligned vector-store backend across backend and embed worker on the supported profile.
-- [ ] `/health`, `/health/chat`, `/health/llm`, and `/api/llm/catalog` are reconciled with the actual supported model/runtime contract.
-- [ ] No release claim depends on internal-only or dev-only surfaces.
+- [x] Supported-profile flags are active in live runtime (`CODEXIFY_BETA_CORE_ONLY=true`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`).
+- [x] Quarantined non-core routes return the expected unsupported behavior in the running stack.
+- [x] One fresh clean-start supported-path run on `main` proves thread create, completion execution, assistant persistence, document upload, embed readiness, and retrieval evidence.
+- [x] Retrieval runtime uses one aligned vector-store backend across backend and embed worker on the supported profile.
+- [x] `/health`, `/health/chat`, `/api/health/llm`, and `/api/health/retrieval` are reconciled with the actual supported model/runtime contract.
+- [x] No release claim depends on internal-only or dev-only surfaces.
+- [ ] Existing-instance upgrade from a pre-migration snapshot is still unproven.
 
 ## How to read the rest of the KB
 
