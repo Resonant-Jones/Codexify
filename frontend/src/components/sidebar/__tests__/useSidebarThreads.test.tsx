@@ -272,3 +272,75 @@ describe("useSidebarThreads provenance filters", () => {
     ]);
   });
 });
+
+describe("useSidebarThreads provenance filters", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("deduplicates canonical provenance options by source key and filters every matching imported thread", () => {
+    const initialThreads = [
+      createThread("11", {
+        projectId: "project-1",
+        title: "ChatGPT import A",
+        metadata: { import_source: "chatgpt" },
+      }),
+      createThread("22", {
+        projectId: "project-1",
+        title: "ChatGPT import B",
+        metadata: { provider: "ChatGPT" },
+      }),
+      createThread("33", {
+        projectId: "project-1",
+        title: "OpenAI import",
+        metadata: { source: "openai" },
+      }),
+      createThread("44", {
+        projectId: "project-1",
+        title: "Native thread",
+      }),
+    ];
+
+    const { result } = renderHook(
+      ({ threads }) =>
+        useSidebarThreads({
+          initialThreads: threads,
+          projectId: "project-1",
+          projects: [{ id: "project-1", name: "Engineering", icon: "🧭" }],
+        }),
+      { initialProps: { threads: initialThreads } }
+    );
+
+    expect(result.current.provenanceOptions).toEqual([
+      { value: "chatgpt", label: "ChatGPT" },
+      { value: "openai", label: "OpenAI" },
+    ]);
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
+      "11",
+      "22",
+      "33",
+      "44",
+    ]);
+
+    act(() => {
+      result.current.setProvenanceFilter("chatgpt");
+    });
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11", "22"]);
+
+    act(() => {
+      result.current.setProvenanceFilter("openai");
+    });
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["33"]);
+
+    act(() => {
+      result.current.setProvenanceFilter(null);
+    });
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
+      "11",
+      "22",
+      "33",
+      "44",
+    ]);
+  });
+});
