@@ -160,4 +160,41 @@ describe("useSidebarThreads delete flow", () => {
     expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11", "22"]);
     expect(result.current.looseCount).toBe(2);
   });
+
+  it("prefers the canonical General project id when an imported alias also cleans to General", () => {
+    const initialThreads = [
+      createThread("11", "Canonical general thread", "general-2"),
+      createThread("22", "Imported general thread", "general-1"),
+      createThread("33", "Scoped thread", "project-1"),
+    ];
+
+    const projects = [
+      {
+        id: "general-1",
+        name: "ChatGPT - General",
+        icon: "📁",
+        metadata: { import_source: "chatgpt" },
+      },
+      { id: "general-2", name: "General", icon: "📁" },
+      { id: "project-1", name: "Engineering", icon: "🧭" },
+    ];
+
+    const { result } = renderHook(
+      ({ threads, sidebarProjects }) =>
+        useSidebarThreads({
+          initialThreads: threads,
+          projects: sidebarProjects,
+        }),
+      {
+        initialProps: {
+          threads: initialThreads,
+          sidebarProjects: projects,
+        },
+      }
+    );
+
+    expect(result.current.scopeLabel).toBe("General");
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11"]);
+    expect(result.current.looseCount).toBe(1);
+  });
 });

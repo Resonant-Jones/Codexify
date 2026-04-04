@@ -80,6 +80,14 @@ function hasImportedProvenance(project: Record<string, unknown>): boolean {
   return false;
 }
 
+function isSidebarGeneralProjectCandidate(
+  project: Partial<SidebarProjectRecord> & Record<string, unknown>
+): boolean {
+  const rawName = normalizeText(project.name ?? project.project_name ?? "");
+  const cleanedName = cleanSidebarProjectTitle(project);
+  return isSidebarGeneralProjectName(rawName) || isSidebarGeneralProjectName(cleanedName);
+}
+
 function stripImportedProviderPrefix(name: string): string {
   const trimmed = normalizeText(name);
   for (const provider of IMPORTED_PROVIDER_PREFIXES) {
@@ -117,6 +125,57 @@ export function normalizeSidebarProject<T extends SidebarProjectRecord>(project:
 
 export function normalizeSidebarProjects<T extends SidebarProjectRecord>(projects: readonly T[]): T[] {
   return projects.map((project) => normalizeSidebarProject(project));
+}
+
+export function selectSidebarGeneralProject<T extends SidebarProjectRecord>(
+  projects: readonly T[]
+): T | null {
+  const candidates = projects.filter((project) => isSidebarGeneralProjectCandidate(project));
+  if (!candidates.length) return null;
+
+  const isExactGeneral = (project: T) =>
+    normalizeText(project.name ?? project.project_name ?? "").toLowerCase() === "general";
+
+  // Prefer the exact General row first, then the best remaining non-imported alias.
+  return (
+    candidates.find((project) => isExactGeneral(project))
+    || candidates.find((project) => !hasImportedProvenance(project))
+    || candidates[0]
+  );
+}
+
+export function resolveSidebarGeneralProjectId<T extends SidebarProjectRecord>(
+  projects: readonly T[],
+  fallback: string | null = null
+): string | null {
+  const project = selectSidebarGeneralProject(projects);
+  return project?.id != null ? String(project.id) : fallback;
+}
+
+export function collapseSidebarGeneralProjectAliases<T extends SidebarProjectRecord>(
+  projects: readonly T[]
+): T[] {
+  const normalized = projects.map((project) => normalizeSidebarProject(project));
+  const canonical = selectSidebarGeneralProject(projects);
+  if (!canonical) return normalized;
+
+  const canonicalId = String(canonical.id);
+  let keptCanonical = false;
+
+  return normalized.reduce<T[]>((acc, project) => {
+    if (!isSidebarGeneralProjectName(project?.name)) {
+      acc.push(project);
+      return acc;
+    }
+
+    if (String(project.id) !== canonicalId || keptCanonical) {
+      return acc;
+    }
+
+    acc.push(project);
+    keptCanonical = true;
+    return acc;
+  }, []);
 }
 
 export function normalizeSidebarProjectId(value: unknown): string | null {
