@@ -1,9 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import useSidebarThreads from "../useSidebarThreads";
 import api from "@/lib/api";
 import type { Thread } from "@/types/ui";
+import useSidebarThreads from "../useSidebarThreads";
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -17,7 +17,6 @@ const mockApi = api as unknown as {
   delete: ReturnType<typeof vi.fn>;
 };
 
-function createThread(id: string, title?: string, projectId?: string | null): Thread {
 function createThread(id: string, overrides: Partial<Thread> = {}): Thread {
   return {
     id,
@@ -26,7 +25,6 @@ function createThread(id: string, overrides: Partial<Thread> = {}): Thread {
     unread: 0,
     participants: [],
     messages: [],
-    projectId,
     ...overrides,
   };
 }
@@ -112,7 +110,7 @@ describe("useSidebarThreads delete flow", () => {
       { initialProps: { threads: initialThreads } }
     );
 
-    let thrown: any = null;
+    let thrown: unknown = null;
     try {
       await result.current.deleteThread("11");
     } catch (error) {
@@ -120,7 +118,6 @@ describe("useSidebarThreads delete flow", () => {
     }
 
     expect(thrown).toMatchObject({ response: { status: 500 } });
-
     expect(result.current.threads.map((thread) => thread.id)).toEqual(["11", "22"]);
     expect(
       toastCapture.toasts.some(
@@ -134,9 +131,12 @@ describe("useSidebarThreads delete flow", () => {
 
   it("treats unknown project ids as General in the sidebar bucket", () => {
     const initialThreads = [
-      createThread("11", "General thread"),
-      createThread("22", "Imported thread", "imported-project"),
-      createThread("33", "Scoped thread", "project-1"),
+      createThread("11", { title: "General thread" }),
+      createThread("22", {
+        title: "Imported thread",
+        projectId: "imported-project",
+      }),
+      createThread("33", { title: "Scoped thread", projectId: "project-1" }),
     ];
 
     const projects = [
@@ -165,9 +165,9 @@ describe("useSidebarThreads delete flow", () => {
 
   it("prefers the canonical General project id when an imported alias also cleans to General", () => {
     const initialThreads = [
-      createThread("11", "Canonical general thread", "general-2"),
-      createThread("22", "Imported general thread", "general-1"),
-      createThread("33", "Scoped thread", "project-1"),
+      createThread("11", { title: "Canonical general thread", projectId: "general-2" }),
+      createThread("22", { title: "Imported general thread", projectId: "general-1" }),
+      createThread("33", { title: "Scoped thread", projectId: "project-1" }),
     ];
 
     const projects = [
@@ -207,34 +207,24 @@ describe("useSidebarThreads provenance filters", () => {
     window.localStorage.clear();
   });
 
-  it("derives provenance options from loaded metadata and filters the visible thread list", () => {
+  it("deduplicates canonical provenance options by source key and filters every matching imported thread", () => {
     const initialThreads = [
       createThread("11", {
         projectId: "project-1",
-        title: "ChatGPT import",
+        title: "ChatGPT import A",
         metadata: { import_source: "chatgpt" },
       }),
       createThread("22", {
         projectId: "project-1",
-        title: "Claude import",
-        metadata: { provider: "claude" },
+        title: "ChatGPT import B",
+        metadata: { provider: "ChatGPT" },
       }),
       createThread("33", {
-        projectId: "project-1",
-        title: "Anthropic import",
-        metadata: { provenance: { source: "anthropic" } },
-      }),
-      createThread("44", {
-        projectId: "project-1",
-        title: "Gemini import",
-        metadata: { provenance: { provider: "gemini" } },
-      }),
-      createThread("55", {
         projectId: "project-1",
         title: "OpenAI import",
         metadata: { source: "openai" },
       }),
-      createThread("66", {
+      createThread("44", {
         projectId: "project-1",
         title: "Native thread",
       }),
@@ -245,35 +235,31 @@ describe("useSidebarThreads provenance filters", () => {
         useSidebarThreads({
           initialThreads: threads,
           projectId: "project-1",
+          projects: [{ id: "project-1", name: "Engineering", icon: "🧭" }],
         }),
       { initialProps: { threads: initialThreads } }
     );
 
-    expect(result.current.provenanceOptions.map((option) => option.label)).toEqual([
-      "ChatGPT",
-      "Claude",
-      "Anthropic",
-      "Gemini",
-      "OpenAI",
+    expect(result.current.provenanceOptions).toEqual([
+      { value: "chatgpt", label: "ChatGPT" },
+      { value: "openai", label: "OpenAI" },
     ]);
     expect(result.current.displayThreads.map((thread) => thread.id)).toEqual([
       "11",
       "22",
       "33",
       "44",
-      "55",
-      "66",
     ]);
 
     act(() => {
-      result.current.setProvenanceFilter("ChatGPT");
+      result.current.setProvenanceFilter("chatgpt");
     });
-    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11"]);
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["11", "22"]);
 
     act(() => {
-      result.current.setProvenanceFilter("OpenAI");
+      result.current.setProvenanceFilter("openai");
     });
-    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["55"]);
+    expect(result.current.displayThreads.map((thread) => thread.id)).toEqual(["33"]);
 
     act(() => {
       result.current.setProvenanceFilter(null);
@@ -283,8 +269,6 @@ describe("useSidebarThreads provenance filters", () => {
       "22",
       "33",
       "44",
-      "55",
-      "66",
     ]);
   });
 });

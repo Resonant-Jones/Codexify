@@ -11,7 +11,7 @@ import {
   resolveSidebarGeneralProjectId,
   threadBelongsToGeneral,
   collectSidebarProvenanceOptions,
-  getSidebarThreadProvenanceLabel,
+  getSidebarThreadProvenanceKey,
   threadMatchesSidebarProvenance,
   type SidebarProvenanceOption,
 } from "./sidebarPresentation";
@@ -82,7 +82,7 @@ function sameThread(a: Thread, b: Thread): boolean {
     && (a.projectId ?? null) === (b.projectId ?? null)
     && (a.archivedAt ?? null) === (b.archivedAt ?? null)
     && (a.unread ?? 0) === (b.unread ?? 0)
-    && getSidebarThreadProvenanceLabel(a) === getSidebarThreadProvenanceLabel(b);
+    && getSidebarThreadProvenanceKey(a) === getSidebarThreadProvenanceKey(b);
 }
 
 function equalThreadLists(a: Thread[], b: Thread[]): boolean {
