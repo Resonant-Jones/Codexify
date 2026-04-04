@@ -3,6 +3,7 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import RunDetailsPanel from "@/features/commandCenter/components/RunDetailsPanel";
 import RagTracePanel from "@/features/commandCenter/components/RagTracePanel";
 import {
   Sheet,
@@ -150,6 +151,9 @@ export default function RunDetailDrawer({
   const [showRawJson, setShowRawJson] = React.useState(false);
   const sourceRef = React.useRef<GuardianEventSource | null>(null);
   const open = Boolean(run);
+  const traceScopeThreadId = run?.threadId ?? null;
+  const traceScopeLatestTurnMessageId =
+    run?.latestTurnMessageId ?? run?.traceEvidence?.latestTurnMessageId ?? null;
 
   React.useEffect(() => {
     const source = sourceRef.current;
@@ -295,36 +299,22 @@ export default function RunDetailDrawer({
                   {connectionDetail}
                 </div>
               ) : null}
+              {run && (traceScopeThreadId != null || traceScopeLatestTurnMessageId) ? (
+                <div className="text-xs" style={{ color: "var(--muted)" }}>
+                  Trace scope:{" "}
+                  {traceScopeThreadId != null ? `thread ${traceScopeThreadId}` : "thread unavailable"}
+                  {traceScopeLatestTurnMessageId ? (
+                    <>
+                      {" "}
+                      · latest turn message {traceScopeLatestTurnMessageId}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
             </SheetHeader>
 
             <div className="space-y-4 p-4">
-              <Card
-                className="bezel-none rounded-xl border"
-                style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
-                  borderColor: "var(--panel-border)",
-                }}
-              >
-                <CardContent className="space-y-3 p-4">
-                  <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                    Identifiers
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Grouping key: {run.key}
-                    </span>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Task: {run.taskId ?? "—"}
-                    </span>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Run: {run.runId ?? "—"}
-                    </span>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Thread: {run.threadId ?? "—"}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+              <RunDetailsPanel run={run} />
 
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -436,17 +426,21 @@ export default function RunDetailDrawer({
               )}
                 </>
               ) : (
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                      Retrieval Diagnostics
-                    </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                        Retrieval Diagnostics
+                      </div>
                     <div className="text-xs" style={{ color: "var(--muted)" }}>
                       Latest thread-scoped retrieval evidence from the existing RAG
                       trace debug endpoint.
                     </div>
                   </div>
-                  <RagTracePanel run={run} />
+                  <RagTracePanel
+                    latestTurnMessageId={traceScopeLatestTurnMessageId}
+                    run={run}
+                    threadId={traceScopeThreadId}
+                  />
                 </div>
               )}
             </div>

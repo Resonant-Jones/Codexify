@@ -6,6 +6,7 @@ import HealthPanel from "../components/HealthPanel";
 import { interpretHealthPayload } from "../hooks/useHealthSummary";
 
 import type { CommandCenterHealthItem } from "@/features/commandCenter/types";
+import { COMMAND_CENTER_HEALTH_STATES } from "@/features/commandCenter/types";
 
 const onRefresh = vi.fn(async () => undefined);
 
@@ -28,7 +29,7 @@ const healthItems: CommandCenterHealthItem[] = [
       status: "ok",
       timestamp: "2026-04-01T15:59:00Z",
     }),
-    status: "OK",
+    status: COMMAND_CENTER_HEALTH_STATES.OK,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:01Z"),
@@ -48,7 +49,7 @@ const healthItems: CommandCenterHealthItem[] = [
       status: "degraded",
       timestamp: "2026-04-01T15:59:01Z",
     }),
-    status: "DEGRADED",
+    status: COMMAND_CENTER_HEALTH_STATES.DEGRADED,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:02Z"),
@@ -59,7 +60,7 @@ const healthItems: CommandCenterHealthItem[] = [
     key: "deps",
     label: "Deps",
     raw: "<!DOCTYPE html><html><body>frontend shell</body></html>",
-    status: "UNKNOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:03Z"),
@@ -80,7 +81,7 @@ const healthItems: CommandCenterHealthItem[] = [
       status: "down",
       timestamp: "2026-04-01T15:59:03Z",
     }),
-    status: "DOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.DOWN,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:04Z"),
@@ -102,7 +103,7 @@ const healthItems: CommandCenterHealthItem[] = [
       status: "ok",
       timestamp: "2026-04-01T15:59:04Z",
     }),
-    status: "OK",
+    status: COMMAND_CENTER_HEALTH_STATES.OK,
   },
 ];
 
@@ -122,13 +123,13 @@ describe("HealthPanel", () => {
       within(screen.getByTestId("command-center-health-core")).getByText("OK")
     ).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("command-center-health-llm")).getByText("DEGRADED")
+      within(screen.getByTestId("command-center-health-llm")).getByText("Degraded")
     ).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("command-center-health-deps")).getByText("UNKNOWN")
+      within(screen.getByTestId("command-center-health-deps")).getByText("Unknown")
     ).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("command-center-health-vector")).getByText("DOWN")
+      within(screen.getByTestId("command-center-health-vector")).getByText("Down")
     ).toBeInTheDocument();
     expect(
       within(screen.getByTestId("command-center-health-memory")).getByText("OK")
@@ -154,12 +155,12 @@ describe("HealthPanel", () => {
       )
     ).toMatchObject({
       error: "Invalid health response",
-      status: "UNKNOWN",
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
     });
 
     expect(interpretHealthPayload("")).toMatchObject({
       error: "Invalid health response",
-      status: "UNKNOWN",
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
     });
   });
 
@@ -175,7 +176,7 @@ describe("HealthPanel", () => {
       )
     ).toMatchObject({
       error: null,
-      status: "OK",
+      status: COMMAND_CENTER_HEALTH_STATES.OK,
     });
 
     expect(
@@ -189,7 +190,7 @@ describe("HealthPanel", () => {
       )
     ).toMatchObject({
       error: null,
-      status: "DEGRADED",
+      status: COMMAND_CENTER_HEALTH_STATES.DEGRADED,
     });
 
     expect(
@@ -203,7 +204,7 @@ describe("HealthPanel", () => {
       )
     ).toMatchObject({
       error: null,
-      status: "DOWN",
+      status: COMMAND_CENTER_HEALTH_STATES.DOWN,
     });
   });
 });
