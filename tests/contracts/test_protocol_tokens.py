@@ -1,9 +1,15 @@
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    DELEGATION_EVENT_TYPES,
+    DELEGATION_JOB_STATUSES,
+    DELEGATION_TERMINAL_EVENT_TYPES,
+    DELEGATION_TERMINAL_STATUSES,
     EMBEDDING_LIFECYCLE_STATUSES,
     ERROR_CODES,
     TASK_EVENT_TYPES,
     AcceptanceStatus,
+    DelegationEventType,
+    DelegationJobStatus,
     EmbeddingLifecycleStatus,
     ErrorCode,
     TaskEventType,
@@ -19,6 +25,45 @@ def test_acceptance_status_tokens() -> None:
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
+
+
+def test_delegation_status_tokens() -> None:
+    assert DelegationJobStatus.DRAFT.value == "draft"
+    assert DelegationJobStatus.APPROVED.value == "approved"
+    assert DelegationJobStatus.QUEUED.value == "queued"
+    assert DelegationJobStatus.RUNNING.value == "running"
+    assert DelegationJobStatus.COMPLETED.value == "completed"
+    assert DelegationJobStatus.FAILED.value == "failed"
+    assert DelegationJobStatus.CANCELLED.value == "cancelled"
+    assert DELEGATION_JOB_STATUSES == {
+        "draft",
+        "approved",
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+    }
+    assert DELEGATION_TERMINAL_STATUSES == {
+        "completed",
+        "failed",
+        "cancelled",
+    }
+
+
+def test_delegation_event_tokens() -> None:
+    assert DelegationEventType.CREATED.value == "delegation.created"
+    assert DelegationEventType.RUNNING.value == "delegation.running"
+    assert DelegationEventType.PROGRESS.value == "delegation.progress"
+    assert DelegationEventType.COMPLETED.value == "delegation.completed"
+    assert DelegationEventType.FAILED.value == "delegation.failed"
+    assert DelegationEventType.CANCELLED.value == "delegation.cancelled"
+    assert DelegationEventType.CREATED.value in DELEGATION_EVENT_TYPES
+    assert DELEGATION_TERMINAL_EVENT_TYPES == {
+        "delegation.completed",
+        "delegation.failed",
+        "delegation.cancelled",
+    }
 
 
 def test_error_code_tokens() -> None:
