@@ -264,53 +264,6 @@ async def stream_delegation_events(
 
 
 @router.post("/{delegation_id}/cancel")
-async def cancel_delegation(
-    delegation_id: str,
-) -> dict[str, Any]:
-    try:
-        result = _service.cancel_delegation(delegation_id)
-    except DelegationNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    job = result.job
-    publish_result: dict[str, Any] | None = None
-    if result.changed:
-        try:
-            cancel_task(job.task_id)
-        except Exception as exc:
-            logger.warning(
-                "[delegations] best-effort task cancel failed delegation_id=%s task_id=%s err=%s",
-                delegation_id,
-                job.task_id,
-                exc,
-            )
-
-        publish_result = _publish_event_best_effort(
-            job.task_id,
-            DelegationEventType.CANCELLED.value,
-            _delegation_event_payload(
-                packet_id=job.packet_id,
-                job=job,
-                extra={
-                    "event_name": DelegationEventType.CANCELLED.value,
-                    "reason": "cancelled_by_request",
-                },
-            ),
-        )
-
-    return {
-        "ok": True,
-        "delegation_id": job.delegation_id,
-        "task_id": job.task_id,
-        "status": job.status,
-        "event_published": bool(publish_result and publish_result.get("ok")),
-        "event_visibility_scope": (
-            publish_result.get("visibility_scope") if publish_result else None
-        ),
-    }
-
-
-@router.post("/{delegation_id}/cancel")
 async def cancel_delegation(delegation_id: str) -> dict[str, Any]:
     try:
         result = _service.cancel_delegation(delegation_id)
@@ -322,8 +275,13 @@ async def cancel_delegation(delegation_id: str) -> dict[str, Any]:
     if result.changed:
         try:
             cancel_task(job.task_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "[delegations] best-effort task cancel failed delegation_id=%s task_id=%s err=%s",
+                delegation_id,
+                job.task_id,
+                exc,
+            )
         event_result = _publish_event_best_effort(
             job.task_id,
             DelegationEventType.CANCELLED.value,
@@ -332,7 +290,7 @@ async def cancel_delegation(delegation_id: str) -> dict[str, Any]:
                 job=job,
                 extra={
                     "event_name": DelegationEventType.CANCELLED.value,
-                    "reason": "cancel_requested",
+                    "reason": "cancelled_by_request",
                 },
             ),
         )
