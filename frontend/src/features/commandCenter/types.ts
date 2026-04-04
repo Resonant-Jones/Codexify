@@ -174,6 +174,12 @@ export type CommandCenterRunLifecycleState =
   | "cancelled"
   | "unknown";
 
+export type CommandCenterHealthStatus =
+  | "OK"
+  | "DEGRADED"
+  | "DOWN"
+  | "UNKNOWN";
+
 export type CommandCenterRunLifecyclePath = string[];
 
 export type CommandCenterCanonicalTaskEventType =
@@ -310,6 +316,7 @@ export interface CommandCenterHealthItem {
   httpStatus: number | null;
   key: "core" | "llm" | "deps" | "vector" | "memory";
   label: string;
+  details?: Record<string, unknown> | null;
   raw: string | null;
   status: CommandCenterHealthState;
 }

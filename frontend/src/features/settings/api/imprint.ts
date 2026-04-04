@@ -27,6 +27,21 @@ type ImprintStatusResponse = {
   system_prompt_meta?: SystemPromptMetaPayload | null;
 };
 
+type ImprintProposalRecordResponse = {
+  generator_version?: string | null;
+  persona_draft?: string | null;
+  preferred_name?: string | null;
+  project_id?: number | null;
+  proposal_hash?: string | null;
+  proposal_name?: string | null;
+  proposal_version?: number | null;
+  prompt_metadata?: Record<string, unknown> | null;
+  scope_kind?: string | null;
+  snapshot_hash?: string | null;
+  snapshot_version?: number | null;
+  user_id?: string | null;
+};
+
 type ImprintProposalResponse = {
   imprint_draft?: {
     guardian_name?: string | null;
@@ -37,8 +52,10 @@ type ImprintProposalResponse = {
     status?: string | null;
     user_id?: string | null;
   } | null;
+  proposal?: ImprintProposalRecordResponse | null;
   name?: string | null;
   persona_draft?: string | null;
+  prompt_metadata?: Record<string, unknown> | null;
 };
 
 type AcceptImprintResponse = {
@@ -97,6 +114,21 @@ export type ImprintProposal = {
   } | null;
   name: string | null;
   personaDraft: string | null;
+  promptMetadata: Record<string, unknown> | null;
+  proposal: {
+    generatorVersion: string | null;
+    personaDraft: string | null;
+    preferredName: string | null;
+    projectId: number | null;
+    proposalHash: string | null;
+    proposalName: string | null;
+    proposalVersion: number | null;
+    promptMetadata: Record<string, unknown> | null;
+    scopeKind: string | null;
+    snapshotHash: string | null;
+    snapshotVersion: number | null;
+    userId: string | null;
+  } | null;
 };
 
 export type AcceptedImprintReview = {
@@ -126,6 +158,14 @@ function toRequestParams(context: ImprintReviewContext) {
     ...(context.projectId !== undefined ? { project_id: context.projectId } : {}),
     ...(context.threadId !== undefined ? { thread_id: context.threadId } : {}),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
 }
 
 function normalizeStatus(data: ImprintStatusResponse): ImprintReviewStatus {
@@ -188,9 +228,23 @@ function normalizeStatus(data: ImprintStatusResponse): ImprintReviewStatus {
 function normalizeProposal(
   data: ImprintProposalResponse | null | undefined
 ): ImprintProposal | null {
-  if (!data || (!data.imprint_draft && !data.persona_draft && !data.name)) {
+  if (
+    !data ||
+    (!data.imprint_draft &&
+      !data.persona_draft &&
+      !data.name &&
+      !data.prompt_metadata &&
+      !data.proposal)
+  ) {
     return null;
   }
+
+  const proposal = data.proposal ?? null;
+  const promptMetadata = isRecord(data.prompt_metadata)
+    ? data.prompt_metadata
+    : isRecord(proposal?.prompt_metadata)
+      ? proposal.prompt_metadata
+      : null;
 
   return {
     imprintDraft: data.imprint_draft
@@ -225,9 +279,66 @@ function normalizeProposal(
               : null,
         }
       : null,
-    name: typeof data.name === "string" ? data.name : null,
+    name:
+      typeof data.name === "string"
+        ? data.name
+        : typeof proposal?.proposal_name === "string"
+          ? proposal.proposal_name
+          : null,
     personaDraft:
-      typeof data.persona_draft === "string" ? data.persona_draft : null,
+      typeof data.persona_draft === "string"
+        ? data.persona_draft
+        : typeof proposal?.persona_draft === "string"
+          ? proposal.persona_draft
+          : null,
+    promptMetadata,
+    proposal: proposal
+      ? {
+          generatorVersion:
+            typeof proposal.generator_version === "string"
+              ? proposal.generator_version
+              : null,
+          personaDraft:
+            typeof proposal.persona_draft === "string"
+              ? proposal.persona_draft
+              : null,
+          preferredName:
+            typeof proposal.preferred_name === "string"
+              ? proposal.preferred_name
+              : null,
+          projectId:
+            typeof proposal.project_id === "number"
+              ? proposal.project_id
+              : null,
+          proposalHash:
+            typeof proposal.proposal_hash === "string"
+              ? proposal.proposal_hash
+              : null,
+          proposalName:
+            typeof proposal.proposal_name === "string"
+              ? proposal.proposal_name
+              : null,
+          proposalVersion:
+            typeof proposal.proposal_version === "number"
+              ? proposal.proposal_version
+              : null,
+          promptMetadata,
+          scopeKind:
+            typeof proposal.scope_kind === "string"
+              ? proposal.scope_kind
+              : null,
+          snapshotHash:
+            typeof proposal.snapshot_hash === "string"
+              ? proposal.snapshot_hash
+              : null,
+          snapshotVersion:
+            typeof proposal.snapshot_version === "number"
+              ? proposal.snapshot_version
+              : null,
+          userId:
+            typeof proposal.user_id === "string" ? proposal.user_id : null,
+        }
+      : null,
   };
 }
 

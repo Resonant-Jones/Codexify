@@ -106,4 +106,4 @@ COPY --from=builder /app_staging/wait_for_db.py /app/wait_for_db.py
 EXPOSE 8888
 
 ENTRYPOINT ["/bin/sh", "-lc"]
-CMD ["[ -e /app/codexify ] || ln -s /app/guardian /app/codexify; python /app/wait_for_db.py && alembic -c backend/alembic.ini upgrade head && exec python -m uvicorn guardian.guardian_api:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["[ -e /app/codexify ] || ln -s /app/guardian /app/codexify; python /app/wait_for_db.py && alembic -c backend/alembic.ini upgrade heads && exec python -m uvicorn guardian.guardian_api:app --host 0.0.0.0 --port ${PORT}"]

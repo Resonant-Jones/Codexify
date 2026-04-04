@@ -63,359 +63,328 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 29,
+    "commit_count": 24,
     "commits": [
       {
         "files": [
-          "docs/audits/daily/evening/2026-03-31-audit.json",
-          "docs/audits/daily/evening/2026-03-31-audit.md",
-          "docs/audits/daily/evening/latest.json",
-          "docs/audits/daily/evening/latest.md",
-          "docs/audits/latest.json",
-          "docs/audits/latest.md",
-          "frontend/src/contracts/runtimeTokens.ts",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-          "frontend/src/main.tsx"
+          "guardian/db/migrations/versions/d4b7f1a9c3e2_merge_heads_after_imprint_and_thread_config.py"
         ],
-        "sha": "969355bf438b3e7d678c506ec7f46052b0f297bf",
-        "subject": "Refresh daily evening audit snapshot"
-      },
-      {
-        "files": [
-          "backend/rag/embedder.py",
-          "docker-compose.yml",
-          "guardian/core/config.py",
-          "guardian/workers/document_embed_worker.py",
-          "tests/backend/rag/test_embedder.py",
-          "tests/workers/test_document_embed_worker.py"
-        ],
-        "sha": "a7d9f8200ceba78358df9a21ef4eaffe811ce3d1",
-        "subject": "fix(embed): complete document embed lifecycle and terminal status handling"
-      },
-      {
-        "files": [
-          "docs/architecture/2026-03-31-supported-path-proof.md"
-        ],
-        "sha": "f0596e1dee48ad14c280765c4884b7c6c511bab2",
-        "subject": "docs(proof): add fresh supported-path proof for runtime contract behavior"
-      },
-      {
-        "files": [
-          "frontend/src/components/SessionRail/SessionRail.tsx",
-          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx"
-        ],
-        "sha": "5318886dd69d11835494da0a850ab4ddcbe7bc03",
-        "subject": "fix(chat): apply segmented styling to session rail"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-          "frontend/src/index.css"
-        ],
-        "sha": "72ebb44110c520351332b8144ca581cb597bc6f5",
-        "subject": "refactor(workspace): localize session rail styles"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/features/chat/useChat.ts"
-        ],
-        "sha": "902112ce544731be139ee2a345a693050115afcb",
-        "subject": "feat(chat): implement frontend runtime contract for provider and request state"
-      },
-      {
-        "files": [
-          "guardian/cognition/prompts.py",
-          "tests/core/test_chat_completion_service_retrieval_plan.py"
-        ],
-        "sha": "5880120e7a7bcefbc79a80925eb95a7e2e831990",
-        "subject": "fix(chat): make retrieval boundary language truthful"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-          "frontend/src/index.css"
-        ],
-        "sha": "d5abf63535791b32918c021ae0a9b4e6904afed0",
-        "subject": "refactor(workspace): enforce segmented session rail tabs"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
-          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
-        ],
-        "sha": "8f7d6f6e0f29f721c6ee120bd13214cb1cafabea",
-        "subject": "feat(workspace): connect shelf documents to inspector"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx"
-        ],
-        "sha": "1b33c01b9d3d4cb948a212f3d1b72013820b38ae",
-        "subject": "feat(workspace): wire shelf to thread and project artifacts"
-      },
-      {
-        "files": [
-          "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
-          "tests/routes/test_chat_profile_trace.py"
-        ],
-        "sha": "0d0bc059869b75ac03809b739da6dd8ce0b48e72",
-        "subject": "docs(chat): add end-to-end rag trace proof"
+        "sha": "180c38ee5c9fa8be998b83b22f7af0218d71b9f0",
+        "subject": "Merge Alembic heads after imprint and thread_config"
       },
       {
         "files": [
           "guardian/core/chat_completion_service.py",
           "guardian/routes/chat.py",
-          "tests/core/test_chat_completion_service_retrieval_plan.py",
+          "guardian/tasks/types.py",
+          "guardian/workers/chat_worker.py",
+          "tests/core/test_chat_completion_service_latest_turn.py",
+          "tests/routes/test_chat_complete_latest_turn_integrity.py",
+          "tests/workers/test_chat_worker_latest_turn_integrity.py"
+        ],
+        "sha": "c7a73fd67a10130d383e1c8a83abf5ff848a058e",
+        "subject": "preserve latest-turn identity across queued completion"
+      },
+      {
+        "files": [
+          "docs/architecture/capabilities-audit.md"
+        ],
+        "sha": "708e8f68a34bfc23128c90c20e09d6233e2ea82c",
+        "subject": "docs(architecture): add capabilities audit for signal build assessment"
+      },
+      {
+        "files": [
+          "guardian/core/chat_completion_service.py",
+          "tests/core/test_chat_completion_service_latest_turn_trace.py",
           "tests/routes/test_chat_profile_trace.py"
         ],
-        "sha": "9e8bd6d8dc29550cae4875bcce7b63631a4696be",
-        "subject": "fix(chat): restore latest rag trace persistence"
+        "sha": "88e8a29262d512fe3d5c1c27ca8f0483eb1c52e3",
+        "subject": "expose latest-turn targeting in trace"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+          "guardian/core/chat_completion_service.py",
+          "tests/core/test_chat_completion_service_latest_turn_retrieval.py"
         ],
-        "sha": "6be727c355e50859e9f14d35acc82370f3065fb4",
-        "subject": "refactor(workspace): strengthen tab switcher hierarchy"
+        "sha": "0cfb3001fa5356095f2154e09ec07360750912be",
+        "subject": "target retrieval to latest user turn"
       },
       {
         "files": [
-          "guardian/cognition/prompts.py"
+          "tests/core/test_chat_completion_service_latest_turn_regression.py"
         ],
-        "sha": "bfd2046060d649a2e146a26fbefbba1c22944b5d",
-        "subject": "Refine Guardian base prompt for co-creative companion behavior"
+        "sha": "98a30d11a7b2aad8631c7d111dd6944e8454dd91",
+        "subject": "add latest-turn regression coverage"
       },
       {
         "files": [
+          "frontend/src/components/sidebar/ProjectList.tsx",
+          "frontend/src/components/sidebar/SidebarRoot.tsx",
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
+          "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+          "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
+          "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
+          "frontend/src/components/sidebar/sidebarPresentation.ts",
+          "frontend/src/components/sidebar/useProjectsCache.ts",
+          "frontend/src/components/sidebar/useSidebarThreads.ts",
+          "frontend/src/index.css"
+        ],
+        "sha": "321e14b47062272ddd823b4c75258a152e5cbfa3",
+        "subject": "Revert \"Restore imported projects natively and clean import rail\""
+      },
+      {
+        "files": [
+          "guardian/core/chat_completion_service.py",
+          "tests/core/test_chat_completion_service_latest_turn_prompting.py"
+        ],
+        "sha": "d745f0a860f5600faaefc4119f845629e2b150ff",
+        "subject": "target only latest user turn in prompts"
+      },
+      {
+        "files": [
+          "guardian/core/chat_completion_service.py",
+          "tests/core/test_chat_completion_service_latest_turn.py"
+        ],
+        "sha": "0a5177f5a27a14237f1f551d02051877043f56c0",
+        "subject": "split completion history from latest turn"
+      },
+      {
+        "files": [
+          "docs/specs/guardian_template_specifications"
+        ],
+        "sha": "116f23ac7e0193afa6c212cef8de0d7a562ba758",
+        "subject": "Add persona generation specification"
+      },
+      {
+        "files": [
+          "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+          "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
+          "frontend/src/features/personaStudio/personaStudioStore.ts"
+        ],
+        "sha": "d4df527aee82fef540193c65957322602840e8f8",
+        "subject": "feat(persona-studio): implement real local draft persistence"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/ProjectList.tsx",
+          "frontend/src/components/sidebar/SidebarRoot.tsx",
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
+          "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+          "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
+          "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
+          "frontend/src/components/sidebar/sidebarPresentation.ts",
+          "frontend/src/components/sidebar/useProjectsCache.ts",
+          "frontend/src/components/sidebar/useSidebarThreads.ts",
+          "frontend/src/index.css"
+        ],
+        "sha": "bf9810aaef34f7b1cdfa292e634fdbe0627bd10a",
+        "subject": "Restore imported projects natively and clean import rail"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+          "guardian/core/db.py",
+          "guardian/core/pgdb.py",
+          "guardian/routes/chat.py",
+          "tests/routes/test_thread_config_read_surfaces.py"
+        ],
+        "sha": "14c47df7b17c65e6e1c7c2b45b1dbe16e58c15fa",
+        "subject": "preserve thread config across thread read surfaces"
+      },
+      {
+        "files": [
+          "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
           "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-          "frontend/src/features/chat/panels/RAGTracePanel.tsx",
-          "frontend/src/features/settings/SettingsView.test.tsx",
-          "frontend/src/features/settings/SettingsView.tsx",
-          "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx"
+          "frontend/src/features/chat/__tests__/GuardianChat.thread-config.test.tsx",
+          "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
+          "frontend/src/lib/api.ts",
+          "frontend/src/types/ui.ts"
         ],
-        "sha": "368afb1b41b3b5b032cdce9e958994575ba46df6",
-        "subject": "fix(diagnostics): bind rag trace surfaces to active thread"
+        "sha": "07cdc37f49b2e73f0d5eb9177ada91d0b97874ab",
+        "subject": "wire chat selectors to thread config"
       },
       {
         "files": [
-          "frontend/src/package.json"
+          "guardian/routes/chat.py",
+          "tests/routes/test_thread_config_update.py"
         ],
-        "sha": "37c2162c2bff89b1a20046ca426f0228c20276ea",
-        "subject": "Force Vite re-optimization on frontend dev startup"
+        "sha": "0111e5d0809345b36332be118c857226beb4fc11",
+        "subject": "add thread config update route"
       },
       {
         "files": [
-          "frontend/src/components/SessionRail/SessionRail.tsx",
-          "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx"
+          "guardian/core/chat_completion_service.py",
+          "guardian/routes/chat.py",
+          "tests/core/test_chat_completion_service_thread_config.py",
+          "tests/routes/test_chat_complete_thread_config_precedence.py"
         ],
-        "sha": "2ea451bc13a2526cb06de4164af0a3a39a5f2f64",
-        "subject": "refactor(shell): simplify session rail visual hierarchy"
+        "sha": "68747e6147cae8bb5879b437558e8a9cf948eaa5",
+        "subject": "make thread config authoritative for completion"
       },
       {
         "files": [
-          "guardian/context/broker.py",
-          "tests/core/test_context_broker_source_mode.py"
-        ],
-        "sha": "a90b2c33f4ad9a3babe09ded27a21efa78fff267",
-        "subject": "fix(chat): replace weak local hit during widening"
-      },
-      {
-        "files": [
-          "frontend/src/features/chat/components/Composer.tsx",
-          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx"
-        ],
-        "sha": "e64dec215ea9aa290f721c3d930ffe29e1a74395",
-        "subject": "fix(chat): simplify source selector trigger label"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx"
-        ],
-        "sha": "06af0f2351b0f140487e0a02b08b45696bdb1c5d",
-        "subject": "fix(workspace): remove redundant internal close button"
-      },
-      {
-        "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
-        ],
-        "sha": "727f8f0918be6674c8c2733218bdbbb158817b1d",
-        "subject": "refactor(workspace): polish header and scratchpad layout"
-      },
-      {
-        "files": [
+          "docs/audits/daily/morning/2026-04-02-audit.json",
+          "docs/audits/daily/morning/2026-04-02-audit.md",
           "docs/audits/daily/morning/latest.json",
           "docs/audits/daily/morning/latest.md",
           "docs/audits/latest.json",
           "docs/audits/latest.md"
         ],
-        "sha": "85da3a91874857400f88c83b50d9c07fc4536f86",
-        "subject": "Refresh latest audit reports"
+        "sha": "e72c09abf61ae12a1272461450de736f65dea471",
+        "subject": "Update daily audit reports for 2026-04-02"
       },
       {
         "files": [
-          "docs/architecture/2026-03-31-source-selector-proof.md",
-          "guardian/context/broker.py",
           "guardian/routes/chat.py",
-          "tests/core/test_chat_completion_service_source_mode_fallback.py",
-          "tests/core/test_context_broker_source_mode.py",
-          "tests/routes/test_chat_source_mode.py"
+          "tests/routes/test_thread_creation_thread_config.py"
         ],
-        "sha": "e2539f35eaa319c8f337561f2b47ed00e4778c3f",
-        "subject": "test(chat): harden source selector proof and fallback behavior"
+        "sha": "25f0c3438dfb5383f8e63eb884ab8468cbc67df6",
+        "subject": "snapshot thread config on thread creation"
       },
       {
         "files": [
-          "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
-          "frontend/src/components/ui/dropdown-menu.tsx",
-          "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
-          "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx"
+          "frontend/src/vitest.config.ts"
         ],
-        "sha": "0c35af4239c51f36640c8e87322dc00abc371d82",
-        "subject": "fix(ui): constrain model menu and open upward"
+        "sha": "2dff20c43b251c427d689d135a598dac413685b0",
+        "subject": "Normalize Vitest include ordering"
       },
       {
         "files": [
-          "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/features/chat/components/Composer.tsx",
-          "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
-          "guardian/context/broker.py",
-          "guardian/core/chat_completion_service.py",
-          "guardian/routes/chat.py",
-          "tests/core/test_context_broker_source_mode.py",
-          "tests/routes/test_chat_source_mode.py"
+          "frontend/src/vitest.config.ts"
         ],
-        "sha": "61c696b92e1c15ab6fea85ac725c2cce279b75c3",
-        "subject": "feat(chat): add source selector for retrieval boundary"
+        "sha": "c82d5abccf587112d51e37d8d67aefe6c53c4e1f",
+        "subject": "test(frontend): normalize vitest include list"
       },
       {
         "files": [
-          "docs/architecture/runtime-protocol-token-contract.md"
+          "guardian/db/migrations/versions/b0c1d2e3f4a5_add_thread_config_to_chat_threads.py",
+          "guardian/db/models.py",
+          "tests/db/test_chat_thread_thread_config.py"
         ],
-        "sha": "757fc402acf42d3ea57f0629bcc5c9737481332a",
-        "subject": "docs(runtime): expand protocol token contract to include provider and request lifecycle domains"
+        "sha": "9ee9fdb9547fb126e0e1502081d3c141ab1e314c",
+        "subject": "add thread_config to chat_threads"
       },
       {
         "files": [
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/components/WorkspaceTabs.tsx"
+          "guardian/core/pgdb.py",
+          "guardian/routes/migration.py",
+          "guardian/services/account_restore.py",
+          "tests/routes/test_account_restore.py"
         ],
-        "sha": "afec57d252d210da38167975fd75688c8b430a04",
-        "subject": "fix(workspace): clean up posture header affordances"
+        "sha": "8b78004655ea261c6b1268ef1798a8d10d5a8f41",
+        "subject": "feat: add metadata account restore route"
       },
       {
         "files": [
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+          "frontend/src/vitest.config.ts"
         ],
-        "sha": "45eb65e5457fc55128b192cc9e409908345e7303",
-        "subject": "feat(workspace): make workspace focus visually dominant"
+        "sha": "97fddb84793ba52304193c2c029f0cd150f771dc",
+        "subject": "test(frontend): include contract tests in default vitest discovery"
       },
       {
         "files": [
-          "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-          "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-          "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+          "frontend/src/features/settings/SettingsView.tsx",
+          "frontend/src/features/settings/__tests__/SettingsView.test.tsx",
+          "frontend/src/features/settings/__tests__/useImprintZero.test.tsx",
+          "frontend/src/features/settings/api/imprint.ts",
+          "frontend/src/features/settings/components/ImprintReviewPanel.tsx",
+          "frontend/src/features/settings/components/__tests__/ImprintReviewPanel.test.tsx",
+          "frontend/src/features/settings/hooks/useImprintReview.ts",
+          "frontend/src/imprint/ImprintZeroToast.tsx",
+          "frontend/src/imprint/api.ts",
+          "frontend/src/imprint/useImprintZero.ts",
+          "guardian/chat/cli/main.py",
+          "guardian/cli/imprint_zero_cli.py",
+          "guardian/test_cli.py",
+          "tests/routes/test_imprint_proposal_routes.py"
         ],
-        "sha": "03f128bc50135c278042e8e534c95d485660e204",
-        "subject": "feat(workspace): add layout mode state contract"
+        "sha": "d39e0f417bf2c2f96e36a17e17376bd856f0527a",
+        "subject": "Wire imprint consumers to canonical backend proposal flow"
       }
     ],
     "files_changed": [
-      "docs/audits/daily/evening/2026-03-31-audit.json",
-      "docs/audits/daily/evening/2026-03-31-audit.md",
-      "docs/audits/daily/evening/latest.json",
-      "docs/audits/daily/evening/latest.md",
-      "docs/audits/latest.json",
-      "docs/audits/latest.md",
-      "frontend/src/contracts/runtimeTokens.ts",
-      "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-      "frontend/src/main.tsx",
-      "backend/rag/embedder.py",
-      "docker-compose.yml",
-      "guardian/core/config.py",
-      "guardian/workers/document_embed_worker.py",
-      "tests/backend/rag/test_embedder.py",
-      "tests/workers/test_document_embed_worker.py",
-      "docs/architecture/2026-03-31-supported-path-proof.md",
-      "frontend/src/components/SessionRail/SessionRail.tsx",
-      "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
-      "frontend/src/index.css",
-      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-      "frontend/src/components/persona/layout/AppShell.tsx",
-      "frontend/src/features/chat/useChat.ts",
-      "guardian/cognition/prompts.py",
-      "tests/core/test_chat_completion_service_retrieval_plan.py",
-      "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
-      "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-      "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
-      "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
-      "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
-      "tests/routes/test_chat_profile_trace.py",
+      "guardian/db/migrations/versions/d4b7f1a9c3e2_merge_heads_after_imprint_and_thread_config.py",
       "guardian/core/chat_completion_service.py",
       "guardian/routes/chat.py",
-      "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-      "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+      "guardian/tasks/types.py",
+      "guardian/workers/chat_worker.py",
+      "tests/core/test_chat_completion_service_latest_turn.py",
+      "tests/routes/test_chat_complete_latest_turn_integrity.py",
+      "tests/workers/test_chat_worker_latest_turn_integrity.py",
+      "docs/architecture/capabilities-audit.md",
+      "tests/core/test_chat_completion_service_latest_turn_trace.py",
+      "tests/routes/test_chat_profile_trace.py",
+      "tests/core/test_chat_completion_service_latest_turn_retrieval.py",
+      "tests/core/test_chat_completion_service_latest_turn_regression.py",
+      "frontend/src/components/sidebar/ProjectList.tsx",
+      "frontend/src/components/sidebar/SidebarRoot.tsx",
+      "frontend/src/components/sidebar/ThreadList.tsx",
+      "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
+      "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
+      "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+      "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
+      "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
+      "frontend/src/components/sidebar/sidebarPresentation.ts",
+      "frontend/src/components/sidebar/useProjectsCache.ts",
+      "frontend/src/components/sidebar/useSidebarThreads.ts",
+      "frontend/src/index.css",
+      "tests/core/test_chat_completion_service_latest_turn_prompting.py",
+      "docs/specs/guardian_template_specifications",
+      "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+      "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
+      "frontend/src/features/personaStudio/personaStudioStore.ts",
+      "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+      "guardian/core/db.py",
+      "guardian/core/pgdb.py",
+      "tests/routes/test_thread_config_read_surfaces.py",
+      "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
       "frontend/src/features/chat/GuardianChat.tsx",
-      "frontend/src/features/chat/panels/RAGTracePanel.tsx",
-      "frontend/src/features/settings/SettingsView.test.tsx",
-      "frontend/src/features/settings/SettingsView.tsx",
-      "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
-      "frontend/src/package.json",
-      "guardian/context/broker.py",
-      "tests/core/test_context_broker_source_mode.py",
-      "frontend/src/features/chat/components/Composer.tsx",
-      "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
+      "frontend/src/features/chat/__tests__/GuardianChat.thread-config.test.tsx",
+      "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
+      "frontend/src/lib/api.ts",
+      "frontend/src/types/ui.ts",
+      "tests/routes/test_thread_config_update.py",
+      "tests/core/test_chat_completion_service_thread_config.py",
+      "tests/routes/test_chat_complete_thread_config_precedence.py",
+      "docs/audits/daily/morning/2026-04-02-audit.json",
+      "docs/audits/daily/morning/2026-04-02-audit.md",
       "docs/audits/daily/morning/latest.json",
       "docs/audits/daily/morning/latest.md",
-      "docs/architecture/2026-03-31-source-selector-proof.md",
-      "tests/core/test_chat_completion_service_source_mode_fallback.py",
-      "tests/routes/test_chat_source_mode.py",
-      "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
-      "frontend/src/components/ui/dropdown-menu.tsx",
-      "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
-      "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
-      "docs/architecture/runtime-protocol-token-contract.md",
-      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-      "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
+      "docs/audits/latest.json",
+      "docs/audits/latest.md",
+      "tests/routes/test_thread_creation_thread_config.py",
+      "frontend/src/vitest.config.ts",
+      "guardian/db/migrations/versions/b0c1d2e3f4a5_add_thread_config_to_chat_threads.py",
+      "guardian/db/models.py",
+      "tests/db/test_chat_thread_thread_config.py",
+      "guardian/routes/migration.py",
+      "guardian/services/account_restore.py",
+      "tests/routes/test_account_restore.py",
+      "frontend/src/features/settings/SettingsView.tsx",
+      "frontend/src/features/settings/__tests__/SettingsView.test.tsx",
+      "frontend/src/features/settings/__tests__/useImprintZero.test.tsx",
+      "frontend/src/features/settings/api/imprint.ts",
+      "frontend/src/features/settings/components/ImprintReviewPanel.tsx",
+      "frontend/src/features/settings/components/__tests__/ImprintReviewPanel.test.tsx",
+      "frontend/src/features/settings/hooks/useImprintReview.ts",
+      "frontend/src/imprint/ImprintZeroToast.tsx",
+      "frontend/src/imprint/api.ts",
+      "frontend/src/imprint/useImprintZero.ts",
+      "guardian/chat/cli/main.py",
+      "guardian/cli/imprint_zero_cli.py",
+      "guardian/test_cli.py",
+      "tests/routes/test_imprint_proposal_routes.py"
     ],
-    "window_end": "2026-04-01T09:00:39.832491-04:00",
+    "window_end": "2026-04-03T09:00:15.430191-04:00",
     "window_hours": 24,
-    "window_start": "2026-03-31T09:00:39.832491-04:00"
+    "window_start": "2026-04-02T09:00:15.430191-04:00"
   },
-  "date": "2026-04-01",
-  "generated_at": "2026-04-01T09:00:39.832491-04:00",
+  "date": "2026-04-03",
+  "generated_at": "2026-04-03T09:00:15.430191-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -423,14 +392,12 @@
   },
   "phase": "morning",
   "repo": {
-    "branch": "main",
-    "date": "2026-04-01",
-    "dirty": true,
-    "head": "969355bf438b3e7d678c506ec7f46052b0f297bf",
+    "branch": "banana-berry",
+    "date": "2026-04-03",
+    "dirty": false,
+    "head": "180c38ee5c9fa8be998b83b22f7af0218d71b9f0",
     "status_error": "",
-    "status_lines": [
-      "?? docs/architecture/persona-studio-spec.md"
-    ]
+    "status_lines": []
   },
   "risk_flags": [
     {
@@ -487,108 +454,109 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 8,
+      "count": 6,
       "files": [
-        "docs/audits/daily/evening/2026-03-31-audit.json",
-        "docs/audits/daily/evening/2026-03-31-audit.md",
-        "docs/audits/daily/evening/latest.json",
-        "docs/audits/daily/evening/latest.md",
-        "docs/audits/latest.json",
-        "docs/audits/latest.md",
+        "docs/audits/daily/morning/2026-04-02-audit.json",
+        "docs/audits/daily/morning/2026-04-02-audit.md",
         "docs/audits/daily/morning/latest.json",
-        "docs/audits/daily/morning/latest.md"
+        "docs/audits/daily/morning/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md"
       ]
     },
     "chat": {
-      "count": 1,
+      "count": 2,
       "files": [
-        "guardian/routes/chat.py"
+        "guardian/routes/chat.py",
+        "guardian/workers/chat_worker.py"
       ]
     },
     "config": {
       "count": 1,
       "files": [
-        "guardian/core/config.py"
+        "guardian/db/migrations/versions/d4b7f1a9c3e2_merge_heads_after_imprint_and_thread_config.py"
       ]
     },
     "docs": {
-      "count": 4,
+      "count": 2,
       "files": [
-        "docs/architecture/2026-03-31-supported-path-proof.md",
-        "docs/architecture/2026-03-31-rag-trace-e2e-proof.md",
-        "docs/architecture/2026-03-31-source-selector-proof.md",
-        "docs/architecture/runtime-protocol-token-contract.md"
+        "docs/architecture/capabilities-audit.md",
+        "docs/specs/guardian_template_specifications"
       ]
     },
     "frontend": {
       "count": 33,
       "files": [
-        "frontend/src/contracts/runtimeTokens.ts",
-        "frontend/src/features/workspace/components/WorkspaceTabs.tsx",
-        "frontend/src/main.tsx",
-        "frontend/src/components/SessionRail/SessionRail.tsx",
-        "frontend/src/components/SessionRail/__tests__/SessionRail.test.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.session-tabs.test.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceTabs.test.tsx",
+        "frontend/src/components/sidebar/ProjectList.tsx",
+        "frontend/src/components/sidebar/SidebarRoot.tsx",
+        "frontend/src/components/sidebar/ThreadList.tsx",
+        "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
+        "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
+        "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+        "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
+        "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
+        "frontend/src/components/sidebar/sidebarPresentation.ts",
+        "frontend/src/components/sidebar/useProjectsCache.ts",
+        "frontend/src/components/sidebar/useSidebarThreads.ts",
         "frontend/src/index.css",
-        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-        "frontend/src/components/persona/layout/AppShell.tsx",
-        "frontend/src/features/chat/useChat.ts",
-        "frontend/src/features/workspace/__tests__/WorkspaceDrawer.test.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceInspectorPanel.test.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceShelfPanel.test.tsx",
-        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
-        "frontend/src/features/workspace/components/WorkspaceInspectorPanel.tsx",
-        "frontend/src/features/workspace/components/WorkspaceShelfPanel.tsx",
-        "frontend/src/features/workspace/__tests__/WorkspaceScratchpadPanel.test.tsx",
-        "frontend/src/features/workspace/components/WorkspaceScratchpadPanel.tsx",
+        "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
+        "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
+        "frontend/src/features/personaStudio/personaStudioStore.ts",
+        "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
+        "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
         "frontend/src/features/chat/GuardianChat.tsx",
-        "frontend/src/features/chat/panels/RAGTracePanel.tsx",
-        "frontend/src/features/settings/SettingsView.test.tsx",
+        "frontend/src/features/chat/__tests__/GuardianChat.thread-config.test.tsx",
+        "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
+        "frontend/src/lib/api.ts",
+        "frontend/src/types/ui.ts",
+        "frontend/src/vitest.config.ts",
         "frontend/src/features/settings/SettingsView.tsx",
-        "frontend/src/features/settings/diagnostics/MemoryBrowser.tsx",
-        "frontend/src/package.json",
-        "frontend/src/features/chat/components/Composer.tsx",
-        "frontend/src/features/chat/components/__tests__/Composer.source-selector.test.tsx",
-        "frontend/src/components/ui/__tests__/dropdown-menu.portal.test.tsx",
-        "frontend/src/components/ui/dropdown-menu.tsx",
-        "frontend/src/features/chat/components/ComposerSelectMenu.tsx",
-        "frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx",
-        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
-        "frontend/src/features/workspace/state/useWorkspaceLayoutMode.ts"
-      ]
-    },
-    "infra": {
-      "count": 1,
-      "files": [
-        "docker-compose.yml"
-      ]
-    },
-    "ingestion": {
-      "count": 2,
-      "files": [
-        "guardian/workers/document_embed_worker.py",
-        "tests/workers/test_document_embed_worker.py"
+        "frontend/src/features/settings/__tests__/SettingsView.test.tsx",
+        "frontend/src/features/settings/__tests__/useImprintZero.test.tsx",
+        "frontend/src/features/settings/api/imprint.ts",
+        "frontend/src/features/settings/components/ImprintReviewPanel.tsx",
+        "frontend/src/features/settings/components/__tests__/ImprintReviewPanel.test.tsx",
+        "frontend/src/features/settings/hooks/useImprintReview.ts",
+        "frontend/src/imprint/ImprintZeroToast.tsx",
+        "frontend/src/imprint/api.ts",
+        "frontend/src/imprint/useImprintZero.ts"
       ]
     },
     "tests": {
-      "count": 6,
+      "count": 17,
       "files": [
-        "tests/backend/rag/test_embedder.py",
-        "tests/core/test_chat_completion_service_retrieval_plan.py",
+        "tests/core/test_chat_completion_service_latest_turn.py",
+        "tests/routes/test_chat_complete_latest_turn_integrity.py",
+        "tests/workers/test_chat_worker_latest_turn_integrity.py",
+        "tests/core/test_chat_completion_service_latest_turn_trace.py",
         "tests/routes/test_chat_profile_trace.py",
-        "tests/core/test_context_broker_source_mode.py",
-        "tests/core/test_chat_completion_service_source_mode_fallback.py",
-        "tests/routes/test_chat_source_mode.py"
+        "tests/core/test_chat_completion_service_latest_turn_retrieval.py",
+        "tests/core/test_chat_completion_service_latest_turn_regression.py",
+        "tests/core/test_chat_completion_service_latest_turn_prompting.py",
+        "tests/routes/test_thread_config_read_surfaces.py",
+        "tests/routes/test_thread_config_update.py",
+        "tests/core/test_chat_completion_service_thread_config.py",
+        "tests/routes/test_chat_complete_thread_config_precedence.py",
+        "tests/routes/test_thread_creation_thread_config.py",
+        "tests/db/test_chat_thread_thread_config.py",
+        "tests/routes/test_account_restore.py",
+        "guardian/test_cli.py",
+        "tests/routes/test_imprint_proposal_routes.py"
       ]
     },
     "unknown": {
-      "count": 4,
+      "count": 10,
       "files": [
-        "backend/rag/embedder.py",
-        "guardian/cognition/prompts.py",
         "guardian/core/chat_completion_service.py",
-        "guardian/context/broker.py"
+        "guardian/tasks/types.py",
+        "guardian/core/db.py",
+        "guardian/core/pgdb.py",
+        "guardian/db/migrations/versions/b0c1d2e3f4a5_add_thread_config_to_chat_threads.py",
+        "guardian/db/models.py",
+        "guardian/routes/migration.py",
+        "guardian/services/account_restore.py",
+        "guardian/chat/cli/main.py",
+        "guardian/cli/imprint_zero_cli.py"
       ]
     }
   }

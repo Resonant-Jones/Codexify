@@ -41,6 +41,7 @@ def test_dump_imprint_zero_prompt_text(mock_imprint_zero: MagicMock):
     )
 
     assert result.exit_code == 0
+    mock_imprint_zero.assert_called_once()
     assert "--- System Prompt ---" in result.output
     assert "Test System Prompt" in result.output
     assert "--- Question Scaffold ---" in result.output
@@ -65,6 +66,7 @@ def test_dump_imprint_zero_prompt_json(mock_imprint_zero: MagicMock):
     )
 
     assert result.exit_code == 0
+    mock_imprint_zero.assert_called_once()
 
     # Parse the JSON output and verify its contents
     output_data = json.loads(result.output)

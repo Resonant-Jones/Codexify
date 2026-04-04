@@ -5,6 +5,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import {
+  collectSidebarProvenanceOptions,
+  getSidebarThreadProvenanceKey,
+  isSidebarGeneralProjectName,
+  cleanSidebarProjectTitle,
+  resolveSidebarThreadBucketId,
+  resolveSidebarGeneralProjectId,
+  threadBelongsToGeneral,
+  collectSidebarProvenanceOptions,
+  threadMatchesSidebarProvenance,
+  type SidebarProvenanceOption,
+} from "./sidebarPresentation";
 
 type UseSidebarThreadsOptions = {
   initialThreads: Thread[];
@@ -19,6 +31,9 @@ type UseSidebarThreadsResult = {
   scopeLabel: string;
   currentProjectId: string | null;
   setScope: (id: string | null) => void;
+  provenanceFilter: string | null;
+  setProvenanceFilter: (label: string | null) => void;
+  provenanceOptions: SidebarProvenanceOption[];
   handleDeleteThread: (threadId: string) => void;
   renameThread: (threadId: string, title: string) => Promise<void>;
   toggleArchiveThread: (threadId: string, archived: boolean) => Promise<void>;
@@ -68,7 +83,8 @@ function sameThread(a: Thread, b: Thread): boolean {
     && (a.lastMessage ?? "") === (b.lastMessage ?? "")
     && (a.projectId ?? null) === (b.projectId ?? null)
     && (a.archivedAt ?? null) === (b.archivedAt ?? null)
-    && (a.unread ?? 0) === (b.unread ?? 0);
+    && (a.unread ?? 0) === (b.unread ?? 0)
+    && getSidebarThreadProvenanceKey(a) === getSidebarThreadProvenanceKey(b);
 }
 
 function equalThreadLists(a: Thread[], b: Thread[]): boolean {
@@ -116,6 +132,7 @@ export function useSidebarThreads({
   const stableTitleRef = useRef<Map<string, string>>(new Map());
   const lastEventSigRef = useRef<string | null>(null);
   const lastEventTsRef = useRef<number>(0);
+  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(null);
 
   // Local project scope fallback if parent does not control it
   const [localProjectId, setLocalProjectId] = useState<string | null>(() => {
@@ -125,6 +142,7 @@ export function useSidebarThreads({
     if (stored === "null") return null;
     return stored || null;
   });
+  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(null);
 
   // Mirror incoming threads (sanitized) while avoiding no-op state churn
   useEffect(() => {
@@ -360,7 +378,7 @@ export function useSidebarThreads({
 
   const currentProjectId = onProjectChange ? (projectId ?? null) : localProjectId;
   const generalProjectId = useMemo(() => {
-    const fromProjects = projects.find((project) => isDefaultAliasName(project?.name));
+    const fromProjects = projects.find((project) => isSidebarGeneralProjectName(project?.name));
     if (fromProjects?.id != null) {
       return String(fromProjects.id);
     }
@@ -368,32 +386,49 @@ export function useSidebarThreads({
   }, [projects]);
 
   const scopedThreads = useMemo(() => {
-    const includesUnassignedAndGeneral = (scopeId: string | null): boolean => {
-      if (!scopeId) return false;
-      if (!generalProjectId) return false;
-      return String(scopeId) === String(generalProjectId);
-    };
+    const isGeneralScope =
+      currentProjectId === null
+      || (generalProjectId != null && String(currentProjectId) === String(generalProjectId));
+
+    const resolveBucket = (thread: Thread) =>
+      resolveSidebarThreadBucketId(thread, projects, generalProjectId);
 
     const base =
-      currentProjectId === null
-        ? threadList.filter((t) => {
-            if (!t.projectId) return true;
-            if (!generalProjectId) return false;
-            return String(t.projectId) === String(generalProjectId);
-          })
-        : currentProjectId
-        ? includesUnassignedAndGeneral(currentProjectId)
-          ? threadList.filter(
-              (t) =>
-                !t.projectId
-                || String(t.projectId ?? "") === String(currentProjectId)
-            )
-          : threadList.filter(
-              (t) => String(t.projectId ?? "") === String(currentProjectId)
-            )
-        : threadList;
-    return base.filter((t) => !t.archivedAt);
-  }, [currentProjectId, generalProjectId, threadList]);
+      currentProjectId === null || isGeneralScope
+        ? threadList.filter((thread) => threadBelongsToGeneral(thread, projects, generalProjectId))
+        : threadList.filter((thread) => {
+            const bucketId = resolveBucket(thread);
+            return bucketId != null && String(bucketId) === String(currentProjectId);
+          });
+
+    return base.filter((thread) => !thread.archivedAt);
+  }, [currentProjectId, generalProjectId, projects, threadList]);
+
+  const provenanceOptions = useMemo(
+    () => collectSidebarProvenanceOptions(scopedThreads),
+    [scopedThreads]
+  );
+
+  useEffect(() => {
+    if (!provenanceFilter) return;
+    if (provenanceOptions.some((option) => option.value === provenanceFilter)) {
+      return;
+    }
+    setProvenanceFilter(null);
+  }, [provenanceFilter, provenanceOptions]);
+
+  const provenanceOptions = useMemo(
+    () => collectSidebarProvenanceOptions(scopedThreads),
+    [scopedThreads]
+  );
+
+  useEffect(() => {
+    if (!provenanceFilter) return;
+    if (provenanceOptions.some((option) => option.value === provenanceFilter)) {
+      return;
+    }
+    setProvenanceFilter(null);
+  }, [provenanceFilter, provenanceOptions]);
 
   const displayThreads = useMemo(() => {
     const titleMap = stableTitleRef.current;
@@ -401,6 +436,7 @@ export function useSidebarThreads({
     const seen = new Set<string>();
     const out: Thread[] = [];
     for (const t of scopedThreads) {
+      if (!threadMatchesSidebarProvenance(t, provenanceFilter)) continue;
       const id = String(t.id ?? "");
       if (!id || seen.has(id)) continue;
       seen.add(id);
@@ -412,18 +448,21 @@ export function useSidebarThreads({
       });
     }
     return out;
-  }, [scopedThreads]);
+  }, [provenanceFilter, scopedThreads]);
 
   const scopeLabel = useMemo(() => {
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projects.find((p) => String(p.id) === String(currentProjectId));
-      return proj?.name ?? "Project";
+      return proj ? cleanSidebarProjectTitle(proj) : "Project";
     }
     return "All";
   }, [currentProjectId, projects]);
 
-  const looseCount = useMemo(() => threadList.filter((t) => !t.projectId).length, [threadList]);
+  const looseCount = useMemo(
+    () => threadList.filter((thread) => threadBelongsToGeneral(thread, projects, generalProjectId)).length,
+    [generalProjectId, projects, threadList]
+  );
 
   return {
     threads: threadList,
@@ -431,6 +470,9 @@ export function useSidebarThreads({
     scopeLabel,
     currentProjectId,
     setScope,
+    provenanceFilter,
+    setProvenanceFilter,
+    provenanceOptions,
     handleDeleteThread,
     renameThread,
     toggleArchiveThread,
