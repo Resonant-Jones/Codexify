@@ -460,6 +460,7 @@ from guardian.routes import admin, agent, agent_orchestration, backfill
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
+    delegations,
     devtools,
     documents,
     embeddings,
@@ -569,8 +570,9 @@ async def app_lifespan(app: FastAPI):
         websocket_routes.configure_db(guardian_db)
         agent_orchestration.configure_db(guardian_db)
         command_bus_routes.configure_db(guardian_db)
+        delegations.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/command_bus routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/command_bus/delegations routes"
         )
         collaboration.configure_db(guardian_db)
         logger.info(
@@ -1127,6 +1129,12 @@ _include_router(
     flag_name="CODEXIFY_ENABLE_COMMAND_BUS_ROUTES",
     include_fn=lambda: app.include_router(command_bus_routes.router),
 )
+_include_router(
+    label="delegations",
+    flag_name="CODEXIFY_ENABLE_DELEGATION_ROUTES",
+    include_fn=lambda: app.include_router(delegations.router),
+    core_surface=True,
+)
 
 logger.info(
     "[routers] Router registration complete (beta_core_only=%s)",
@@ -1329,10 +1337,11 @@ async def stream_task_events(
                     yield f"data: {data_str}\n\n"
                     last_id = ev_id
 
-                    if ev.get("type") in (
-                        "task.completed",
-                        "task.cancelled",
-                        "task.failed",
+                    if (
+                        task_events.classify_event_visibility(
+                            ev.get("type") or ""
+                        )
+                        == "terminal"
                     ):
                         return
 

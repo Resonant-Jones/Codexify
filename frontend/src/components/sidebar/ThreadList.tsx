@@ -140,7 +140,7 @@ function ThreadPreviewList({
   scopeLabel?: string;
   provenanceFilter?: string | null;
   provenanceOptions?: SidebarProvenanceOption[];
-  onProvenanceFilterChange?: (label: string | null) => void;
+  onProvenanceFilterChange?: (sourceKey: string | null) => void;
   onNewChat?: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
   onArchiveToggle: (threadId: string, archived: boolean) => Promise<void>;
