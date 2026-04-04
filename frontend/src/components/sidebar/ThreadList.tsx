@@ -408,11 +408,7 @@ function ThreadTileRow({
     : <Trash2 className="h-4 w-4" aria-hidden="true" />;
 
   const safeTitle = (thread.title || "").trim() || "Untitled";
-  const titleNode = (
-    <span key="title" className="thread-title block truncate" title={safeTitle}>
-      <span className="truncate">{safeTitle}</span>
-    </span>
-  );
+  const titleNode = <span key="title" className="thread-title block truncate" title={safeTitle}>{safeTitle}</span>;
   const snippet = typeof thread.lastMessage === "string" ? thread.lastMessage.trim() : "";
   const snippetNode = (
     <span
