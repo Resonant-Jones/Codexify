@@ -180,6 +180,13 @@ const CANONICAL_PROVENANCE_LABELS = new Map<string, string>([
   ["claude", "Claude"],
   ["anthropic", "Anthropic"],
   ["gemini", "Gemini"],
+  ["perplexity", "Perplexity"],
+]);
+
+const CANONICAL_PROVENANCE_KEY_ALIASES = new Map<string, string>([
+  ["chatgpt-import", "chatgpt"],
+  ["chat-gpt", "chatgpt"],
+  ["open-ai", "openai"],
 ]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -188,13 +195,49 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function normalizeLookupKey(value: string): string {
-  return value.trim().toLowerCase();
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function formatSidebarProvenanceLabel(key: string): string {
+  const canonical = CANONICAL_PROVENANCE_LABELS.get(key);
+  if (canonical) return canonical;
+
+  return key
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+type SidebarProvenanceDescriptor = {
+  key: string;
+  label: string;
+};
+
+export function normalizeSidebarProvenanceKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = normalizeLookupKey(value);
+  if (!normalized) return null;
+  return CANONICAL_PROVENANCE_KEY_ALIASES.get(normalized) ?? normalized;
+}
+
+function resolveSidebarProvenanceDescriptor(
+  value: unknown
+): SidebarProvenanceDescriptor | null {
+  const key = normalizeSidebarProvenanceKey(value);
+  if (!key) return null;
+  return {
+    key,
+    label: formatSidebarProvenanceLabel(key),
+  };
 }
 
 export function normalizeSidebarProvenanceLabel(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const key = normalizeLookupKey(value);
-  return CANONICAL_PROVENANCE_LABELS.get(key) ?? value;
+  return resolveSidebarProvenanceDescriptor(value)?.label ?? null;
 }
 
 function readThreadProvenanceCandidates(thread: Thread): unknown[] {
@@ -212,26 +255,38 @@ function readThreadProvenanceCandidates(thread: Thread): unknown[] {
   ];
 }
 
-export function getSidebarThreadProvenanceLabel(thread: Thread): string | null {
+function resolveThreadProvenanceDescriptor(
+  thread: Thread
+): SidebarProvenanceDescriptor | null {
   for (const candidate of readThreadProvenanceCandidates(thread)) {
-    const label = normalizeSidebarProvenanceLabel(candidate);
-    if (label) return label;
+    const descriptor = resolveSidebarProvenanceDescriptor(candidate);
+    if (descriptor) return descriptor;
   }
   return null;
+}
+
+export function getSidebarThreadProvenanceKey(thread: Thread): string | null {
+  return resolveThreadProvenanceDescriptor(thread)?.key ?? null;
+}
+
+export function getSidebarThreadProvenanceLabel(thread: Thread): string | null {
+  return resolveThreadProvenanceDescriptor(thread)?.label ?? null;
 }
 
 export function collectSidebarProvenanceOptions(
   threads: Thread[]
 ): SidebarProvenanceOption[] {
   const seen = new Set<string>();
+  const options: SidebarProvenanceOption[] = [];
 
-  return threads
-    .map((t) => getSidebarThreadProvenanceLabel(t))
-    .filter((label): label is string => !!label && !seen.has(label))
-    .map((label) => {
-      seen.add(label);
-      return { value: label, label };
-    });
+  for (const thread of threads) {
+    const descriptor = resolveThreadProvenanceDescriptor(thread);
+    if (!descriptor || seen.has(descriptor.key)) continue;
+    seen.add(descriptor.key);
+    options.push({ value: descriptor.key, label: descriptor.label });
+  }
+
+  return options;
 }
 
 export function threadMatchesSidebarProvenance(
@@ -239,5 +294,5 @@ export function threadMatchesSidebarProvenance(
   selectedProvenance: string | null
 ): boolean {
   if (!selectedProvenance) return true;
-  return getSidebarThreadProvenanceLabel(thread) === selectedProvenance;
+  return getSidebarThreadProvenanceKey(thread) === selectedProvenance;
 }
