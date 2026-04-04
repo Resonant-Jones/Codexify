@@ -5,14 +5,16 @@ import {
   getBackendOutageRemainingMs,
 } from "@/lib/api";
 import {
+  getRuntimeConfigSync,
   resolveApiUrl,
   resolveBackendUrl,
 } from "@/lib/runtimeConfig";
 
 import type {
   CommandCenterHealthItem,
-  CommandCenterHealthStatus,
+  CommandCenterHealthState,
 } from "@/features/commandCenter/types";
+import { COMMAND_CENTER_HEALTH_STATES } from "@/features/commandCenter/types";
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -34,6 +36,13 @@ type HealthDefinition = {
     path: string;
     resolver: "api" | "backend";
   }>;
+};
+
+type HealthInterpretation = {
+  details: Record<string, unknown> | null;
+  error: string | null;
+  raw: string | null;
+  status: CommandCenterHealthState;
 };
 
 const HEALTH_DEFINITIONS: HealthDefinition[] = [
@@ -71,7 +80,26 @@ function resolveHealthUrl(definition: HealthDefinition, index: number): string {
   const item = definition.paths[index];
   return item.resolver === "api"
     ? resolveApiUrl(item.path)
-    : resolveBackendUrl(item.path);
+    : resolveBackendHealthUrl(item.path);
+}
+
+function resolveBackendHealthUrl(path: string): string {
+  const runtimeConfig = getRuntimeConfigSync();
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (runtimeConfig.backendBaseUrl) {
+    return resolveBackendUrl(normalizedPath, runtimeConfig);
+  }
+
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  const candidate = String(
+    viteEnv.VITE_PROXY_TARGET ?? viteEnv.VITE_BACKEND_URL ?? ""
+  ).trim();
+  if (/^https?:\/\//i.test(candidate)) {
+    return `${candidate.replace(/\/+$/, "")}${normalizedPath}`;
+  }
+
+  return `http://127.0.0.1:8888${normalizedPath}`;
 }
 
 function toRaw(value: unknown): string | null {
@@ -94,33 +122,140 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function classifyStatus(data: Record<string, unknown> | null): CommandCenterHealthStatus {
-  if (!data) return "UNKNOWN";
-  const status = String(data.status ?? "")
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function normalizeHealthStatus(
+  rawStatus: string | null | undefined
+): CommandCenterHealthState {
+  const token = String(rawStatus ?? "")
     .trim()
     .toLowerCase();
-  if (data.ok === true || status === "ok" || status === "online") {
-    return "OK";
+  if (!token) return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
+  if (["ok", "healthy", "online"].includes(token)) {
+    return COMMAND_CENTER_HEALTH_STATES.OK;
+  }
+  if (["degraded", "warning", "warn", "stale"].includes(token)) {
+    return COMMAND_CENTER_HEALTH_STATES.DEGRADED;
   }
   if (
-    data.ok === false ||
-    ["error", "offline", "misconfigured", "fail", "failed"].includes(status)
+    [
+      "down",
+      "offline",
+      "unhealthy",
+      "error",
+      "fail",
+      "failed",
+      "misconfigured",
+      "dependency_unavailable",
+    ].includes(token)
   ) {
-    return "FAIL";
+    return COMMAND_CENTER_HEALTH_STATES.DOWN;
   }
-  return "UNKNOWN";
+  return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
+}
+
+function readHealthStatus(data: Record<string, unknown> | null): string | null {
+  if (!data) return null;
+  return firstString(
+    data.status,
+    asRecord(data.details)?.status,
+    asRecord(data.health)?.status
+  );
+}
+
+function classifyStatus(
+  data: Record<string, unknown> | null
+): CommandCenterHealthState {
+  if (!data) return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
+
+  const details = asRecord(data.details);
+  const health = asRecord(data.health);
+  const normalized = normalizeHealthStatus(readHealthStatus(data));
+  if (normalized !== COMMAND_CENTER_HEALTH_STATES.UNKNOWN) {
+    return normalized;
+  }
+
+  if (data.ok === true || details?.ok === true || health?.ok === true) {
+    return COMMAND_CENTER_HEALTH_STATES.OK;
+  }
+  if (
+    data.degraded === true ||
+    details?.degraded === true ||
+    health?.degraded === true
+  ) {
+    return COMMAND_CENTER_HEALTH_STATES.DEGRADED;
+  }
+  if (data.ok === false || details?.ok === false || health?.ok === false) {
+    return COMMAND_CENTER_HEALTH_STATES.DOWN;
+  }
+
+  return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
+}
+
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function interpretHealthPayload(rawText: string): HealthInterpretation {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return {
+      details: null,
+      error: "Invalid health response",
+      raw: null,
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
+    };
+  }
+
+  if (/^<!doctype html>/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
+    return {
+      details: null,
+      error: "Invalid health response",
+      raw: trimmed,
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
+    };
+  }
+
+  const parsed = asRecord(parseJson(trimmed));
+  if (!parsed) {
+    return {
+      details: null,
+      error: "Invalid health response",
+      raw: trimmed,
+      status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
+    };
+  }
+
+  return {
+    details: parsed,
+    error: null,
+    raw: JSON.stringify(parsed, null, 2),
+    status: classifyStatus(parsed),
+  };
 }
 
 function createDefaultItems(): CommandCenterHealthItem[] {
   return HEALTH_DEFINITIONS.map((definition) => ({
     checkedAt: null,
+    details: null,
     endpoint: resolveHealthUrl(definition, 0),
     error: null,
     httpStatus: null,
     key: definition.key,
     label: definition.label,
     raw: null,
-    status: "UNKNOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
   }));
 }
 
@@ -142,26 +277,31 @@ async function fetchHealthItem(
         method: "GET",
       });
 
-      const contentType = response.headers.get("content-type") || "";
-      const body = contentType.includes("application/json")
-        ? await response.json().catch(() => null)
-        : await response.text().catch(() => null);
-      const record = asRecord(body);
-      const status = response.ok ? classifyStatus(record) : "FAIL";
+      const rawText = await response.text().catch(() => "");
+      const interpretation = interpretHealthPayload(rawText);
 
       if (response.status === 404 && index < definition.paths.length - 1) {
         continue;
       }
 
+      if (
+        interpretation.status === COMMAND_CENTER_HEALTH_STATES.UNKNOWN &&
+        interpretation.error &&
+        index < definition.paths.length - 1
+      ) {
+        continue;
+      }
+
       return {
         checkedAt: Date.now(),
+        details: interpretation.details,
         endpoint: url,
-        error: response.ok ? null : `HTTP ${response.status}`,
+        error: response.ok ? interpretation.error : `HTTP ${response.status}`,
         httpStatus: response.status,
         key: definition.key,
         label: definition.label,
-        raw: toRaw(body),
-        status,
+        raw: interpretation.raw ?? toRaw(rawText),
+        status: interpretation.status,
       };
     } catch (error) {
       if (index < definition.paths.length - 1) {
@@ -173,26 +313,28 @@ async function fetchHealthItem(
           : "Request failed";
       return {
         checkedAt: Date.now(),
+        details: null,
         endpoint: url,
         error: message,
         httpStatus: null,
         key: definition.key,
         label: definition.label,
         raw: toRaw(message),
-        status: "FAIL",
+        status: COMMAND_CENTER_HEALTH_STATES.DOWN,
       };
     }
   }
 
   return {
     checkedAt: Date.now(),
+    details: null,
     endpoint: resolveHealthUrl(definition, definition.paths.length - 1),
     error: "Request failed",
     httpStatus: null,
     key: definition.key,
     label: definition.label,
     raw: null,
-    status: "FAIL",
+    status: COMMAND_CENTER_HEALTH_STATES.DOWN,
   };
 }
 
@@ -221,7 +363,7 @@ export function useHealthSummary(
           checkedAt: Date.now(),
           error: "Backend outage fuse active",
           raw: "Backend outage fuse active",
-          status: "FAIL",
+          status: COMMAND_CENTER_HEALTH_STATES.DOWN,
         }))
       );
       setLastCheckedAt(Date.now());

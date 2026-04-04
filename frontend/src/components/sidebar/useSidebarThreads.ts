@@ -10,6 +10,10 @@ import {
   resolveSidebarThreadBucketId,
   resolveSidebarGeneralProjectId,
   threadBelongsToGeneral,
+  collectSidebarProvenanceOptions,
+  getSidebarThreadProvenanceLabel,
+  threadMatchesSidebarProvenance,
+  type SidebarProvenanceOption,
 } from "./sidebarPresentation";
 
 type UseSidebarThreadsOptions = {
@@ -25,6 +29,9 @@ type UseSidebarThreadsResult = {
   scopeLabel: string;
   currentProjectId: string | null;
   setScope: (id: string | null) => void;
+  provenanceFilter: string | null;
+  setProvenanceFilter: (label: string | null) => void;
+  provenanceOptions: SidebarProvenanceOption[];
   handleDeleteThread: (threadId: string) => void;
   renameThread: (threadId: string, title: string) => Promise<void>;
   toggleArchiveThread: (threadId: string, archived: boolean) => Promise<void>;
@@ -74,7 +81,8 @@ function sameThread(a: Thread, b: Thread): boolean {
     && (a.lastMessage ?? "") === (b.lastMessage ?? "")
     && (a.projectId ?? null) === (b.projectId ?? null)
     && (a.archivedAt ?? null) === (b.archivedAt ?? null)
-    && (a.unread ?? 0) === (b.unread ?? 0);
+    && (a.unread ?? 0) === (b.unread ?? 0)
+    && getSidebarThreadProvenanceLabel(a) === getSidebarThreadProvenanceLabel(b);
 }
 
 function equalThreadLists(a: Thread[], b: Thread[]): boolean {
@@ -131,6 +139,7 @@ export function useSidebarThreads({
     if (stored === "null") return null;
     return stored || null;
   });
+  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(null);
 
   // Mirror incoming threads (sanitized) while avoiding no-op state churn
   useEffect(() => {
@@ -388,12 +397,26 @@ export function useSidebarThreads({
     return base.filter((thread) => !thread.archivedAt);
   }, [currentProjectId, generalProjectId, projects, threadList]);
 
+  const provenanceOptions = useMemo(
+    () => collectSidebarProvenanceOptions(scopedThreads),
+    [scopedThreads]
+  );
+
+  useEffect(() => {
+    if (!provenanceFilter) return;
+    if (provenanceOptions.some((option) => option.value === provenanceFilter)) {
+      return;
+    }
+    setProvenanceFilter(null);
+  }, [provenanceFilter, provenanceOptions]);
+
   const displayThreads = useMemo(() => {
     const titleMap = stableTitleRef.current;
     const previewMap = previewRef.current;
     const seen = new Set<string>();
     const out: Thread[] = [];
     for (const t of scopedThreads) {
+      if (!threadMatchesSidebarProvenance(t, provenanceFilter)) continue;
       const id = String(t.id ?? "");
       if (!id || seen.has(id)) continue;
       seen.add(id);
@@ -405,7 +428,7 @@ export function useSidebarThreads({
       });
     }
     return out;
-  }, [scopedThreads]);
+  }, [provenanceFilter, scopedThreads]);
 
   const scopeLabel = useMemo(() => {
     if (currentProjectId === null) return "General";
@@ -427,6 +450,9 @@ export function useSidebarThreads({
     scopeLabel,
     currentProjectId,
     setScope,
+    provenanceFilter,
+    setProvenanceFilter,
+    provenanceOptions,
     handleDeleteThread,
     renameThread,
     toggleArchiveThread,

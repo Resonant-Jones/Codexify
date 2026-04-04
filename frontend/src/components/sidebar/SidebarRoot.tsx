@@ -152,6 +152,9 @@ export default function SidebarRoot({
     scopeLabel: hookScopeLabel,
     currentProjectId,
     setScope,
+    provenanceFilter = null,
+    setProvenanceFilter = () => {},
+    provenanceOptions = [],
     renameThread,
     toggleArchiveThread,
     deleteThread,
@@ -505,6 +508,9 @@ export default function SidebarRoot({
             threads={filteredThreads}
             activeId={activeId}
             scopeLabel={scopeLabel}
+            provenanceFilter={provenanceFilter}
+            provenanceOptions={provenanceOptions}
+            onProvenanceFilterChange={setProvenanceFilter}
             onSelect={onSelect}
             onNewChat={onNewChat}
             creatingThread={creatingThread}
