@@ -64,7 +64,9 @@ def main() -> int:
     print_script_location(cfg_path)
 
     try:
-        run(alembic_cmd(["--raiseerr", "-c", str(cfg_path), "upgrade", "head"]))
+        run(
+            alembic_cmd(["--raiseerr", "-c", str(cfg_path), "upgrade", "heads"])
+        )
     except Exception as exc:  # noqa: BLE001
         log("Migrator", f"ERROR: alembic upgrade failed: {exc}")
         cfg_dir = str(cfg_path.parent)

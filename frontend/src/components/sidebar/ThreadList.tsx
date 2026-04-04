@@ -2,7 +2,6 @@ import * as React from "react";
 import clsx from "clsx";
 import {
   ChevronDown,
-  Bolt,
   Plus,
   MoreVertical,
   Pencil,
@@ -14,11 +13,15 @@ import {
 import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import TileShell from "@/components/surface/TileShell";
+import type { SidebarProvenanceOption } from "./sidebarPresentation";
 
 type ThreadListProps = {
   threads: Thread[];
   activeId: string | null;
   scopeLabel: string;
+  provenanceFilter?: string | null;
+  provenanceOptions?: SidebarProvenanceOption[];
+  onProvenanceFilterChange?: (sourceKey: string | null) => void;
   onSelect: (id: string) => void;
   onNewChat: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
@@ -71,6 +74,9 @@ export default function ThreadList({
   threads,
   activeId,
   scopeLabel,
+  provenanceFilter = null,
+  provenanceOptions = [],
+  onProvenanceFilterChange,
   onSelect,
   onNewChat,
   onRename,
@@ -91,6 +97,9 @@ export default function ThreadList({
       rectH={60}
       showHeader
       scopeLabel={scopeLabel}
+      provenanceFilter={provenanceFilter}
+      provenanceOptions={provenanceOptions}
+      onProvenanceFilterChange={onProvenanceFilterChange}
       onNewChat={onNewChat}
       onRename={onRename}
       onArchiveToggle={onArchiveToggle}
@@ -111,6 +120,9 @@ function ThreadPreviewList({
   rectH = 60,
   showHeader = false,
   scopeLabel,
+  provenanceFilter = null,
+  provenanceOptions = [],
+  onProvenanceFilterChange,
   onNewChat,
   onRename,
   onArchiveToggle,
@@ -126,6 +138,9 @@ function ThreadPreviewList({
   rectH?: number;
   showHeader?: boolean;
   scopeLabel?: string;
+  provenanceFilter?: string | null;
+  provenanceOptions?: SidebarProvenanceOption[];
+  onProvenanceFilterChange?: (sourceKey: string | null) => void;
   onNewChat?: () => void;
   onRename: (threadId: string, title: string) => Promise<void>;
   onArchiveToggle: (threadId: string, archived: boolean) => Promise<void>;
@@ -156,7 +171,7 @@ function ThreadPreviewList({
   return (
     <div
       ref={scrollRef}
-      className={clsx("flex-1 min-h-0 overflow-y-auto", className)}
+      className={clsx("flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden", className)}
       onScroll={maybeLoadMore}
     >
       {showHeader && (
@@ -170,6 +185,47 @@ function ThreadPreviewList({
               <Plus className="h-4 w-4" />
             </button>
           )}
+        </div>
+      )}
+      {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
+        <div className="pb-2 min-w-0">
+          <div
+            className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
+            role="toolbar"
+            aria-label="Imported source filter"
+          >
+            <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
+              Source
+            </span>
+            <button
+              type="button"
+              className="pill-tab shrink-0 text-[11px]"
+              data-state={!provenanceFilter ? "active" : undefined}
+              aria-pressed={!provenanceFilter}
+              onClick={() => onProvenanceFilterChange(null)}
+            >
+              All
+            </button>
+            <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+              <div className="flex min-w-max items-center gap-1.5 pr-1">
+                {provenanceOptions.map((option) => {
+                  const active = provenanceFilter === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className="pill-tab shrink-0 text-[11px]"
+                      data-state={active ? "active" : undefined}
+                      aria-pressed={active}
+                      onClick={() => onProvenanceFilterChange(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
       <div className="space-y-2">
@@ -355,37 +411,8 @@ function ThreadTileRow({
     ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
     : <Trash2 className="h-4 w-4" aria-hidden="true" />;
 
-  const canonicalMode = thread.profileMode;
-  const heuristicProvider = (thread.providerOverride || thread.modelOverride || "").toLowerCase();
-  const heuristicCloud = heuristicProvider
-    ? !heuristicProvider.includes("ollama")
-    : null;
-  const isCloud =
-    canonicalMode === "cloud"
-      ? true
-      : canonicalMode === "local"
-        ? false
-        : heuristicCloud;
-
   const safeTitle = (thread.title || "").trim() || "Untitled";
-  const titleNode = (
-    <span key="title" className="thread-title block truncate" title={safeTitle}>
-      <span className="inline-flex items-center gap-1 truncate">
-        <span className="truncate">{safeTitle}</span>
-        {isCloud ? (
-          <span
-            className="inline-flex items-center justify-center rounded-full text-[10px] px-1.5 py-0.5"
-            style={{
-              background: "color-mix(in oklab, var(--accent), transparent 40%)",
-              color: "var(--accent-strong)",
-            }}
-          >
-            <Bolt className="h-3 w-3" />
-          </span>
-        ) : null}
-      </span>
-    </span>
-  );
+  const titleNode = <span key="title" className="thread-title block truncate" title={safeTitle}>{safeTitle}</span>;
   const snippet = typeof thread.lastMessage === "string" ? thread.lastMessage.trim() : "";
   const snippetNode = (
     <span

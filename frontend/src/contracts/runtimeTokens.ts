@@ -75,6 +75,8 @@ export interface RuntimeStatusPresentation {
   isFallback: boolean;
 }
 
+// Keep this registry explicit and bounded. Only operator-facing status tokens
+// that we intentionally recognize should resolve here.
 export const RUNTIME_STATUS_PRESENTATIONS = {
   healthy: { label: "healthy", tone: "active", isFallback: false },
   degraded: { label: "degraded", tone: "attention", isFallback: false },
@@ -99,8 +101,20 @@ export const RUNTIME_STATUS_PRESENTATIONS = {
   unauthorized: { label: "unauthorized", tone: "attention", isFallback: false },
 } as const satisfies Record<string, RuntimeStatusPresentation>;
 
+const RUNTIME_STATUS_FALLBACK_PRESENTATION: RuntimeStatusPresentation = {
+  label: "unknown",
+  tone: "subtle",
+  isFallback: true,
+};
+
 function humanizeRuntimeStatus(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isRuntimeStatusPresentationKey(
+  status: string
+): status is keyof typeof RUNTIME_STATUS_PRESENTATIONS {
+  return Object.prototype.hasOwnProperty.call(RUNTIME_STATUS_PRESENTATIONS, status);
 }
 
 export function describeRuntimeStatusPresentation(
@@ -108,23 +122,16 @@ export function describeRuntimeStatusPresentation(
 ): RuntimeStatusPresentation {
   const normalized = typeof status === "string" ? status.trim() : "";
   if (!normalized) {
-    return {
-      label: "unknown",
-      tone: "subtle",
-      isFallback: true,
-    };
+    return RUNTIME_STATUS_FALLBACK_PRESENTATION;
   }
 
-  const presentation =
-    RUNTIME_STATUS_PRESENTATIONS[
-      normalized as keyof typeof RUNTIME_STATUS_PRESENTATIONS
-    ];
-  if (presentation) return presentation;
+  if (isRuntimeStatusPresentationKey(normalized)) {
+    return RUNTIME_STATUS_PRESENTATIONS[normalized];
+  }
 
   return {
+    ...RUNTIME_STATUS_FALLBACK_PRESENTATION,
     label: humanizeRuntimeStatus(normalized),
-    tone: "subtle",
-    isFallback: true,
   };
 }
 

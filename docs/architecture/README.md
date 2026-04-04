@@ -21,7 +21,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Start Here
 
-When you need current-state interpretation instead of structural architecture, start with [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
+Start here first for current-state interpretation and release-readiness decisions: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
 ## KB Validity and Diagram Source Sets
 

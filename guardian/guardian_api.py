@@ -336,6 +336,27 @@ def _run_chatgpt_import_startup_sweep() -> None:
         )
 
 
+def _schedule_background_startup_task(
+    app: FastAPI, task: asyncio.Task[Any]
+) -> None:
+    background_tasks = getattr(app.state, "startup_background_tasks", None)
+    if background_tasks is None:
+        background_tasks = set()
+        app.state.startup_background_tasks = background_tasks
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
+
+
+def _schedule_chatgpt_import_startup_sweep(app: FastAPI) -> asyncio.Task[Any]:
+    task = asyncio.create_task(
+        asyncio.to_thread(_run_chatgpt_import_startup_sweep),
+        name="chatgpt-import-startup-sweep",
+    )
+    _schedule_background_startup_task(app, task)
+    logger.info("[startup] ChatGPT import sweep scheduled in background")
+    return task
+
+
 from guardian.realtime import collaboration
 
 
@@ -465,6 +486,7 @@ from guardian.routes.imprint import system_docs_router, system_prompt_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
 from guardian.routes.obsidian import router as obsidian_router
+from guardian.routes.persona_profiles import router as persona_profiles_router
 from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
@@ -594,7 +616,7 @@ async def app_lifespan(app: FastAPI):
             "[startup] Failed to sync inference provider rows: %s", exc
         )
 
-    _run_chatgpt_import_startup_sweep()
+    _schedule_chatgpt_import_startup_sweep(app)
 
     # Initialize Neo4j connection if graph logging is enabled
     if (
@@ -691,6 +713,14 @@ async def app_lifespan(app: FastAPI):
             await _CONNECTOR_WORKER_TASK
         except asyncio.CancelledError:
             pass
+
+    startup_background_tasks = getattr(
+        app.state, "startup_background_tasks", None
+    )
+    if startup_background_tasks:
+        for task in list(startup_background_tasks):
+            task.cancel()
+        await asyncio.gather(*startup_background_tasks, return_exceptions=True)
 
     logger.info("[shutdown] Guardian API stopped")
 
@@ -917,6 +947,7 @@ _include_router(
     label="embeddings",
     flag_name="CODEXIFY_ENABLE_EMBEDDINGS_ROUTES",
     include_fn=lambda: app.include_router(embeddings.router),
+    core_surface=True,
 )
 _include_router(
     label="threads",
@@ -945,6 +976,11 @@ _include_router(
     label="personal_facts",
     flag_name="CODEXIFY_ENABLE_PERSONAL_FACTS_ROUTES",
     include_fn=lambda: app.include_router(personal_facts_router),
+)
+_include_router(
+    label="persona_profiles",
+    flag_name="CODEXIFY_ENABLE_PERSONA_PROFILE_ROUTES",
+    include_fn=lambda: app.include_router(persona_profiles_router),
 )
 _include_router(
     label="agent",

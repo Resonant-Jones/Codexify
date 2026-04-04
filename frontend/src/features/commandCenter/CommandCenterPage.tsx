@@ -1,10 +1,10 @@
 import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import RunDetailDrawer from "@/features/commandCenter/components/RunDetailDrawer";
+import HealthPanel from "@/features/commandCenter/components/HealthPanel";
 import RunSummaryCard from "@/features/commandCenter/components/RunSummaryCard";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
@@ -16,7 +16,6 @@ import type {
 import {
   COMMAND_CENTER_HEALTH_STATES,
   COMMAND_CENTER_RUN_STATUSES,
-  describeCommandCenterHealthStatePresentation,
 } from "@/features/commandCenter/types";
 import {
   describeRuntimeStatusPresentation,
@@ -27,11 +26,33 @@ type CommandCenterPageProps = {
   enabled: boolean;
 };
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value !== "string") continue;
     const trimmed = value.trim();
     if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) return parsed;
+    }
   }
   return null;
 }
@@ -194,6 +215,51 @@ function countUnknownItems(
   return healthUnknownCount + runUnknownCount;
 }
 
+function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
+  const payload = asRecord(run.lastEvent.json);
+  const thread = asRecord(payload?.thread);
+  const task = asRecord(payload?.task);
+  const nestedRun = asRecord(payload?.run);
+  const context = asRecord(payload?.context);
+  const nestedPayload = asRecord(payload?.payload);
+
+  return firstNumber(
+    run.threadId,
+    payload?.thread_id,
+    payload?.threadId,
+    thread?.id,
+    thread?.thread_id,
+    thread?.threadId,
+    nestedRun?.thread_id,
+    nestedRun?.threadId,
+    task?.thread_id,
+    task?.threadId,
+    context?.thread_id,
+    context?.threadId,
+    nestedPayload?.thread_id,
+    nestedPayload?.threadId
+  );
+}
+
+function resolveSelectedRunTraceUrl(run: CommandCenterRun): string | null {
+  const payload = asRecord(run.lastEvent.json);
+  const nestedRun = asRecord(payload?.run);
+  const response = asRecord(payload?.response);
+  const result = asRecord(payload?.result);
+
+  return firstString(
+    run.traceUrl,
+    payload?.trace_url,
+    payload?.traceUrl,
+    nestedRun?.trace_url,
+    nestedRun?.traceUrl,
+    response?.trace_url,
+    response?.traceUrl,
+    result?.trace_url,
+    result?.traceUrl
+  );
+}
+
 function SummaryStrip({
   connectionState,
   lastEventAt,
@@ -289,134 +355,6 @@ function SummaryStrip({
             {unknownCount}
           </div>
         </SummaryTile>
-      </CardContent>
-    </Card>
-  );
-}
-
-function HealthStrip({
-  healthItems,
-  lastCheckedAt,
-  loading,
-  onRefresh,
-}: {
-  healthItems: CommandCenterHealthItem[];
-  lastCheckedAt: number | null;
-  loading: boolean;
-  onRefresh: () => Promise<void>;
-}) {
-  return (
-    <Card
-      className="bezel-none border"
-      role="region"
-      aria-label="Command Center health strip"
-      data-testid="command-center-health-strip"
-      style={{
-        ...sectionSurfaceStyle,
-      }}
-    >
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-            Health
-          </CardTitle>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            Per-endpoint snapshots from the current health checks. Last checked:{" "}
-            {formatTimestamp(lastCheckedAt)}
-          </p>
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => void onRefresh()}>
-          {loading ? "Refreshing..." : "Refresh"}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {healthItems.map((item) => {
-          const presentation = describeCommandCenterHealthStatePresentation(item.status);
-
-          return (
-            <Card
-              key={item.key}
-              className="bezel-none border"
-              data-testid={`command-center-health-${item.key}`}
-              style={{
-                ...tileSurfaceStyle,
-              }}
-            >
-              <CardContent className="space-y-3 p-[var(--card-pad)]">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 space-y-1">
-                    <div className="text-sm font-semibold leading-5" style={{ color: "var(--text)" }}>
-                      {item.label}
-                    </div>
-                    <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                      {item.endpoint}
-                    </div>
-                  </div>
-                  <BadgePill
-                    ariaLabel={`${item.label} status ${presentation.label}`}
-                    tone={presentation.tone}
-                  >
-                    {presentation.label}
-                  </BadgePill>
-                </div>
-
-                <details className="text-xs" style={{ color: "var(--muted)" }}>
-                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.16em]">
-                    Inspect raw details
-                  </summary>
-                  <div className="mt-3 space-y-2">
-                    <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                      <div
-                        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        Checked
-                      </div>
-                      <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                        {formatTimestamp(item.checkedAt)}
-                      </div>
-                    </div>
-                    {item.httpStatus != null ? (
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          HTTP status
-                        </div>
-                        <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                          {item.httpStatus}
-                        </div>
-                      </div>
-                    ) : null}
-                    {item.error ? (
-                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                        <div
-                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Error
-                        </div>
-                        <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                          {item.error}
-                        </div>
-                      </div>
-                    ) : null}
-                    <pre
-                      className="overflow-x-auto rounded-[var(--tile-radius)] border p-3 text-[11px] leading-5"
-                      style={{
-                        ...rawSurfaceStyle,
-                        color: "var(--muted)",
-                      }}
-                    >
-                      {item.raw ?? "No raw payload available."}
-                    </pre>
-                  </div>
-                </details>
-              </CardContent>
-            </Card>
-          );
-        })}
       </CardContent>
     </Card>
   );
@@ -614,7 +552,15 @@ export default function CommandCenterPage({
   const [selectedRunKey, setSelectedRunKey] = React.useState<string | null>(null);
 
   const selectedRun = React.useMemo<CommandCenterRun | null>(
-    () => runs.find((candidate) => candidate.key === selectedRunKey) ?? null,
+    () => {
+      const run = runs.find((candidate) => candidate.key === selectedRunKey) ?? null;
+      if (!run) return null;
+      return {
+        ...run,
+        threadId: resolveSelectedRunThreadId(run),
+        traceUrl: resolveSelectedRunTraceUrl(run),
+      };
+    },
     [runs, selectedRunKey]
   );
 
@@ -695,7 +641,7 @@ export default function CommandCenterPage({
           unauthorized={unauthorized}
         />
 
-        <HealthStrip
+        <HealthPanel
           healthItems={healthItems}
           lastCheckedAt={lastCheckedAt}
           loading={loading}
