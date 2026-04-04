@@ -50,6 +50,21 @@ function clipInlineText(value: string, limit = 96): string {
   return `${value.slice(0, Math.max(0, limit - 1))}…`;
 }
 
+function describeTracePanelExpectation(run: CommandCenterRun): string {
+  const traceEvidence = run.traceEvidence ?? null;
+
+  if (!traceEvidence) {
+    return "No trace evidence exists for this run";
+  }
+  if (!traceEvidence.tracePresent) {
+    return "Empty but expected";
+  }
+  if (run.threadId != null || run.traceUrl) {
+    return "Aligned to this run/thread";
+  }
+  return "Unavailable";
+}
+
 function getEvents(run: CommandCenterRun): CommandCenterEvent[] {
   return run.events?.length ? run.events : [run.lastEvent];
 }
@@ -196,6 +211,7 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
   const timings = run.timings ?? null;
   const streamingEvidence = run.streamingEvidence ?? null;
   const traceEvidence = run.traceEvidence ?? null;
+  const tracePanelExpectation = describeTracePanelExpectation(run);
   const events = getEvents(run);
   const timingFields = [
     ["Queued", timings?.queuedAt ?? null],
@@ -219,12 +235,13 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
       >
         <CardContent className="space-y-3 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-              Run details
-            </div>
-            <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                {describeCommandCenterRunKindLabel(run.runKind) ?? run.runType ?? "task"} · {run.summary}
+            <div className="space-y-1">
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Run details
+              </div>
+              <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                {describeCommandCenterRunKindLabel(run.runKind) ?? run.runType ?? "task"} ·{" "}
+                {run.summary}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -345,6 +362,23 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
               ) : null}
             </div>
 
+            <div
+              className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--muted)",
+              }}
+            >
+              <span className="font-semibold" style={{ color: "var(--text)" }}>
+                Trace panel:
+              </span>{" "}
+              {tracePanelExpectation}
+              {tracePanelExpectation === "Aligned to this run/thread" ? (
+                <span> Use the RAG Trace tab for the scoped payload.</span>
+              ) : null}
+            </div>
+
             {traceEvidence.retrievalQuery ? (
               <div
                 className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
@@ -383,7 +417,7 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
                   color: "var(--muted)",
                 }}
               >
-                No trace evidence recorded.
+                No detailed trace payload is currently available.
               </div>
             ) : null}
           </div>
@@ -392,7 +426,7 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
             className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
             style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
           >
-            No retrieval or trace evidence recorded.
+            No trace evidence exists for this run.
           </div>
         )}
       </SectionCard>
