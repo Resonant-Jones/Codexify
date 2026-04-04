@@ -3,6 +3,8 @@ from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 
+from guardian.vector import store as vector_store_module
+
 
 @contextmanager
 def _build_beta_core_client(monkeypatch):
@@ -28,6 +30,14 @@ def _build_beta_core_client(monkeypatch):
 def test_beta_core_only_quarantines_non_core_routers(monkeypatch) -> None:
     with _build_beta_core_client(monkeypatch) as client:
         headers = {"X-API-Key": "test-api-key"}
+
+        class _NoopVectorStore:
+            def __init__(self) -> None:
+                self.items: list[dict[str, object]] = []
+
+            def add_texts(self, items):
+                self.items.extend(items)
+                return len(items)
 
         quarantined_paths = [
             "/api/connectors",
@@ -60,5 +70,16 @@ def test_beta_core_only_quarantines_non_core_routers(monkeypatch) -> None:
         )
         assert (
             client.post("/api/media/documents", headers=headers).status_code
+            != 404
+        )
+        monkeypatch.setattr(
+            vector_store_module, "VectorStore", _NoopVectorStore
+        )
+        assert (
+            client.post(
+                "/api/embeddings",
+                headers=headers,
+                json={"texts": ["beta-core check"], "embedder": "dummy"},
+            ).status_code
             != 404
         )
