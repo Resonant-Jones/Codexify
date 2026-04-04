@@ -87,7 +87,7 @@ const canonicalEvents: CommandCenterEvent[] = [
     summary: "chat completion completed",
     taskId: "task-1",
     taskType: "chat.completion",
-    terminalOutcome: "succeeded",
+    terminalOutcome: "completed",
     threadId: 42,
     turnId: "turn-1",
     type: "task.completed",
@@ -106,9 +106,10 @@ const canonicalRun: CommandCenterRun = {
   latestTurnMessageId: "msg-4",
   requestId: null,
   runId: "run-task-1",
+  runKind: "chat_completion",
   runType: "chat completion",
   state: "completed",
-  status: "succeeded",
+  status: "completed",
   streamingEvidence: {
     chunkCount: 1,
     firstChunkAt: baseTimestamp + 2000,
@@ -116,7 +117,7 @@ const canonicalRun: CommandCenterRun = {
   },
   summary: "chat completion · completed",
   taskId: "task-1",
-  terminalOutcome: "succeeded",
+  terminalOutcome: "completed",
   threadId: 42,
   turnId: "turn-1",
 };
@@ -167,8 +168,7 @@ describe("RunSummaryCard", () => {
     const card = screen.getByTestId("command-center-run-task-1");
 
     expect(within(card).getByText("chat completion")).toBeInTheDocument();
-    expect(within(card).getByText(/^completed$/)).toBeInTheDocument();
-    expect(within(card).getByText(/^succeeded$/)).toBeInTheDocument();
+    expect(within(card).getAllByText("Completed").length).toBeGreaterThan(1);
     expect(within(card).getByText("Events: 4")).toBeInTheDocument();
     expect(within(card).getByText(/Updated:/)).toBeInTheDocument();
     expect(within(card).getByText("Task: task-1")).toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("RunSummaryCard", () => {
 
     expect(within(screen.getByTestId("command-center-run-task-1")).queryByText("Unknown run")).toBeNull();
     expect(within(screen.getByTestId("command-center-run-event-raw-1")).getByText("Unknown run")).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-event-raw-1")).getByText(/^unknown$/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-event-raw-1")).getByText("Unknown")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /open details for unknown run/i })
     ).toBeInTheDocument();

@@ -11,8 +11,9 @@ import {
 
 import type {
   CommandCenterHealthItem,
-  CommandCenterHealthStatus,
+  CommandCenterHealthState,
 } from "@/features/commandCenter/types";
+import { COMMAND_CENTER_HEALTH_STATES } from "@/features/commandCenter/types";
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -94,21 +95,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function classifyStatus(data: Record<string, unknown> | null): CommandCenterHealthStatus {
-  if (!data) return "UNKNOWN";
+function classifyStatus(data: Record<string, unknown> | null): CommandCenterHealthState {
+  if (!data) return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
   const status = String(data.status ?? "")
     .trim()
     .toLowerCase();
-  if (data.ok === true || status === "ok" || status === "online") {
-    return "OK";
+  if (data.ok === true || status === "ok" || status === "online" || status === "healthy") {
+    return COMMAND_CENTER_HEALTH_STATES.OK;
   }
   if (
-    data.ok === false ||
-    ["error", "offline", "misconfigured", "fail", "failed"].includes(status)
+    status === "degraded" ||
+    status === "warning" ||
+    status === "warn" ||
+    data.degraded === true
   ) {
-    return "FAIL";
+    return COMMAND_CENTER_HEALTH_STATES.DEGRADED;
   }
-  return "UNKNOWN";
+  if (data.ok === false) {
+    return COMMAND_CENTER_HEALTH_STATES.DOWN;
+  }
+  if (["error", "offline", "misconfigured", "fail", "failed", "down"].includes(status)) {
+    return COMMAND_CENTER_HEALTH_STATES.DOWN;
+  }
+  return COMMAND_CENTER_HEALTH_STATES.UNKNOWN;
 }
 
 function createDefaultItems(): CommandCenterHealthItem[] {
@@ -120,7 +129,7 @@ function createDefaultItems(): CommandCenterHealthItem[] {
     key: definition.key,
     label: definition.label,
     raw: null,
-    status: "UNKNOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
   }));
 }
 
@@ -147,7 +156,7 @@ async function fetchHealthItem(
         ? await response.json().catch(() => null)
         : await response.text().catch(() => null);
       const record = asRecord(body);
-      const status = response.ok ? classifyStatus(record) : "FAIL";
+      const status = response.ok ? classifyStatus(record) : COMMAND_CENTER_HEALTH_STATES.DOWN;
 
       if (response.status === 404 && index < definition.paths.length - 1) {
         continue;
@@ -179,7 +188,7 @@ async function fetchHealthItem(
         key: definition.key,
         label: definition.label,
         raw: toRaw(message),
-        status: "FAIL",
+        status: COMMAND_CENTER_HEALTH_STATES.DOWN,
       };
     }
   }
@@ -192,7 +201,7 @@ async function fetchHealthItem(
     key: definition.key,
     label: definition.label,
     raw: null,
-    status: "FAIL",
+    status: COMMAND_CENTER_HEALTH_STATES.DOWN,
   };
 }
 
@@ -221,7 +230,7 @@ export function useHealthSummary(
           checkedAt: Date.now(),
           error: "Backend outage fuse active",
           raw: "Backend outage fuse active",
-          status: "FAIL",
+          status: COMMAND_CENTER_HEALTH_STATES.DOWN,
         }))
       );
       setLastCheckedAt(Date.now());

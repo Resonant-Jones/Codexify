@@ -4,6 +4,12 @@ import {
   aggregateCommandCenterEvents,
   normalizeCommandCenterEvent,
 } from "../commandCenterRunAggregation";
+import {
+  COMMAND_CENTER_RUN_KINDS,
+  COMMAND_CENTER_RUN_STATUSES,
+  COMMAND_CENTER_RUN_TERMINAL_OUTCOMES,
+  COMMAND_CENTER_TRACE_PRESENCE_STATES,
+} from "@/features/commandCenter/types";
 
 function useSequentialNow(start = Date.parse("2026-04-01T16:00:00Z")): void {
   let current = start;
@@ -144,10 +150,11 @@ describe("commandCenterRunAggregation", () => {
     expect(run?.taskId).toBe("task-1");
     expect(run?.identityKind).toBe("task");
     expect(run?.eventCount).toBe(5);
+    expect(run?.runKind).toBe(COMMAND_CENTER_RUN_KINDS.CHAT_COMPLETION);
     expect(run?.runType).toBe("chat completion");
     expect(run?.state).toBe("completed");
-    expect(run?.terminalOutcome).toBe("succeeded");
-    expect(run?.status).toBe("succeeded");
+    expect(run?.terminalOutcome).toBe(COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED);
+    expect(run?.status).toBe(COMMAND_CENTER_RUN_STATUSES.COMPLETED);
     expect(run?.summary).toBe("chat completion · completed");
     expect(run?.lastType).toBe("task.completed");
     expect(run?.latestTurnMessageId).toBe("msg-4");
@@ -185,7 +192,7 @@ describe("commandCenterRunAggregation", () => {
       retrievalQueryPresent: true,
       retrievalTarget: "search-index",
       sourceMode: "personal_knowledge",
-      tracePresenceState: "latest-turn trace present",
+      tracePresenceState: COMMAND_CENTER_TRACE_PRESENCE_STATES.LATEST_TURN_TRACE_PRESENT,
       tracePresent: true,
       traceUrl: "/api/chat/debug/rag-trace/42/latest",
       widenReason: "explicit_personal_knowledge",
@@ -296,8 +303,8 @@ describe("commandCenterRunAggregation", () => {
     expect(run?.eventCount).toBe(2);
     expect(run?.lastType).toBe("task.completed");
     expect(run?.state).toBe("completed");
-    expect(run?.terminalOutcome).toBe("succeeded");
-    expect(run?.status).toBe("succeeded");
+    expect(run?.terminalOutcome).toBe(COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED);
+    expect(run?.status).toBe(COMMAND_CENTER_RUN_STATUSES.COMPLETED);
     expect(run?.summary).toBe("chat completion · completed");
     expect(run?.lastEventAt).toBe(completed.receivedAt);
     expect(run?.traceEvidence).toBeNull();

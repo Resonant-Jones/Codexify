@@ -4,9 +4,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { describeRuntimeStatusPresentation } from "@/contracts/runtimeTokens";
 
 import type { CommandCenterEvent, CommandCenterRun } from "@/features/commandCenter/types";
+import {
+  COMMAND_CENTER_RUN_STATUSES,
+  describeCommandCenterRunKindLabel,
+  describeCommandCenterRunStatusPresentation,
+  describeCommandCenterRunTerminalOutcomePresentation,
+  type CommandCenterStatusTone,
+} from "@/features/commandCenter/types";
 
 type RunSummaryCardProps = {
   onOpen: (run: CommandCenterRun) => void;
@@ -19,55 +25,34 @@ function formatTimestamp(value: number | null): string {
   return new Date(value).toLocaleString();
 }
 
-function runStateStyle(status: CommandCenterRun["status"]): CSSProperties {
-  switch (status) {
-    case "running":
+function badgeToneStyle(tone: CommandCenterStatusTone): CSSProperties {
+  switch (tone) {
+    case "active":
+      return {
+        background: "rgba(34, 197, 94, 0.12)",
+        borderColor: "rgba(34, 197, 94, 0.35)",
+      };
+    case "attention":
+      return {
+        background: "rgba(250, 204, 21, 0.12)",
+        borderColor: "rgba(250, 204, 21, 0.35)",
+      };
+    case "danger":
+      return {
+        background: "rgba(239, 68, 68, 0.12)",
+        borderColor: "rgba(239, 68, 68, 0.35)",
+      };
+    case "info":
       return {
         background: "rgba(59, 130, 246, 0.12)",
         borderColor: "rgba(59, 130, 246, 0.35)",
       };
-    case "succeeded":
-      return {
-        background: "rgba(34, 197, 94, 0.12)",
-        borderColor: "rgba(34, 197, 94, 0.35)",
-      };
-    case "failed":
-      return {
-        background: "rgba(239, 68, 68, 0.12)",
-        borderColor: "rgba(239, 68, 68, 0.35)",
-      };
-    case "needs_attention":
-      return {
-        background: "rgba(250, 204, 21, 0.12)",
-        borderColor: "rgba(250, 204, 21, 0.35)",
-      };
-    default:
+    case "neutral":
       return {
         background: "rgba(148, 163, 184, 0.12)",
         borderColor: "rgba(148, 163, 184, 0.28)",
       };
-  }
-}
-
-function runOutcomeStyle(
-  outcome: CommandCenterRun["terminalOutcome"] | null | undefined
-): CSSProperties {
-  switch (outcome) {
-    case "succeeded":
-      return {
-        background: "rgba(34, 197, 94, 0.12)",
-        borderColor: "rgba(34, 197, 94, 0.35)",
-      };
-    case "failed":
-      return {
-        background: "rgba(239, 68, 68, 0.12)",
-        borderColor: "rgba(239, 68, 68, 0.35)",
-      };
-    case "cancelled":
-      return {
-        background: "rgba(250, 204, 21, 0.12)",
-        borderColor: "rgba(250, 204, 21, 0.35)",
-      };
+    case "subtle":
     default:
       return {
         background: "rgba(148, 163, 184, 0.12)",
@@ -125,8 +110,10 @@ function RunIdentityChips({ run }: { run: CommandCenterRun }) {
 }
 
 function getRunTitle(run: CommandCenterRun): string {
+  const runKindLabel = describeCommandCenterRunKindLabel(run.runKind);
+  if (runKindLabel) return runKindLabel;
   if (run.runType) return run.runType;
-  if (run.identityKind === "synthetic" || run.status === "unknown") {
+  if (run.identityKind === "synthetic" || run.status === COMMAND_CENTER_RUN_STATUSES.UNKNOWN) {
     return "Unknown run";
   }
   return "task";
@@ -150,7 +137,10 @@ export default function RunSummaryCard({
   const title = getRunTitle(run);
   const subtitle = getRunSubtitle(run, title);
   const events = getEvents(run);
-  const statusPresentation = describeRuntimeStatusPresentation(run.status);
+  const statusPresentation = describeCommandCenterRunStatusPresentation(run.status);
+  const terminalOutcomePresentation = describeCommandCenterRunTerminalOutcomePresentation(
+    run.terminalOutcome
+  );
 
   return (
     <Card
@@ -181,21 +171,21 @@ export default function RunSummaryCard({
             <Badge
               className="border text-[11px] font-medium leading-none"
               style={{
-                ...runStateStyle(run.status),
+                ...badgeToneStyle(statusPresentation.tone),
                 color: "var(--text)",
               }}
             >
-              {run.state ?? run.status}
+              {statusPresentation.label}
             </Badge>
-            {run.terminalOutcome ? (
+            {terminalOutcomePresentation ? (
               <Badge
                 className="border text-[11px] font-medium leading-none"
                 style={{
-                  ...runOutcomeStyle(run.terminalOutcome),
+                  ...badgeToneStyle(terminalOutcomePresentation.tone),
                   color: "var(--text)",
                 }}
               >
-                {run.terminalOutcome}
+                {terminalOutcomePresentation.label}
               </Badge>
             ) : null}
             <Button

@@ -10,6 +10,12 @@ import type {
   CommandCenterHealthItem,
   CommandCenterRun,
 } from "@/features/commandCenter/types";
+import {
+  COMMAND_CENTER_HEALTH_STATES,
+  COMMAND_CENTER_RUN_STATUSES,
+  COMMAND_CENTER_RUN_TERMINAL_OUTCOMES,
+  describeCommandCenterHealthStatePresentation,
+} from "@/features/commandCenter/types";
 
 const mockRefresh = vi.fn();
 
@@ -22,7 +28,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "core",
     label: "Core",
     raw: '{"ok":true}',
-    status: "OK",
+    status: COMMAND_CENTER_HEALTH_STATES.OK,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:01Z"),
@@ -32,7 +38,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "llm",
     label: "LLM",
     raw: '{"status":"degraded"}',
-    status: "UNKNOWN",
+    status: COMMAND_CENTER_HEALTH_STATES.DEGRADED,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:02Z"),
@@ -42,7 +48,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "deps",
     label: "Deps",
     raw: '{"status":"fail"}',
-    status: "FAIL",
+    status: COMMAND_CENTER_HEALTH_STATES.DOWN,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:03Z"),
@@ -52,7 +58,7 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     key: "vector",
     label: "Vector",
     raw: '{"ok":true}',
-    status: "OK",
+    status: COMMAND_CENTER_HEALTH_STATES.OK,
   },
   {
     checkedAt: Date.parse("2026-04-01T15:59:04Z"),
@@ -61,8 +67,8 @@ const mockedHealthItems: CommandCenterHealthItem[] = [
     httpStatus: 200,
     key: "memory",
     label: "Memory",
-    raw: '{"ok":true}',
-    status: "OK",
+    raw: '{"status":"unknown"}',
+    status: COMMAND_CENTER_HEALTH_STATES.UNKNOWN,
   },
 ];
 
@@ -145,7 +151,7 @@ const mockedRuns: CommandCenterRun[] = [
         summary: "chat completion completed",
         taskId: "task-alpha",
         taskType: null,
-        terminalOutcome: "succeeded",
+        terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
         threadId: 42,
         turnId: "turn-alpha",
         type: "task.completed",
@@ -168,7 +174,7 @@ const mockedRuns: CommandCenterRun[] = [
       summary: "chat completion completed",
       taskId: "task-alpha",
       taskType: null,
-      terminalOutcome: "succeeded",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
       threadId: 42,
       turnId: "turn-alpha",
       type: "task.completed",
@@ -179,12 +185,13 @@ const mockedRuns: CommandCenterRun[] = [
     latestTurnMessageId: "501",
     requestId: null,
     runId: "run-alpha",
+    runKind: "chat_completion",
     runType: "chat completion",
     state: "completed",
-    status: "succeeded",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
     summary: "chat completion · completed",
     taskId: "task-alpha",
-    terminalOutcome: "succeeded",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
     threadId: 42,
     turnId: "turn-alpha",
   },
@@ -331,6 +338,20 @@ describe("CommandCenterPage", () => {
       tone: "subtle",
       isFallback: true,
     });
+
+    const healthSamples = [
+      [COMMAND_CENTER_HEALTH_STATES.OK, { label: "OK", tone: "active", isFallback: false }],
+      [
+        COMMAND_CENTER_HEALTH_STATES.DEGRADED,
+        { label: "Degraded", tone: "attention", isFallback: false },
+      ],
+      [COMMAND_CENTER_HEALTH_STATES.DOWN, { label: "Down", tone: "danger", isFallback: false }],
+      [COMMAND_CENTER_HEALTH_STATES.UNKNOWN, { label: "Unknown", tone: "subtle", isFallback: false }],
+    ] as const;
+
+    for (const [status, expected] of healthSamples) {
+      expect(describeCommandCenterHealthStatePresentation(status)).toMatchObject(expected);
+    }
   });
 
   it("renders a signal-first hierarchy for operators", () => {
@@ -361,17 +382,17 @@ describe("CommandCenterPage", () => {
     expect(within(healthStrip).getByText("Memory")).toBeInTheDocument();
     expect(within(screen.getByTestId("command-center-health-core")).getByText("OK")).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("command-center-health-llm")).getByText("UNKNOWN")
+      within(screen.getByTestId("command-center-health-llm")).getByText("Degraded")
     ).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-health-deps")).getByText("FAIL")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-health-deps")).getByText("Down")).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-health-memory")).getByText("Unknown")).toBeInTheDocument();
     expect(within(healthStrip).getAllByText("Inspect raw details").length).toBeGreaterThan(0);
 
     const runsFeed = screen.getByTestId("command-center-runs-feed");
     expect(within(runsFeed).getByText("chat completion")).toBeInTheDocument();
     expect(within(runsFeed).getByText("Unknown run")).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText(/^completed$/)).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText(/^succeeded$/)).toBeInTheDocument();
-    expect(within(screen.getByTestId("command-center-run-event-raw-bravo")).getByText(/^unknown$/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("command-center-run-task-alpha")).getAllByText("Completed").length).toBeGreaterThan(1);
+    expect(within(screen.getByTestId("command-center-run-event-raw-bravo")).getByText("Unknown")).toBeInTheDocument();
     expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Events: 4")).toBeInTheDocument();
     expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Task: task-alpha")).toBeInTheDocument();
     expect(within(screen.getByTestId("command-center-run-task-alpha")).getByText("Thread: 42")).toBeInTheDocument();
@@ -386,7 +407,7 @@ describe("CommandCenterPage", () => {
     expect(within(runsFeed).getAllByText("Inspect raw events").length).toBeGreaterThan(0);
     expect(screen.getByText("attention")).toBeInTheDocument();
     expect(screen.getByText("mystery signal")).toBeInTheDocument();
-    expect(within(runsFeed).queryByText("Unknown")).not.toBeInTheDocument();
+    expect(within(runsFeed).getByText("Unknown")).toBeInTheDocument();
 
     fireEvent.click(
       within(runsFeed).getByRole("button", { name: /open details for chat completion/i })

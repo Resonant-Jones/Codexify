@@ -5,6 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import type { CommandCenterRun } from "@/features/commandCenter/types";
+import {
+  describeCommandCenterRunStatusPresentation,
+  type CommandCenterStatusTone,
+} from "@/features/commandCenter/types";
 
 type RunsPanelProps = {
   onSelectRun: (run: CommandCenterRun) => void;
@@ -17,28 +21,34 @@ function formatTimestamp(value: number | null): string {
   return new Date(value).toLocaleString();
 }
 
-function renderStatusStyle(status: CommandCenterRun["status"]): CSSProperties {
-  switch (status) {
-    case "running":
-      return {
-        background: "rgba(59, 130, 246, 0.12)",
-        borderColor: "rgba(59, 130, 246, 0.35)",
-      };
-    case "succeeded":
+function renderStatusStyle(tone: CommandCenterStatusTone): CSSProperties {
+  switch (tone) {
+    case "active":
       return {
         background: "rgba(34, 197, 94, 0.12)",
         borderColor: "rgba(34, 197, 94, 0.35)",
       };
-    case "failed":
-      return {
-        background: "rgba(239, 68, 68, 0.12)",
-        borderColor: "rgba(239, 68, 68, 0.35)",
-      };
-    case "needs_attention":
+    case "attention":
       return {
         background: "rgba(250, 204, 21, 0.12)",
         borderColor: "rgba(250, 204, 21, 0.35)",
       };
+    case "danger":
+      return {
+        background: "rgba(239, 68, 68, 0.12)",
+        borderColor: "rgba(239, 68, 68, 0.35)",
+      };
+    case "info":
+      return {
+        background: "rgba(59, 130, 246, 0.12)",
+        borderColor: "rgba(59, 130, 246, 0.35)",
+      };
+    case "neutral":
+      return {
+        background: "rgba(148, 163, 184, 0.12)",
+        borderColor: "rgba(148, 163, 184, 0.28)",
+      };
+    case "subtle":
     default:
       return {
         background: "rgba(148, 163, 184, 0.12)",
@@ -57,6 +67,7 @@ function RunRow({
   selected: boolean;
 }) {
   const displayId = run.taskId ?? run.runId ?? run.key;
+  const statusPresentation = describeCommandCenterRunStatusPresentation(run.status);
 
   return (
     <button
@@ -87,11 +98,11 @@ function RunRow({
             <Badge
               className="border"
               style={{
-                ...renderStatusStyle(run.status),
+                ...renderStatusStyle(statusPresentation.tone),
                 color: "var(--text)",
               }}
             >
-              {run.status.replace(/_/g, " ")}
+              {statusPresentation.label}
             </Badge>
           </div>
 

@@ -4,11 +4,19 @@ import type {
   CommandCenterEvent,
   CommandCenterRun,
   CommandCenterRunIdentityKind,
+  CommandCenterRunKind,
   CommandCenterRunStatus,
   CommandCenterRunTerminalOutcome,
   CommandCenterRunStreamingEvidence,
   CommandCenterRunTimings,
   CommandCenterRunTraceEvidence,
+} from "@/features/commandCenter/types";
+import {
+  COMMAND_CENTER_RUN_STATUSES,
+  COMMAND_CENTER_RUN_KINDS,
+  COMMAND_CENTER_RUN_TERMINAL_OUTCOMES,
+  COMMAND_CENTER_TRACE_PRESENCE_STATES,
+  normalizeCommandCenterTerminalOutcome,
 } from "@/features/commandCenter/types";
 
 const RUN_EVENT_LIMIT = 50;
@@ -25,6 +33,7 @@ type MutableRun = {
   latestTurnMessageId: string | null;
   requestId: string | null;
   runId: string | null;
+  runKind: CommandCenterRunKind | null;
   runType: string | null;
   state: string | null;
   status: CommandCenterRunStatus;
@@ -569,21 +578,14 @@ function deriveTerminalOutcome(
   canonicalType: string | null,
   records: Record<string, unknown>[]
 ): CommandCenterRun["terminalOutcome"] | null {
-  const explicitOutcome = normalizeToken(
+  const explicitOutcome = normalizeCommandCenterTerminalOutcome(
     readToken(records, ["terminal_outcome", "terminalOutcome", "outcome"])
   );
-  switch (explicitOutcome) {
-    case "succeeded":
-    case "failed":
-    case "cancelled":
-      return explicitOutcome;
-    default:
-      break;
-  }
+  if (explicitOutcome) return explicitOutcome;
 
   switch (normalizeToken(canonicalType)) {
     case "task.completed":
-      return "succeeded";
+      return "completed";
     case "task.failed":
       return "failed";
     case "task.cancelled":
@@ -613,64 +615,103 @@ function deriveRunType(
   return humanizeToken(rawType);
 }
 
+function deriveRunKind(
+  canonicalType: string | null,
+  taskType: string | null,
+  sseType: string | null
+): CommandCenterRunKind {
+  const normalizedTaskType = normalizeToken(taskType);
+  if (normalizedTaskType === "chat.completion" || normalizedTaskType === "chat_completion") {
+    return COMMAND_CENTER_RUN_KINDS.CHAT_COMPLETION;
+  }
+
+  const normalizedCanonical = normalizeToken(canonicalType);
+  if (
+    normalizedCanonical.startsWith("task.") &&
+    normalizeToken(sseType) === "task.completed" &&
+    normalizedTaskType === "chat.completion"
+  ) {
+    return COMMAND_CENTER_RUN_KINDS.CHAT_COMPLETION;
+  }
+
+  return COMMAND_CENTER_RUN_KINDS.UNKNOWN;
+}
+
 function deriveRunStatus(
   state: string | null,
   terminalOutcome: CommandCenterRun["terminalOutcome"] | null,
   rawStatus: string | null,
   canonicalType: string | null
 ): CommandCenterRunStatus {
-  if (terminalOutcome === "succeeded") return "succeeded";
-  if (terminalOutcome === "failed") return "failed";
-  if (terminalOutcome === "cancelled") return "needs_attention";
+  if (terminalOutcome === COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED) {
+    return COMMAND_CENTER_RUN_STATUSES.COMPLETED;
+  }
+  if (terminalOutcome === COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.FAILED) {
+    return COMMAND_CENTER_RUN_STATUSES.FAILED;
+  }
+  if (terminalOutcome === COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.CANCELLED) {
+    return COMMAND_CENTER_RUN_STATUSES.CANCELLED;
+  }
 
   const normalizedState = normalizeToken(state);
   if (normalizedState) {
-    if (/(failed|error)/.test(normalizedState)) return "failed";
-    if (/(cancelled|canceled)/.test(normalizedState)) return "needs_attention";
+    if (/(failed|error)/.test(normalizedState)) {
+      return COMMAND_CENTER_RUN_STATUSES.FAILED;
+    }
+    if (/(cancelled|canceled)/.test(normalizedState)) {
+      return COMMAND_CENTER_RUN_STATUSES.CANCELLED;
+    }
     if (
       /(blocked|waiting|approval|clarification|pending|needs attention)/.test(
         normalizedState
       )
     ) {
-      return "needs_attention";
+      return COMMAND_CENTER_RUN_STATUSES.NEEDS_ATTENTION;
     }
     if (
       /(completed|succeeded|success|done)/.test(normalizedState)
     ) {
-      return "succeeded";
+      return COMMAND_CENTER_RUN_STATUSES.COMPLETED;
     }
     if (
       /(created|running|chunk|state|streaming|processing|started)/.test(
         normalizedState
       )
     ) {
-      return "running";
+      return COMMAND_CENTER_RUN_STATUSES.RUNNING;
     }
   }
 
   const normalizedStatus = normalizeToken(rawStatus);
   if (normalizedStatus) {
-    if (/(failed|error)/.test(normalizedStatus)) return "failed";
+    if (/(failed|error)/.test(normalizedStatus)) {
+      return COMMAND_CENTER_RUN_STATUSES.FAILED;
+    }
     if (
       /(blocked|waiting|approval|clarification|pending|attention)/.test(
         normalizedStatus
       )
     ) {
-      return "needs_attention";
+      return COMMAND_CENTER_RUN_STATUSES.NEEDS_ATTENTION;
     }
-    if (/(running|created|chunk|streaming|processing|started)/.test(normalizedStatus)) {
-      return "running";
+    if (
+      /(running|created|chunk|streaming|processing|started)/.test(normalizedStatus)
+    ) {
+      return COMMAND_CENTER_RUN_STATUSES.RUNNING;
     }
     if (/(complete|completed|succeeded|success|done)/.test(normalizedStatus)) {
-      return "succeeded";
+      return COMMAND_CENTER_RUN_STATUSES.COMPLETED;
+    }
+    if (/(cancelled|canceled)/.test(normalizedStatus)) {
+      return COMMAND_CENTER_RUN_STATUSES.CANCELLED;
     }
   }
 
   if (isCanonicalTaskEventType(canonicalType)) {
-    return "running";
+    return COMMAND_CENTER_RUN_STATUSES.RUNNING;
   }
 
-  return "unknown";
+  return COMMAND_CENTER_RUN_STATUSES.UNKNOWN;
 }
 
 function summarizeEvent(
@@ -694,9 +735,6 @@ function summarizeEvent(
   if (taskType || (canonical && canonical.startsWith("task."))) {
     const runTypeLabel = taskType ? humanizeToken(taskType) : "task";
     const stateLabel = state ? humanizeToken(state) : null;
-    if (stateLabel && terminalOutcome === "succeeded") {
-      return `${runTypeLabel} ${stateLabel}`;
-    }
     if (stateLabel) {
       return `${runTypeLabel} ${stateLabel}`;
     }
@@ -730,10 +768,6 @@ function buildRunSummary(
 
   if (!stateLabel || stateLabel === typeLabel) {
     return typeLabel;
-  }
-
-  if (terminalOutcome === "succeeded") {
-    return `${typeLabel} · ${stateLabel}`;
   }
 
   return `${typeLabel} · ${stateLabel}`;
@@ -875,10 +909,10 @@ function deriveRunTraceEvidence(
   );
   const tracePresenceState: CommandCenterRunTraceEvidence["tracePresenceState"] =
     latestTurnTracePresent
-    ? "latest-turn trace present"
-    : tracePresent
-      ? "trace present"
-      : "none";
+      ? COMMAND_CENTER_TRACE_PRESENCE_STATES.LATEST_TURN_TRACE_PRESENT
+      : tracePresent
+        ? COMMAND_CENTER_TRACE_PRESENCE_STATES.TRACE_PRESENT
+        : COMMAND_CENTER_TRACE_PRESENCE_STATES.NONE;
   const retrievalQueryPresent = Boolean(retrievalQuery);
   const latestTurnContentPresent = Boolean(latestTurnContent);
 
@@ -925,6 +959,7 @@ function finalizeRun(run: MutableRun): CommandCenterRun {
     latestTurnMessageId: run.latestTurnMessageId,
     requestId: run.requestId,
     runId: run.runId,
+    runKind: run.runKind,
     runType: run.runType,
     state: run.state,
     status: run.status,
@@ -1043,10 +1078,11 @@ function mergeRuns(target: MutableRun, source: MutableRun): MutableRun {
     latestTurnMessageId: latest.latestTurnMessageId ?? older.latestTurnMessageId,
     requestId: latest.requestId ?? older.requestId,
     runId: latest.runId ?? older.runId,
+    runKind: latest.runKind ?? older.runKind,
     runType: latest.runType ?? older.runType,
     state: latest.state ?? older.state,
     status:
-      latest.status !== "unknown"
+      latest.status !== COMMAND_CENTER_RUN_STATUSES.UNKNOWN
         ? latest.status
         : older.status,
     summary: latest.summary ?? older.summary,
@@ -1102,6 +1138,7 @@ export function normalizeCommandCenterEvent(
   const taskType = readTaskType(records);
   const state = deriveTaskState(canonicalType, records);
   const terminalOutcome = deriveTerminalOutcome(canonicalType, records);
+  const runKind = deriveRunKind(canonicalType, taskType, rawEventType);
   const lifecycleState = readLifecycleState(records, canonicalType);
   const queuedAt = readTimestamp(records, [
     "queued_at",
@@ -1208,6 +1245,7 @@ export function normalizeCommandCenterEvent(
     queuedAt,
     requestId: ids.requestId,
     runId: ids.runId,
+    runKind,
     retrievalQuery,
     retrievalQueryMatchesLatestTurn,
     retrievalTarget,
@@ -1255,9 +1293,10 @@ export function aggregateCommandCenterEvents(
       latestTurnMessageId: event.latestTurnMessageId,
       requestId: event.requestId,
       runId: event.runId,
+      runKind: null,
       runType: null,
       state: event.state,
-      status: "unknown",
+      status: COMMAND_CENTER_RUN_STATUSES.UNKNOWN,
       summary: event.summary,
       taskId: event.taskId,
       terminalOutcome: event.terminalOutcome,
@@ -1321,7 +1360,10 @@ export function aggregateCommandCenterEvents(
     const key = resolvedKey || `event:${index}:${event.receivedAt}`;
     const run = ensureRun(key, identityKind, event);
     const runType = deriveRunType(event.type, event.taskType, event.sseType);
+    const runKind = deriveRunKind(event.type, event.taskType, event.sseType);
     const nextRunType = runType ?? run.runType;
+    const nextRunKind =
+      runKind !== COMMAND_CENTER_RUN_KINDS.UNKNOWN ? runKind : run.runKind;
     const nextState = event.state ?? run.state;
     const nextOutcome = event.terminalOutcome ?? run.terminalOutcome;
     const summaryStatus = deriveRunStatus(
@@ -1346,10 +1388,12 @@ export function aggregateCommandCenterEvents(
     run.latestTurnMessageId = event.latestTurnMessageId ?? run.latestTurnMessageId;
     run.requestId = event.requestId ?? run.requestId;
     run.runId = event.runId ?? run.runId;
+    run.runKind = nextRunKind;
     run.runType = nextRunType;
     run.state = nextState;
     run.status =
-      summaryStatus !== "unknown" || run.status === "unknown"
+      summaryStatus !== COMMAND_CENTER_RUN_STATUSES.UNKNOWN ||
+      run.status === COMMAND_CENTER_RUN_STATUSES.UNKNOWN
         ? summaryStatus
         : run.status;
     run.summary = summary;

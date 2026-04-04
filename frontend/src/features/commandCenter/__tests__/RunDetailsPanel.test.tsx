@@ -165,7 +165,7 @@ const lifecycleEvents: CommandCenterEvent[] = [
     summary: "chat completion completed",
     taskId: "task-1",
     taskType: "chat.completion",
-    terminalOutcome: "succeeded",
+    terminalOutcome: "completed",
     threadId: 42,
     traceUrl: "/api/chat/debug/rag-trace/42/latest",
     turnId: "turn-1",
@@ -194,9 +194,10 @@ function buildRun(overrides: Partial<CommandCenterRun> = {}): CommandCenterRun {
     ],
     requestId: null,
     runId: "run-1",
+    runKind: "chat_completion",
     runType: "chat completion",
     state: "completed",
-    status: "succeeded",
+    status: "completed",
     streamingEvidence: {
       chunkCount: 1,
       firstChunkAt: lifecycleEvents[3].receivedAt,
@@ -204,7 +205,7 @@ function buildRun(overrides: Partial<CommandCenterRun> = {}): CommandCenterRun {
     },
     summary: "chat completion · completed",
     taskId: "task-1",
-    terminalOutcome: "succeeded",
+    terminalOutcome: "completed",
     timings: {
       completedAt: Date.parse("2026-04-01T16:00:05Z"),
       firstOutputAt: baseTimestamp + 3000,
@@ -225,7 +226,7 @@ function buildRun(overrides: Partial<CommandCenterRun> = {}): CommandCenterRun {
       retrievalQueryPresent: true,
       retrievalTarget: "search-index",
       sourceMode: "personal_knowledge",
-      tracePresenceState: "latest-turn trace present",
+      tracePresenceState: "latest_turn_trace_present",
       tracePresent: true,
       traceUrl: "/api/chat/debug/rag-trace/42/latest",
       widenReason: "explicit_personal_knowledge",
@@ -246,6 +247,7 @@ describe("RunDetailsPanel", () => {
         "QUEUED → AWAITING_MODEL → AWAITING_FIRST_TOKEN → STREAMING → COMPLETED"
       )
     ).toBeInTheDocument();
+    expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
   });
 
   it("renders timings only when they are present", () => {
@@ -277,7 +279,7 @@ describe("RunDetailsPanel", () => {
       screen.getByText("Widen reason: explicit_personal_knowledge")
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Trace status: latest-turn trace present")
+      screen.getByText("Trace status: Latest turn trace present")
     ).toBeInTheDocument();
     expect(screen.getAllByText("Latest turn message: msg-4")).toHaveLength(2);
     expect(screen.getByText("Retrieval query:")).toBeInTheDocument();
@@ -320,7 +322,7 @@ describe("RunDetailsPanel", () => {
     expect(screen.getByText("Run: run-1")).toBeInTheDocument();
     expect(screen.getByText("Source: Project")).toBeInTheDocument();
     expect(screen.getByText("Widen reason: none")).toBeInTheDocument();
-    expect(screen.getByText("Trace status: none")).toBeInTheDocument();
+    expect(screen.getByText("Trace status: No trace")).toBeInTheDocument();
     expect(screen.getByText("No trace evidence recorded.")).toBeInTheDocument();
     expect(screen.queryByText("Retrieval query:")).not.toBeInTheDocument();
     expect(screen.queryByText("Documents: 4")).not.toBeInTheDocument();

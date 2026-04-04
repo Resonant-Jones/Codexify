@@ -48,7 +48,7 @@ function buildRun(
     lastKind: "task.completed",
     lastType: "task.completed",
     runId: "run_001",
-    status: "succeeded",
+    status: "completed",
     summary: "Task completed",
     taskId: "task_001",
     threadId: 42,
