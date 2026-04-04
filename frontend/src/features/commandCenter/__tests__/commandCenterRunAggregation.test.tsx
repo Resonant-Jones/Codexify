@@ -34,6 +34,7 @@ describe("commandCenterRunAggregation", () => {
         "task.created",
         {
           latest_turn_message_id: "msg-1",
+          queued_at: "2026-04-01T16:00:00Z",
           run_id: "run-1",
           task_id: "task-1",
           thread_id: 42,
@@ -48,10 +49,12 @@ describe("commandCenterRunAggregation", () => {
         "task.running",
         {
           latest_turn_message_id: "msg-2",
+          warmup_at: "2026-04-01T16:00:02Z",
           run_id: "run-1",
           task_id: "task-1",
           thread_id: 42,
           turn_id: "turn-1",
+          state: "awaiting_model",
           type: "chat.completion",
         },
         "evt-2"
@@ -62,8 +65,9 @@ describe("commandCenterRunAggregation", () => {
         "task.state",
         {
           latest_turn_message_id: "msg-3",
+          first_token_at: "2026-04-01T16:00:03Z",
           run_id: "run-1",
-          state: "blocked_waiting_for_user",
+          state: "awaiting_first_token",
           task_id: "task-1",
           thread_id: 42,
           turn_id: "turn-1",
@@ -72,16 +76,38 @@ describe("commandCenterRunAggregation", () => {
         "evt-3"
       )
     );
+    const chunk = normalizeCommandCenterEvent(
+      makeMessage(
+        "task.progress",
+        {
+          first_output_at: "2026-04-01T16:00:04Z",
+          latest_turn_message_id: "msg-3",
+          run_id: "run-1",
+          task_id: "task-1",
+          thread_id: 42,
+          token: "Hello",
+          turn_id: "turn-1",
+          type: "chat.completion",
+        },
+        "evt-3a"
+      )
+    );
     const completed = normalizeCommandCenterEvent(
       makeMessage(
         "task.completed",
         {
+          completed_at: "2026-04-01T16:00:05Z",
+          duration_ms: 4200,
           latest_turn_message_id: "msg-4",
           message_id: "msg-4",
           run_id: "run-1",
+          retrieval_query: "How does the cache behave?",
+          retrieval_query_matches_latest_turn: true,
+          retrieval_target: "search-index",
           task_id: "task-1",
           thread_id: 42,
           turn_id: "turn-1",
+          trace_url: "/api/chat/debug/rag-trace/42/latest",
           type: "chat.completion",
         },
         "evt-4"
@@ -92,6 +118,7 @@ describe("commandCenterRunAggregation", () => {
       created,
       running,
       taskState,
+      chunk,
       completed,
     ]);
 
@@ -101,7 +128,7 @@ describe("commandCenterRunAggregation", () => {
     expect(run).toBeDefined();
     expect(run?.taskId).toBe("task-1");
     expect(run?.identityKind).toBe("task");
-    expect(run?.eventCount).toBe(4);
+    expect(run?.eventCount).toBe(5);
     expect(run?.runType).toBe("chat completion");
     expect(run?.state).toBe("completed");
     expect(run?.terminalOutcome).toBe("succeeded");
@@ -111,10 +138,39 @@ describe("commandCenterRunAggregation", () => {
     expect(run?.latestTurnMessageId).toBe("msg-4");
     expect(run?.threadId).toBe(42);
     expect(run?.turnId).toBe("turn-1");
-    expect(run?.events).toHaveLength(4);
+    expect(run?.events).toHaveLength(5);
+    expect(run?.lifecycleStates).toEqual([
+      "QUEUED",
+      "AWAITING_MODEL",
+      "AWAITING_FIRST_TOKEN",
+      "STREAMING",
+      "COMPLETED",
+    ]);
+    expect(run?.streamingEvidence).toMatchObject({
+      chunkCount: 1,
+      hasStreamedContent: true,
+    });
+    expect(run?.timings).toMatchObject({
+      completedAt: Date.parse("2026-04-01T16:00:05Z"),
+      firstOutputAt: Date.parse("2026-04-01T16:00:04Z"),
+      firstTokenAt: Date.parse("2026-04-01T16:00:03Z"),
+      queuedAt: Date.parse("2026-04-01T16:00:00Z"),
+      totalDurationMs: 4200,
+      warmupAt: Date.parse("2026-04-01T16:00:02Z"),
+    });
+    expect(run?.traceUrl).toBe("/api/chat/debug/rag-trace/42/latest");
+    expect(run?.traceEvidence).toMatchObject({
+      latestTurnTracePresent: true,
+      retrievalQuery: "How does the cache behave?",
+      retrievalQueryMatchesLatestTurn: true,
+      retrievalQueryPresent: true,
+      retrievalTarget: "search-index",
+      tracePresent: true,
+      traceUrl: "/api/chat/debug/rag-trace/42/latest",
+    });
     expect(
       run?.events?.some(
-        (event) => event.type === "task.state" && event.state === "blocked waiting for user"
+        (event) => event.type === "task.state" && event.state === "awaiting first token"
       )
     ).toBe(true);
   });
@@ -171,6 +227,11 @@ describe("commandCenterRunAggregation", () => {
     expect(run?.status).toBe("running");
     expect(run?.summary).toBe("chat completion · chunk");
     expect(run?.lastType).toBe("task.chunk");
+    expect(run?.lifecycleStates).toEqual(["QUEUED", "STREAMING"]);
+    expect(run?.streamingEvidence).toMatchObject({
+      chunkCount: 2,
+      hasStreamedContent: true,
+    });
     expect(run?.events?.filter((event) => event.type === "task.chunk")).toHaveLength(2);
   });
 
@@ -192,6 +253,8 @@ describe("commandCenterRunAggregation", () => {
       makeMessage(
         "task.completed",
         {
+          completed_at: "2026-04-01T16:10:05Z",
+          duration_ms: 1800,
           latest_turn_message_id: "msg-9",
           message_id: "msg-9",
           task_id: "task-3",
@@ -215,6 +278,10 @@ describe("commandCenterRunAggregation", () => {
     expect(run?.status).toBe("succeeded");
     expect(run?.summary).toBe("chat completion · completed");
     expect(run?.lastEventAt).toBe(completed.receivedAt);
+    expect(run?.timings).toMatchObject({
+      completedAt: Date.parse("2026-04-01T16:10:05Z"),
+      totalDurationMs: 1800,
+    });
   });
 
   it("keeps unclassified events visible without polluting classified runs", () => {

@@ -28,6 +28,8 @@ export type CommandCenterRunLifecycleState =
   | "cancelled"
   | "unknown";
 
+export type CommandCenterRunLifecyclePath = string[];
+
 export type CommandCenterRunTerminalOutcome =
   | "succeeded"
   | "failed"
@@ -48,17 +50,53 @@ export type CommandCenterRagTraceUnavailableReason =
   | "no_thread"
   | "no_trace";
 
+export interface CommandCenterRunTimings {
+  completedAt: number | null;
+  firstOutputAt: number | null;
+  firstTokenAt: number | null;
+  queuedAt: number | null;
+  totalDurationMs: number | null;
+  warmupAt: number | null;
+}
+
+export interface CommandCenterRunStreamingEvidence {
+  chunkCount: number;
+  firstChunkAt: number | null;
+  hasStreamedContent: boolean;
+}
+
+export interface CommandCenterRunTraceEvidence {
+  latestTurnContentPresent: boolean;
+  latestTurnTracePresent: boolean;
+  retrievalQuery: string | null;
+  retrievalQueryMatchesLatestTurn: boolean | null;
+  retrievalQueryPresent: boolean;
+  retrievalTarget: string | null;
+  tracePresent: boolean;
+  traceUrl: string | null;
+}
+
 export interface CommandCenterEvent {
   eventId: string | null;
+  completedAt?: number | null;
+  durationMs?: number | null;
+  firstOutputAt?: number | null;
+  firstTokenAt?: number | null;
   json: CommandCenterJson;
   kind: string | null;
+  lifecycleState?: string | null;
+  latestTurnContent?: string | null;
   raw: string;
   receivedAt: number;
+  queuedAt?: number | null;
   requestId: string | null;
   runId: string | null;
   taskType: string | null;
   sseType: string | null;
   status: string | null;
+  retrievalQuery?: string | null;
+  retrievalQueryMatchesLatestTurn?: boolean | null;
+  retrievalTarget?: string | null;
   summary: string;
   taskId: string | null;
   latestTurnMessageId: string | null;
@@ -66,6 +104,8 @@ export interface CommandCenterEvent {
   terminalOutcome: CommandCenterRunTerminalOutcome | null;
   threadId: number | null;
   turnId: string | null;
+  traceUrl?: string | null;
+  warmupAt?: number | null;
   type: string | null;
 }
 
@@ -74,6 +114,7 @@ export interface CommandCenterRun {
   events?: CommandCenterEvent[];
   identityKind?: CommandCenterRunIdentityKind;
   key: string;
+  lifecycleStates?: CommandCenterRunLifecyclePath;
   lastEvent: CommandCenterEvent;
   lastEventAt: number;
   lastKind: string | null;
@@ -84,11 +125,14 @@ export interface CommandCenterRun {
   runType?: string | null;
   state?: CommandCenterRunLifecycleState | string | null;
   status: CommandCenterRunStatus;
+  streamingEvidence?: CommandCenterRunStreamingEvidence | null;
   summary: string;
   taskId: string | null;
   terminalOutcome?: CommandCenterRunTerminalOutcome | null;
+  timings?: CommandCenterRunTimings | null;
   turnId?: string | null;
   threadId?: number | null;
+  traceEvidence?: CommandCenterRunTraceEvidence | null;
   traceUrl?: string | null;
 }
 

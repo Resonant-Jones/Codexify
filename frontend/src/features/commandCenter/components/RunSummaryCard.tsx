@@ -97,6 +97,10 @@ function RunIdentityChips({ run }: { run: CommandCenterRun }) {
     chips.push({ label: "Latest turn message", value: run.latestTurnMessageId });
   }
 
+  if (run.streamingEvidence?.chunkCount) {
+    chips.push({ label: "Chunks", value: run.streamingEvidence.chunkCount });
+  }
+
   if (chips.length === 0) {
     return (
       <span style={{ color: "var(--muted)" }}>

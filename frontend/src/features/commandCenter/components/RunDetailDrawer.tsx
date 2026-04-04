@@ -3,6 +3,7 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import RunDetailsPanel from "@/features/commandCenter/components/RunDetailsPanel";
 import RagTracePanel from "@/features/commandCenter/components/RagTracePanel";
 import {
   Sheet,
@@ -298,33 +299,7 @@ export default function RunDetailDrawer({
             </SheetHeader>
 
             <div className="space-y-4 p-4">
-              <Card
-                className="bezel-none rounded-xl border"
-                style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
-                  borderColor: "var(--panel-border)",
-                }}
-              >
-                <CardContent className="space-y-3 p-4">
-                  <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                    Identifiers
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Grouping key: {run.key}
-                    </span>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Task: {run.taskId ?? "—"}
-                    </span>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Run: {run.runId ?? "—"}
-                    </span>
-                    <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-                      Thread: {run.threadId ?? "—"}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+              <RunDetailsPanel run={run} />
 
               <div className="flex flex-wrap gap-2">
                 <Button
