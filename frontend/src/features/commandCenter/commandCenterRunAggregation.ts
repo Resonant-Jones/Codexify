@@ -350,6 +350,92 @@ function readLatestTurnContent(records: Record<string, unknown>[]): string | nul
   return readKey(records, ["latest_turn_content", "latestTurnContent"]);
 }
 
+function normalizeSourceModeToken(value: string | null): string | null {
+  if (!value) return null;
+
+  const normalized = normalizeToken(value).replace(/[.\s-]+/g, "_");
+  if (normalized === "project" || normalized === "personal_knowledge") {
+    return normalized;
+  }
+  return normalized || null;
+}
+
+function readSourceMode(records: Record<string, unknown>[]): string | null {
+  const explicit = readKey(records, ["source_mode", "sourceMode"]);
+  if (explicit) {
+    return normalizeSourceModeToken(explicit);
+  }
+
+  const origin = readKey(records, ["origin"]);
+  if (origin) {
+    const match = origin.match(/(?:^|\|)\s*source_mode=([^|]+)/i);
+    if (match?.[1]) {
+      return normalizeSourceModeToken(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function readWidenReason(records: Record<string, unknown>[]): string | null {
+  const explicit = readKey(records, ["widen_reason", "widenReason"]);
+  return explicit ? normalizeToken(explicit) : null;
+}
+
+function readNestedNumber(
+  record: Record<string, unknown>,
+  nestedKeys: string[],
+  countKeys: string[]
+): number | null {
+  for (const nestedKey of nestedKeys) {
+    const nested = asRecord(record[nestedKey]);
+    if (!nested) continue;
+    for (const countKey of countKeys) {
+      const value = firstNumber(nested[countKey]);
+      if (value != null) return value;
+    }
+  }
+  return null;
+}
+
+function readCollectionCount(
+  records: Record<string, unknown>[],
+  {
+    countKeys,
+    nestedKeys,
+    nestedCountKeys,
+    arrayKeys,
+  }: {
+    countKeys: string[];
+    nestedKeys?: string[];
+    nestedCountKeys?: string[];
+    arrayKeys?: string[];
+  }
+): number | null {
+  for (const record of records) {
+    for (const key of countKeys) {
+      const value = firstNumber(record[key]);
+      if (value != null) return value;
+    }
+
+    const nestedCount =
+      nestedKeys && nestedKeys.length > 0
+        ? readNestedNumber(record, nestedKeys, nestedCountKeys ?? countKeys)
+        : null;
+    if (nestedCount != null) {
+      return nestedCount;
+    }
+
+    for (const key of arrayKeys ?? []) {
+      const value = record[key];
+      if (Array.isArray(value)) {
+        return value.length;
+      }
+    }
+  }
+  return null;
+}
+
 function inferLifecycleStateFromCanonicalType(
   canonicalType: string | null
 ): string | null {
@@ -747,6 +833,8 @@ function deriveRunTraceEvidence(
   events: CommandCenterEvent[],
   latestTurnMessageId: string | null
 ): CommandCenterRunTraceEvidence | null {
+  const sourceMode = lastDefined(events, (event) => event.sourceMode) as string | null;
+  const widenReason = lastDefined(events, (event) => event.widenReason) as string | null;
   const traceUrl = lastDefined(events, (event) => event.traceUrl) as string | null;
   const retrievalQuery = lastDefined(events, (event) => event.retrievalQuery) as string | null;
   const retrievalTarget = lastDefined(events, (event) => event.retrievalTarget) as string | null;
@@ -755,45 +843,65 @@ function deriveRunTraceEvidence(
     (event) => event.retrievalQueryMatchesLatestTurn
   ) as boolean | null;
   const latestTurnContent = lastDefined(events, (event) => event.latestTurnContent) as string | null;
+  const documentCount = lastDefined(events, (event) => event.documentCount) as number | null;
+  const memoryCount = lastDefined(events, (event) => event.memoryCount) as number | null;
+  const graphCount = lastDefined(events, (event) => event.graphCount) as number | null;
 
-  const tracePresent = Boolean(
-    traceUrl ||
+  const hasRetrievalSummary = Boolean(
+    sourceMode ||
+      widenReason != null ||
+      traceUrl ||
       retrievalQuery ||
       retrievalTarget ||
       retrievalQueryMatchesLatestTurn != null ||
-      latestTurnContent
+      latestTurnContent ||
+      documentCount != null ||
+      memoryCount != null ||
+      graphCount != null
+  );
+  const tracePresent = Boolean(
+    widenReason != null ||
+      traceUrl ||
+      retrievalQuery ||
+      retrievalTarget ||
+      retrievalQueryMatchesLatestTurn != null ||
+      latestTurnContent ||
+      documentCount != null ||
+      memoryCount != null ||
+      graphCount != null
   );
   const latestTurnTracePresent = Boolean(
-    latestTurnMessageId &&
-      (
-      retrievalQuery ||
-      retrievalTarget ||
-      retrievalQueryMatchesLatestTurn != null ||
-      latestTurnContent
-      )
+    latestTurnMessageId && tracePresent
   );
+  const tracePresenceState: CommandCenterRunTraceEvidence["tracePresenceState"] =
+    latestTurnTracePresent
+    ? "latest-turn trace present"
+    : tracePresent
+      ? "trace present"
+      : "none";
   const retrievalQueryPresent = Boolean(retrievalQuery);
   const latestTurnContentPresent = Boolean(latestTurnContent);
 
-  if (
-    !tracePresent &&
-    !latestTurnTracePresent &&
-    !retrievalQueryPresent &&
-    !latestTurnContentPresent &&
-    !traceUrl
-  ) {
+  if (!hasRetrievalSummary) {
     return null;
   }
 
   return {
+    documentCount,
+    graphCount,
     latestTurnContentPresent,
+    latestTurnMessageId,
     latestTurnTracePresent,
+    memoryCount,
     retrievalQuery,
     retrievalQueryMatchesLatestTurn,
     retrievalQueryPresent,
     retrievalTarget,
+    sourceMode,
+    tracePresenceState,
     tracePresent,
     traceUrl,
+    widenReason,
   };
 }
 
@@ -1040,6 +1148,36 @@ export function normalizeCommandCenterEvent(
   ]);
   const latestTurnContent = readLatestTurnContent(records);
   const traceUrl = readTraceUrl(records);
+  const sourceMode = readSourceMode(records);
+  const widenReason = readWidenReason(records);
+  const documentCount = readCollectionCount(records, {
+    countKeys: [
+      "semantic_count",
+      "document_count",
+      "documents_count",
+      "linked_document_count",
+    ],
+    nestedKeys: ["payload_summary"],
+    nestedCountKeys: [
+      "semantic_count",
+      "document_count",
+      "documents_count",
+      "linked_document_count",
+    ],
+    arrayKeys: ["documents"],
+  });
+  const memoryCount = readCollectionCount(records, {
+    countKeys: ["memory_count"],
+    nestedKeys: ["payload_summary", "memory_context"],
+    nestedCountKeys: ["memory_count", "count"],
+    arrayKeys: ["memory"],
+  });
+  const graphCount = readCollectionCount(records, {
+    countKeys: ["graph_count"],
+    nestedKeys: ["payload_summary", "graph_context"],
+    nestedCountKeys: ["graph_count", "count"],
+    arrayKeys: ["graph"],
+  });
   const summary = summarizeEvent(
     raw,
     canonicalType,
@@ -1059,6 +1197,11 @@ export function normalizeCommandCenterEvent(
     firstTokenAt,
     latestTurnMessageId: ids.latestTurnMessageId,
     latestTurnContent,
+    sourceMode,
+    widenReason,
+    documentCount,
+    memoryCount,
+    graphCount,
     lifecycleState,
     raw,
     receivedAt: Date.now(),

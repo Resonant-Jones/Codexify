@@ -35,6 +35,11 @@ export type CommandCenterRunTerminalOutcome =
   | "failed"
   | "cancelled";
 
+export type CommandCenterRunTracePresenceState =
+  | "none"
+  | "trace present"
+  | "latest-turn trace present";
+
 export type CommandCenterCanonicalTaskEventType =
   | "task.created"
   | "task.running"
@@ -66,14 +71,21 @@ export interface CommandCenterRunStreamingEvidence {
 }
 
 export interface CommandCenterRunTraceEvidence {
+  documentCount: number | null;
+  graphCount: number | null;
   latestTurnContentPresent: boolean;
+  latestTurnMessageId: string | null;
   latestTurnTracePresent: boolean;
+  memoryCount: number | null;
   retrievalQuery: string | null;
   retrievalQueryMatchesLatestTurn: boolean | null;
   retrievalQueryPresent: boolean;
   retrievalTarget: string | null;
+  sourceMode: string | null;
+  tracePresenceState: CommandCenterRunTracePresenceState;
   tracePresent: boolean;
   traceUrl: string | null;
+  widenReason: string | null;
 }
 
 export interface CommandCenterEvent {
@@ -82,21 +94,26 @@ export interface CommandCenterEvent {
   durationMs?: number | null;
   firstOutputAt?: number | null;
   firstTokenAt?: number | null;
+  graphCount?: number | null;
   json: CommandCenterJson;
   kind: string | null;
   lifecycleState?: string | null;
   latestTurnContent?: string | null;
+  memoryCount?: number | null;
   raw: string;
   receivedAt: number;
   queuedAt?: number | null;
   requestId: string | null;
   runId: string | null;
+  sourceMode?: string | null;
   taskType: string | null;
   sseType: string | null;
   status: string | null;
   retrievalQuery?: string | null;
   retrievalQueryMatchesLatestTurn?: boolean | null;
   retrievalTarget?: string | null;
+  documentCount?: number | null;
+  widenReason?: string | null;
   summary: string;
   taskId: string | null;
   latestTurnMessageId: string | null;

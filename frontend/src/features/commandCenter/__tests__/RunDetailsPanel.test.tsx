@@ -214,14 +214,21 @@ function buildRun(overrides: Partial<CommandCenterRun> = {}): CommandCenterRun {
       warmupAt: baseTimestamp + 1000,
     },
     traceEvidence: {
+      documentCount: 4,
+      graphCount: 1,
       latestTurnContentPresent: true,
+      latestTurnMessageId: "msg-4",
       latestTurnTracePresent: true,
+      memoryCount: 2,
       retrievalQuery: "How does the cache behave?",
       retrievalQueryMatchesLatestTurn: true,
       retrievalQueryPresent: true,
       retrievalTarget: "search-index",
+      sourceMode: "personal_knowledge",
+      tracePresenceState: "latest-turn trace present",
       tracePresent: true,
       traceUrl: "/api/chat/debug/rag-trace/42/latest",
+      widenReason: "explicit_personal_knowledge",
     },
     traceUrl: "/api/chat/debug/rag-trace/42/latest",
     threadId: 42,
@@ -262,19 +269,44 @@ describe("RunDetailsPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders stable identity and trace presence without a full trace payload", () => {
+  it("renders compact retrieval and trace summary when canonical fields exist", () => {
+    render(<RunDetailsPanel run={buildRun()} />);
+
+    expect(screen.getByText("Source: Personal Knowledge")).toBeInTheDocument();
+    expect(
+      screen.getByText("Widen reason: explicit_personal_knowledge")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Trace status: latest-turn trace present")
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Latest turn message: msg-4")).toHaveLength(2);
+    expect(screen.getByText("Retrieval query:")).toBeInTheDocument();
+    expect(screen.getByText("How does the cache behave?")).toBeInTheDocument();
+    expect(screen.getByText("Documents: 4")).toBeInTheDocument();
+    expect(screen.getByText("Memory: 2")).toBeInTheDocument();
+    expect(screen.getByText("Graph: 1")).toBeInTheDocument();
+  });
+
+  it("renders a truthful trace summary when only partial fields are available", () => {
     render(
       <RunDetailsPanel
         run={buildRun({
           traceEvidence: {
+            documentCount: null,
+            graphCount: null,
             latestTurnContentPresent: false,
-            latestTurnTracePresent: true,
+            latestTurnMessageId: null,
+            latestTurnTracePresent: false,
+            memoryCount: null,
             retrievalQuery: null,
             retrievalQueryMatchesLatestTurn: null,
-            retrievalQueryPresent: true,
+            retrievalQueryPresent: false,
             retrievalTarget: null,
-            tracePresent: true,
+            sourceMode: "project",
+            tracePresenceState: "none",
+            tracePresent: false,
             traceUrl: null,
+            widenReason: "none",
           },
           traceUrl: null,
         })}
@@ -284,11 +316,28 @@ describe("RunDetailsPanel", () => {
     expect(screen.getByText("Grouping key: task-1")).toBeInTheDocument();
     expect(screen.getByText("Task: task-1")).toBeInTheDocument();
     expect(screen.getByText("Thread: 42")).toBeInTheDocument();
-    expect(screen.getByText("Latest turn message: msg-4")).toBeInTheDocument();
+    expect(screen.getAllByText("Latest turn message: msg-4")).toHaveLength(2);
     expect(screen.getByText("Run: run-1")).toBeInTheDocument();
-    expect(screen.getByText("Trace present: Yes")).toBeInTheDocument();
-    expect(screen.getByText("Latest-turn trace present: Yes")).toBeInTheDocument();
-    expect(screen.getByText("Retrieval query present: Yes")).toBeInTheDocument();
+    expect(screen.getByText("Source: Project")).toBeInTheDocument();
+    expect(screen.getByText("Widen reason: none")).toBeInTheDocument();
+    expect(screen.getByText("Trace status: none")).toBeInTheDocument();
+    expect(screen.getByText("No trace evidence recorded.")).toBeInTheDocument();
+    expect(screen.queryByText("Retrieval query:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Documents: 4")).not.toBeInTheDocument();
+  });
+
+  it("renders a truthful empty state when no trace evidence is present", () => {
+    render(
+      <RunDetailsPanel
+        run={buildRun({
+          traceEvidence: null,
+        })}
+      />
+    );
+
+    expect(
+      screen.getByText("No retrieval or trace evidence recorded.")
+    ).toBeInTheDocument();
   });
 
   it("keeps raw events collapsed until opened", () => {
