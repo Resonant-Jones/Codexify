@@ -7,9 +7,9 @@ import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import { logOnce } from "@/lib/logging/logOnce";
 import {
-  isSidebarGeneralProjectName,
+  collapseSidebarGeneralProjectAliases,
+  resolveSidebarGeneralProjectId,
   normalizeSidebarProject,
-  normalizeSidebarProjects,
 } from "./sidebarPresentation";
 
 type UseProjectsCacheOptions = {
@@ -25,33 +25,6 @@ type UseProjectsCacheResult = {
 };
 
 const STORAGE_KEY = "cfy.projectsCache";
-
-function normalizeDefaultProjectAliases(list: Project[]): Project[] {
-  const defaults = list.filter((project) => isSidebarGeneralProjectName(project?.name));
-  if (defaults.length <= 1) {
-    return list.map((project) => normalizeSidebarProject(project));
-  }
-
-  const canonical =
-    defaults.find((project) => isSidebarGeneralProjectName(project.name) && String(project.name).trim().toLowerCase() === "general") ||
-    defaults[0];
-  const canonicalId = String(canonical.id);
-  const mergedCanonical = defaults.reduce(
-    (acc, project) => ({ ...acc, ...project, name: "General", id: String(canonicalId) }),
-    { ...canonical, name: "General", id: String(canonicalId) }
-  );
-
-  return list
-    .filter((project) => {
-      if (!isSidebarGeneralProjectName(project?.name)) return true;
-      return String(project.id) === canonicalId;
-    })
-    .map((project) =>
-      String(project.id) === canonicalId && isSidebarGeneralProjectName(project?.name)
-        ? normalizeSidebarProject(mergedCanonical)
-        : normalizeSidebarProject(project)
-    );
-}
 
 function normalizeProjectsResponse(res: any): Project[] {
   const payload = res?.data ?? res;
@@ -70,7 +43,7 @@ function normalizeProjectsResponse(res: any): Project[] {
       color: p.color,
     }))
     .filter((project: any) => String(project.id).trim().length > 0);
-  return normalizeDefaultProjectAliases(normalized);
+  return collapseSidebarGeneralProjectAliases(normalized);
 }
 
 function readProjectsCache(): Project[] {
@@ -79,7 +52,7 @@ function readProjectsCache(): Project[] {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr)
-      ? arr.filter((p) => p && p.id && p.name).map((project) => normalizeSidebarProject(project))
+      ? collapseSidebarGeneralProjectAliases(arr.filter((p) => p && p.id && p.name))
       : [];
   } catch {
     return [];
@@ -89,7 +62,7 @@ function readProjectsCache(): Project[] {
 function writeProjectsCache(list: Project[]) {
   try {
     if (typeof window === "undefined") return;
-    const compact = normalizeSidebarProjects(list as Project[]);
+    const compact = collapseSidebarGeneralProjectAliases(list as Project[]);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(compact));
   } catch {
     /* ignore */
@@ -110,7 +83,7 @@ function mergeProjects(primary: Project[], secondary: Project[]): Project[] {
   };
   primary.forEach(push);
   secondary.forEach(push);
-  return normalizeDefaultProjectAliases(Array.from(seen.values()));
+  return collapseSidebarGeneralProjectAliases(Array.from(seen.values()));
 }
 
 /**
@@ -171,20 +144,12 @@ export function useProjectsCache({
   }, [projectList]);
 
   useEffect(() => {
-    const defaultProject = projectList.find((project) =>
-      isSidebarGeneralProjectName(project?.name)
-    );
-    if (!defaultProject?.id) return;
+    const defaultProjectId = resolveSidebarGeneralProjectId(projectList);
+    if (!defaultProjectId) return;
     try {
       if (typeof window === "undefined") return;
-      window.localStorage.setItem(
-        "cfy.generalProjectId",
-        String(defaultProject.id)
-      );
-      window.localStorage.setItem(
-        "cfy.defaultProjectId",
-        String(defaultProject.id)
-      );
+      window.localStorage.setItem("cfy.generalProjectId", defaultProjectId);
+      window.localStorage.setItem("cfy.defaultProjectId", defaultProjectId);
     } catch {
       /* ignore */
     }

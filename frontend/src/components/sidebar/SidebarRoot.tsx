@@ -11,7 +11,7 @@ import useSidebarThreads from "./useSidebarThreads";
 import useProjectsCache from "./useProjectsCache";
 import {
   cleanSidebarProjectTitle,
-  isSidebarGeneralProjectName,
+  resolveSidebarGeneralProjectId,
 } from "./sidebarPresentation";
 import { useLegacyThreads } from "@/contexts/LegacyThreadsContext";
 import api from "@/lib/api";
@@ -168,10 +168,7 @@ export default function SidebarRoot({
 
   React.useEffect(() => {
     if (!projectList.length) return;
-    const defaultProject = projectList.find((project) =>
-      isSidebarGeneralProjectName(project?.name)
-    );
-    const defaultProjectId = defaultProject?.id != null ? String(defaultProject.id) : null;
+    const defaultProjectId = resolveSidebarGeneralProjectId(projectList);
     if (currentProjectId === null) {
       if (defaultProjectId) {
         setScope(defaultProjectId);
@@ -349,16 +346,7 @@ export default function SidebarRoot({
         currentProjectId != null &&
         String(currentProjectId) === normalizedId;
       const fallbackProjectId = deletingSelectedProject
-        ? (() => {
-            const generalProject = remaining.find((project) =>
-              isSidebarGeneralProjectName(project?.name)
-            );
-            if (generalProject?.id != null) {
-              return String(generalProject.id);
-            }
-            const nextProject = remaining[0];
-            return nextProject?.id != null ? String(nextProject.id) : null;
-          })()
+        ? resolveSidebarGeneralProjectId(remaining) ?? (remaining[0]?.id != null ? String(remaining[0].id) : null)
         : null;
       try {
         await deleteProjectApi(normalizedId);

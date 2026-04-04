@@ -8,7 +8,7 @@ import type { Thread } from "@/types/ui";
 import {
   cleanSidebarProjectTitle,
   resolveSidebarThreadBucketId,
-  isSidebarGeneralProjectName,
+  resolveSidebarGeneralProjectId,
   threadBelongsToGeneral,
 } from "./sidebarPresentation";
 
@@ -366,11 +366,7 @@ export function useSidebarThreads({
 
   const currentProjectId = onProjectChange ? (projectId ?? null) : localProjectId;
   const generalProjectId = useMemo(() => {
-    const fromProjects = projects.find((project) => isSidebarGeneralProjectName(project?.name));
-    if (fromProjects?.id != null) {
-      return String(fromProjects.id);
-    }
-    return readStoredGeneralProjectId();
+    return resolveSidebarGeneralProjectId(projects, readStoredGeneralProjectId());
   }, [projects]);
 
   const scopedThreads = useMemo(() => {

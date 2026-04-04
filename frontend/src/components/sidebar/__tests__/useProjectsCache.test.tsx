@@ -73,4 +73,31 @@ describe("useProjectsCache", () => {
     expect(screen.getByTestId("project-names")).not.toHaveTextContent("ChatGPT - Quarterly Planning");
     expect(screen.getByTestId("project-meta")).toHaveTextContent('"import_source":"chatgpt"');
   });
+
+  it("keeps the canonical General project when an imported alias also cleans to General", async () => {
+    (api.get as any).mockResolvedValueOnce({
+      data: {
+        projects: [
+          {
+            id: 1,
+            name: "ChatGPT - General",
+            icon: "📁",
+            metadata: { import_source: "chatgpt" },
+          },
+          { id: 2, name: "General", icon: "📁" },
+          { id: 3, name: "Loose Threads", icon: "📁" },
+          { id: 4, name: "Engineering", icon: "🧭" },
+        ],
+      },
+    });
+
+    render(<ProjectsHarness />);
+
+    await waitFor(() => expect(screen.getByTestId("project-count")).toHaveTextContent("2"));
+    expect(screen.getByTestId("project-names")).toHaveTextContent("General|Engineering");
+    expect(screen.getByTestId("project-names")).not.toHaveTextContent("ChatGPT - General");
+    expect(screen.getByTestId("project-names")).not.toHaveTextContent("Loose Threads");
+    await waitFor(() => expect(window.localStorage.getItem("cfy.generalProjectId")).toBe("2"));
+    expect(window.localStorage.getItem("cfy.defaultProjectId")).toBe("2");
+  });
 });
