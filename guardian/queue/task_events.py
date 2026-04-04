@@ -8,7 +8,11 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from guardian.protocol_tokens import ErrorCode, TaskEventType
+from guardian.protocol_tokens import (
+    DELEGATION_TERMINAL_EVENT_TYPES,
+    ErrorCode,
+    TaskEventType,
+)
 from guardian.queue.redis_queue import _with_reconnect  # type: ignore
 from guardian.queue.redis_queue import get_queue_redis_client
 
@@ -19,6 +23,7 @@ _TERMINAL_EVENT_TYPES = {
     TaskEventType.TASK_COMPLETED.value,
     TaskEventType.TASK_FAILED.value,
     TaskEventType.TASK_CANCELLED.value,
+    *DELEGATION_TERMINAL_EVENT_TYPES,
 }
 _TERMINAL_EVENT_SCAN_BATCH_SIZE = 100
 _TASK_EVENT_FALLBACK_TYPE = TaskEventType.TASK_EVENT.value
