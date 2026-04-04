@@ -916,6 +916,7 @@ _include_router(
     label="embeddings",
     flag_name="CODEXIFY_ENABLE_EMBEDDINGS_ROUTES",
     include_fn=lambda: app.include_router(embeddings.router),
+    core_surface=True,
 )
 _include_router(
     label="threads",
