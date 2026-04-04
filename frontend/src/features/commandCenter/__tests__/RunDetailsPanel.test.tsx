@@ -281,6 +281,8 @@ describe("RunDetailsPanel", () => {
     expect(
       screen.getByText("Trace status: Latest turn trace present")
     ).toBeInTheDocument();
+    expect(screen.getByText("Trace panel:")).toBeInTheDocument();
+    expect(screen.getByText("Aligned to this run/thread")).toBeInTheDocument();
     expect(screen.getAllByText("Latest turn message: msg-4")).toHaveLength(2);
     expect(screen.getByText("Retrieval query:")).toBeInTheDocument();
     expect(screen.getByText("How does the cache behave?")).toBeInTheDocument();
@@ -323,7 +325,11 @@ describe("RunDetailsPanel", () => {
     expect(screen.getByText("Source: Project")).toBeInTheDocument();
     expect(screen.getByText("Widen reason: none")).toBeInTheDocument();
     expect(screen.getByText("Trace status: No trace")).toBeInTheDocument();
-    expect(screen.getByText("No trace evidence recorded.")).toBeInTheDocument();
+    expect(screen.getByText("Trace panel:")).toBeInTheDocument();
+    expect(screen.getByText("Empty but expected")).toBeInTheDocument();
+    expect(
+      screen.getByText("No detailed trace payload is currently available.")
+    ).toBeInTheDocument();
     expect(screen.queryByText("Retrieval query:")).not.toBeInTheDocument();
     expect(screen.queryByText("Documents: 4")).not.toBeInTheDocument();
   });
@@ -338,7 +344,7 @@ describe("RunDetailsPanel", () => {
     );
 
     expect(
-      screen.getByText("No retrieval or trace evidence recorded.")
+      screen.getByText("No trace evidence exists for this run.")
     ).toBeInTheDocument();
   });
 

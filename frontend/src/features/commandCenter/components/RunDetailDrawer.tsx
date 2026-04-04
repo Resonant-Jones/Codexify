@@ -151,6 +151,9 @@ export default function RunDetailDrawer({
   const [showRawJson, setShowRawJson] = React.useState(false);
   const sourceRef = React.useRef<GuardianEventSource | null>(null);
   const open = Boolean(run);
+  const traceScopeThreadId = run?.threadId ?? null;
+  const traceScopeLatestTurnMessageId =
+    run?.latestTurnMessageId ?? run?.traceEvidence?.latestTurnMessageId ?? null;
 
   React.useEffect(() => {
     const source = sourceRef.current;
@@ -296,6 +299,18 @@ export default function RunDetailDrawer({
                   {connectionDetail}
                 </div>
               ) : null}
+              {run && (traceScopeThreadId != null || traceScopeLatestTurnMessageId) ? (
+                <div className="text-xs" style={{ color: "var(--muted)" }}>
+                  Trace scope:{" "}
+                  {traceScopeThreadId != null ? `thread ${traceScopeThreadId}` : "thread unavailable"}
+                  {traceScopeLatestTurnMessageId ? (
+                    <>
+                      {" "}
+                      · latest turn message {traceScopeLatestTurnMessageId}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
             </SheetHeader>
 
             <div className="space-y-4 p-4">
@@ -411,17 +426,21 @@ export default function RunDetailDrawer({
               )}
                 </>
               ) : (
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                      Retrieval Diagnostics
-                    </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                        Retrieval Diagnostics
+                      </div>
                     <div className="text-xs" style={{ color: "var(--muted)" }}>
                       Latest thread-scoped retrieval evidence from the existing RAG
                       trace debug endpoint.
                     </div>
                   </div>
-                  <RagTracePanel run={run} />
+                  <RagTracePanel
+                    latestTurnMessageId={traceScopeLatestTurnMessageId}
+                    run={run}
+                    threadId={traceScopeThreadId}
+                  />
                 </div>
               )}
             </div>

@@ -192,6 +192,24 @@ const mockedRuns: CommandCenterRun[] = [
     summary: "chat completion · completed",
     taskId: "task-alpha",
     terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    traceEvidence: {
+      documentCount: 4,
+      graphCount: 1,
+      latestTurnContentPresent: true,
+      latestTurnMessageId: "501",
+      latestTurnTracePresent: true,
+      memoryCount: 2,
+      retrievalQuery: "How does the cache behave?",
+      retrievalQueryMatchesLatestTurn: true,
+      retrievalQueryPresent: true,
+      retrievalTarget: "search-index",
+      sourceMode: "personal_knowledge",
+      tracePresenceState: "latest_turn_trace_present",
+      tracePresent: true,
+      traceUrl: "/api/chat/debug/rag-trace/42/latest",
+      widenReason: "explicit_personal_knowledge",
+    },
+    traceUrl: "/api/chat/debug/rag-trace/42/latest",
     threadId: 42,
     turnId: "turn-alpha",
   },
@@ -305,7 +323,13 @@ vi.mock("../hooks/useHealthSummary", () => ({
 
 vi.mock("../components/RunDetailDrawer", () => ({
   default: ({ run }: { run: CommandCenterRun | null }) =>
-    run ? <div data-testid="run-detail-drawer">Selected run: {run.key}</div> : null,
+    run ? (
+      <div data-testid="run-detail-drawer">
+        Selected run: {run.key} · thread {run.threadId ?? "none"} · latest turn{" "}
+        {run.latestTurnMessageId ?? "none"} · trace{" "}
+        {run.traceEvidence?.tracePresent ? "present" : "none"}
+      </div>
+    ) : null,
 }));
 
 beforeEach(() => {
@@ -413,6 +437,9 @@ describe("CommandCenterPage", () => {
       within(runsFeed).getByRole("button", { name: /open details for chat completion/i })
     );
     expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("task-alpha");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("thread 42");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("latest turn 501");
+    expect(screen.getByTestId("run-detail-drawer")).toHaveTextContent("trace present");
 
     expect(screen.getByText("Approvals")).toBeInTheDocument();
     expect(screen.getByText("attention")).toBeInTheDocument();
