@@ -17,11 +17,11 @@ This file is authoritative for:
 
 ## Current phase
 
-Codexify is still in release-gate remediation on `main` for the local Docker Compose beta profile. A fresh clean-start migration proof on current `HEAD` now closes the empty-database bootstrap question on the supported path, but upgrade-from-existing-instance evidence remains open.
+Codexify is still in release-gate remediation on `main` for the local Docker Compose beta profile. Clean-start migration/bootstrap is now proven on the supported path; the remaining release gate is upgrade-from-existing-instance evidence.
 
 ## What changed recently
 
-- Added a fresh clean-start migration / upgrade proof on current `HEAD` (`docs/architecture/2026-04-04-migration-upgrade-proof.md`) with explicit pass/fail evidence.
+- Added a clean-start migration proof artifact on `main` (`docs/architecture/2026-04-04-migration-upgrade-proof.md`).
 - The supported local Docker Compose path was re-proved after migration: backend and workers booted cleanly, `chat_threads.thread_config` persisted, assistant output persisted, document embedding reached `ready`, and supported retrieval succeeded on `GET /api/health/retrieval?q=...`.
 - The supported runtime still quarantines the dedicated persona-profile API route under `CODEXIFY_BETA_CORE_ONLY=true`; the supported profile surface remains route-quarantined even though the schema migration landed.
 - The runtime health surfaces now reconcile cleanly with the supported local stack after migration, including the migrated chat and retrieval path.
