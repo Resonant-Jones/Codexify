@@ -109,6 +109,11 @@ const canonicalRun: CommandCenterRun = {
   runType: "chat completion",
   state: "completed",
   status: "succeeded",
+  streamingEvidence: {
+    chunkCount: 1,
+    firstChunkAt: baseTimestamp + 2000,
+    hasStreamedContent: true,
+  },
   summary: "chat completion · completed",
   taskId: "task-1",
   terminalOutcome: "succeeded",
@@ -170,6 +175,7 @@ describe("RunSummaryCard", () => {
     expect(within(card).getByText("Thread: 42")).toBeInTheDocument();
     expect(within(card).getByText("Turn: turn-1")).toBeInTheDocument();
     expect(within(card).getByText("Latest turn message: msg-4")).toBeInTheDocument();
+    expect(within(card).getByText("Chunks: 1")).toBeInTheDocument();
     expect(within(card).getByText("Inspect raw events")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /open details for chat completion/i })

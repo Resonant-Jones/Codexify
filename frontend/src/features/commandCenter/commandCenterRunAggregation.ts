@@ -6,6 +6,9 @@ import type {
   CommandCenterRunIdentityKind,
   CommandCenterRunStatus,
   CommandCenterRunTerminalOutcome,
+  CommandCenterRunStreamingEvidence,
+  CommandCenterRunTimings,
+  CommandCenterRunTraceEvidence,
 } from "@/features/commandCenter/types";
 
 const RUN_EVENT_LIMIT = 50;
@@ -114,14 +117,120 @@ function parseJson(raw: string): Record<string, unknown> | null {
   }
 }
 
-function pushRecord(
-  records: Record<string, unknown>[],
-  value: unknown
-): void {
-  const record = asRecord(value);
-  if (!record) return;
-  if (!records.includes(record)) {
-    records.push(record);
+const NESTED_RECORD_KEYS = [
+  "data",
+  "event",
+  "meta",
+  "metadata",
+  "payload",
+  "response",
+  "result",
+  "run",
+  "task",
+  "trace",
+  "context",
+  "lifecycle",
+  "runtime",
+  "thread",
+  "timings",
+] as const;
+
+function parseTimestamp(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const parsed = Number(trimmed);
+  if (Number.isFinite(parsed) && /^(?:\d+)(?:\.\d+)?$/.test(trimmed)) {
+    return parsed;
+  }
+
+  const parsedDate = Date.parse(trimmed);
+  return Number.isFinite(parsedDate) ? parsedDate : null;
+}
+
+function parseBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+  if (typeof value !== "string") return null;
+
+  const normalized = normalizeToken(value);
+  if (["true", "yes", "y", "1", "present", "available"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "no", "n", "0", "missing", "absent", "unavailable"].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function formatLifecycleStateToken(value: string): string {
+  return value
+    .trim()
+    .replace(/[.\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+}
+
+function normalizeLifecycleStateToken(value: string | null): string | null {
+  if (!value) return null;
+
+  const normalized = normalizeToken(value).replace(/[.\s-]+/g, "_");
+  switch (normalized) {
+    case "accepted":
+    case "accepted_degraded":
+    case "created":
+    case "queued":
+      return "QUEUED";
+    case "dispatching":
+      return "DISPATCHING";
+    case "awaiting_ack":
+    case "waiting_for_ack":
+    case "awaiting_confirmation":
+      return "AWAITING_ACK";
+    case "awaiting_model":
+    case "running":
+    case "model_warming":
+      return "AWAITING_MODEL";
+    case "awaiting_first_token":
+    case "first_token_pending":
+      return "AWAITING_FIRST_TOKEN";
+    case "streaming":
+    case "chunk":
+    case "progress":
+      return "STREAMING";
+    case "completed":
+    case "done":
+    case "success":
+    case "succeeded":
+      return "COMPLETED";
+    case "cancelled":
+    case "canceled":
+      return "CANCELLED";
+    case "timed_out":
+    case "timeout":
+      return "TIMED_OUT";
+    case "failed_retryable":
+      return "FAILED_RETRYABLE";
+    case "failed_fatal":
+    case "failed":
+    case "error":
+      return "FAILED_FATAL";
+    case "orphaned":
+      return "ORPHANED";
+    case "replayed":
+      return "REPLAYED";
+    default:
+      return formatLifecycleStateToken(value);
   }
 }
 
@@ -129,23 +238,35 @@ function collectRecords(json: Record<string, unknown> | null): Record<string, un
   const records: Record<string, unknown>[] = [];
   if (!json) return records;
 
-  pushRecord(records, json);
-  pushRecord(records, json.data);
-  pushRecord(records, json.run);
-  pushRecord(records, json.payload);
-  pushRecord(records, json.task);
-  pushRecord(records, json.event);
-  pushRecord(records, json.thread);
-  pushRecord(records, json.context);
+  const queue: Record<string, unknown>[] = [];
+  const seen = new Set<Record<string, unknown>>();
 
-  for (const record of [...records]) {
-    pushRecord(records, record.data);
-    pushRecord(records, record.run);
-    pushRecord(records, record.payload);
-    pushRecord(records, record.task);
-    pushRecord(records, record.event);
-    pushRecord(records, record.thread);
-    pushRecord(records, record.context);
+  const enqueue = (value: unknown): void => {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        const parsed = parseJson(trimmed);
+        if (parsed && !seen.has(parsed)) {
+          seen.add(parsed);
+          queue.push(parsed);
+        }
+      }
+    }
+    const record = asRecord(value);
+    if (!record || seen.has(record)) return;
+    seen.add(record);
+    queue.push(record);
+  };
+
+  enqueue(json);
+
+  while (queue.length > 0) {
+    const record = queue.shift();
+    if (!record) continue;
+    records.push(record);
+    for (const key of NESTED_RECORD_KEYS) {
+      enqueue(record[key]);
+    }
   }
 
   return records;
@@ -189,6 +310,86 @@ function readThreadId(records: Record<string, unknown>[]): number | null {
     if (value != null) return value;
   }
   return readNumber(records, ["thread_id", "threadId"]);
+}
+
+function readTimestamp(records: Record<string, unknown>[], keys: string[]): number | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = parseTimestamp(record[key]);
+      if (value != null) return value;
+    }
+  }
+  return null;
+}
+
+function readBoolean(records: Record<string, unknown>[], keys: string[]): boolean | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = parseBoolean(record[key]);
+      if (value != null) return value;
+    }
+  }
+  return null;
+}
+
+function readTaskType(records: Record<string, unknown>[]): string | null {
+  for (const record of records) {
+    const value = firstToken(record.type, record.task_type, record.taskType);
+    if (!value) continue;
+    if (looksLikeEventType(value)) continue;
+    return value;
+  }
+  return null;
+}
+
+function readTraceUrl(records: Record<string, unknown>[]): string | null {
+  return readKey(records, ["trace_url", "traceUrl"]);
+}
+
+function readLatestTurnContent(records: Record<string, unknown>[]): string | null {
+  return readKey(records, ["latest_turn_content", "latestTurnContent"]);
+}
+
+function inferLifecycleStateFromCanonicalType(
+  canonicalType: string | null
+): string | null {
+  switch (normalizeToken(canonicalType)) {
+    case "task.created":
+      return "QUEUED";
+    case "task.running":
+      return "AWAITING_MODEL";
+    case "task.state":
+      return "STATE";
+    case "task.chunk":
+      return "STREAMING";
+    case "task.completed":
+      return "COMPLETED";
+    case "task.failed":
+      return "FAILED_FATAL";
+    case "task.cancelled":
+      return "CANCELLED";
+    default:
+      return null;
+  }
+}
+
+function readLifecycleState(
+  records: Record<string, unknown>[],
+  canonicalType: string | null
+): string | null {
+  const explicit = readToken(records, [
+    "lifecycle_state",
+    "lifecycleState",
+    "request_state",
+    "requestState",
+    "phase",
+    "state",
+  ]);
+  if (explicit) {
+    return normalizeLifecycleStateToken(explicit);
+  }
+
+  return inferLifecycleStateFromCanonicalType(canonicalType);
 }
 
 function isJsonLike(raw: string): boolean {
@@ -452,6 +653,185 @@ function buildRunSummary(
   return `${typeLabel} · ${stateLabel}`;
 }
 
+function firstDefined<T>(
+  items: T[],
+  selector: (item: T) => unknown
+): unknown | null {
+  for (const item of items) {
+    const value = selector(item);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function lastDefined<T>(
+  items: T[],
+  selector: (item: T) => unknown
+): unknown | null {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const value = selector(items[index]);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function deriveLifecycleStates(events: CommandCenterEvent[]): string[] {
+  const states: string[] = [];
+  let previous: string | null = null;
+
+  for (const event of events) {
+    const state = event.lifecycleState;
+    if (!state) continue;
+    if (state === previous) continue;
+    states.push(state);
+    previous = state;
+  }
+
+  return states;
+}
+
+function deriveRunTimings(
+  events: CommandCenterEvent[]
+): CommandCenterRunTimings | null {
+  const queuedAt = firstDefined(events, (event) => event.queuedAt) as number | null;
+  const warmupAt = firstDefined(events, (event) => event.warmupAt) as number | null;
+  const firstTokenAt = firstDefined(events, (event) => event.firstTokenAt) as number | null;
+  const firstOutputAt = firstDefined(events, (event) => event.firstOutputAt) as number | null;
+  const completedAt = lastDefined(events, (event) => event.completedAt) as number | null;
+  let totalDurationMs = lastDefined(events, (event) => event.durationMs) as number | null;
+
+  if (
+    totalDurationMs == null &&
+    queuedAt != null &&
+    completedAt != null &&
+    completedAt >= queuedAt
+  ) {
+    totalDurationMs = completedAt - queuedAt;
+  }
+
+  if (
+    queuedAt == null &&
+    warmupAt == null &&
+    firstTokenAt == null &&
+    firstOutputAt == null &&
+    completedAt == null &&
+    totalDurationMs == null
+  ) {
+    return null;
+  }
+
+  return {
+    completedAt,
+    firstOutputAt,
+    firstTokenAt,
+    queuedAt,
+    totalDurationMs,
+    warmupAt,
+  };
+}
+
+function deriveRunStreamingEvidence(
+  events: CommandCenterEvent[]
+): CommandCenterRunStreamingEvidence | null {
+  const chunkEvents = events.filter((event) => normalizeToken(event.type) === "task.chunk");
+  if (chunkEvents.length === 0) return null;
+
+  return {
+    chunkCount: chunkEvents.length,
+    firstChunkAt: chunkEvents[0]?.receivedAt ?? null,
+    hasStreamedContent: true,
+  };
+}
+
+function deriveRunTraceEvidence(
+  events: CommandCenterEvent[],
+  latestTurnMessageId: string | null
+): CommandCenterRunTraceEvidence | null {
+  const traceUrl = lastDefined(events, (event) => event.traceUrl) as string | null;
+  const retrievalQuery = lastDefined(events, (event) => event.retrievalQuery) as string | null;
+  const retrievalTarget = lastDefined(events, (event) => event.retrievalTarget) as string | null;
+  const retrievalQueryMatchesLatestTurn = lastDefined(
+    events,
+    (event) => event.retrievalQueryMatchesLatestTurn
+  ) as boolean | null;
+  const latestTurnContent = lastDefined(events, (event) => event.latestTurnContent) as string | null;
+
+  const tracePresent = Boolean(
+    traceUrl ||
+      retrievalQuery ||
+      retrievalTarget ||
+      retrievalQueryMatchesLatestTurn != null ||
+      latestTurnContent
+  );
+  const latestTurnTracePresent = Boolean(
+    latestTurnMessageId &&
+      (
+      retrievalQuery ||
+      retrievalTarget ||
+      retrievalQueryMatchesLatestTurn != null ||
+      latestTurnContent
+      )
+  );
+  const retrievalQueryPresent = Boolean(retrievalQuery);
+  const latestTurnContentPresent = Boolean(latestTurnContent);
+
+  if (
+    !tracePresent &&
+    !latestTurnTracePresent &&
+    !retrievalQueryPresent &&
+    !latestTurnContentPresent &&
+    !traceUrl
+  ) {
+    return null;
+  }
+
+  return {
+    latestTurnContentPresent,
+    latestTurnTracePresent,
+    retrievalQuery,
+    retrievalQueryMatchesLatestTurn,
+    retrievalQueryPresent,
+    retrievalTarget,
+    tracePresent,
+    traceUrl,
+  };
+}
+
+function finalizeRun(run: MutableRun): CommandCenterRun {
+  const lifecycleStates = deriveLifecycleStates(run.events);
+  const timings = deriveRunTimings(run.events);
+  const streamingEvidence = deriveRunStreamingEvidence(run.events);
+  const traceEvidence = deriveRunTraceEvidence(run.events, run.latestTurnMessageId);
+  const traceUrl = traceEvidence?.traceUrl ?? null;
+
+  return {
+    eventCount: run.eventCount,
+    events: run.events,
+    identityKind: run.identityKind,
+    key: run.key,
+    lifecycleStates: lifecycleStates.length > 0 ? lifecycleStates : undefined,
+    lastEvent: run.lastEvent,
+    lastEventAt: run.lastEventAt,
+    lastKind: run.lastKind,
+    lastType: run.lastType,
+    latestTurnMessageId: run.latestTurnMessageId,
+    requestId: run.requestId,
+    runId: run.runId,
+    runType: run.runType,
+    state: run.state,
+    status: run.status,
+    streamingEvidence,
+    summary: run.summary,
+    taskId: run.taskId,
+    terminalOutcome: run.terminalOutcome,
+    timings,
+    traceEvidence,
+    traceUrl,
+    turnId: run.turnId,
+    threadId: run.threadId,
+  };
+}
+
 function normalizeEventIds(
   records: Record<string, unknown>[]
 ): {
@@ -611,9 +991,55 @@ export function normalizeCommandCenterEvent(
     normalizeCanonicalEventType(candidateEventType) ??
     firstToken(candidateEventType);
   const ids = normalizeEventIds(records);
-  const taskType = readToken(records, ["type", "task_type", "taskType"]);
+  const taskType = readTaskType(records);
   const state = deriveTaskState(canonicalType, records);
   const terminalOutcome = deriveTerminalOutcome(canonicalType, records);
+  const lifecycleState = readLifecycleState(records, canonicalType);
+  const queuedAt = readTimestamp(records, [
+    "queued_at",
+    "queuedAt",
+    "created_at",
+    "createdAt",
+    "started_at",
+    "startedAt",
+  ]);
+  const warmupAt = readTimestamp(records, ["warmup_at", "warmupAt"]);
+  const firstTokenAt = readTimestamp(records, [
+    "first_token_at",
+    "firstTokenAt",
+  ]);
+  const firstOutputAt = readTimestamp(records, [
+    "first_output_at",
+    "firstOutputAt",
+  ]);
+  const completedAt = readTimestamp(records, [
+    "completed_at",
+    "completedAt",
+    "finished_at",
+    "finishedAt",
+  ]);
+  const durationMs = readNumber(records, [
+    "duration_ms",
+    "durationMs",
+    "total_duration_ms",
+    "totalDurationMs",
+    "elapsed_ms",
+    "elapsedMs",
+  ]);
+  const retrievalQuery = readKey(records, [
+    "retrieval_query",
+    "retrievalQuery",
+  ]);
+  const retrievalTarget = readKey(records, [
+    "retrieval_target",
+    "retrievalTarget",
+  ]);
+  const retrievalQueryMatchesLatestTurn = readBoolean(records, [
+    "retrieval_query_matches_latest_turn",
+    "retrievalQueryMatchesLatestTurn",
+  ]);
+  const latestTurnContent = readLatestTurnContent(records);
+  const traceUrl = readTraceUrl(records);
   const summary = summarizeEvent(
     raw,
     canonicalType,
@@ -627,11 +1053,21 @@ export function normalizeCommandCenterEvent(
     eventId: firstString(message.lastEventId),
     json,
     kind: readToken(records, ["kind"]),
+    completedAt,
+    durationMs,
+    firstOutputAt,
+    firstTokenAt,
     latestTurnMessageId: ids.latestTurnMessageId,
+    latestTurnContent,
+    lifecycleState,
     raw,
     receivedAt: Date.now(),
+    queuedAt,
     requestId: ids.requestId,
     runId: ids.runId,
+    retrievalQuery,
+    retrievalQueryMatchesLatestTurn,
+    retrievalTarget,
     sseType: rawEventType ?? payloadEventType ?? "message",
     state,
     status: readToken(records, ["status", "raw_status", "rawStatus"]),
@@ -641,6 +1077,8 @@ export function normalizeCommandCenterEvent(
     terminalOutcome,
     threadId: ids.threadId,
     turnId: ids.turnId,
+    traceUrl,
+    warmupAt,
     type: canonicalType,
   };
 }
@@ -804,11 +1242,13 @@ export function aggregateCommandCenterEvents(
     }
   });
 
+  const finalizedRuns = Array.from(runs.values())
+    .map((run) => finalizeRun(run))
+    .sort((left, right) => right.lastEventAt - left.lastEventAt);
+
   return {
     approvals: approvals.sort((left, right) => right.receivedAt - left.receivedAt),
-    runs: Array.from(runs.values()).sort(
-      (left, right) => right.lastEventAt - left.lastEventAt
-    ),
+    runs: finalizedRuns,
   };
 }
 
