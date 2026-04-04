@@ -9,8 +9,14 @@ import RunSummaryCard from "@/features/commandCenter/components/RunSummaryCard";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
 import type {
+  CommandCenterConnectionState,
   CommandCenterHealthItem,
   CommandCenterRun,
+} from "@/features/commandCenter/types";
+import {
+  COMMAND_CENTER_HEALTH_STATES,
+  COMMAND_CENTER_RUN_STATUSES,
+  describeCommandCenterHealthStatePresentation,
 } from "@/features/commandCenter/types";
 import {
   describeRuntimeStatusPresentation,
@@ -179,8 +185,12 @@ function countUnknownItems(
   healthItems: CommandCenterHealthItem[],
   runs: CommandCenterRun[]
 ): number {
-  const healthUnknownCount = healthItems.filter((item) => item.status === "UNKNOWN").length;
-  const runUnknownCount = runs.filter((run) => run.status === "unknown").length;
+  const healthUnknownCount = healthItems.filter(
+    (item) => item.status === COMMAND_CENTER_HEALTH_STATES.UNKNOWN
+  ).length;
+  const runUnknownCount = runs.filter(
+    (run) => run.status === COMMAND_CENTER_RUN_STATUSES.UNKNOWN
+  ).length;
   return healthUnknownCount + runUnknownCount;
 }
 
@@ -294,7 +304,7 @@ function HealthStrip({
   lastCheckedAt: number | null;
   loading: boolean;
   onRefresh: () => Promise<void>;
-  }) {
+}) {
   return (
     <Card
       className="bezel-none border"
@@ -320,87 +330,93 @@ function HealthStrip({
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
-        {healthItems.map((item) => (
-          <Card
-            key={item.key}
-            className="bezel-none border"
-            data-testid={`command-center-health-${item.key}`}
-            style={{
-              ...tileSurfaceStyle,
-            }}
-          >
-            <CardContent className="space-y-3 p-[var(--card-pad)]">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <div className="text-sm font-semibold leading-5" style={{ color: "var(--text)" }}>
-                    {item.label}
-                  </div>
-                  <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                    {item.endpoint}
-                  </div>
-                </div>
-                <StatusPill
-                  ariaLabelPrefix={`${item.label} status`}
-                  status={item.status}
-                />
-              </div>
+        {healthItems.map((item) => {
+          const presentation = describeCommandCenterHealthStatePresentation(item.status);
 
-              <details className="text-xs" style={{ color: "var(--muted)" }}>
-                <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.16em]">
-                  Inspect raw details
-                </summary>
-                <div className="mt-3 space-y-2">
-                  <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                    <div
-                      className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Checked
+          return (
+            <Card
+              key={item.key}
+              className="bezel-none border"
+              data-testid={`command-center-health-${item.key}`}
+              style={{
+                ...tileSurfaceStyle,
+              }}
+            >
+              <CardContent className="space-y-3 p-[var(--card-pad)]">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-sm font-semibold leading-5" style={{ color: "var(--text)" }}>
+                      {item.label}
                     </div>
-                    <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                      {formatTimestamp(item.checkedAt)}
+                    <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                      {item.endpoint}
                     </div>
                   </div>
-                  {item.httpStatus != null ? (
+                  <BadgePill
+                    ariaLabel={`${item.label} status ${presentation.label}`}
+                    tone={presentation.tone}
+                  >
+                    {presentation.label}
+                  </BadgePill>
+                </div>
+
+                <details className="text-xs" style={{ color: "var(--muted)" }}>
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.16em]">
+                    Inspect raw details
+                  </summary>
+                  <div className="mt-3 space-y-2">
                     <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
                       <div
                         className="text-[11px] font-semibold uppercase tracking-[0.16em]"
                         style={{ color: "var(--muted)" }}
                       >
-                        HTTP status
+                        Checked
                       </div>
                       <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
-                        {item.httpStatus}
+                        {formatTimestamp(item.checkedAt)}
                       </div>
                     </div>
-                  ) : null}
-                  {item.error ? (
-                    <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
-                      <div
-                        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        Error
+                    {item.httpStatus != null ? (
+                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
+                        <div
+                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          HTTP status
+                        </div>
+                        <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
+                          {item.httpStatus}
+                        </div>
                       </div>
-                      <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                        {item.error}
+                    ) : null}
+                    {item.error ? (
+                      <div className="rounded-[var(--tile-radius)] border p-3" style={rawSurfaceStyle}>
+                        <div
+                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Error
+                        </div>
+                        <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                          {item.error}
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                  <pre
-                    className="overflow-x-auto rounded-[var(--tile-radius)] border p-3 text-[11px] leading-5"
-                    style={{
-                      ...rawSurfaceStyle,
-                      color: "var(--muted)",
-                    }}
-                  >
-                    {item.raw ?? "No raw payload available."}
-                  </pre>
-                </div>
-              </details>
-            </CardContent>
-          </Card>
-        ))}
+                    ) : null}
+                    <pre
+                      className="overflow-x-auto rounded-[var(--tile-radius)] border p-3 text-[11px] leading-5"
+                      style={{
+                        ...rawSurfaceStyle,
+                        color: "var(--muted)",
+                      }}
+                    >
+                      {item.raw ?? "No raw payload available."}
+                    </pre>
+                  </div>
+                </details>
+              </CardContent>
+            </Card>
+          );
+        })}
       </CardContent>
     </Card>
   );

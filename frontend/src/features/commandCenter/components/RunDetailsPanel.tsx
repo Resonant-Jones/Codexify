@@ -2,11 +2,17 @@ import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { describeRuntimeStatusPresentation } from "@/contracts/runtimeTokens";
 
 import type {
   CommandCenterEvent,
   CommandCenterRun,
+} from "@/features/commandCenter/types";
+import {
+  describeCommandCenterRunKindLabel,
+  describeCommandCenterRunStatusPresentation,
+  describeCommandCenterRunTerminalOutcomePresentation,
+  describeCommandCenterTracePresencePresentation,
+  type CommandCenterStatusTone,
 } from "@/features/commandCenter/types";
 
 type RunDetailsPanelProps = {
@@ -48,55 +54,34 @@ function getEvents(run: CommandCenterRun): CommandCenterEvent[] {
   return run.events?.length ? run.events : [run.lastEvent];
 }
 
-function runStateStyle(status: CommandCenterRun["status"]): React.CSSProperties {
-  switch (status) {
-    case "running":
+function badgeToneStyle(tone: CommandCenterStatusTone): React.CSSProperties {
+  switch (tone) {
+    case "active":
+      return {
+        background: "rgba(34, 197, 94, 0.12)",
+        borderColor: "rgba(34, 197, 94, 0.35)",
+      };
+    case "attention":
+      return {
+        background: "rgba(250, 204, 21, 0.12)",
+        borderColor: "rgba(250, 204, 21, 0.35)",
+      };
+    case "danger":
+      return {
+        background: "rgba(239, 68, 68, 0.12)",
+        borderColor: "rgba(239, 68, 68, 0.35)",
+      };
+    case "info":
       return {
         background: "rgba(59, 130, 246, 0.12)",
         borderColor: "rgba(59, 130, 246, 0.35)",
       };
-    case "succeeded":
-      return {
-        background: "rgba(34, 197, 94, 0.12)",
-        borderColor: "rgba(34, 197, 94, 0.35)",
-      };
-    case "failed":
-      return {
-        background: "rgba(239, 68, 68, 0.12)",
-        borderColor: "rgba(239, 68, 68, 0.35)",
-      };
-    case "needs_attention":
-      return {
-        background: "rgba(250, 204, 21, 0.12)",
-        borderColor: "rgba(250, 204, 21, 0.35)",
-      };
-    default:
+    case "neutral":
       return {
         background: "rgba(148, 163, 184, 0.12)",
         borderColor: "rgba(148, 163, 184, 0.28)",
       };
-  }
-}
-
-function runOutcomeStyle(
-  outcome: CommandCenterRun["terminalOutcome"] | null | undefined
-): React.CSSProperties {
-  switch (outcome) {
-    case "succeeded":
-      return {
-        background: "rgba(34, 197, 94, 0.12)",
-        borderColor: "rgba(34, 197, 94, 0.35)",
-      };
-    case "failed":
-      return {
-        background: "rgba(239, 68, 68, 0.12)",
-        borderColor: "rgba(239, 68, 68, 0.35)",
-      };
-    case "cancelled":
-      return {
-        background: "rgba(250, 204, 21, 0.12)",
-        borderColor: "rgba(250, 204, 21, 0.35)",
-      };
+    case "subtle":
     default:
       return {
         background: "rgba(148, 163, 184, 0.12)",
@@ -203,7 +188,10 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
 
   if (!run) return null;
 
-  const statusPresentation = describeRuntimeStatusPresentation(run.status);
+  const statusPresentation = describeCommandCenterRunStatusPresentation(run.status);
+  const terminalOutcomePresentation = describeCommandCenterRunTerminalOutcomePresentation(
+    run.terminalOutcome
+  );
   const lifecycleStates = run.lifecycleStates ?? [];
   const timings = run.timings ?? null;
   const streamingEvidence = run.streamingEvidence ?? null;
@@ -231,33 +219,33 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
       >
         <CardContent className="space-y-3 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                Run details
-              </div>
-              <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                {run.runType ?? "task"} · {run.summary}
+          <div className="space-y-1">
+            <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+              Run details
+            </div>
+            <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                {describeCommandCenterRunKindLabel(run.runKind) ?? run.runType ?? "task"} · {run.summary}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge
                 className="border text-[11px] font-medium leading-none"
                 style={{
-                  ...runStateStyle(run.status),
+                  ...badgeToneStyle(statusPresentation.tone),
                   color: "var(--text)",
                 }}
               >
-                {run.state ?? run.status}
+                {statusPresentation.label}
               </Badge>
-              {run.terminalOutcome ? (
+              {terminalOutcomePresentation ? (
                 <Badge
                   className="border text-[11px] font-medium leading-none"
                   style={{
-                    ...runOutcomeStyle(run.terminalOutcome),
+                    ...badgeToneStyle(terminalOutcomePresentation.tone),
                     color: "var(--text)",
                   }}
                 >
-                  {run.terminalOutcome}
+                  {terminalOutcomePresentation.label}
                 </Badge>
               ) : null}
               <Badge
@@ -293,8 +281,11 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
       <SectionCard title="Lifecycle" note="Ordered states and terminal outcome from the aggregated run record.">
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
-            <Chip label="Current state" value={run.state ?? "unknown"} />
-            <Chip label="Terminal result" value={run.terminalOutcome ?? "not reached"} />
+            <Chip label="Current state" value={statusPresentation.label} />
+            <Chip
+              label="Terminal result"
+              value={terminalOutcomePresentation?.label ?? "not reached"}
+            />
             <Chip
               label="Streaming"
               value={
@@ -340,7 +331,12 @@ export default function RunDetailsPanel({ run }: RunDetailsPanelProps) {
               {traceEvidence.widenReason != null ? (
                 <Chip label="Widen reason" value={traceEvidence.widenReason} />
               ) : null}
-              <Chip label="Trace status" value={traceEvidence.tracePresenceState} />
+              <Chip
+                label="Trace status"
+                value={describeCommandCenterTracePresencePresentation(
+                  traceEvidence.tracePresenceState
+                ).label}
+              />
               {traceEvidence.latestTurnMessageId ?? run.latestTurnMessageId ? (
                 <Chip
                   label="Latest turn message"
