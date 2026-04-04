@@ -19,6 +19,10 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from guardian.core import metrics
+from guardian.core.health_service import (
+    build_health_response,
+    normalize_health_status,
+)
 from guardian.core.dependencies import DB_BACKEND, get_database_dsn
 from guardian.core.llm_catalog import build_llm_catalog
 from guardian.core.provider_registry import (
@@ -53,6 +57,25 @@ def _redis_dependency_unavailable_response(
     payload: dict[str, object]
 ) -> JSONResponse:
     return JSONResponse(status_code=503, content=payload)
+
+
+def _health_response(
+    service: str,
+    status: str,
+    details: dict[str, object],
+    *,
+    http_status: int | None = None,
+):
+    payload = build_health_response(
+        service=service, status=normalize_health_status(status), details=details
+    )
+    for key, value in details.items():
+        if key in {"status", "service", "timestamp", "details"}:
+            continue
+        payload[key] = value
+    if http_status is None:
+        return payload
+    return JSONResponse(status_code=http_status, content=payload)
 
 
 def _resolve_llm_health_endpoints() -> list[str]:
@@ -464,11 +487,11 @@ def _collect_completion_service_health() -> dict[str, object]:
 @router.get("/health")
 def health(request: Request):
     """Base health check endpoint for system-level monitoring."""
-    payload = {"status": "ok"}
+    details: dict[str, object] = {}
     supported_profile = getattr(request.app.state, "supported_profile", None)
     if supported_profile is not None:
-        payload["supported_profile"] = supported_profile
-    return payload
+        details["supported_profile"] = supported_profile
+    return _health_response("core", "ok", details)
 
 
 @router.get("/health/llm")
@@ -525,6 +548,14 @@ def health_llm():
     if provider == "local" and model:
         payload["runtime"] = describe_local_runtime(model, settings=settings)
 
+    def _wrap(status: str, *, http_status: int | None = None):
+        envelope = build_health_response(
+            "llm", normalize_health_status(status), payload
+        )
+        if http_status is None:
+            return envelope
+        return JSONResponse(status_code=http_status, content=envelope)
+
     try:
         validate_llm_config(settings, provider_override=provider)
     except LLMConfigError as exc:
@@ -538,7 +569,7 @@ def health_llm():
             discoverable=False,
             selectable=False,
         )
-        return payload
+        return _wrap("down")
 
     if (
         local_model_resolution is not None
@@ -567,7 +598,7 @@ def health_llm():
             ),
             selectable=False,
         )
-        return payload
+        return _wrap("down")
 
     if completion_service.get("dependency_unavailable"):
         payload.update(
@@ -578,7 +609,7 @@ def health_llm():
                 "dependency": "redis",
             }
         )
-        return _redis_dependency_unavailable_response(payload)
+        return _wrap("down", http_status=503)
 
     if provider == "local":
         timeout = float(os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "1.0"))
@@ -587,14 +618,28 @@ def health_llm():
         if cached is not None:
             payload.update(cached)
             payload["cache"] = "hit"
-            return payload
+            payload["provider_truth"] = build_provider_truth(
+                provider,
+                settings,
+                capability=provider_runtime,
+                discoverable=bool(payload.get("ok")),
+                selectable=bool(payload.get("ok")),
+            )
+            return _wrap(cached.get("status"))
 
         if not _LLM_HEALTH_PROBE_INFLIGHT_LOCK.acquire(blocking=False):
             stale = _get_latest_probe()
             if stale is not None:
                 payload.update(stale)
                 payload["cache"] = "stale"
-                return payload
+                payload["provider_truth"] = build_provider_truth(
+                    provider,
+                    settings,
+                    capability=provider_runtime,
+                    discoverable=bool(payload.get("ok")),
+                    selectable=bool(payload.get("ok")),
+                )
+                return _wrap(stale.get("status"))
             payload.update(
                 {
                     "ok": False,
@@ -602,17 +647,17 @@ def health_llm():
                     "error": "health probe in progress",
                 }
             )
-            return payload
+            return _wrap("degraded")
 
         try:
-            local_base = _resolve_local_base(settings)
+            _resolve_local_base(settings)
         except Exception as exc:
             detail = getattr(exc, "detail", str(exc))
             payload.update(
                 {"ok": False, "status": "misconfigured", "error": str(detail)}
             )
             _LLM_HEALTH_PROBE_INFLIGHT_LOCK.release()
-            return payload
+            return _wrap("down")
         try:
             probe_payload = _probe_local_llm(settings, timeout)
             _store_probe(probe_payload)
@@ -627,7 +672,7 @@ def health_llm():
             discoverable=bool(payload.get("ok")),
             selectable=bool(payload.get("ok")),
         )
-        return payload
+        return _wrap(payload.get("status"))
 
     if not provider_runtime.get("enabled"):
         payload.update(
@@ -648,7 +693,7 @@ def health_llm():
             == "available",
             selectable=False,
         )
-        return payload
+        return _wrap("down")
 
     payload.update(
         {
@@ -671,7 +716,7 @@ def health_llm():
         == "available",
         selectable=bool(provider_runtime.get("enabled")),
     )
-    return payload
+    return _wrap("degraded")
 
 
 @router.get("/api/llm/catalog")
@@ -914,6 +959,7 @@ def health_memory():
 
     Returns a simple JSON payload with ok flag and per-silo counts.
     """
+    error: str | None = None
     try:
         # Import lightweight dependencies lazily to avoid circulars
         from guardian.core.dependencies import chatlog_db
@@ -925,15 +971,21 @@ def health_memory():
     except Exception as _e:
         logger.warning("[health/memory] check failed: %s", _e)
         ephemeral_count = midterm = longterm = 0
+        error = str(_e)
 
-    return {
-        "ok": True,
-        "counts": {
-            "ephemeral": ephemeral_count,
-            "midterm": midterm,
-            "longterm": longterm,
+    return _health_response(
+        "memory",
+        "down" if error else "ok",
+        {
+            "ok": error is None,
+            "counts": {
+                "ephemeral": ephemeral_count,
+                "midterm": midterm,
+                "longterm": longterm,
+            },
+            **({"error": error} if error else {}),
         },
-    }
+    )
 
 
 @router.get("/health/vector")
@@ -986,22 +1038,30 @@ def health_vector():
             matches = vector_store.search(probe_text, k=1)
         ok = bool(matches)
 
-        return {
-            "ok": ok,
-            "status": "ok" if ok else "error",
-            "backend": backend,
-            "source": source,
-            "added": added,
-            "matches": len(matches),
-        }
+        return _health_response(
+            "vector",
+            "ok" if ok else "down",
+            {
+                "ok": ok,
+                "status": "ok" if ok else "error",
+                "backend": backend,
+                "source": source,
+                "added": added,
+                "matches": len(matches),
+            },
+        )
     except Exception as exc:
         logger.warning("[health/vector] check failed: %s", exc)
-        return {
-            "ok": False,
-            "status": "error",
-            "backend": "unknown",
-            "error": str(exc),
-        }
+        return _health_response(
+            "vector",
+            "down",
+            {
+                "ok": False,
+                "status": "error",
+                "backend": "unknown",
+                "error": str(exc),
+            },
+        )
 
 
 @router.get("/metrics")
@@ -1042,11 +1102,14 @@ def health_deps(format: str = "json"):
         else api_key
     )
 
-    return {
-        "status": "ok",
-        "db_backend": DB_BACKEND,
-        "pg_dsn_masked": _mask_dsn(get_database_dsn())
-        if get_database_dsn()
-        else None,
-        "api_key_masked": masked_api_key,
-    }
+    return _health_response(
+        "deps",
+        "ok",
+        {
+            "db_backend": DB_BACKEND,
+            "pg_dsn_masked": _mask_dsn(get_database_dsn())
+            if get_database_dsn()
+            else None,
+            "api_key_masked": masked_api_key,
+        },
+    )

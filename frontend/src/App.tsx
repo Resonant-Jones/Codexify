@@ -1,6 +1,7 @@
 import React from "react";
 
 import BootstrapGate from "./components/bootstrap/BootstrapGate";
+import WebRuntimeStartupGate from "./components/bootstrap/WebRuntimeStartupGate";
 import DocumentGenModal, {
   DocumentGenInput,
 } from "./components/DocumentGenModal";
@@ -8,6 +9,10 @@ import AppShell from "./components/persona/layout/AppShell";
 import { TopBar } from "./components/TopBar";
 import { Button } from "./components/ui/button";
 import CommandCenterPage from "./features/commandCenter/CommandCenterPage";
+import {
+  requestWorkspaceOpen,
+  shouldBlockNestedWorkspaceShell,
+} from "./features/workspace/state/useWorkspaceState";
 import api from "./lib/api";
 import {
   appendBootstrapDetail,
@@ -48,10 +53,6 @@ import {
 } from "./lib/runtimeBootstrap";
 import EventsConsole from "./pages/EventsConsole";
 import { SharePage } from "./pages/SharePage";
-import {
-  requestWorkspaceOpen,
-  shouldBlockNestedWorkspaceShell,
-} from "./features/workspace/state/useWorkspaceState";
 
 /**
  * App entry with a gated UI Playground ("Tune Rack").
@@ -1042,12 +1043,14 @@ export default function App() {
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
+  const webRuntimeGateEnabled = !bootstrapEnabled && import.meta.env.MODE !== "test";
 
   if (tuneRoute) {
     return <DevTuneGate />;
   }
+  let mainContent: React.ReactNode;
   if (eventsRoute) {
-    return (
+    mainContent = (
       <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column" }}>
         <TopBar />
         <main style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
@@ -1055,64 +1058,64 @@ export default function App() {
         </main>
       </div>
     );
-  }
-  if (commandCenterRoute) {
-    return <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} />;
-  }
-  if (personaStudioRoute) {
-    return <AppShell />;
-  }
-  if (shareRoute) {
-    if (shareToken) {
-      return <SharePage token={shareToken} />;
-    }
-  }
-  if (shouldBlockNestedWorkspaceShell()) {
-    return <WorkspaceRecursionGuard />;
-  }
-  if (startupLocked) {
-    if (bootstrapPhase === "welcome") {
-      return <WelcomeScreen onEnter={handleWelcomeEnter} />;
-    }
-
-    return (
-      <BootstrapGate
-        state={bootstrapState}
-        onRetry={handleRetryBootstrap}
-        onInstallDocker={handleInstallDocker}
-        onOpenDocker={handleOpenDocker}
-        onRestartServices={handleRestartServices}
-        onToggleLogs={handleToggleBootstrapLogs}
-        onSelectLogService={handleSelectBootstrapLogService}
-        logs={bootstrapLogs}
-        recoveryNotice={bootstrapRecoveryNotice}
-        openingDocker={openingDockerDesktop}
-        restartingServices={restartingServices}
-      />
+  } else if (commandCenterRoute) {
+    mainContent = (
+      <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} />
+    );
+  } else if (personaStudioRoute) {
+    mainContent = <AppShell />;
+  } else if (shareRoute && shareToken) {
+    mainContent = <SharePage token={shareToken} />;
+  } else if (shouldBlockNestedWorkspaceShell()) {
+    mainContent = <WorkspaceRecursionGuard />;
+  } else if (startupLocked) {
+    mainContent =
+      bootstrapPhase === "welcome" ? (
+        <WelcomeScreen onEnter={handleWelcomeEnter} />
+      ) : (
+        <BootstrapGate
+          state={bootstrapState}
+          onRetry={handleRetryBootstrap}
+          onInstallDocker={handleInstallDocker}
+          onOpenDocker={handleOpenDocker}
+          onRestartServices={handleRestartServices}
+          onToggleLogs={handleToggleBootstrapLogs}
+          onSelectLogService={handleSelectBootstrapLogService}
+          logs={bootstrapLogs}
+          recoveryNotice={bootstrapRecoveryNotice}
+          openingDocker={openingDockerDesktop}
+          restartingServices={restartingServices}
+        />
+      );
+  } else {
+    mainContent = (
+      <>
+        <AppShell />
+        <div className="fixed bottom-6 right-6 z-[1200]">
+          <Button
+            type="button"
+            variant="ghost"
+            className="rounded-full px-4 shadow"
+            onClick={() => setDocGenOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={docGenOpen}
+          >
+            Generate Doc
+          </Button>
+        </div>
+        <DocumentGenModal
+          open={docGenOpen}
+          onOpenChange={setDocGenOpen}
+          onSubmit={handleDocGenSubmit}
+          initialValues={docGenDraft ?? undefined}
+        />
+      </>
     );
   }
 
   return (
-    <>
-      <AppShell />
-      <div className="fixed bottom-6 right-6 z-[1200]">
-        <Button
-          type="button"
-          variant="ghost"
-          className="rounded-full px-4 shadow"
-          onClick={() => setDocGenOpen(true)}
-          aria-haspopup="dialog"
-          aria-expanded={docGenOpen}
-        >
-          Generate Doc
-        </Button>
-      </div>
-      <DocumentGenModal
-        open={docGenOpen}
-        onOpenChange={setDocGenOpen}
-        onSubmit={handleDocGenSubmit}
-        initialValues={docGenDraft ?? undefined}
-      />
-    </>
+    <WebRuntimeStartupGate enabled={webRuntimeGateEnabled}>
+      {mainContent}
+    </WebRuntimeStartupGate>
   );
 }
