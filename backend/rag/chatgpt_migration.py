@@ -1,14 +1,14 @@
-"""ChatGPT export migration into Postgres and the vector store."""
+"""ChatGPT export migration into Postgres with deferred enrichment."""
 
 import json
 import logging
 import multiprocessing as mp
 import os
 from datetime import datetime, timezone
-from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 from guardian.core import dependencies
+from guardian.queue.redis_queue import enqueue_chat_import_embed
 
 from .personal_fact_extraction import (
     extract_personal_fact_candidates,
@@ -213,6 +213,44 @@ def _embed_items_best_effort(
         return diagnostics
 
 
+def _queue_chatgpt_embedding_batch(
+    items: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    candidates = len(items)
+    diagnostics: Dict[str, Any] = {
+        "embedding_candidates": candidates,
+        "embeddings_persisted": 0,
+        "embeddings_failed": candidates,
+        "embedding_coverage_degraded": candidates > 0,
+        "failure_class": None,
+    }
+    if not items:
+        diagnostics["embedding_coverage_degraded"] = False
+        return diagnostics
+
+    try:
+        for item in items:
+            payload = {
+                "content": item["text"],
+                "thread_id": item["meta"].get("thread_id"),
+                "role": item["meta"].get("role"),
+                "message_id": item["meta"].get("message_id"),
+                "meta": item["meta"],
+                "origin": item["meta"].get("origin", "chatgpt_import"),
+                "source": item["meta"].get("source", "chatgpt_import"),
+                "type": "chat_import_embed",
+            }
+            enqueue_chat_import_embed(payload)
+        diagnostics["embeddings_persisted"] = candidates
+        diagnostics["embeddings_failed"] = 0
+        diagnostics["embedding_coverage_degraded"] = False
+        return diagnostics
+    except Exception as exc:
+        diagnostics["failure_class"] = type(exc).__name__
+        logger.warning("ChatGPT import embedding enqueue failed: %s", exc)
+        return diagnostics
+
+
 def _fetch_retryable_chatgpt_embedding_items(
     chatlog_db,
     *,
@@ -400,7 +438,7 @@ def _log_chatgpt_embedding_batch(
 ) -> None:
     level = logger.warning if failed_count > 0 else logger.info
     level(
-        "ChatGPT %s embedding batch batch_index=%d batch_total=%d candidate_count=%d persisted_count=%d failed_count=%d elapsed_ms=%.1f failure_class=%s",
+        "ChatGPT %s embedding handoff batch batch_index=%d batch_total=%d candidate_count=%d queued_count=%d failed_count=%d elapsed_ms=%.1f failure_class=%s",
         operation,
         batch_index,
         batch_total,
@@ -417,7 +455,6 @@ def _process_chatgpt_embedding_batches(
     chatlog_db,
     items: List[Dict[str, Any]],
     message_ids: List[int],
-    vector_store: Any,
     operation: str,
     failure_reason: str,
 ) -> Dict[str, Any]:
@@ -432,26 +469,13 @@ def _process_chatgpt_embedding_batches(
 
     batch_size = max(1, int(_IMPORT_EMBED_BATCH_SIZE))
     batch_total = (len(items) + batch_size - 1) // batch_size
-    for batch_index, (batch_items, batch_message_ids) in enumerate(
+    for batch_index, (batch_items, _batch_message_ids) in enumerate(
         _iter_embedding_batches(items, message_ids, batch_size),
         start=1,
     ):
-        started_at = perf_counter()
-        batch_diagnostics = _embed_items_best_effort(batch_items, vector_store)
-        elapsed_ms = (perf_counter() - started_at) * 1000.0
+        batch_diagnostics = _queue_chatgpt_embedding_batch(batch_items)
+        elapsed_ms = 0.0
 
-        persisted_count = int(batch_diagnostics.get("embeddings_persisted", 0))
-        failed_count = int(batch_diagnostics.get("embeddings_failed", 0))
-        _persist_chatgpt_embedding_attempt_outcome(
-            chatlog_db,
-            message_ids=batch_message_ids,
-            persisted_count=persisted_count,
-            failure_reason=(
-                failure_reason
-                if batch_diagnostics.get("embedding_coverage_degraded")
-                else None
-            ),
-        )
         _log_chatgpt_embedding_batch(
             operation=operation,
             batch_index=batch_index,
@@ -459,8 +483,10 @@ def _process_chatgpt_embedding_batches(
             candidate_count=int(
                 batch_diagnostics.get("embedding_candidates", 0)
             ),
-            persisted_count=persisted_count,
-            failed_count=failed_count,
+            persisted_count=int(
+                batch_diagnostics.get("embeddings_persisted", 0)
+            ),
+            failed_count=int(batch_diagnostics.get("embeddings_failed", 0)),
             elapsed_ms=elapsed_ms,
             failure_class=batch_diagnostics.get("failure_class"),
         )
@@ -468,8 +494,12 @@ def _process_chatgpt_embedding_batches(
         diagnostics["embedding_candidates"] += int(
             batch_diagnostics.get("embedding_candidates", 0)
         )
-        diagnostics["embeddings_persisted"] += persisted_count
-        diagnostics["embeddings_failed"] += failed_count
+        diagnostics["embeddings_persisted"] += int(
+            batch_diagnostics.get("embeddings_persisted", 0)
+        )
+        diagnostics["embeddings_failed"] += int(
+            batch_diagnostics.get("embeddings_failed", 0)
+        )
 
     diagnostics["embedding_coverage_degraded"] = (
         diagnostics["embeddings_failed"] > 0
@@ -1188,12 +1218,6 @@ def ingest_chatgpt_export(
     if not chatlog_db:
         raise RuntimeError("Database not available")
 
-    # Use existing vector store if already initialized; do NOT eagerly initialize.
-    # This allows import to succeed (with DB records) even if vector store is unavailable.
-    _vector_store = None
-    if _IMPORT_EMBEDDINGS_ENABLED:
-        _vector_store = getattr(dependencies, "_vector_store", None) or None
-
     hint = _detect_non_json_hint(content)
     if hint:
         raise ValueError(hint)
@@ -1270,6 +1294,7 @@ def ingest_chatgpt_export(
                     "import_source": "chatgpt",
                     "import_profile": _CHATGPT_IMPORT_PROFILE,
                     "source_thread_id": source_thread_id,
+                    "graph_status": "pending",
                     "import_summary": {
                         "messages_kept": len(messages),
                         "messages_filtered": conv_filtered_count,
@@ -1314,6 +1339,7 @@ def ingest_chatgpt_export(
                         "import_source": "chatgpt",
                         "import_profile": _CHATGPT_IMPORT_PROFILE,
                         "source_thread_id": source_thread_id,
+                        "graph_status": "pending",
                         "import_summary": {
                             "messages_kept": len(messages),
                             "messages_filtered": conv_filtered_count,
@@ -1343,6 +1369,9 @@ def ingest_chatgpt_export(
                     "origin": msg.get("origin"),
                     "era": msg.get("era"),
                     "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
+                    "embedding_status": "pending",
+                    "embedding_error": None,
+                    "embedding_queued_at": msg["imported_at"].isoformat(),
                     **import_grouping_metadata,
                 }
 
@@ -1370,6 +1399,23 @@ def ingest_chatgpt_export(
                     source_created_at=msg["source_created_at"],
                 )
 
+                existing_embedding_status = ""
+                existing_embedding_queued_at = None
+                if existing:
+                    existing_meta = existing.get("extra_meta") or {}
+                    existing_embedding_status = (
+                        str(existing_meta.get("embedding_status") or "")
+                        .strip()
+                        .lower()
+                    )
+                    existing_embedding_queued_at = existing_meta.get(
+                        "embedding_queued_at"
+                    )
+                should_queue_embedding = not existing or (
+                    existing_embedding_status in {"", "failed"}
+                    and not existing_embedding_queued_at
+                )
+
                 personal_fact_candidates = extract_personal_fact_candidates(msg)
                 if personal_fact_candidates:
                     try:
@@ -1390,7 +1436,7 @@ def ingest_chatgpt_export(
                         )
 
                 # Queue embedding payload for post-import processing.
-                if not existing:
+                if should_queue_embedding:
                     try:
                         embed_text = _sanitize_embed_text(msg["content"])
                         if not embed_text:
@@ -1410,6 +1456,10 @@ def ingest_chatgpt_export(
                             "era": msg["era"],
                             "source": "chatgpt_import",
                             "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
+                            "embedding_status": "pending",
+                            "embedding_queued_at": msg[
+                                "imported_at"
+                            ].isoformat(),
                             **import_grouping_metadata,
                         }
                         pending_embed_items.append(
@@ -1434,7 +1484,6 @@ def ingest_chatgpt_export(
         chatlog_db=chatlog_db,
         items=pending_embed_items,
         message_ids=pending_embed_message_ids,
-        vector_store=_vector_store,
         operation="import",
         failure_reason="embedding_coverage_degraded",
     )
@@ -1490,15 +1539,10 @@ def retry_chatgpt_import_embeddings(
         if item.get("message_id") is not None
     ]
 
-    vector_store = None
-    if _IMPORT_EMBEDDINGS_ENABLED:
-        vector_store = getattr(dependencies, "_vector_store", None) or None
-
     diagnostics = _process_chatgpt_embedding_batches(
         chatlog_db=chatlog_db,
         items=payload_items,
         message_ids=message_ids,
-        vector_store=vector_store,
         operation="retry",
         failure_reason="embedding_retry_degraded",
     )
