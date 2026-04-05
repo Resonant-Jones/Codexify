@@ -22,7 +22,7 @@ depends_on: str | Sequence[str] | None = None
 
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = (
-    "Default bucket for unassigned threads and documents"
+    "Default project for content without a specified project"
 )
 
 
