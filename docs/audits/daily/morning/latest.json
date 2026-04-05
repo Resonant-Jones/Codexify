@@ -2,13 +2,13 @@
   "audit_cli": {
     "attempts": [
       {
-        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/8db9/Codexify/scripts/audit_platform_readiness.py --json",
         "exit_code": 0,
         "stderr": "",
         "stdout_is_json": false
       },
       {
-        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/8db9/Codexify/scripts/audit_platform_readiness.py",
         "exit_code": 0,
         "stderr": ""
       }
@@ -40,7 +40,7 @@
         "Alternate Surface Readiness"
       ]
     },
-    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/tech-debt-and-risks.md contains 'Legacy `/tools` behavior and command bus behavior coexist'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Tools route present: guardian/routes/tools.py exists\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [PASS] Architecture docs describe command-bus and cron execution seams: docs/architecture/system-overview.md matches 'legacy `/tools` compatibility shim', 'Cron and job execution'\n  [PASS] Config docs expose provider selection as configuration: docs/architecture/config-and-ops.md matches 'LLM_PROVIDER', 'ALLOW_CLOUD_PROVIDERS'\n  [WARN] Legacy tools shim still carries process-local behavior: docs/architecture/flows.md contains 'still keeps some process-local job state'\nEvidence summary:\n  Tools, cron, provider configuration, and command-bus documentation give Codexify clear extension seams. The repo also documents that the legacy tools shim still carries process-local behavior, which weakens confidence that every new workflow can stay outside kernel edits.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths prefer durable command-bus or cron lanes over compatibility shims?\n  - Manual review required: is provider switching fully configuration-driven in real deployments, not just in local defaults?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [WARN] IDDB policy documentation present: missing expected path(s): docs/iddb_policy_v1.md, iddb_policy_v1.md\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 40\n  WARN: 11\n  FAIL: 0\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Core Loop Integrity, Primitive Stability, Extension Boundary\n  Clearest structural weakness signals: Federation Readiness, Governance Readiness, Alternate Surface Readiness\n",
+    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/.codex/worktrees/8db9/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/tech-debt-and-risks.md contains 'Legacy `/tools` behavior and command bus behavior coexist'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Tools route present: guardian/routes/tools.py exists\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [PASS] Architecture docs describe command-bus and cron execution seams: docs/architecture/system-overview.md matches 'legacy `/tools` compatibility shim', 'Cron and job execution'\n  [PASS] Config docs expose provider selection as configuration: docs/architecture/config-and-ops.md matches 'LLM_PROVIDER', 'ALLOW_CLOUD_PROVIDERS'\n  [WARN] Legacy tools shim still carries process-local behavior: docs/architecture/flows.md contains 'still keeps some process-local job state'\nEvidence summary:\n  Tools, cron, provider configuration, and command-bus documentation give Codexify clear extension seams. The repo also documents that the legacy tools shim still carries process-local behavior, which weakens confidence that every new workflow can stay outside kernel edits.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths prefer durable command-bus or cron lanes over compatibility shims?\n  - Manual review required: is provider switching fully configuration-driven in real deployments, not just in local defaults?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [WARN] IDDB policy documentation present: missing expected path(s): docs/iddb_policy_v1.md, iddb_policy_v1.md\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 40\n  WARN: 11\n  FAIL: 0\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Core Loop Integrity, Primitive Stability, Extension Boundary\n  Clearest structural weakness signals: Federation Readiness, Governance Readiness, Alternate Surface Readiness\n",
     "selected_mode": "text_fallback"
   },
   "baseline": {
@@ -63,328 +63,223 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 24,
+    "commit_count": 15,
     "commits": [
       {
         "files": [
-          "guardian/db/migrations/versions/d4b7f1a9c3e2_merge_heads_after_imprint_and_thread_config.py"
-        ],
-        "sha": "180c38ee5c9fa8be998b83b22f7af0218d71b9f0",
-        "subject": "Merge Alembic heads after imprint and thread_config"
-      },
-      {
-        "files": [
-          "guardian/core/chat_completion_service.py",
-          "guardian/routes/chat.py",
-          "guardian/tasks/types.py",
-          "guardian/workers/chat_worker.py",
-          "tests/core/test_chat_completion_service_latest_turn.py",
-          "tests/routes/test_chat_complete_latest_turn_integrity.py",
-          "tests/workers/test_chat_worker_latest_turn_integrity.py"
-        ],
-        "sha": "c7a73fd67a10130d383e1c8a83abf5ff848a058e",
-        "subject": "preserve latest-turn identity across queued completion"
-      },
-      {
-        "files": [
-          "docs/architecture/capabilities-audit.md"
-        ],
-        "sha": "708e8f68a34bfc23128c90c20e09d6233e2ea82c",
-        "subject": "docs(architecture): add capabilities audit for signal build assessment"
-      },
-      {
-        "files": [
-          "guardian/core/chat_completion_service.py",
-          "tests/core/test_chat_completion_service_latest_turn_trace.py",
-          "tests/routes/test_chat_profile_trace.py"
-        ],
-        "sha": "88e8a29262d512fe3d5c1c27ca8f0483eb1c52e3",
-        "subject": "expose latest-turn targeting in trace"
-      },
-      {
-        "files": [
-          "guardian/core/chat_completion_service.py",
-          "tests/core/test_chat_completion_service_latest_turn_retrieval.py"
-        ],
-        "sha": "0cfb3001fa5356095f2154e09ec07360750912be",
-        "subject": "target retrieval to latest user turn"
-      },
-      {
-        "files": [
-          "tests/core/test_chat_completion_service_latest_turn_regression.py"
-        ],
-        "sha": "98a30d11a7b2aad8631c7d111dd6944e8454dd91",
-        "subject": "add latest-turn regression coverage"
-      },
-      {
-        "files": [
-          "frontend/src/components/sidebar/ProjectList.tsx",
-          "frontend/src/components/sidebar/SidebarRoot.tsx",
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
-          "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-          "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
-          "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
-          "frontend/src/components/sidebar/sidebarPresentation.ts",
-          "frontend/src/components/sidebar/useProjectsCache.ts",
-          "frontend/src/components/sidebar/useSidebarThreads.ts",
-          "frontend/src/index.css"
-        ],
-        "sha": "321e14b47062272ddd823b4c75258a152e5cbfa3",
-        "subject": "Revert \"Restore imported projects natively and clean import rail\""
-      },
-      {
-        "files": [
-          "guardian/core/chat_completion_service.py",
-          "tests/core/test_chat_completion_service_latest_turn_prompting.py"
-        ],
-        "sha": "d745f0a860f5600faaefc4119f845629e2b150ff",
-        "subject": "target only latest user turn in prompts"
-      },
-      {
-        "files": [
-          "guardian/core/chat_completion_service.py",
-          "tests/core/test_chat_completion_service_latest_turn.py"
-        ],
-        "sha": "0a5177f5a27a14237f1f551d02051877043f56c0",
-        "subject": "split completion history from latest turn"
-      },
-      {
-        "files": [
-          "docs/specs/guardian_template_specifications"
-        ],
-        "sha": "116f23ac7e0193afa6c212cef8de0d7a562ba758",
-        "subject": "Add persona generation specification"
-      },
-      {
-        "files": [
-          "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
-          "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
-          "frontend/src/features/personaStudio/personaStudioStore.ts"
-        ],
-        "sha": "d4df527aee82fef540193c65957322602840e8f8",
-        "subject": "feat(persona-studio): implement real local draft persistence"
-      },
-      {
-        "files": [
-          "frontend/src/components/sidebar/ProjectList.tsx",
-          "frontend/src/components/sidebar/SidebarRoot.tsx",
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
-          "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-          "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
-          "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
-          "frontend/src/components/sidebar/sidebarPresentation.ts",
-          "frontend/src/components/sidebar/useProjectsCache.ts",
-          "frontend/src/components/sidebar/useSidebarThreads.ts",
-          "frontend/src/index.css"
-        ],
-        "sha": "bf9810aaef34f7b1cdfa292e634fdbe0627bd10a",
-        "subject": "Restore imported projects natively and clean import rail"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
-          "guardian/core/db.py",
-          "guardian/core/pgdb.py",
-          "guardian/routes/chat.py",
-          "tests/routes/test_thread_config_read_surfaces.py"
-        ],
-        "sha": "14c47df7b17c65e6e1c7c2b45b1dbe16e58c15fa",
-        "subject": "preserve thread config across thread read surfaces"
-      },
-      {
-        "files": [
-          "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
-          "frontend/src/features/chat/GuardianChat.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.thread-config.test.tsx",
-          "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
-          "frontend/src/lib/api.ts",
-          "frontend/src/types/ui.ts"
-        ],
-        "sha": "07cdc37f49b2e73f0d5eb9177ada91d0b97874ab",
-        "subject": "wire chat selectors to thread config"
-      },
-      {
-        "files": [
-          "guardian/routes/chat.py",
-          "tests/routes/test_thread_config_update.py"
-        ],
-        "sha": "0111e5d0809345b36332be118c857226beb4fc11",
-        "subject": "add thread config update route"
-      },
-      {
-        "files": [
-          "guardian/core/chat_completion_service.py",
-          "guardian/routes/chat.py",
-          "tests/core/test_chat_completion_service_thread_config.py",
-          "tests/routes/test_chat_complete_thread_config_precedence.py"
-        ],
-        "sha": "68747e6147cae8bb5879b437558e8a9cf948eaa5",
-        "subject": "make thread config authoritative for completion"
-      },
-      {
-        "files": [
-          "docs/audits/daily/morning/2026-04-02-audit.json",
-          "docs/audits/daily/morning/2026-04-02-audit.md",
-          "docs/audits/daily/morning/latest.json",
-          "docs/audits/daily/morning/latest.md",
-          "docs/audits/latest.json",
-          "docs/audits/latest.md"
-        ],
-        "sha": "e72c09abf61ae12a1272461450de736f65dea471",
-        "subject": "Update daily audit reports for 2026-04-02"
-      },
-      {
-        "files": [
-          "guardian/routes/chat.py",
-          "tests/routes/test_thread_creation_thread_config.py"
-        ],
-        "sha": "25f0c3438dfb5383f8e63eb884ab8468cbc67df6",
-        "subject": "snapshot thread config on thread creation"
-      },
-      {
-        "files": [
-          "frontend/src/vitest.config.ts"
-        ],
-        "sha": "2dff20c43b251c427d689d135a598dac413685b0",
-        "subject": "Normalize Vitest include ordering"
-      },
-      {
-        "files": [
-          "frontend/src/vitest.config.ts"
-        ],
-        "sha": "c82d5abccf587112d51e37d8d67aefe6c53c4e1f",
-        "subject": "test(frontend): normalize vitest include list"
-      },
-      {
-        "files": [
-          "guardian/db/migrations/versions/b0c1d2e3f4a5_add_thread_config_to_chat_threads.py",
+          "guardian/db/migrations/versions/d4e5f6a7b8c9_add_delegation_tables.py",
           "guardian/db/models.py",
-          "tests/db/test_chat_thread_thread_config.py"
+          "guardian/workers/delegation_worker.py",
+          "tests/workers/test_delegation_worker.py"
         ],
-        "sha": "9ee9fdb9547fb126e0e1502081d3c141ab1e314c",
-        "subject": "add thread_config to chat_threads"
+        "sha": "ce592dd308d7eb18cbe1269c7ce7b266cb799362",
+        "subject": "fix(delegation): reanchor migrations and guard terminal workers"
       },
       {
         "files": [
+          "guardian/tasks/types.py",
+          "guardian/workers/chat_worker.py"
+        ],
+        "sha": "f30ccd76dd284bb98de4be13cfaedb4972c02123",
+        "subject": "Add explicit task lifecycle states and event metadata"
+      },
+      {
+        "files": [
+          "frontend/src/components/gallery/GalleryView.tsx",
+          "frontend/src/components/persona/layout/AppShell.tsx",
+          "frontend/src/components/sidebar/useSidebarThreads.ts",
+          "frontend/src/features/chat/GuardianChat.tsx"
+        ],
+        "sha": "e190aa46686b5f50ae773770b0f55a7a82e9f689",
+        "subject": "Align frontend project controls with General scope"
+      },
+      {
+        "files": [
+          "guardian/core/db.py",
+          "guardian/core/default_project.py",
           "guardian/core/pgdb.py",
-          "guardian/routes/migration.py",
-          "guardian/services/account_restore.py",
-          "tests/routes/test_account_restore.py"
+          "guardian/db/migrations/001_create_media_tables.sql",
+          "guardian/db/migrations/versions/d1a6b9f2c4e7_make_uploaded_documents_project_required.py",
+          "guardian/routes/api_exports.py",
+          "guardian/routes/chat.py",
+          "guardian/routes/projects.py"
         ],
-        "sha": "8b78004655ea261c6b1268ef1798a8d10d5a8f41",
-        "subject": "feat: add metadata account restore route"
+        "sha": "9ce2671175bd7a1f14747101aa0378ec4dc13679",
+        "subject": "Route unassigned threads to the General project"
       },
       {
         "files": [
-          "frontend/src/vitest.config.ts"
+          "docs/architecture/README.md",
+          "docs/architecture/delegation-operator-manual.md",
+          "docs/architecture/delegation-runtime.md",
+          "docs/architecture/guardian-agent-delegation-recon.md",
+          "docs/architecture/kb-validity-matrix.md",
+          "scripts/docs/dossier_profiles/infra-operator.include",
+          "scripts/validate_docs.py"
         ],
-        "sha": "97fddb84793ba52304193c2c029f0cd150f771dc",
-        "subject": "test(frontend): include contract tests in default vitest discovery"
+        "sha": "91b4337115396757135dc2dbf0cfb4898d1e16b2",
+        "subject": "Add delegation runtime docs and validation"
       },
       {
         "files": [
-          "frontend/src/features/settings/SettingsView.tsx",
-          "frontend/src/features/settings/__tests__/SettingsView.test.tsx",
-          "frontend/src/features/settings/__tests__/useImprintZero.test.tsx",
-          "frontend/src/features/settings/api/imprint.ts",
-          "frontend/src/features/settings/components/ImprintReviewPanel.tsx",
-          "frontend/src/features/settings/components/__tests__/ImprintReviewPanel.test.tsx",
-          "frontend/src/features/settings/hooks/useImprintReview.ts",
-          "frontend/src/imprint/ImprintZeroToast.tsx",
-          "frontend/src/imprint/api.ts",
-          "frontend/src/imprint/useImprintZero.ts",
-          "guardian/chat/cli/main.py",
-          "guardian/cli/imprint_zero_cli.py",
-          "guardian/test_cli.py",
-          "tests/routes/test_imprint_proposal_routes.py"
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
         ],
-        "sha": "d39e0f417bf2c2f96e36a17e17376bd856f0527a",
-        "subject": "Wire imprint consumers to canonical backend proposal flow"
+        "sha": "e2f25038b49ad01bd6f35edf688e6114e90c40ad",
+        "subject": "Align sidebar source dock with thread tile width"
+      },
+      {
+        "files": [
+          "docs/audits/latest.json"
+        ],
+        "sha": "7988203e6f8b3e6b09d0d8a3b9cecb7bdf7195d4",
+        "subject": "Remove trailing whitespace from latest audit file"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/SidebarRoot.tsx",
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+          "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
+          "frontend/src/components/sidebar/sidebarPresentation.ts",
+          "frontend/src/components/sidebar/useSidebarThreads.ts"
+        ],
+        "sha": "04e4e74fbe6c73d650dcce6e5ea738b1d0428f12",
+        "subject": "Fix duplicated sidebar source pills and contain source dock"
+      },
+      {
+        "files": [
+          "guardian/routes/delegations.py"
+        ],
+        "sha": "92d219853769307f18faf8d5e214e330f151fe08",
+        "subject": "fix(delegation): emit terminal cancel event from route"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/2026-04-04-archived-snapshot-upgrade-proof.md"
+        ],
+        "sha": "043971376f786a1f0c4a48858de7678cff513489",
+        "subject": "add archived snapshot upgrade proof for release revalidation"
+      },
+      {
+        "files": [
+          "guardian/core/delegation_service.py",
+          "guardian/core/executors/__init__.py",
+          "guardian/core/executors/base.py",
+          "guardian/db/migrations/versions/d4e5f6a7b8c9_add_delegation_tables.py",
+          "guardian/db/models.py",
+          "guardian/guardian_api.py",
+          "guardian/protocol_tokens.py",
+          "guardian/queue/task_events.py",
+          "guardian/routes/delegations.py",
+          "guardian/tasks/types.py",
+          "guardian/workers/delegation_worker.py",
+          "tests/contracts/test_protocol_tokens.py",
+          "tests/core/test_delegation_service.py",
+          "tests/routes/test_delegations_routes.py",
+          "tests/workers/test_delegation_worker.py"
+        ],
+        "sha": "1108a5bd38f9782bd3a724af0666ca3c07bcae97",
+        "subject": "feat(delegation): add backend delegation backbone"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/2026-04-04-existing-instance-upgrade-proof.md"
+        ],
+        "sha": "c4b3e1a6fea986e84a8c8ac2a66bb7b753d978a5",
+        "subject": "add existing-instance upgrade proof for release revalidation"
+      },
+      {
+        "files": [
+          "frontend/src/components/sidebar/SidebarRoot.tsx",
+          "frontend/src/components/sidebar/ThreadList.tsx",
+          "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
+          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
+          "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
+          "frontend/src/components/sidebar/sidebarPresentation.ts",
+          "frontend/src/components/sidebar/useSidebarThreads.ts"
+        ],
+        "sha": "b3b86c373c1d80c95aba00325a281fb953c22f25",
+        "subject": "Fix duplicated sidebar source pills and contain source dock"
+      },
+      {
+        "files": [
+          "guardian/guardian_api.py",
+          "guardian/tests/test_guardian_api_startup.py"
+        ],
+        "sha": "780e9b7efc92c0c8d6ddb8258d23b4f2ef5fbc73",
+        "subject": "Defer ChatGPT import sweep to background startup"
+      },
+      {
+        "files": [
+          "frontend/src/App.tsx",
+          "frontend/src/components/bootstrap/WebRuntimeStartupGate.tsx",
+          "frontend/src/components/bootstrap/__tests__/WebRuntimeStartupGate.test.tsx"
+        ],
+        "sha": "56d3ae321730cc5fd1ebf02902366f81f506a619",
+        "subject": "Add web runtime startup gate"
       }
     ],
     "files_changed": [
-      "guardian/db/migrations/versions/d4b7f1a9c3e2_merge_heads_after_imprint_and_thread_config.py",
-      "guardian/core/chat_completion_service.py",
-      "guardian/routes/chat.py",
+      "guardian/db/migrations/versions/d4e5f6a7b8c9_add_delegation_tables.py",
+      "guardian/db/models.py",
+      "guardian/workers/delegation_worker.py",
+      "tests/workers/test_delegation_worker.py",
       "guardian/tasks/types.py",
       "guardian/workers/chat_worker.py",
-      "tests/core/test_chat_completion_service_latest_turn.py",
-      "tests/routes/test_chat_complete_latest_turn_integrity.py",
-      "tests/workers/test_chat_worker_latest_turn_integrity.py",
-      "docs/architecture/capabilities-audit.md",
-      "tests/core/test_chat_completion_service_latest_turn_trace.py",
-      "tests/routes/test_chat_profile_trace.py",
-      "tests/core/test_chat_completion_service_latest_turn_retrieval.py",
-      "tests/core/test_chat_completion_service_latest_turn_regression.py",
-      "frontend/src/components/sidebar/ProjectList.tsx",
-      "frontend/src/components/sidebar/SidebarRoot.tsx",
+      "frontend/src/components/gallery/GalleryView.tsx",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/components/sidebar/useSidebarThreads.ts",
+      "frontend/src/features/chat/GuardianChat.tsx",
+      "guardian/core/db.py",
+      "guardian/core/default_project.py",
+      "guardian/core/pgdb.py",
+      "guardian/db/migrations/001_create_media_tables.sql",
+      "guardian/db/migrations/versions/d1a6b9f2c4e7_make_uploaded_documents_project_required.py",
+      "guardian/routes/api_exports.py",
+      "guardian/routes/chat.py",
+      "guardian/routes/projects.py",
+      "docs/architecture/README.md",
+      "docs/architecture/delegation-operator-manual.md",
+      "docs/architecture/delegation-runtime.md",
+      "docs/architecture/guardian-agent-delegation-recon.md",
+      "docs/architecture/kb-validity-matrix.md",
+      "scripts/docs/dossier_profiles/infra-operator.include",
+      "scripts/validate_docs.py",
       "frontend/src/components/sidebar/ThreadList.tsx",
-      "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
-      "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
       "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-      "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
+      "docs/audits/latest.json",
+      "frontend/src/components/sidebar/SidebarRoot.tsx",
+      "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
       "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
       "frontend/src/components/sidebar/sidebarPresentation.ts",
-      "frontend/src/components/sidebar/useProjectsCache.ts",
-      "frontend/src/components/sidebar/useSidebarThreads.ts",
-      "frontend/src/index.css",
-      "tests/core/test_chat_completion_service_latest_turn_prompting.py",
-      "docs/specs/guardian_template_specifications",
-      "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
-      "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
-      "frontend/src/features/personaStudio/personaStudioStore.ts",
-      "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
-      "guardian/core/db.py",
-      "guardian/core/pgdb.py",
-      "tests/routes/test_thread_config_read_surfaces.py",
-      "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
-      "frontend/src/features/chat/GuardianChat.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.thread-config.test.tsx",
-      "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
-      "frontend/src/lib/api.ts",
-      "frontend/src/types/ui.ts",
-      "tests/routes/test_thread_config_update.py",
-      "tests/core/test_chat_completion_service_thread_config.py",
-      "tests/routes/test_chat_complete_thread_config_precedence.py",
-      "docs/audits/daily/morning/2026-04-02-audit.json",
-      "docs/audits/daily/morning/2026-04-02-audit.md",
-      "docs/audits/daily/morning/latest.json",
-      "docs/audits/daily/morning/latest.md",
-      "docs/audits/latest.json",
-      "docs/audits/latest.md",
-      "tests/routes/test_thread_creation_thread_config.py",
-      "frontend/src/vitest.config.ts",
-      "guardian/db/migrations/versions/b0c1d2e3f4a5_add_thread_config_to_chat_threads.py",
-      "guardian/db/models.py",
-      "tests/db/test_chat_thread_thread_config.py",
-      "guardian/routes/migration.py",
-      "guardian/services/account_restore.py",
-      "tests/routes/test_account_restore.py",
-      "frontend/src/features/settings/SettingsView.tsx",
-      "frontend/src/features/settings/__tests__/SettingsView.test.tsx",
-      "frontend/src/features/settings/__tests__/useImprintZero.test.tsx",
-      "frontend/src/features/settings/api/imprint.ts",
-      "frontend/src/features/settings/components/ImprintReviewPanel.tsx",
-      "frontend/src/features/settings/components/__tests__/ImprintReviewPanel.test.tsx",
-      "frontend/src/features/settings/hooks/useImprintReview.ts",
-      "frontend/src/imprint/ImprintZeroToast.tsx",
-      "frontend/src/imprint/api.ts",
-      "frontend/src/imprint/useImprintZero.ts",
-      "guardian/chat/cli/main.py",
-      "guardian/cli/imprint_zero_cli.py",
-      "guardian/test_cli.py",
-      "tests/routes/test_imprint_proposal_routes.py"
+      "guardian/routes/delegations.py",
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/2026-04-04-archived-snapshot-upgrade-proof.md",
+      "guardian/core/delegation_service.py",
+      "guardian/core/executors/__init__.py",
+      "guardian/core/executors/base.py",
+      "guardian/guardian_api.py",
+      "guardian/protocol_tokens.py",
+      "guardian/queue/task_events.py",
+      "tests/contracts/test_protocol_tokens.py",
+      "tests/core/test_delegation_service.py",
+      "tests/routes/test_delegations_routes.py",
+      "docs/architecture/2026-04-04-existing-instance-upgrade-proof.md",
+      "guardian/tests/test_guardian_api_startup.py",
+      "frontend/src/App.tsx",
+      "frontend/src/components/bootstrap/WebRuntimeStartupGate.tsx",
+      "frontend/src/components/bootstrap/__tests__/WebRuntimeStartupGate.test.tsx"
     ],
-    "window_end": "2026-04-03T09:00:15.430191-04:00",
+    "window_end": "2026-04-05T09:16:37.944201-04:00",
     "window_hours": 24,
-    "window_start": "2026-04-02T09:00:15.430191-04:00"
+    "window_start": "2026-04-04T09:16:37.944201-04:00"
   },
-  "date": "2026-04-03",
-  "generated_at": "2026-04-03T09:00:15.430191-04:00",
+  "date": "2026-04-05",
+  "generated_at": "2026-04-05T09:16:37.944201-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -392,10 +287,10 @@
   },
   "phase": "morning",
   "repo": {
-    "branch": "banana-berry",
-    "date": "2026-04-03",
+    "branch": "detached@906e6b5",
+    "date": "2026-04-05",
     "dirty": false,
-    "head": "180c38ee5c9fa8be998b83b22f7af0218d71b9f0",
+    "head": "906e6b5edfa103d2eed2d0e64faba920c966f7fc",
     "status_error": "",
     "status_lines": []
   },
@@ -454,109 +349,82 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 6,
+      "count": 1,
       "files": [
-        "docs/audits/daily/morning/2026-04-02-audit.json",
-        "docs/audits/daily/morning/2026-04-02-audit.md",
-        "docs/audits/daily/morning/latest.json",
-        "docs/audits/daily/morning/latest.md",
-        "docs/audits/latest.json",
-        "docs/audits/latest.md"
+        "docs/audits/latest.json"
       ]
     },
     "chat": {
       "count": 2,
       "files": [
-        "guardian/routes/chat.py",
-        "guardian/workers/chat_worker.py"
-      ]
-    },
-    "config": {
-      "count": 1,
-      "files": [
-        "guardian/db/migrations/versions/d4b7f1a9c3e2_merge_heads_after_imprint_and_thread_config.py"
+        "guardian/workers/chat_worker.py",
+        "guardian/routes/chat.py"
       ]
     },
     "docs": {
-      "count": 2,
+      "count": 8,
       "files": [
-        "docs/architecture/capabilities-audit.md",
-        "docs/specs/guardian_template_specifications"
+        "docs/architecture/README.md",
+        "docs/architecture/delegation-operator-manual.md",
+        "docs/architecture/delegation-runtime.md",
+        "docs/architecture/guardian-agent-delegation-recon.md",
+        "docs/architecture/kb-validity-matrix.md",
+        "docs/architecture/00-current-state.md",
+        "docs/architecture/2026-04-04-archived-snapshot-upgrade-proof.md",
+        "docs/architecture/2026-04-04-existing-instance-upgrade-proof.md"
       ]
     },
     "frontend": {
-      "count": 33,
+      "count": 13,
       "files": [
-        "frontend/src/components/sidebar/ProjectList.tsx",
-        "frontend/src/components/sidebar/SidebarRoot.tsx",
+        "frontend/src/components/gallery/GalleryView.tsx",
+        "frontend/src/components/persona/layout/AppShell.tsx",
+        "frontend/src/components/sidebar/useSidebarThreads.ts",
+        "frontend/src/features/chat/GuardianChat.tsx",
         "frontend/src/components/sidebar/ThreadList.tsx",
-        "frontend/src/components/sidebar/__tests__/ProjectList.test.tsx",
-        "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
         "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-        "frontend/src/components/sidebar/__tests__/useProjectsCache.test.tsx",
+        "frontend/src/components/sidebar/SidebarRoot.tsx",
+        "frontend/src/components/sidebar/__tests__/SidebarRoot.test.tsx",
         "frontend/src/components/sidebar/__tests__/useSidebarThreads.test.tsx",
         "frontend/src/components/sidebar/sidebarPresentation.ts",
-        "frontend/src/components/sidebar/useProjectsCache.ts",
-        "frontend/src/components/sidebar/useSidebarThreads.ts",
-        "frontend/src/index.css",
-        "frontend/src/features/personaStudio/PersonaStudioPage.tsx",
-        "frontend/src/features/personaStudio/__tests__/PersonaStudioPage.persistence.test.tsx",
-        "frontend/src/features/personaStudio/personaStudioStore.ts",
-        "frontend/src/components/persona/layout/__tests__/GuardianChatWithSidebar.stability.test.tsx",
-        "frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx",
-        "frontend/src/features/chat/GuardianChat.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.thread-config.test.tsx",
-        "frontend/src/features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx",
-        "frontend/src/lib/api.ts",
-        "frontend/src/types/ui.ts",
-        "frontend/src/vitest.config.ts",
-        "frontend/src/features/settings/SettingsView.tsx",
-        "frontend/src/features/settings/__tests__/SettingsView.test.tsx",
-        "frontend/src/features/settings/__tests__/useImprintZero.test.tsx",
-        "frontend/src/features/settings/api/imprint.ts",
-        "frontend/src/features/settings/components/ImprintReviewPanel.tsx",
-        "frontend/src/features/settings/components/__tests__/ImprintReviewPanel.test.tsx",
-        "frontend/src/features/settings/hooks/useImprintReview.ts",
-        "frontend/src/imprint/ImprintZeroToast.tsx",
-        "frontend/src/imprint/api.ts",
-        "frontend/src/imprint/useImprintZero.ts"
+        "frontend/src/App.tsx",
+        "frontend/src/components/bootstrap/WebRuntimeStartupGate.tsx",
+        "frontend/src/components/bootstrap/__tests__/WebRuntimeStartupGate.test.tsx"
       ]
     },
     "tests": {
-      "count": 17,
+      "count": 5,
       "files": [
-        "tests/core/test_chat_completion_service_latest_turn.py",
-        "tests/routes/test_chat_complete_latest_turn_integrity.py",
-        "tests/workers/test_chat_worker_latest_turn_integrity.py",
-        "tests/core/test_chat_completion_service_latest_turn_trace.py",
-        "tests/routes/test_chat_profile_trace.py",
-        "tests/core/test_chat_completion_service_latest_turn_retrieval.py",
-        "tests/core/test_chat_completion_service_latest_turn_regression.py",
-        "tests/core/test_chat_completion_service_latest_turn_prompting.py",
-        "tests/routes/test_thread_config_read_surfaces.py",
-        "tests/routes/test_thread_config_update.py",
-        "tests/core/test_chat_completion_service_thread_config.py",
-        "tests/routes/test_chat_complete_thread_config_precedence.py",
-        "tests/routes/test_thread_creation_thread_config.py",
-        "tests/db/test_chat_thread_thread_config.py",
-        "tests/routes/test_account_restore.py",
-        "guardian/test_cli.py",
-        "tests/routes/test_imprint_proposal_routes.py"
+        "tests/workers/test_delegation_worker.py",
+        "tests/contracts/test_protocol_tokens.py",
+        "tests/core/test_delegation_service.py",
+        "tests/routes/test_delegations_routes.py",
+        "guardian/tests/test_guardian_api_startup.py"
       ]
     },
     "unknown": {
-      "count": 10,
+      "count": 20,
       "files": [
-        "guardian/core/chat_completion_service.py",
+        "guardian/db/migrations/versions/d4e5f6a7b8c9_add_delegation_tables.py",
+        "guardian/db/models.py",
+        "guardian/workers/delegation_worker.py",
         "guardian/tasks/types.py",
         "guardian/core/db.py",
+        "guardian/core/default_project.py",
         "guardian/core/pgdb.py",
-        "guardian/db/migrations/versions/b0c1d2e3f4a5_add_thread_config_to_chat_threads.py",
-        "guardian/db/models.py",
-        "guardian/routes/migration.py",
-        "guardian/services/account_restore.py",
-        "guardian/chat/cli/main.py",
-        "guardian/cli/imprint_zero_cli.py"
+        "guardian/db/migrations/001_create_media_tables.sql",
+        "guardian/db/migrations/versions/d1a6b9f2c4e7_make_uploaded_documents_project_required.py",
+        "guardian/routes/api_exports.py",
+        "guardian/routes/projects.py",
+        "scripts/docs/dossier_profiles/infra-operator.include",
+        "scripts/validate_docs.py",
+        "guardian/routes/delegations.py",
+        "guardian/core/delegation_service.py",
+        "guardian/core/executors/__init__.py",
+        "guardian/core/executors/base.py",
+        "guardian/guardian_api.py",
+        "guardian/protocol_tokens.py",
+        "guardian/queue/task_events.py"
       ]
     }
   }

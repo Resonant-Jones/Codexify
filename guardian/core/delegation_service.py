@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from guardian.core.executors.base import (
+    CodeExecutor,
+    ExecutorFailure,
+    ExecutorResult,
+)
 from guardian.db import models as db_models
 from guardian.protocol_tokens import (
+    DELEGATION_SUMMARY_OUTCOME_TYPE,
     DELEGATION_TERMINAL_STATUSES,
+    DelegationExecutorName,
     DelegationJobStatus,
 )
 from guardian.tasks.types import (
@@ -60,8 +68,195 @@ def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _preserve_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
 def _normalize_context(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _dedupe_text_list(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        items = raw
+    elif isinstance(raw, str):
+        items = [part.strip() for part in raw.split(",")]
+    else:
+        items = [raw]
+    result: list[str] = []
+    for item in items:
+        value = _normalize_text(item)
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
+_SUMMARY_SECTION_HEADERS: dict[str, str] = {
+    "title": "title",
+    "summary": "summary",
+    "files changed": "files_changed",
+    "files_changed": "files_changed",
+    "commands run": "commands_run",
+    "commands_run": "commands_run",
+    "key changes": "key_changes",
+    "key_changes": "key_changes",
+    "unresolved questions": "unresolved_questions",
+    "unresolved_questions": "unresolved_questions",
+    "tags": "tags",
+    "outcome type": "outcome_type",
+    "outcome_type": "outcome_type",
+}
+
+
+def _flatten_summary_list(raw: Any) -> list[str]:
+    values = _dedupe_text_list(raw)
+    result: list[str] = []
+    for value in values:
+        if value.lower() in {"none", "n/a", "na"}:
+            continue
+        if value not in result:
+            result.append(value)
+    return result
+
+
+def _parse_structured_summary_text(
+    text: str | None,
+) -> dict[str, Any]:
+    stripped = _normalize_text(text)
+    parsed: dict[str, Any] = {
+        "title": None,
+        "summary": None,
+        "files_changed": [],
+        "commands_run": [],
+        "key_changes": [],
+        "unresolved_questions": [],
+        "tags": [],
+        "outcome_type": DELEGATION_SUMMARY_OUTCOME_TYPE,
+    }
+    if not stripped:
+        return parsed
+
+    try:
+        decoded = json.loads(stripped)
+    except Exception:
+        decoded = None
+
+    if isinstance(decoded, dict):
+        parsed["title"] = (
+            _normalize_text(decoded.get("title") or decoded.get("name")) or None
+        )
+        parsed["summary"] = (
+            _normalize_text(
+                decoded.get("summary")
+                or decoded.get("final_text")
+                or decoded.get("text")
+            )
+            or None
+        )
+        parsed["files_changed"] = _flatten_summary_list(
+            decoded.get("files_changed") or decoded.get("filesChanged")
+        )
+        parsed["commands_run"] = _flatten_summary_list(
+            decoded.get("commands_run") or decoded.get("commandsRun")
+        )
+        parsed["key_changes"] = _flatten_summary_list(
+            decoded.get("key_changes") or decoded.get("keyChanges")
+        )
+        parsed["unresolved_questions"] = _flatten_summary_list(
+            decoded.get("unresolved_questions")
+            or decoded.get("unresolvedQuestions")
+        )
+        parsed["tags"] = _flatten_summary_list(decoded.get("tags"))
+        parsed["outcome_type"] = (
+            _normalize_text(
+                decoded.get("outcome_type") or decoded.get("outcomeType")
+            )
+            or DELEGATION_SUMMARY_OUTCOME_TYPE
+        )
+        return parsed
+
+    sections: dict[str, list[str]] = {
+        "files_changed": [],
+        "commands_run": [],
+        "key_changes": [],
+        "unresolved_questions": [],
+        "tags": [],
+    }
+    current: str | None = None
+    summary_lines: list[str] = []
+
+    for raw_line in stripped.splitlines():
+        line = raw_line.rstrip()
+        normalized = line.strip().lower()
+        header = None
+        if ":" in normalized:
+            candidate = normalized.split(":", 1)[0].strip()
+            header = _SUMMARY_SECTION_HEADERS.get(candidate)
+
+        if header:
+            current = header
+            remainder = line.split(":", 1)[1].strip() if ":" in line else ""
+            if remainder:
+                if header == "title":
+                    parsed["title"] = _normalize_text(remainder) or None
+                elif header == "summary":
+                    summary_lines.append(remainder)
+                elif header == "outcome_type":
+                    parsed["outcome_type"] = (
+                        _normalize_text(remainder)
+                        or DELEGATION_SUMMARY_OUTCOME_TYPE
+                    )
+                else:
+                    sections[header].append(remainder)
+            continue
+
+        if current == "summary":
+            summary_lines.append(line)
+        elif current in sections:
+            sections[current].append(line)
+
+    def _flatten(values: list[str]) -> list[str]:
+        items: list[str] = []
+        for line in values:
+            candidate = line.strip().lstrip("-*• ").strip()
+            if not candidate:
+                continue
+            parts = [candidate]
+            if "," in candidate and "\n" not in candidate:
+                parts = [part.strip() for part in candidate.split(",")]
+            for part in parts:
+                value = _normalize_text(part)
+                if not value or value.lower() in {"none", "n/a", "na"}:
+                    continue
+                if value not in items:
+                    items.append(value)
+        return items
+
+    parsed["files_changed"] = _flatten(sections["files_changed"])
+    parsed["commands_run"] = _flatten(sections["commands_run"])
+    parsed["key_changes"] = _flatten(sections["key_changes"])
+    parsed["unresolved_questions"] = _flatten(sections["unresolved_questions"])
+    parsed["tags"] = _flatten(sections["tags"])
+    if summary_lines:
+        parsed["summary"] = (
+            "\n".join(line for line in summary_lines if line).strip() or None
+        )
+    if parsed["summary"] is None:
+        parsed["summary"] = stripped
+    return parsed
+
+
+def _merge_text_lists(*values: Any) -> list[str]:
+    merged: list[str] = []
+    for raw in values:
+        for value in _dedupe_text_list(raw):
+            if value not in merged:
+                merged.append(value)
+    return merged
 
 
 def _packet_from_row(row: Any) -> DelegationPacket:
@@ -330,6 +525,16 @@ class DelegationService:
             )
         return job
 
+    def resolve_executor(self, executor_name: str) -> CodeExecutor:
+        normalized = _normalize_text(executor_name).lower()
+        if normalized == DelegationExecutorName.CODEX.value:
+            from guardian.core.executors.codex_executor import CodexExecutor
+
+            return CodexExecutor()
+        raise DelegationConflictError(
+            f"unsupported_executor:{normalized or '<missing>'}"
+        )
+
     # ------------------------------------------------------------------
     # Approval / enqueue payloads
     # ------------------------------------------------------------------
@@ -341,6 +546,8 @@ class DelegationService:
             raise DelegationConflictError(
                 f"packet_not_approvable:{packet.packet_id}:{packet_status}"
             )
+        # Validate the executor choice before creating durable queue state.
+        self.resolve_executor(packet.executor)
 
         now_iso = _now_iso()
         existing_job = self.get_job_by_packet(packet.packet_id)
@@ -443,13 +650,22 @@ class DelegationService:
         delegation_id: str,
         *,
         error_message: str,
+        summary: DelegationSummary | None = None,
     ) -> DelegationJobRecord:
-        return self._transition_job(
+        job = self._transition_job(
             delegation_id,
             DelegationJobStatus.FAILED.value,
             completed=True,
             error_message=error_message,
         )
+        summary_packet = summary or self.build_summary_packet(
+            job,
+            status=DelegationJobStatus.FAILED.value,
+            error_message=error_message,
+            result={"failure": {"message": error_message}},
+        )
+        self.record_summary(summary_packet)
+        return job
 
     def cancel_delegation(self, delegation_id: str) -> DelegationCancelResult:
         job = self._require_job(delegation_id)
@@ -485,19 +701,211 @@ class DelegationService:
         status: str | None = None,
         error_message: str | None = None,
     ) -> DelegationSummary:
+        result_payload = dict(result or {})
+        metadata_payload = dict(metadata or {})
+        parsed = _parse_structured_summary_text(
+            summary
+            or result_payload.get("summary")
+            or result_payload.get("final_text")
+            or result_payload.get("raw_transcript")
+        )
+        title = (
+            _normalize_text(
+                result_payload.get("title")
+                or metadata_payload.get("title")
+                or job.task_prompt
+            )
+            or job.task_prompt
+        )
+        normalized_status = (
+            _normalize_text(
+                status
+                or result_payload.get("status")
+                or DelegationJobStatus.COMPLETED.value
+            )
+            or DelegationJobStatus.COMPLETED.value
+        )
+        files_changed = _merge_text_lists(
+            result_payload.get("files_changed"),
+            result_payload.get("filesChanged"),
+            parsed.get("files_changed"),
+        )
+        commands_run = _merge_text_lists(
+            result_payload.get("commands_run"),
+            result_payload.get("commandsRun"),
+            parsed.get("commands_run"),
+        )
+        key_changes = _merge_text_lists(
+            result_payload.get("key_changes"),
+            result_payload.get("keyChanges"),
+            parsed.get("key_changes"),
+        )
+        unresolved_questions = _merge_text_lists(
+            result_payload.get("unresolved_questions"),
+            result_payload.get("unresolvedQuestions"),
+            parsed.get("unresolved_questions"),
+        )
+        packet_tags = _normalize_tags(job.tags)
+        result_tags = _merge_text_lists(
+            result_payload.get("tags"),
+            metadata_payload.get("tags"),
+            parsed.get("tags"),
+        )
+        tags = _normalize_tags([*packet_tags, *result_tags])
+        outcome_type = DELEGATION_SUMMARY_OUTCOME_TYPE
+        raw_transcript = _preserve_text(
+            result_payload.get("raw_transcript")
+            or result_payload.get("rawTranscript")
+            or metadata_payload.get("raw_transcript")
+            or metadata_payload.get("rawTranscript")
+        )
+        transcript = (
+            _normalize_text(
+                result_payload.get("transcript")
+                or result_payload.get("stdout")
+                or parsed.get("summary")
+                or summary
+            )
+            or None
+        )
+        canonical_summary = (
+            _normalize_text(
+                parsed.get("summary")
+                or summary
+                or result_payload.get("summary")
+                or result_payload.get("final_text")
+                or transcript
+            )
+            or None
+        )
+        failure_payload = result_payload.get("failure")
+        if failure_payload is None:
+            failure_payload = metadata_payload.get("failure")
+        if failure_payload is None and error_message:
+            failure_payload = {"message": error_message}
+        if isinstance(failure_payload, ExecutorFailure):
+            failure_payload = failure_payload.to_dict()
+        normalized_failure = (
+            dict(failure_payload) if isinstance(failure_payload, dict) else None
+        )
+        normalized_error_message = (
+            _normalize_text(
+                error_message
+                or (normalized_failure or {}).get("message")
+                or result_payload.get("error_message")
+            )
+            or None
+        )
+        enrich_payload = bool(
+            result_payload
+            or metadata_payload
+            or summary
+            or status
+            or error_message
+        )
+        if enrich_payload:
+            result_payload.update(
+                {
+                    "title": title,
+                    "summary": canonical_summary,
+                    "status": normalized_status,
+                    "outcome_type": outcome_type,
+                    "outcomeType": outcome_type,
+                    "files_changed": files_changed,
+                    "commands_run": commands_run,
+                    "key_changes": key_changes,
+                    "unresolved_questions": unresolved_questions,
+                    "tags": tags,
+                    "raw_transcript": raw_transcript,
+                    "transcript": transcript,
+                    "failure": normalized_failure,
+                    "error_message": normalized_error_message,
+                }
+            )
+            metadata_payload.update(
+                {
+                    "title": title,
+                    "status": normalized_status,
+                    "outcome_type": outcome_type,
+                    "tags": tags,
+                    "error_message": normalized_error_message,
+                }
+            )
         return DelegationSummary(
             delegation_id=job.delegation_id,
             task_id=job.task_id,
-            status=_normalize_text(
-                status or DelegationJobStatus.COMPLETED.value
-            )
-            or DelegationJobStatus.COMPLETED.value,
-            summary=summary,
-            result=dict(result or {}),
-            metadata=dict(metadata or {}),
-            error_message=error_message,
+            status=normalized_status,
+            outcome_type=outcome_type,
+            title=title,
+            summary=canonical_summary,
+            files_changed=files_changed,
+            commands_run=commands_run,
+            key_changes=key_changes,
+            unresolved_questions=unresolved_questions,
+            tags=tags,
+            result=result_payload,
+            metadata=metadata_payload,
+            raw_transcript=raw_transcript,
+            transcript=transcript,
+            failure=normalized_failure,
+            error_message=normalized_error_message,
             created_at=_now_iso(),
             completed_at=_now_iso(),
+        )
+
+    def normalize_executor_result(
+        self,
+        job: DelegationJobRecord,
+        executor_result: ExecutorResult,
+        *,
+        packet: DelegationPacket | None = None,
+    ) -> DelegationSummary:
+        packet = packet or self.get_packet(job.packet_id)
+        result_payload = dict(executor_result.result or {})
+        result_payload.update(
+            {
+                "final_text": executor_result.final_text,
+                "summary": executor_result.summary,
+                "stdout": executor_result.stdout,
+                "stderr": executor_result.stderr,
+                "raw_transcript": executor_result.raw_transcript,
+                "files_changed": list(executor_result.files_changed),
+                "commands_run": list(executor_result.commands_run),
+                "output_chunks": [
+                    chunk.to_dict() for chunk in executor_result.output_chunks
+                ],
+                "failure": (
+                    executor_result.failure.to_dict()
+                    if executor_result.failure is not None
+                    else None
+                ),
+                "status": executor_result.status,
+            }
+        )
+        metadata_payload = dict(executor_result.metadata or {})
+        metadata_payload.setdefault("executor", job.executor)
+        metadata_payload.setdefault("repo_path", job.repo_path)
+        metadata_payload.setdefault("task_id", job.task_id)
+        metadata_payload.setdefault("delegation_id", job.delegation_id)
+        if packet is not None:
+            metadata_payload.setdefault("packet_id", packet.packet_id)
+            metadata_payload.setdefault("title", packet.task_prompt)
+        if executor_result.failure is not None:
+            metadata_payload.setdefault(
+                "failure", executor_result.failure.to_dict()
+            )
+        return self.build_summary_packet(
+            job,
+            summary=executor_result.summary or executor_result.final_text,
+            result=result_payload,
+            metadata=metadata_payload,
+            status=executor_result.status,
+            error_message=executor_result.error_message
+            or (
+                executor_result.failure.message
+                if executor_result.failure is not None
+                else None
+            ),
         )
 
     def record_summary(self, summary: DelegationSummary) -> DelegationSummary:

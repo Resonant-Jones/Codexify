@@ -1,7 +1,9 @@
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
     DELEGATION_EVENT_TYPES,
+    DELEGATION_EXECUTOR_NAMES,
     DELEGATION_JOB_STATUSES,
+    DELEGATION_SUMMARY_OUTCOME_TYPE,
     DELEGATION_TERMINAL_EVENT_TYPES,
     DELEGATION_TERMINAL_STATUSES,
     EMBEDDING_LIFECYCLE_STATUSES,
@@ -9,6 +11,7 @@ from guardian.protocol_tokens import (
     TASK_EVENT_TYPES,
     AcceptanceStatus,
     DelegationEventType,
+    DelegationExecutorName,
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
     ErrorCode,
@@ -51,6 +54,11 @@ def test_delegation_status_tokens() -> None:
     }
 
 
+def test_delegation_executor_tokens() -> None:
+    assert DelegationExecutorName.CODEX.value == "codex"
+    assert DELEGATION_EXECUTOR_NAMES == {"codex"}
+
+
 def test_delegation_event_tokens() -> None:
     assert DelegationEventType.CREATED.value == "delegation.created"
     assert DelegationEventType.RUNNING.value == "delegation.running"
@@ -79,12 +87,36 @@ def test_error_code_tokens() -> None:
         ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
         == "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
+    assert (
+        ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value
+        == "DELEGATION_EXECUTOR_NOT_FOUND"
+    )
+    assert (
+        ErrorCode.DELEGATION_EXECUTOR_TIMEOUT.value
+        == "DELEGATION_EXECUTOR_TIMEOUT"
+    )
+    assert (
+        ErrorCode.DELEGATION_EXECUTOR_NONZERO_EXIT.value
+        == "DELEGATION_EXECUTOR_NONZERO_EXIT"
+    )
+    assert (
+        ErrorCode.DELEGATION_EXECUTOR_SPAWN_FAILED.value
+        == "DELEGATION_EXECUTOR_SPAWN_FAILED"
+    )
     assert ERROR_CODES == {
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
+        "DELEGATION_EXECUTOR_NOT_FOUND",
+        "DELEGATION_EXECUTOR_TIMEOUT",
+        "DELEGATION_EXECUTOR_NONZERO_EXIT",
+        "DELEGATION_EXECUTOR_SPAWN_FAILED",
     }
+
+
+def test_delegation_summary_outcome_token() -> None:
+    assert DELEGATION_SUMMARY_OUTCOME_TYPE == "task_summary"
 
 
 def test_embedding_lifecycle_tokens() -> None:

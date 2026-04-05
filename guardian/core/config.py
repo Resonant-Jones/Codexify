@@ -191,6 +191,16 @@ class Settings(BaseSettings):
             "Docker Compose path remains the supported default posture."
         ),
     )
+    CODEXIFY_CODEX_BIN: str = Field(
+        default="codex",
+        description=(
+            "Path or command name for the Codex CLI used by delegation worker execution."
+        ),
+    )
+    CODEXIFY_CODEX_TIMEOUT_SECONDS: int = Field(
+        default=900,
+        description=("Timeout budget for a Codex delegation run in seconds."),
+    )
     LOCAL_COMPAT_FIRST: bool = Field(
         default=False,
         description=(
