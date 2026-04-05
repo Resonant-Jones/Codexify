@@ -1645,6 +1645,7 @@ export default function AppShell({
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
+    projectId: generalProjectId ?? undefined,
     onImages: (items) =>
       setGallery((prev) => {
         const normalizedItems = items

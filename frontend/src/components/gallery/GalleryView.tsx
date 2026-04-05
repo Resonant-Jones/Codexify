@@ -47,9 +47,24 @@ type Props = {
   onSelect: (prompt: string) => void;
 };
 
+function readStoredGeneralProjectId(): string | null {
+  if (typeof window === "undefined") return null;
+  const candidates = [
+    window.localStorage.getItem("cfy.generalProjectId"),
+    window.localStorage.getItem("cfy.defaultProjectId"),
+  ];
+  for (const raw of candidates) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return String(parsed);
+    }
+  }
+  return null;
+}
+
 const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const ctx = useContext(ProjectContext);
-  const projectId = ctx?.projectId ?? null;
+  const projectId = ctx?.projectId ?? readStoredGeneralProjectId();
 
   const [showDemoGallery, setShowDemoGallery] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;

@@ -170,6 +170,21 @@ function getTabSourceStorageKey(tabId: TabId | null | undefined): string {
   return `cfy.chat.source.tab:${tabId ?? "global"}`;
 }
 
+function readStoredGeneralProjectId(): number | null {
+  if (typeof window === "undefined") return null;
+  const candidates = [
+    window.localStorage.getItem("cfy.generalProjectId"),
+    window.localStorage.getItem("cfy.defaultProjectId"),
+  ];
+  for (const raw of candidates) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function readStoredSourceMode(options: {
   threadId?: number | null;
   tabId?: TabId | null;
@@ -2799,16 +2814,22 @@ export function GuardianChat({
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              const generalProjectId = readStoredGeneralProjectId();
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: null });
-                emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: null });
+                await api.patch(`/chat/${effectiveThreadId}`, {
+                  project_id: generalProjectId ?? null,
+                });
+                emitThreadsRefresh("move", {
+                  id: String(effectiveThreadId),
+                  project_id: generalProjectId ?? null,
+                });
               } catch (e) {
                 console.warn(e);
-                alert("Eject failed.");
+                alert("Move to General failed.");
               }
             }}
           >
-            Eject from Project
+            Move to General
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
