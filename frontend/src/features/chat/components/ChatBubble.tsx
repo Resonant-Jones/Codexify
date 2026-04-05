@@ -227,6 +227,32 @@ const normalizeLanguageLabel = (className?: string) => {
   return raw.toUpperCase();
 };
 
+const OVERSIZED_USER_MESSAGE_CHAR_LIMIT = 1200;
+const OVERSIZED_USER_MESSAGE_LINE_LIMIT = 18;
+const COLLAPSED_USER_MESSAGE_MAX_HEIGHT = 224;
+const EXPANDED_USER_MESSAGE_MAX_HEIGHT = 360;
+
+function isOversizedUserMessage(content: string): boolean {
+  const normalized = content.trim();
+  if (!normalized) return false;
+  const lineCount = normalized.split(/\r?\n/).length;
+  return (
+    normalized.length > OVERSIZED_USER_MESSAGE_CHAR_LIMIT ||
+    lineCount > OVERSIZED_USER_MESSAGE_LINE_LIMIT
+  );
+}
+
+function looksLikeCodeContent(content: string): boolean {
+  const normalized = content.trim();
+  if (!normalized) return false;
+  return (
+    /```|^\s{4,}/m.test(normalized) ||
+    /(?:\bfunction\b|\bclass\b|\bconst\b|\blet\b|\bvar\b|\bimport\b|\bexport\b|\breturn\b|=>|;\s*$)/m.test(
+      normalized
+    )
+  );
+}
+
 const AttachmentTiles = ({
   attachments,
   align,
@@ -432,6 +458,28 @@ export function ChatBubble({
     resolvedPlayState === "pending" ||
     resolvedPlayState === "unavailable" ||
     resolvedPlayState === "disabled";
+  const boundedUserMessage = !isGuardian && isOversizedUserMessage(cleanedContent);
+  const [expandedUserMessage, setExpandedUserMessage] = React.useState(false);
+
+  React.useEffect(() => {
+    setExpandedUserMessage(false);
+  }, [cleanedContent, isGuardian, message.id]);
+
+  const userMessageLooksLikeCode =
+    boundedUserMessage && looksLikeCodeContent(cleanedContent);
+  const userMessagePreviewStyle: React.CSSProperties | undefined = boundedUserMessage
+    ? {
+        maxHeight: expandedUserMessage
+          ? EXPANDED_USER_MESSAGE_MAX_HEIGHT
+          : COLLAPSED_USER_MESSAGE_MAX_HEIGHT,
+        overflowY: expandedUserMessage ? "auto" : "hidden",
+        overscrollBehavior: "contain",
+      }
+    : undefined;
+  const userMessageTextClass = cn(
+    "text-sm leading-relaxed whitespace-pre-wrap break-words",
+    userMessageLooksLikeCode ? "font-mono text-[13px] leading-5" : null
+  );
 
   const markdownComponents = {
     code({ node, inline, className, children, ...props }: any) {
@@ -504,13 +552,15 @@ export function ChatBubble({
         </ReactMarkdown>
       </div>
     ) : (
-      // User messages stay as plaintext so pasted code keeps raw line breaks and spacing.
       <div
-        className="text-sm leading-relaxed whitespace-pre-wrap break-words"
+        data-testid={boundedUserMessage ? "guardian-user-message-content" : undefined}
+        id={boundedUserMessage ? `guardian-user-message-${message.id}` : undefined}
+        className={userMessageTextClass}
         style={{
           color: "var(--pill-active-text)",
           overflowWrap: "break-word",
           wordWrap: "break-word",
+          ...userMessagePreviewStyle,
         }}
       >
         {cleanedContent}
@@ -595,12 +645,38 @@ export function ChatBubble({
           className="max-w-full rounded-[var(--tile-radius)] p-3 shadow-sm"
           style={{ background: "var(--accent)", color: "var(--pill-active-text)" }}
         >
-          {renderedContent}
-          {formattedTime ? (
-            <div className="mt-1.5 flex items-center justify-end gap-2">
-              <span className="text-[10px] opacity-70">{formattedTime}</span>
-            </div>
-          ) : null}
+          <div className="flex flex-col gap-2">
+            {renderedContent}
+            {boundedUserMessage ? (
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border px-2 py-1 text-[11px] font-medium transition-opacity hover:opacity-90"
+                  style={{
+                    borderColor:
+                      "color-mix(in srgb, var(--panel-border) 72%, transparent)",
+                    background:
+                      "color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 88%, transparent)",
+                    color: "var(--text)",
+                  }}
+                  onClick={() => setExpandedUserMessage((previous) => !previous)}
+                  aria-expanded={expandedUserMessage}
+                  aria-controls={
+                    boundedUserMessage ? `guardian-user-message-${message.id}` : undefined
+                  }
+                >
+                  {expandedUserMessage ? "Show less" : "See more"}
+                </button>
+                {formattedTime ? (
+                  <span className="text-[10px] opacity-70">{formattedTime}</span>
+                ) : null}
+              </div>
+            ) : formattedTime ? (
+              <div className="mt-1.5 flex items-center justify-end gap-2">
+                <span className="text-[10px] opacity-70">{formattedTime}</span>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : (
         formattedTime ? <div className="text-[10px] opacity-70">{formattedTime}</div> : null
