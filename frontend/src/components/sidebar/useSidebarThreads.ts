@@ -142,7 +142,6 @@ export function useSidebarThreads({
     if (stored === "null") return null;
     return stored || null;
   });
-  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(null);
 
   // Mirror incoming threads (sanitized) while avoiding no-op state churn
   useEffect(() => {
@@ -403,19 +402,6 @@ export function useSidebarThreads({
 
     return base.filter((thread) => !thread.archivedAt);
   }, [currentProjectId, generalProjectId, projects, threadList]);
-
-  const provenanceOptions = useMemo(
-    () => collectSidebarProvenanceOptions(scopedThreads),
-    [scopedThreads]
-  );
-
-  useEffect(() => {
-    if (!provenanceFilter) return;
-    if (provenanceOptions.some((option) => option.value === provenanceFilter)) {
-      return;
-    }
-    setProvenanceFilter(null);
-  }, [provenanceFilter, provenanceOptions]);
 
   const provenanceOptions = useMemo(
     () => collectSidebarProvenanceOptions(scopedThreads),
