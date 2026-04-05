@@ -35,6 +35,21 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
+class TaskLifecycleState(str, Enum):
+    QUEUED = "QUEUED"
+    DISPATCHING = "DISPATCHING"
+    AWAITING_ACK = "AWAITING_ACK"
+    AWAITING_MODEL = "AWAITING_MODEL"
+    AWAITING_FIRST_TOKEN = "AWAITING_FIRST_TOKEN"
+    STREAMING = "STREAMING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+TASK_LIFECYCLE_STATES = frozenset(state.value for state in TaskLifecycleState)
+
+
 def _coerce_optional_text(raw: Any) -> str | None:
     value = str(raw or "").strip()
     return value or None
