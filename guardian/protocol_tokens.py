@@ -29,6 +29,13 @@ class DelegationJobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+DELEGATION_SUMMARY_OUTCOME_TYPE = "task_summary"
+
+
+class DelegationExecutorName(str, Enum):
+    CODEX = "codex"
+
+
 class DelegationEventType(str, Enum):
     CREATED = "delegation.created"
     RUNNING = "delegation.running"
@@ -45,6 +52,10 @@ class ErrorCode(str, Enum):
     CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED = (
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
+    DELEGATION_EXECUTOR_NOT_FOUND = "DELEGATION_EXECUTOR_NOT_FOUND"
+    DELEGATION_EXECUTOR_TIMEOUT = "DELEGATION_EXECUTOR_TIMEOUT"
+    DELEGATION_EXECUTOR_NONZERO_EXIT = "DELEGATION_EXECUTOR_NONZERO_EXIT"
+    DELEGATION_EXECUTOR_SPAWN_FAILED = "DELEGATION_EXECUTOR_SPAWN_FAILED"
 
 
 class EmbeddingLifecycleStatus(str, Enum):
@@ -62,6 +73,9 @@ TASK_EVENT_TYPES: frozenset[str] = frozenset(
 )
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
+)
+DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
+    {executor.value for executor in DelegationExecutorName}
 )
 DELEGATION_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in DelegationEventType}
@@ -91,12 +105,15 @@ __all__ = [
     "AcceptanceStatus",
     "TaskEventType",
     "DelegationJobStatus",
+    "DELEGATION_SUMMARY_OUTCOME_TYPE",
+    "DelegationExecutorName",
     "DelegationEventType",
     "ErrorCode",
     "EmbeddingLifecycleStatus",
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
     "DELEGATION_JOB_STATUSES",
+    "DELEGATION_EXECUTOR_NAMES",
     "DELEGATION_EVENT_TYPES",
     "DELEGATION_TERMINAL_STATUSES",
     "DELEGATION_TERMINAL_EVENT_TYPES",
