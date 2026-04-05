@@ -239,7 +239,7 @@ describe("ThreadList source dock", () => {
 });
 
 describe("ThreadList source dock", () => {
-  it("keeps the source dock contained and scrollable inside the card", () => {
+  it("keeps the source dock lane-matched, contained, and scrollable inside the card", () => {
     render(
       <ThreadList
         threads={[createThread()]}
@@ -253,10 +253,11 @@ describe("ThreadList source dock", () => {
         onRename={vi.fn().mockResolvedValue(undefined)}
         onArchiveToggle={vi.fn().mockResolvedValue(undefined)}
         onDelete={vi.fn().mockResolvedValue(undefined)}
-      />
-    );
+    />
+  );
 
     const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
+    expect(toolbar.parentElement).toHaveClass("pb-2", "px-3", "min-w-0");
     expect(toolbar).toHaveClass("glass-pill", "flex", "w-full", "min-w-0", "overflow-hidden");
 
     const scrollRail = toolbar.querySelector(".overflow-x-auto");

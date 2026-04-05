@@ -188,7 +188,7 @@ function ThreadPreviewList({
         </div>
       )}
       {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
-        <div className="pb-2 min-w-0">
+        <div className="pb-2 px-3 min-w-0">
           <div
             className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
             role="toolbar"
