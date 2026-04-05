@@ -109,3 +109,49 @@ def test_worker_stub_result_persists_terminal_state(monkeypatch) -> None:
     assert summary.result["packet_id"] == approval.packet.packet_id
     assert summary.metadata["executor"] == "stub"
     assert result["status"] == DelegationJobStatus.COMPLETED.value
+
+
+def test_worker_short_circuits_when_job_is_already_terminal(
+    monkeypatch,
+) -> None:
+    service, approval = _make_service()
+    service.cancel_delegation(approval.job.delegation_id)
+
+    published: list[tuple[str, str, dict[str, Any]]] = []
+
+    def fake_publish(task_id, event_type, data):
+        published.append((task_id, event_type, dict(data or {})))
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "event_type": event_type,
+            "visibility_scope": "progress",
+            "terminal_visibility": False,
+            "execution_continued": True,
+            "event_id": f"evt-{len(published)}",
+        }
+
+    monkeypatch.setattr(delegation_worker, "is_cancelled", lambda *_: False)
+    monkeypatch.setattr(delegation_worker, "clear_cancelled", lambda *_: None)
+    monkeypatch.setattr(
+        delegation_worker.task_events,
+        "publish_with_visibility",
+        fake_publish,
+    )
+
+    result = delegation_worker.process_delegation_task(
+        approval.task,
+        service=service,
+    )
+
+    job = service.get_job(approval.job.delegation_id)
+    summary = service.get_summary(approval.job.delegation_id)
+
+    assert job is not None
+    assert job.status == DelegationJobStatus.CANCELLED.value
+    assert job.started_at is None
+    assert summary is None
+    assert published == []
+    assert result["status"] == DelegationJobStatus.CANCELLED.value
+    assert result["delegation_id"] == approval.job.delegation_id
+    assert result["task_id"] == approval.task.task_id
