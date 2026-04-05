@@ -8,7 +8,10 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Type
 
-from guardian.protocol_tokens import DelegationJobStatus
+from guardian.protocol_tokens import (
+    DELEGATION_SUMMARY_OUTCOME_TYPE,
+    DelegationJobStatus,
+)
 
 
 def _utc_now_iso() -> str:
@@ -55,6 +58,12 @@ def _coerce_optional_text(raw: Any) -> str | None:
     return value or None
 
 
+def _coerce_optional_raw_text(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    return str(raw)
+
+
 def _coerce_text_list(raw: Any) -> list[str]:
     if raw is None:
         return []
@@ -67,6 +76,14 @@ def _coerce_text_list(raw: Any) -> list[str]:
         return result
     value = str(raw).strip()
     return [value] if value else []
+
+
+def _coerce_deduped_text_list(raw: Any) -> list[str]:
+    result: list[str] = []
+    for item in _coerce_text_list(raw):
+        if item not in result:
+            result.append(item)
+    return result
 
 
 def _coerce_mapping(raw: Any) -> dict[str, Any]:
@@ -108,7 +125,7 @@ class DelegationDraftRequest:
             user_intent=str(
                 payload.get("user_intent") or payload.get("task_prompt") or ""
             ).strip(),
-            tags=_coerce_text_list(payload.get("tags")),
+            tags=_coerce_deduped_text_list(payload.get("tags")),
             context=_coerce_mapping(
                 payload.get("context")
                 or payload.get("thread_context")
@@ -157,7 +174,7 @@ class DelegationPacket:
             task_prompt=str(
                 payload.get("task_prompt") or payload.get("user_intent") or ""
             ).strip(),
-            tags=_coerce_text_list(payload.get("tags")),
+            tags=_coerce_deduped_text_list(payload.get("tags")),
             context=_coerce_mapping(
                 payload.get("context")
                 or payload.get("thread_context")
@@ -175,32 +192,112 @@ class DelegationSummary:
     delegation_id: str = ""
     task_id: str = ""
     status: str = DelegationJobStatus.COMPLETED.value
+    outcome_type: str = DELEGATION_SUMMARY_OUTCOME_TYPE
+    title: str | None = None
     summary: str | None = None
+    files_changed: list[str] = field(default_factory=list)
+    commands_run: list[str] = field(default_factory=list)
+    key_changes: list[str] = field(default_factory=list)
+    unresolved_questions: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     result: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    raw_transcript: str | None = None
+    transcript: str | None = None
+    failure: dict[str, Any] | None = None
     error_message: str | None = None
     created_at: str = field(default_factory=_utc_now_iso)
     completed_at: str = field(default_factory=_utc_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["files_changed"] = _coerce_deduped_text_list(
+            payload.get("files_changed")
+        )
+        payload["commands_run"] = _coerce_deduped_text_list(
+            payload.get("commands_run")
+        )
+        payload["key_changes"] = _coerce_deduped_text_list(
+            payload.get("key_changes")
+        )
+        payload["unresolved_questions"] = _coerce_deduped_text_list(
+            payload.get("unresolved_questions")
+        )
+        payload["tags"] = _coerce_deduped_text_list(payload.get("tags"))
+        payload["delegationId"] = self.delegation_id
+        payload["taskId"] = self.task_id
+        payload["outcomeType"] = self.outcome_type
+        payload["filesChanged"] = list(self.files_changed)
+        payload["commandsRun"] = list(self.commands_run)
+        payload["keyChanges"] = list(self.key_changes)
+        payload["unresolvedQuestions"] = list(self.unresolved_questions)
+        payload["rawTranscript"] = self.raw_transcript
+        payload["errorMessage"] = self.error_message
+        payload["createdAt"] = self.created_at
+        payload["completedAt"] = self.completed_at
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> DelegationSummary:
         payload = payload or {}
+        files_changed = _coerce_deduped_text_list(
+            payload.get("files_changed") or payload.get("filesChanged")
+        )
+        commands_run = _coerce_deduped_text_list(
+            payload.get("commands_run") or payload.get("commandsRun")
+        )
+        key_changes = _coerce_deduped_text_list(
+            payload.get("key_changes") or payload.get("keyChanges")
+        )
+        unresolved_questions = _coerce_deduped_text_list(
+            payload.get("unresolved_questions")
+            or payload.get("unresolvedQuestions")
+        )
+        tags = _coerce_deduped_text_list(payload.get("tags"))
         return cls(
-            delegation_id=str(payload.get("delegation_id") or "").strip(),
-            task_id=str(payload.get("task_id") or "").strip(),
+            delegation_id=str(
+                payload.get("delegation_id")
+                or payload.get("delegationId")
+                or ""
+            ).strip(),
+            task_id=str(
+                payload.get("task_id") or payload.get("taskId") or ""
+            ).strip(),
             status=_status_text(
                 payload.get("status"),
                 DelegationJobStatus.COMPLETED.value,
             ),
+            outcome_type=_status_text(
+                payload.get("outcome_type") or payload.get("outcomeType"),
+                DELEGATION_SUMMARY_OUTCOME_TYPE,
+            ),
+            title=_coerce_optional_text(payload.get("title")),
             summary=_coerce_optional_text(payload.get("summary")),
+            files_changed=files_changed,
+            commands_run=commands_run,
+            key_changes=key_changes,
+            unresolved_questions=unresolved_questions,
+            tags=tags,
             result=_coerce_mapping(payload.get("result")),
             metadata=_coerce_mapping(payload.get("metadata")),
+            raw_transcript=_coerce_optional_raw_text(
+                payload.get("raw_transcript") or payload.get("rawTranscript")
+            ),
+            transcript=_coerce_optional_text(payload.get("transcript")),
+            failure=_coerce_mapping(payload.get("failure"))
+            if payload.get("failure") is not None
+            else None,
             error_message=_coerce_optional_text(payload.get("error_message")),
-            created_at=str(payload.get("created_at") or _utc_now_iso()),
-            completed_at=str(payload.get("completed_at") or _utc_now_iso()),
+            created_at=str(
+                payload.get("created_at")
+                or payload.get("createdAt")
+                or _utc_now_iso()
+            ),
+            completed_at=str(
+                payload.get("completed_at")
+                or payload.get("completedAt")
+                or _utc_now_iso()
+            ),
         )
 
 
@@ -383,7 +480,7 @@ class DelegationTask(BaseTask):
             task_prompt=str(
                 payload.get("task_prompt") or payload.get("user_intent") or ""
             ).strip(),
-            tags=_coerce_text_list(payload.get("tags")),
+            tags=_coerce_deduped_text_list(payload.get("tags")),
             context=_coerce_mapping(
                 payload.get("context")
                 or payload.get("thread_context")
