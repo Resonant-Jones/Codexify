@@ -153,6 +153,230 @@ function formatLatencyDuration(milliseconds: number): string {
   return `${seconds.toFixed(precision)}s`;
 }
 
+export const INFERENCE_SLOW_PATH_MS = 15_000;
+
+type InferenceLifecycleState =
+  | "idle"
+  | "queued"
+  | "awaiting_model"
+  | "awaiting_first_token"
+  | "streaming"
+  | "completed"
+  | "provider_error"
+  | "degraded"
+  | "cancelled";
+
+type InferenceLifecycleSnapshot = {
+  canonicalState: InferenceLifecycleState;
+  isDelayed: boolean;
+  delayDetailText: string | null;
+  timings: {
+    sendElapsedMs: number | null;
+    firstLifecycleEvidenceMs: number | null;
+    firstTokenMs: number | null;
+    terminalMs: number | null;
+  };
+  evidence: {
+    hasTaskId: boolean;
+    hasQueuedAt: boolean;
+    hasAwaitingModelAt: boolean;
+    hasAwaitingFirstTokenAt: boolean;
+    hasFirstTokenAt: boolean;
+    hasFirstOutputAt: boolean;
+    hasCompletedAt: boolean;
+    hasErrorText: boolean;
+  };
+};
+
+type LifecycleTimingState = Pick<
+  InferenceRequestState,
+  | "phase"
+  | "threadId"
+  | "taskId"
+  | "startedAt"
+  | "updatedAt"
+  | "providerId"
+  | "modelId"
+  | "mode"
+  | "statusText"
+  | "detailText"
+  | "errorText"
+  | "queuedAt"
+  | "awaitingModelAt"
+  | "awaitingFirstTokenAt"
+  | "firstTokenAt"
+  | "firstOutputAt"
+  | "completedAt"
+>;
+
+function buildDelayedDetailText(
+  canonicalState: Exclude<
+    InferenceLifecycleState,
+    "idle" | "completed" | "provider_error" | "degraded" | "cancelled"
+  >,
+  sendElapsedMs: number
+): string {
+  const elapsed = formatLatencyDuration(sendElapsedMs);
+  switch (canonicalState) {
+    case "queued":
+      return `No lifecycle evidence yet after ${elapsed}; still waiting for task acknowledgement.`;
+    case "awaiting_model":
+      return `Task acknowledged; the model is still warming up after ${elapsed}.`;
+    case "awaiting_first_token":
+      return `Model accepted the request; still waiting for the first token after ${elapsed}.`;
+    case "streaming":
+      return `Assistant output is still streaming after ${elapsed}.`;
+  }
+}
+
+export function describeInferenceRequestState(
+  state: LifecycleTimingState,
+  now = Date.now()
+): InferenceLifecycleSnapshot {
+  const queuedAtMs = parseTimestampMs(state.queuedAt);
+  const awaitingModelAtMs = parseTimestampMs(state.awaitingModelAt);
+  const awaitingFirstTokenAtMs = parseTimestampMs(state.awaitingFirstTokenAt);
+  const firstTokenAtMs = parseTimestampMs(state.firstTokenAt);
+  const firstOutputAtMs = parseTimestampMs(state.firstOutputAt);
+  const completedAtMs = parseTimestampMs(state.completedAt);
+  const startedAtMs =
+    typeof state.startedAt === "number" && Number.isFinite(state.startedAt)
+      ? state.startedAt
+      : null;
+
+  const firstLifecycleEvidenceAtMs =
+    queuedAtMs ??
+    awaitingModelAtMs ??
+    awaitingFirstTokenAtMs ??
+    firstTokenAtMs ??
+    firstOutputAtMs ??
+    (state.taskId != null &&
+    typeof state.updatedAt === "number" &&
+    Number.isFinite(state.updatedAt)
+      ? state.updatedAt
+      : null) ??
+    completedAtMs;
+  const firstVisibleProgressAtMs =
+    firstTokenAtMs ??
+    firstOutputAtMs ??
+    (state.phase === "streaming" &&
+    typeof state.updatedAt === "number" &&
+    Number.isFinite(state.updatedAt)
+      ? state.updatedAt
+      : null);
+  const sendElapsedMs =
+    startedAtMs != null ? Math.max(0, now - startedAtMs) : null;
+  const firstLifecycleEvidenceMs =
+    startedAtMs != null && firstLifecycleEvidenceAtMs != null
+      ? Math.max(0, firstLifecycleEvidenceAtMs - startedAtMs)
+      : null;
+  const firstTokenMs =
+    startedAtMs != null && firstVisibleProgressAtMs != null
+      ? Math.max(0, firstVisibleProgressAtMs - startedAtMs)
+      : null;
+  const terminalMs =
+    startedAtMs != null && completedAtMs != null
+      ? Math.max(0, completedAtMs - startedAtMs)
+      : startedAtMs != null &&
+          state.phase === "completed" &&
+          typeof state.updatedAt === "number" &&
+          Number.isFinite(state.updatedAt)
+        ? Math.max(0, state.updatedAt - startedAtMs)
+      : null;
+
+  const evidence = {
+    hasTaskId: Boolean(state.taskId),
+    hasQueuedAt: queuedAtMs != null,
+    hasAwaitingModelAt: awaitingModelAtMs != null,
+    hasAwaitingFirstTokenAt: awaitingFirstTokenAtMs != null,
+    hasFirstTokenAt: firstTokenAtMs != null,
+    hasFirstOutputAt: firstOutputAtMs != null,
+    hasCompletedAt: completedAtMs != null,
+    hasErrorText: Boolean(state.errorText),
+  };
+
+  const normalizedStatus = String(state.statusText ?? "").trim().toLowerCase();
+  const normalizedDetail = String(state.detailText ?? "").trim().toLowerCase();
+
+  let canonicalState: InferenceLifecycleState = "idle";
+  if (state.phase === "completed" || completedAtMs != null) {
+    canonicalState = "completed";
+  } else if (state.phase === "failed" || state.errorText) {
+    canonicalState = "provider_error";
+  } else if (state.phase === "cancelled") {
+    canonicalState = "cancelled";
+  } else if (
+    normalizedStatus.includes("degraded") ||
+    normalizedDetail.includes("degraded")
+  ) {
+    canonicalState = "degraded";
+  } else if (state.phase === "streaming" || firstVisibleProgressAtMs != null) {
+    canonicalState = "streaming";
+  } else if (awaitingFirstTokenAtMs != null) {
+    canonicalState = "awaiting_first_token";
+  } else if (awaitingModelAtMs != null || state.taskId != null) {
+    canonicalState = "awaiting_model";
+  } else if (queuedAtMs != null || startedAtMs != null) {
+    canonicalState = "queued";
+  }
+
+  const isDelayed =
+    sendElapsedMs != null &&
+    sendElapsedMs >= INFERENCE_SLOW_PATH_MS &&
+    canonicalState !== "completed" &&
+    canonicalState !== "provider_error" &&
+    canonicalState !== "cancelled";
+
+  const delayedState =
+    canonicalState === "queued" ||
+    canonicalState === "awaiting_model" ||
+    canonicalState === "awaiting_first_token" ||
+    canonicalState === "streaming"
+      ? canonicalState
+      : null;
+
+  return {
+    canonicalState,
+    isDelayed,
+    delayDetailText:
+      isDelayed && delayedState != null
+        ? buildDelayedDetailText(delayedState, sendElapsedMs ?? 0)
+        : null,
+    timings: {
+      sendElapsedMs,
+      firstLifecycleEvidenceMs,
+      firstTokenMs,
+      terminalMs,
+    },
+    evidence,
+  };
+}
+
+function logInferenceLifecycleAttribution(
+  reason: string,
+  state: LifecycleTimingState,
+  snapshot: InferenceLifecycleSnapshot
+): void {
+  console.debug("[useInferenceRequestState] lifecycle attribution", {
+    reason,
+    canonicalState: snapshot.canonicalState,
+    isDelayed: snapshot.isDelayed,
+    delayDetailText: snapshot.delayDetailText,
+    evidence: snapshot.evidence,
+    timings: snapshot.timings,
+    thresholdMs: INFERENCE_SLOW_PATH_MS,
+    threadId: state.threadId,
+    taskId: state.taskId,
+    providerId: state.providerId,
+    modelId: state.modelId,
+    mode: state.mode,
+    statusText: state.statusText,
+    detailText: state.detailText,
+    errorText: state.errorText,
+    phase: state.phase,
+  });
+}
+
 function deriveLatencyMetrics(
   state: Pick<
     InferenceRequestState,
@@ -299,6 +523,7 @@ export function useInferenceRequestState() {
   const stateRef = useRef(state);
   const taskStreamRef = useRef<GuardianEventSource | null>(null);
   const attachedTaskIdRef = useRef<string | null>(null);
+  const delayedLifecycleKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -308,6 +533,7 @@ export function useInferenceRequestState() {
     taskStreamRef.current?.close();
     taskStreamRef.current = null;
     attachedTaskIdRef.current = null;
+    delayedLifecycleKeyRef.current = null;
   }, []);
 
   const applyPatch = useCallback((patch: Partial<InferenceRequestState>) => {
@@ -316,13 +542,14 @@ export function useInferenceRequestState() {
 
   const reset = useCallback(() => {
     closeTaskStream();
+    delayedLifecycleKeyRef.current = null;
     setState(createIdleInferenceRequestState());
   }, [closeTaskStream]);
 
   const startRequest = useCallback(
     ({ threadId, providerId, modelId, mode }: StartInferenceRequestInput) => {
       closeTaskStream();
-      setState({
+      const nextState = {
         ...createIdleInferenceRequestState(),
         phase: "sending",
         threadId,
@@ -335,7 +562,9 @@ export function useInferenceRequestState() {
         statusText: "Queued…",
         detailText: "Submitting your turn to Guardian.",
         errorText: null,
-      });
+      };
+      stateRef.current = nextState;
+      setState(nextState);
     },
     [closeTaskStream]
   );
@@ -353,8 +582,10 @@ export function useInferenceRequestState() {
         ...options.timingPatch,
         phase: "failed",
         taskId: null,
-        statusText: null,
-        detailText: options.detailText ?? "Guardian could not finish this turn.",
+        statusText: "Provider error…",
+        detailText:
+          options.detailText ??
+          "Provider error: Guardian could not finish this turn.",
         errorText,
         canCancel: false,
         canSwitchToFast: false,
@@ -500,7 +731,7 @@ export function useInferenceRequestState() {
               ? payload.error.trim()
               : "Guardian could not finish the response.";
           markFailed(errorText, {
-            detailText: "Try again or switch to a faster mode.",
+            detailText: "Provider error: try again or switch to a faster mode.",
             timingPatch,
           });
           return;
@@ -543,7 +774,7 @@ export function useInferenceRequestState() {
             ? payload.error.trim()
             : "Guardian could not finish the response.";
         markFailed(errorText, {
-          detailText: "Try again or switch to a faster mode.",
+          detailText: "Provider error: try again or switch to a faster mode.",
           timingPatch: extractTimingPatch(payload),
         });
       };
@@ -558,16 +789,101 @@ export function useInferenceRequestState() {
         if (stateRef.current.phase === "completed" || stateRef.current.phase === "cancelled") {
           return;
         }
+        const snapshot = describeInferenceRequestState(stateRef.current);
+        if (snapshot.canonicalState === "provider_error") {
+          return;
+        }
+        const delayedDetail =
+          snapshot.canonicalState === "streaming"
+            ? "Provider visibility is degraded; still waiting for the next stream event."
+            : "Provider visibility is degraded; still waiting for a terminal task event.";
+        logInferenceLifecycleAttribution("stream.onerror", stateRef.current, snapshot);
         applyPatch({
-          detailText:
-            stateRef.current.phase === "thinking"
-              ? "Still waiting for the worker to report progress."
-              : stateRef.current.detailText,
+          statusText: "Provider degraded…",
+          detailText: delayedDetail,
         });
       };
     },
     [applyPatch, closeTaskStream, markCancelled, markCompleted, markFailed]
   );
+
+  useEffect(() => {
+    const snapshot = describeInferenceRequestState(state);
+    if (
+      snapshot.canonicalState === "idle" ||
+      snapshot.canonicalState === "completed" ||
+      snapshot.canonicalState === "degraded" ||
+      snapshot.canonicalState === "provider_error" ||
+      snapshot.canonicalState === "cancelled"
+    ) {
+      delayedLifecycleKeyRef.current = null;
+      return;
+    }
+
+    const key = [
+      state.threadId ?? "null",
+      state.taskId ?? "null",
+      snapshot.canonicalState,
+      snapshot.delayDetailText,
+      snapshot.timings.sendElapsedMs ?? "na",
+      snapshot.timings.firstLifecycleEvidenceMs ?? "na",
+      snapshot.timings.firstTokenMs ?? "na",
+    ].join("|");
+
+    if (state.detailText === snapshot.delayDetailText) {
+      delayedLifecycleKeyRef.current = key;
+      return;
+    }
+
+    const applyDelayedDetail = (
+      currentState: InferenceRequestState = stateRef.current
+    ) => {
+      const currentSnapshot = describeInferenceRequestState(currentState);
+      if (
+        currentSnapshot.canonicalState === "idle" ||
+        currentSnapshot.canonicalState === "completed" ||
+        currentSnapshot.canonicalState === "degraded" ||
+        currentSnapshot.canonicalState === "provider_error" ||
+        currentSnapshot.canonicalState === "cancelled" ||
+        currentSnapshot.delayDetailText == null ||
+        !currentSnapshot.isDelayed
+      ) {
+        return;
+      }
+
+      const currentKey = [
+        currentState.threadId ?? "null",
+        currentState.taskId ?? "null",
+        currentSnapshot.canonicalState,
+        currentSnapshot.delayDetailText,
+        currentSnapshot.timings.sendElapsedMs ?? "na",
+        currentSnapshot.timings.firstLifecycleEvidenceMs ?? "na",
+        currentSnapshot.timings.firstTokenMs ?? "na",
+      ].join("|");
+
+      if (currentState.detailText === currentSnapshot.delayDetailText) {
+        delayedLifecycleKeyRef.current = currentKey;
+        return;
+      }
+
+      delayedLifecycleKeyRef.current = currentKey;
+      logInferenceLifecycleAttribution("slow-threshold", currentState, currentSnapshot);
+      applyPatch({
+        detailText: currentSnapshot.delayDetailText,
+      });
+    };
+
+    const elapsedMs = snapshot.timings.sendElapsedMs ?? 0;
+    const remainingMs = Math.max(INFERENCE_SLOW_PATH_MS - elapsedMs, 0);
+    if (!snapshot.isDelayed || snapshot.delayDetailText == null) {
+      const timeout = window.setTimeout(() => {
+        applyDelayedDetail();
+      }, remainingMs);
+      return () => window.clearTimeout(timeout);
+    }
+
+    applyDelayedDetail();
+  }, [applyPatch, state]);
 
   const requestCancel = useCallback(async () => {
     const taskId = stateRef.current.taskId;

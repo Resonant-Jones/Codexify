@@ -48,11 +48,12 @@ export function InferenceStatusBanner({
   })();
 
   const detail =
-    state.phase === "thinking"
+    state.detailText ??
+    (state.phase === "thinking"
       ? "This may take a few minutes."
       : state.phase === "failed"
         ? state.errorText
-        : null;
+        : null);
 
   const tone =
     state.phase === "failed"
