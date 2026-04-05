@@ -3003,13 +3003,13 @@ export function GuardianChat({
       )}
 
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
+      <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
         {effectiveThreadId != null ? (
           <div
             data-testid="chat-message-region"
             data-inference-delayed={composerInferenceSnapshot.isDelayed ? "true" : "false"}
             data-inference-state={composerInferenceSnapshot.canonicalState}
-            className="flex flex-1 min-h-0"
+            className="flex flex-1 min-h-0 min-w-0 overflow-hidden"
           >
             <ChatView
               key={effectiveThreadId}
@@ -3262,17 +3262,15 @@ export function GuardianChat({
   if (bare) {
     return (
       <>
-        {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
-<div
-  className="relative flex flex-col flex-1 min-h-0 overflow-y-auto"
->
-  <div
-    data-testid="guardian-shell"
-    className={`relative mx-auto flex h-full w-full min-h-0 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
-    style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
-  >
-    {body}
-  </div>
+        {/* ChatView owns the scroll container; this wrapper just constrains layout. */}
+        <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div
+            data-testid="guardian-shell"
+            className={`relative mx-auto flex h-full w-full min-h-0 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+            style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
+          >
+            {body}
+          </div>
         </div>
         <RAGTracePanel
           open={ragTraceOpen}

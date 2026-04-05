@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat from "@/features/chat/GuardianChat";
@@ -13,6 +20,12 @@ const apiSpies = vi.hoisted(() => ({
 
 const eventSources = vi.hoisted(() => ({
   instances: [] as MockGuardianEventSource[],
+}));
+const chatState = vi.hoisted(() => ({
+  messages: [] as any[],
+  loading: false,
+  error: null as string | null,
+  hasMore: false,
 }));
 
 type MockGuardianEventSource = EventTarget & {
@@ -98,10 +111,10 @@ vi.mock("@/hooks/useLiveEvents", () => ({
 
 vi.mock("@/features/chat/useChat", () => ({
   default: () => ({
-    messages: [],
-    loading: false,
-    error: null,
-    hasMore: false,
+    messages: chatState.messages,
+    loading: chatState.loading,
+    error: chatState.error,
+    hasMore: chatState.hasMore,
     activateThread: vi.fn().mockResolvedValue([]),
     refreshSnapshot: vi.fn().mockResolvedValue([]),
     loadOlderMessages: vi.fn().mockResolvedValue([]),
@@ -267,6 +280,15 @@ function buildSessionTabs(threadId: string) {
   ];
 }
 
+function buildUserMessage(id: number, content: string) {
+  return {
+    id,
+    role: "user",
+    content,
+    created_at: "2026-04-05T00:00:00.000Z",
+  } as any;
+}
+
 function renderChat(threadId = "1") {
   const onSendMessage = vi.fn().mockResolvedValue(undefined);
   const utils = render(
@@ -318,6 +340,10 @@ describe("GuardianChat inference rail", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-05T00:00:00.000Z"));
     vi.clearAllMocks();
+    chatState.messages = [];
+    chatState.loading = false;
+    chatState.error = null;
+    chatState.hasMore = false;
     eventSources.instances.length = 0;
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -455,5 +481,50 @@ describe("GuardianChat inference rail", () => {
       screen.getByText(/still waiting for a terminal task event/i)
     ).toBeInTheDocument();
     expect(screen.queryByText("Reply failed")).not.toBeInTheDocument();
+  });
+
+  it("collapses oversized user messages by default and keeps the chat scroll container intact", async () => {
+    const collapsedCode = Array.from({ length: 24 }, (_, index) => `const line${index} = ${index};`).join(
+      "\n"
+    );
+    chatState.messages = [buildUserMessage(91, collapsedCode)];
+
+    renderChat("1");
+
+    const message = screen.getByTestId("chat-message");
+    const content = within(message).getByTestId("guardian-user-message-content");
+
+    expect(within(message).getByRole("button", { name: "See more" })).toBeInTheDocument();
+    expect(content).toHaveStyle({ maxHeight: "224px", overflowY: "hidden" });
+    expect(screen.getByTestId("chat-container")).toHaveClass("overflow-y-auto");
+  });
+
+  it("shows the expansion affordance only after the oversized threshold and expands the selected message locally", async () => {
+    const shortMessage = buildUserMessage(92, "Short note.\nStill short.");
+    const oversizedMessage = buildUserMessage(
+      93,
+      Array.from({ length: 22 }, (_, index) => `const entry${index} = "${index}";`).join("\n")
+    );
+    chatState.messages = [shortMessage, oversizedMessage];
+
+    renderChat("1");
+
+    const messageCards = screen.getAllByTestId("chat-message");
+    const shortCard = messageCards[0];
+    const longCard = messageCards[1];
+    const longContent = within(longCard).getByTestId("guardian-user-message-content");
+
+    expect(within(shortCard).queryByRole("button", { name: "See more" })).not.toBeInTheDocument();
+    expect(within(longCard).getByRole("button", { name: "See more" })).toBeInTheDocument();
+    expect(longContent).toHaveStyle({ maxHeight: "224px", overflowY: "hidden" });
+
+    await act(async () => {
+      fireEvent.click(within(longCard).getByRole("button", { name: "See more" }));
+    });
+
+    expect(within(longCard).getByRole("button", { name: "Show less" })).toBeInTheDocument();
+    expect(longContent).toHaveStyle({ maxHeight: "360px", overflowY: "auto" });
+    expect(within(shortCard).queryByRole("button", { name: "Show less" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-container")).toHaveClass("overflow-y-auto");
   });
 });

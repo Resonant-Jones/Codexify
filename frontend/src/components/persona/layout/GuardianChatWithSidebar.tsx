@@ -1607,7 +1607,7 @@ export default function GuardianChatWithSidebar({
                   </div>
                 </div>
               )}
-              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
                 <GuardianChat
                   guardianName={guardianName}
                   userName={userName}
