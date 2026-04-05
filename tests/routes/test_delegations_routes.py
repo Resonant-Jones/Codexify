@@ -4,7 +4,11 @@ from typing import Any
 
 import pytest
 
-from guardian.protocol_tokens import DelegationEventType, DelegationJobStatus
+from guardian.protocol_tokens import (
+    DelegationEventType,
+    DelegationExecutorName,
+    DelegationJobStatus,
+)
 from guardian.routes import delegations
 
 
@@ -21,7 +25,7 @@ def _draft_payload() -> dict[str, Any]:
         "conversation_id": "thread-17",
         "project_id": 3,
         "repo_path": "/workspace/codexify",
-        "executor": "stub",
+        "executor": DelegationExecutorName.CODEX.value,
         "user_intent": "Build the delegation lane backend slice.",
         "tags": ["backend", "delegation"],
         "context": {"thread_title": "Delegation slice"},
@@ -39,6 +43,7 @@ def test_delegation_draft_creation(test_client) -> None:
     assert packet["thread_id"] == 17
     assert packet["task_prompt"] == "Build the delegation lane backend slice."
     assert packet["tags"] == ["backend", "delegation"]
+    assert packet["executor"] == DelegationExecutorName.CODEX.value
 
 
 def test_delegation_approve_creates_queued_task_and_returns_ids(
@@ -107,6 +112,7 @@ def test_delegation_approve_creates_queued_task_and_returns_ids(
     assert job is not None
     assert job.status == DelegationJobStatus.QUEUED.value
     assert job.task_id == body["task_id"]
+    assert job.executor == DelegationExecutorName.CODEX.value
 
 
 def test_delegation_cancel_marks_terminal_state(
