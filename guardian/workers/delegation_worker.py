@@ -107,6 +107,14 @@ def process_delegation_task(
             return summary.to_dict()
 
         running_job = svc.mark_job_running(task.delegation_id)
+        if running_job.is_terminal():
+            logger.info(
+                "[delegation-worker] terminal delegation skipped delegation_id=%s task_id=%s status=%s",
+                task.delegation_id,
+                task.task_id,
+                running_job.status,
+            )
+            return running_job.to_dict()
         running_payload = {
             "delegation_id": task.delegation_id,
             "task_id": task.task_id,

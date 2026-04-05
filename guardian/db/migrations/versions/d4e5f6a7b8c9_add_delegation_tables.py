@@ -1,7 +1,7 @@
 """add delegation packets, jobs, and summaries
 
 Revision ID: d4e5f6a7b8c9
-Revises: b0c1d2e3f4a5
+Revises: d4b7f1a9c3e2, b7c8d9e0f1a2
 Create Date: 2026-04-04 00:00:00.000000
 """
 
@@ -15,7 +15,10 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "d4e5f6a7b8c9"
-down_revision: str | Sequence[str] | None = "b0c1d2e3f4a5"
+down_revision: str | Sequence[str] | None = (
+    "d4b7f1a9c3e2",
+    "b7c8d9e0f1a2",
+)
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

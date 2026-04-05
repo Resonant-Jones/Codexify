@@ -7,7 +7,7 @@ No raw DDL creation in application code.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
@@ -1696,7 +1696,7 @@ class ImprintFoldState(Base):
 
 
 # =========================
-# Imprints, Personas, System Docs
+# Persona Profiles
 # =========================
 
 
@@ -1733,6 +1733,11 @@ class PersonaProfile(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Imprints, Personas, System Docs
+# =========================
 
 
 class Imprint(Base):
