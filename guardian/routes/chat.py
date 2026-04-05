@@ -1049,7 +1049,11 @@ def _apply_thread_update(
         else None
     )
     project_present = "project_id" in payload
-    project_value = payload.get("project_id") if project_present else None
+    project_value = (
+        _coerce_project_id(payload.get("project_id"))
+        if project_present
+        else None
+    )
     archived_present = "archived" in payload
     archived_requested = payload.get("archived") if archived_present else None
 
@@ -1189,7 +1193,9 @@ DOC_SCOPE_K_THREAD = 4
 DOC_EXCERPT_CHARS = 320
 DOC_OVERRIDE_MAX_CHARS = 2600
 DEFAULT_PROJECT_NAME = "General"
-DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
+DEFAULT_PROJECT_DESCRIPTION = (
+    "Default project for content without a specified project"
+)
 
 
 def _ensure_default_project_id() -> Optional[int]:
@@ -2598,13 +2604,9 @@ def branch_thread(
 
     project_id: Optional[int]
     if payload.project_id is not None:
-        project_id = payload.project_id
+        project_id = _coerce_project_id(payload.project_id)
     else:
-        project_id = parent.get("project_id")
-        try:
-            project_id = int(project_id) if project_id is not None else None
-        except (TypeError, ValueError):
-            project_id = None
+        project_id = _coerce_project_id(parent.get("project_id"))
 
     child = chatlog_db.create_chat_thread(
         user_id=parent.get("user_id", "default"),

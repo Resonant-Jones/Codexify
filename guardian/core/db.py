@@ -16,6 +16,8 @@ from sqlalchemy import create_engine, func, inspect, or_, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+from guardian.core.default_project import resolve_project_id_or_default
+
 # Import ORM models
 from guardian.db.models import (
     AuditLog,
@@ -252,12 +254,15 @@ class _PostgresGuardianDB:
         modeling_excluded: bool = False,
     ) -> Dict[str, Any]:
         """Create a new chat thread."""
+        resolved_project_id = resolve_project_id_or_default(
+            self, project_id, logger=logger
+        )
         with self.get_session() as session:
             thread = ChatThread(
                 user_id=user_id,
                 title=title,
                 summary=summary,
-                project_id=project_id,
+                project_id=resolved_project_id,
                 parent_id=parent_id,
                 active_profile_id=active_profile_id,
                 is_diary=diary_mode,
@@ -289,15 +294,30 @@ class _PostgresGuardianDB:
             if modeling_excluded is None
             else modeling_excluded
         )
+        resolved_project_id = resolve_project_id_or_default(
+            self, project_id, logger=logger
+        )
         with self.get_session() as session:
             thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if thread:
+                current_project_id = thread.project_id
+                if current_project_id is not None:
+                    try:
+                        current_project_id = int(current_project_id)
+                    except (TypeError, ValueError):
+                        current_project_id = None
+                if project_id is not None or current_project_id is None:
+                    if current_project_id != resolved_project_id:
+                        thread.project_id = resolved_project_id
+                        session.commit()
+                return
             if not thread:
                 thread = ChatThread(
                     id=thread_id,
                     user_id=user_id,
                     title=title,
                     summary=summary,
-                    project_id=project_id,
+                    project_id=resolved_project_id,
                     is_diary=diary_flag,
                     diary_mode=diary_flag,
                     exclude_from_identity=modeling_flag,
@@ -363,7 +383,9 @@ class _PostgresGuardianDB:
             if summary is not None:
                 thread.summary = summary
             if project_id_set:
-                thread.project_id = project_id
+                thread.project_id = resolve_project_id_or_default(
+                    self, project_id, logger=logger
+                )
             if active_profile_id_set:
                 thread.active_profile_id = active_profile_id
 
@@ -1501,7 +1523,7 @@ class _PostgresGuardianDB:
         project_id: Optional[str] = None,
     ) -> int:
         """Create thread (legacy API compat)."""
-        proj_id = int(project_id) if project_id else None
+        proj_id = resolve_project_id_or_default(self, project_id, logger=logger)
         thread = self.create_chat_thread(
             user_id=user_id,
             title="New Chat",

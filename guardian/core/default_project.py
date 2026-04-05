@@ -3,6 +3,7 @@
 This module centralizes the canonical default project identity used by
 frontend and backend flows. Legacy naming ("Loose Threads") is treated as an
 alias and normalized to the canonical "General" project for user-visible APIs.
+Anything without an explicit project should resolve to that canonical project.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Any, Mapping, MutableMapping, Sequence
 
 DEFAULT_PROJECT_NAME = "General"
 DEFAULT_PROJECT_DESCRIPTION = (
-    "Default bucket for unassigned threads and documents"
+    "Default project for content without a specified project"
 )
 LEGACY_DEFAULT_PROJECT_ALIASES: tuple[str, ...] = ("Loose Threads",)
 
@@ -29,6 +30,23 @@ def _default_name_aliases() -> set[str]:
 def is_default_project_name(name: str | None) -> bool:
     normalized = normalize_project_name(name)
     return bool(normalized) and normalized in _default_name_aliases()
+
+
+def resolve_project_id_or_default(
+    chatlog_db: Any,
+    project_id: Any,
+    logger: logging.Logger | None = None,
+) -> int | None:
+    """Return a positive project id, falling back to the canonical General project."""
+    try:
+        parsed = int(project_id)
+    except (TypeError, ValueError):
+        parsed = None
+
+    if parsed is not None and parsed > 0:
+        return parsed
+
+    return canonicalize_default_project(chatlog_db, logger=logger)
 
 
 def _coerce_project_id(project: Mapping[str, Any]) -> int | None:

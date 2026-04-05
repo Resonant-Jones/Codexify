@@ -30,6 +30,10 @@ from sqlalchemy.orm import sessionmaker
 from guardian.db.models import EventOutbox
 
 from .chat_db import ChatDB
+from .default_project import (
+    canonicalize_default_project,
+    resolve_project_id_or_default,
+)
 
 
 # ---- JSON helpers -------------------------------------------------------
@@ -401,6 +405,9 @@ class PgDB(ChatDB):
             if modeling_excluded is None
             else modeling_excluded
         )
+        project_id = resolve_project_id_or_default(
+            self, project_id, logger=logging.getLogger(__name__)
+        )
         with self._connect() as conn:
             try:
                 with conn.cursor() as cur:
@@ -483,8 +490,32 @@ class PgDB(ChatDB):
             if modeling_excluded is None
             else modeling_excluded
         )
+        raw_project_id = project_id
+        resolved_project_id = resolve_project_id_or_default(
+            self, raw_project_id, logger=logging.getLogger(__name__)
+        )
         existing = self.get_chat_thread(thread_id)
         if existing:
+            current_project_id = existing.get("project_id")
+            try:
+                current_project_id = (
+                    int(current_project_id)
+                    if current_project_id is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                current_project_id = None
+            if raw_project_id is not None or current_project_id is None:
+                if current_project_id != resolved_project_id:
+                    updated = self.update_thread(
+                        thread_id,
+                        project_id=resolved_project_id,
+                        project_id_set=True,
+                    )
+                    if updated:
+                        refreshed = self.get_chat_thread(thread_id)
+                        if refreshed:
+                            return refreshed
             return existing
         with self._connect() as conn:
             try:
@@ -508,7 +539,7 @@ class PgDB(ChatDB):
                             user_id,
                             title,
                             summary,
-                            project_id,
+                            resolved_project_id,
                             parent_id,
                             diary_flag,
                             diary_flag,
@@ -538,7 +569,7 @@ class PgDB(ChatDB):
                             user_id,
                             title,
                             summary,
-                            project_id,
+                            resolved_project_id,
                             diary_flag,
                             modeling_flag,
                         ),
@@ -715,6 +746,9 @@ class PgDB(ChatDB):
             fields.append("summary = %s")
             params.append(summary)
         if project_id_set:
+            project_id = resolve_project_id_or_default(
+                self, project_id, logger=logging.getLogger(__name__)
+            )
             fields.append("project_id = %s")
             params.append(project_id)
         if active_profile_id_set:
@@ -891,6 +925,9 @@ class PgDB(ChatDB):
         project_id: str | None = None,
     ) -> int:
         created_at = datetime.now(timezone.utc)
+        project_id = resolve_project_id_or_default(
+            self, project_id, logger=logging.getLogger(__name__)
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -951,16 +988,19 @@ class PgDB(ChatDB):
                 return [dict(row) for row in rows]
 
     def eject_threads_from_project(self, project_id: int):
-        """Liberate threads from their project consciousness—orphaning them before project deletion.
+        """Move threads out of a project before deleting it.
 
-        Sets project_id=NULL for all threads associated with a project, releasing them from
-        that organizational consciousness before the project itself dissolves. Called during
-        project termination rituals."""
+        Threads are reassigned to the canonical default project ("General") so
+        no content is left without a project boundary.
+        """
+        default_project_id = self.ensure_default_project()
+        if int(project_id) == int(default_project_id):
+            return
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE chat_threads SET project_id = NULL WHERE project_id = %s",
-                    (project_id,),
+                    "UPDATE chat_threads SET project_id = %s WHERE project_id = %s",
+                    (default_project_id, project_id),
                 )
 
     def create_project(self, name: str, description: str = "") -> int:
@@ -980,6 +1020,14 @@ class PgDB(ChatDB):
                 if not row:
                     raise RuntimeError("Failed to create project")
                 return int(row["id"])
+
+    def ensure_default_project(self) -> int:
+        project_id = canonicalize_default_project(
+            self, logger=logging.getLogger(__name__)
+        )
+        if project_id is None:
+            raise RuntimeError("Unable to resolve default project")
+        return project_id
 
     def ensure_project(self, name: str, description: str = "") -> int:
         with self._connect() as conn:
