@@ -1,4 +1,4 @@
-"""Stub worker for queued delegation tasks."""
+"""Worker for queued delegation tasks."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from guardian.core.delegation_service import (
     DelegationNotFoundError,
     DelegationService,
 )
+from guardian.core.executors.base import ExecutorRequest, ExecutorResult
 from guardian.protocol_tokens import DelegationEventType, DelegationJobStatus
 from guardian.queue import task_events
 from guardian.queue.redis_queue import clear_cancelled, dequeue, is_cancelled
@@ -68,7 +69,7 @@ def process_delegation_task(
     *,
     service: DelegationService | None = None,
 ) -> dict[str, Any]:
-    """Process a queued delegation task with a stub executor result."""
+    """Process a queued delegation task through the Codex executor."""
 
     svc = service or _service
     job = svc.get_job(task.delegation_id)
@@ -84,8 +85,10 @@ def process_delegation_task(
                 cancellation_payload = {
                     "delegation_id": task.delegation_id,
                     "task_id": task.task_id,
+                    "packet_id": job.packet_id,
                     "status": DelegationJobStatus.CANCELLED.value,
                     "reason": "cancelled_before_execution",
+                    "event_name": DelegationEventType.CANCELLED.value,
                 }
                 _safe_publish(
                     task.task_id,
@@ -96,11 +99,18 @@ def process_delegation_task(
                 cancelled.job,
                 status=DelegationJobStatus.CANCELLED.value,
                 summary="Delegation cancelled before execution.",
-                result={"mode": "stub", "cancelled": True},
+                result={
+                    "cancelled": True,
+                    "reason": "cancelled_before_execution",
+                    "packet_id": job.packet_id,
+                    "task_id": task.task_id,
+                },
                 metadata={
                     "delegation_id": task.delegation_id,
                     "task_id": task.task_id,
-                    "executor": task.executor,
+                    "executor": job.executor,
+                    "repo_path": job.repo_path,
+                    "tags": list(job.tags),
                 },
                 error_message="cancelled_before_execution",
             )
@@ -115,12 +125,15 @@ def process_delegation_task(
                 running_job.status,
             )
             return running_job.to_dict()
+
         running_payload = {
             "delegation_id": task.delegation_id,
             "task_id": task.task_id,
+            "packet_id": job.packet_id,
             "status": DelegationJobStatus.RUNNING.value,
-            "executor": task.executor,
-            "repo_path": task.repo_path,
+            "executor": job.executor,
+            "repo_path": job.repo_path,
+            "event_name": DelegationEventType.RUNNING.value,
         }
         _safe_publish(
             task.task_id,
@@ -128,27 +141,56 @@ def process_delegation_task(
             running_payload,
         )
 
-        progress_payload = {
-            "delegation_id": task.delegation_id,
-            "task_id": task.task_id,
-            "status": DelegationJobStatus.RUNNING.value,
-            "progress": 50,
-            "message": "Delegation worker stub in progress.",
-        }
-        _safe_publish(
-            task.task_id,
-            DelegationEventType.PROGRESS.value,
-            progress_payload,
+        executor = svc.resolve_executor(job.executor)
+        request = ExecutorRequest(
+            delegation_id=task.delegation_id,
+            task_id=task.task_id,
+            repo_path=job.repo_path,
+            executor=job.executor,
+            task_prompt=job.task_prompt,
+            context=dict(job.context),
+            tags=list(job.tags),
+            thread_id=job.thread_id,
+            project_id=job.project_id,
         )
 
-        if is_cancelled(task.task_id):
+        def _publish_progress(chunk: Any) -> None:
+            if not getattr(chunk, "text", "").strip():
+                return
+            progress_payload = {
+                "delegation_id": task.delegation_id,
+                "task_id": task.task_id,
+                "packet_id": job.packet_id,
+                "status": DelegationJobStatus.RUNNING.value,
+                "event_name": DelegationEventType.PROGRESS.value,
+                "stream": getattr(chunk, "stream", "stdout"),
+                "sequence": getattr(chunk, "sequence", None),
+                "message": chunk.text,
+                "text": chunk.text,
+            }
+            _safe_publish(
+                task.task_id,
+                DelegationEventType.PROGRESS.value,
+                progress_payload,
+            )
+
+        executor_result: ExecutorResult = executor.execute(
+            request,
+            on_output=_publish_progress,
+            should_stop=lambda: is_cancelled(task.task_id),
+        )
+
+        if executor_result.status == DelegationJobStatus.CANCELLED.value:
             cancelled = svc.cancel_delegation(task.delegation_id)
             if cancelled.changed:
                 cancellation_payload = {
                     "delegation_id": task.delegation_id,
                     "task_id": task.task_id,
+                    "packet_id": job.packet_id,
                     "status": DelegationJobStatus.CANCELLED.value,
-                    "reason": "cancelled_during_execution",
+                    "reason": executor_result.error_message
+                    or "cancelled_during_execution",
+                    "event_name": DelegationEventType.CANCELLED.value,
                 }
                 _safe_publish(
                     task.task_id,
@@ -158,33 +200,47 @@ def process_delegation_task(
             summary = svc.build_summary_packet(
                 cancelled.job,
                 status=DelegationJobStatus.CANCELLED.value,
-                summary="Delegation cancelled during execution.",
-                result={"mode": "stub", "cancelled": True},
+                summary=executor_result.summary
+                or "Delegation cancelled during execution.",
+                result=executor_result.to_dict(),
                 metadata={
                     "delegation_id": task.delegation_id,
                     "task_id": task.task_id,
-                    "executor": task.executor,
+                    "executor": job.executor,
+                    "repo_path": job.repo_path,
+                    "tags": list(job.tags),
+                    "executor_failure": (
+                        executor_result.failure.to_dict()
+                        if executor_result.failure is not None
+                        else None
+                    ),
                 },
-                error_message="cancelled_during_execution",
+                error_message=executor_result.error_message
+                or "cancelled_during_execution",
             )
             return summary.to_dict()
 
-        summary = svc.build_summary_packet(
+        summary = svc.normalize_executor_result(
             running_job,
-            status=DelegationJobStatus.COMPLETED.value,
-            summary="Delegation worker stub completed.",
-            result={
-                "mode": "stub",
-                "delegation_id": task.delegation_id,
-                "task_id": task.task_id,
-                "packet_id": task.packet_id,
-            },
-            metadata={
-                "executor": task.executor,
-                "repo_path": task.repo_path,
-                "tags": list(task.tags),
-            },
+            executor_result,
+            packet=svc.get_packet(job.packet_id),
         )
+        if executor_result.status == DelegationJobStatus.FAILED.value:
+            svc.mark_job_failed(
+                task.delegation_id,
+                error_message=summary.error_message
+                or executor_result.error_message
+                or "delegation_failed",
+                summary=summary,
+            )
+            failed_payload = summary.to_dict()
+            _safe_publish(
+                task.task_id,
+                DelegationEventType.FAILED.value,
+                failed_payload,
+            )
+            return failed_payload
+
         svc.mark_job_completed(task.delegation_id, summary=summary)
         completed_payload = summary.to_dict()
         _safe_publish(
@@ -193,6 +249,47 @@ def process_delegation_task(
             completed_payload,
         )
         return completed_payload
+    except Exception as exc:
+        logger.exception(
+            "[delegation-worker] unexpected executor failure delegation_id=%s task_id=%s",
+            task.delegation_id,
+            task.task_id,
+        )
+        summary = svc.build_summary_packet(
+            job,
+            status=DelegationJobStatus.FAILED.value,
+            summary=str(exc),
+            result={
+                "failure": {
+                    "error_code": "DELEGATION_EXECUTOR_SPAWN_FAILED",
+                    "failure_class": exc.__class__.__name__,
+                    "message": str(exc),
+                },
+                "task_id": task.task_id,
+                "packet_id": job.packet_id,
+                "executor": job.executor,
+            },
+            metadata={
+                "delegation_id": task.delegation_id,
+                "task_id": task.task_id,
+                "executor": job.executor,
+                "repo_path": job.repo_path,
+                "tags": list(job.tags),
+            },
+            error_message=str(exc),
+        )
+        svc.mark_job_failed(
+            task.delegation_id,
+            error_message=str(exc),
+            summary=summary,
+        )
+        failed_payload = summary.to_dict()
+        _safe_publish(
+            task.task_id,
+            DelegationEventType.FAILED.value,
+            failed_payload,
+        )
+        return failed_payload
     finally:
         clear_cancelled(task.task_id)
 
