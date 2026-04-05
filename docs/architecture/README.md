@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-04
+Last updated: 2026-04-05
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -28,7 +28,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Start Here
 
-Start here first for current-state interpretation and release-readiness decisions: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
+Start here first when you need current-state interpretation rather than structural architecture: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
 If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
@@ -74,7 +74,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - Provider catalog, model selection, and runtime support: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py`
 - Startup order, router wiring, middleware, SSE: `guardian/guardian_api.py`
 - Auth mode, API key/session behavior, and exposure policy: `guardian/core/dependencies.py`, `guardian/core/public_exposure.py`
-- Delegation planning, run persistence, lineage, and result injection: `guardian/routes/agent_orchestration.py`, `guardian/routes/codex.py`, `guardian/codex/lineage.py`, `guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/workers/agent_worker.py`
+- Delegation planning, run persistence, lineage, and result injection: `guardian/routes/agent_orchestration.py`, `guardian/routes/codex.py`, `guardian/routes/delegations.py`, `guardian/codex/lineage.py`, `guardian/core/delegation_service.py`, `guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/workers/agent_worker.py`, `guardian/workers/delegation_worker.py`, `guardian/tasks/types.py`, `guardian/protocol_tokens.py`
 - Document/image upload, parsing, dedupe, and embedding enqueue: `guardian/routes/media.py`, `guardian/services/document_parsers/`, `guardian/queue/document_embed_queue.py`
 - Generated docs and thread document links: `guardian/routes/documents.py`
 - DB schema and invariants: `guardian/db/models.py`, `guardian/db/migrations/`
