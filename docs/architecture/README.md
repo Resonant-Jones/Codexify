@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-01
+Last updated: 2026-04-04
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -12,6 +12,13 @@ Source anchors:
 - frontend/src/components/persona/layout/AppShell.tsx
 - frontend/src/features/personaStudio/
 - docker-compose.yml
+- guardian/routes/agent_orchestration.py
+- guardian/routes/codex.py
+- guardian/codex/lineage.py
+- guardian/agents/store.py
+- guardian/agents/events.py
+- guardian/workers/agent_worker.py
+- guardian/command_bus/contracts.py
 
 # Codexify Architecture KB
 
@@ -22,6 +29,8 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 ## Start Here
 
 Start here first for current-state interpretation and release-readiness decisions: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
+
+If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
 ## KB Validity and Diagram Source Sets
 
@@ -47,10 +56,14 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
+- [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, and machine-readable failure codes.
+- [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
+- [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
+- [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.
 - [Completion Pipeline](./completion_pipeline.md): older completion deep dive; supplementary only and verify against current routes/workers.
 - [Inference Providers](./providers.md): provider notes; supplementary only and verify against current catalog/router/health behavior.
-- [Guardian Agent Delegation Recon](./guardian-agent-delegation-recon.md): focused planning/recon notes on delegation and agent runtime work.
+- [Guardian Agent Delegation Recon](./guardian-agent-delegation-recon.md): focused planning/recon notes on delegation and agent runtime work; use only as supplementary planning context.
 - [Solo Operator Runtime Bootcamp](./solo-operator-runtime-bootcamp.md): operational bootstrapping guide for solo runtime work.
 
 ## Where Do I Change X?
@@ -61,6 +74,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - Provider catalog, model selection, and runtime support: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py`
 - Startup order, router wiring, middleware, SSE: `guardian/guardian_api.py`
 - Auth mode, API key/session behavior, and exposure policy: `guardian/core/dependencies.py`, `guardian/core/public_exposure.py`
+- Delegation planning, run persistence, lineage, and result injection: `guardian/routes/agent_orchestration.py`, `guardian/routes/codex.py`, `guardian/codex/lineage.py`, `guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/workers/agent_worker.py`
 - Document/image upload, parsing, dedupe, and embedding enqueue: `guardian/routes/media.py`, `guardian/services/document_parsers/`, `guardian/queue/document_embed_queue.py`
 - Generated docs and thread document links: `guardian/routes/documents.py`
 - DB schema and invariants: `guardian/db/models.py`, `guardian/db/migrations/`
@@ -79,6 +93,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
   - chat/RAG/ingestion/tool flow changes belong in `flows.md`
   - schema/storage changes belong in `data-and-storage.md`
   - config/startup/health changes belong in `config-and-ops.md`
+  - delegation runtime or provenance changes belong in `delegation-runtime.md` and `delegation-operator-manual.md`
 - Refresh `Last updated` and `Source anchors` when a new file becomes part of the path.
 - Mark anything uncertain as `Unverified` and point to the verification file or endpoint.
 - Keep present-state descriptions out of `roadmap-signals.md`; keep recommendations there instead.
