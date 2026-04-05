@@ -56,7 +56,10 @@ import {
   isChatSelectableModel,
   useLlmCatalog,
 } from "@/features/chat/hooks/useLlmCatalog";
-import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequestState";
+import {
+  describeInferenceRequestState,
+  useInferenceRequestState,
+} from "@/features/chat/hooks/useInferenceRequestState";
 import {
   createIdleInferenceRequestState,
   DEFAULT_COMPOSER_INFERENCE_MODE,
@@ -2621,6 +2624,10 @@ export function GuardianChat({
     inferenceRequest.state.threadId === numericThreadId
       ? inferenceRequest.state
       : createIdleInferenceRequestState();
+  const composerInferenceSnapshot = useMemo(
+    () => describeInferenceRequestState(composerInferenceState),
+    [composerInferenceState]
+  );
   const handleCancelInference = () => {
     const releaseThreadId =
       inferenceRequest.state.threadId ??
@@ -2998,30 +3005,37 @@ export function GuardianChat({
       {/* Messages region - Flex 1, scrolls independently */}
       <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
         {effectiveThreadId != null ? (
-          <ChatView
-            key={effectiveThreadId}
-            threadId={effectiveThreadId}
-            guardianName={guardianName}
-            messages={messages}
-            loading={chatLoading}
-            error={chatError}
-            hasMore={chatHasMore}
-            onLoadOlderMessages={() => loadOlderMessages(effectiveThreadId)}
-            reloadVersion={chatReloadVersion}
-            completionState={completionState}
-            endCompletion={endCompletion}
-            className="flex flex-col flex-1 min-h-0"
-            bottomPadding={160}
-            autoReadEnabled={autoReadEnabled}
-            depthMode={depth}
-            profileId={resolvedProfile.id}
-            voiceReadAloudEnabled={voiceReadAloudEnabled}
-            voiceCapabilitiesFailed={voiceCapabilitiesFailed}
-            inferenceState={composerInferenceState}
-            streamingDraft={streamingDraft}
-            onCancelInference={handleCancelInference}
-            onSwitchToFast={handleSwitchToNoThink}
-          />
+          <div
+            data-testid="chat-message-region"
+            data-inference-delayed={composerInferenceSnapshot.isDelayed ? "true" : "false"}
+            data-inference-state={composerInferenceSnapshot.canonicalState}
+            className="flex flex-1 min-h-0"
+          >
+            <ChatView
+              key={effectiveThreadId}
+              threadId={effectiveThreadId}
+              guardianName={guardianName}
+              messages={messages}
+              loading={chatLoading}
+              error={chatError}
+              hasMore={chatHasMore}
+              onLoadOlderMessages={() => loadOlderMessages(effectiveThreadId)}
+              reloadVersion={chatReloadVersion}
+              completionState={completionState}
+              endCompletion={endCompletion}
+              className="flex flex-col flex-1 min-h-0"
+              bottomPadding={160}
+              autoReadEnabled={autoReadEnabled}
+              depthMode={depth}
+              profileId={resolvedProfile.id}
+              voiceReadAloudEnabled={voiceReadAloudEnabled}
+              voiceCapabilitiesFailed={voiceCapabilitiesFailed}
+              inferenceState={composerInferenceState}
+              streamingDraft={streamingDraft}
+              onCancelInference={handleCancelInference}
+              onSwitchToFast={handleSwitchToNoThink}
+            />
+          </div>
         ) : (
           <div
             className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
