@@ -8,8 +8,9 @@ import pytest
 from backend.rag import chatgpt_migration
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
 from guardian.core import dependencies
+from guardian.queue.redis_queue import dequeue_chat_import_embed
 from guardian.tasks.types import ChatCompletionTask
-from guardian.workers import chat_worker
+from guardian.workers import chat_embedding_worker, chat_worker
 
 
 def _build_mainline_export(
@@ -89,6 +90,16 @@ class DeterministicVectorStore:
                 }
             )
         return hits
+
+
+def _drain_chat_import_embed_queue() -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    while True:
+        payload = dequeue_chat_import_embed(block=False)
+        if not payload:
+            break
+        payloads.append(payload)
+    return payloads
 
 
 class InMemoryChatlog:
@@ -360,14 +371,25 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     monkeypatch.setattr(
         chat_worker.event_bus, "emit_event", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
-
     stats = ingest_chatgpt_export(
         json.dumps(export).encode("utf-8"),
         user_id="tester",
     )
     assert stats["threads_imported"] == 1
     assert stats["messages_imported"] == 2
+
+    imported_payloads = _drain_chat_import_embed_queue()
+    assert imported_payloads
+    for payload in imported_payloads:
+        payload = dict(payload)
+        payload.pop("message_id", None)
+        assert (
+            chat_embedding_worker.process_chat_embed_task(
+                payload,
+                vector_store=vector_store,
+            )
+            is True
+        )
 
     thread_id = chatlog.latest_thread_id
     assert thread_id is not None
@@ -706,7 +728,51 @@ def test_ingest_is_idempotent_on_reimport(monkeypatch):
     assert stats_second["messages_imported"] == 0
 
 
-def test_ingest_batches_embedding_follow_up_and_skips_hot_replay(monkeypatch):
+def test_ingest_marks_graph_pending_without_blocking_completion(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.ensure_project.return_value = 1
+    mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
+    mock_db.create_chat_thread.return_value = {"id": 42}
+    mock_db.create_message.return_value = 1
+
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "_vector_store", MagicMock())
+    monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_thread_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_find_existing_message_for_source",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    _drain_chat_import_embed_queue()
+
+    export = _build_mainline_export([("user", "Hello graph", 1)])
+
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+
+    assert stats["threads_imported"] == 1
+    assert stats["messages_imported"] == 1
+    assert (
+        mock_db.create_chat_thread.call_args.kwargs["metadata"]["graph_status"]
+        == "pending"
+    )
+
+
+def test_ingest_enqueues_embedding_backlog_without_inline_embedding(
+    monkeypatch,
+):
     mock_db = MagicMock()
     mock_db.ensure_project.return_value = 1
     mock_db.list_projects.return_value = [{"id": 1, "name": "Imports"}]
@@ -717,21 +783,12 @@ def test_ingest_batches_embedding_follow_up_and_skips_hot_replay(monkeypatch):
     def fake_create_message(*_args, **_kwargs):
         return next(message_ids)
 
-    batch_sizes: list[int] = []
-
-    def fake_add_texts(items: list[dict[str, Any]]) -> int:
-        batch_sizes.append(len(items))
-        if len(batch_sizes) == 2:
-            raise RuntimeError("hot batch failed")
-        return len(items)
-
     vector_store = MagicMock()
-    vector_store.add_texts.side_effect = fake_add_texts
+    _drain_chat_import_embed_queue()
 
     monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
     monkeypatch.setattr(dependencies, "_vector_store", vector_store)
     monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
     monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_BATCH_SIZE", 2)
     monkeypatch.setattr(
         chatgpt_migration,
@@ -769,12 +826,21 @@ def test_ingest_batches_embedding_follow_up_and_skips_hot_replay(monkeypatch):
     assert stats["threads_imported"] == 1
     assert stats["messages_imported"] == 5
     assert stats["embedding_candidates"] == 5
-    assert stats["embeddings_persisted"] == 3
-    assert stats["embeddings_failed"] == 2
-    assert stats["embedding_coverage_degraded"] is True
-    assert vector_store.add_texts.call_count == 3
-    assert batch_sizes == [2, 2, 1]
+    assert stats["embeddings_persisted"] == 5
+    assert stats["embeddings_failed"] == 0
+    assert stats["embedding_coverage_degraded"] is False
+    assert vector_store.add_texts.call_count == 0
     assert mock_db.create_message.call_count == 5
+
+    queued_payloads = _drain_chat_import_embed_queue()
+    assert len(queued_payloads) == 5
+    assert {payload["type"] for payload in queued_payloads} == {
+        "chat_import_embed"
+    }
+    assert all(
+        payload["meta"]["embedding_status"] == "pending"
+        for payload in queued_payloads
+    )
 
 
 def test_retry_chatgpt_import_embeddings_batches_retry_items(monkeypatch):
@@ -807,12 +873,9 @@ def test_retry_chatgpt_import_embeddings_batches_retry_items(monkeypatch):
         },
     ]
 
+    _drain_chat_import_embed_queue()
     monkeypatch.setattr(dependencies, "chatlog_db", dummy_db)
-    monkeypatch.setattr(
-        dependencies, "_vector_store", DeterministicVectorStore()
-    )
     monkeypatch.setattr(dependencies, "init_database", lambda: dummy_db)
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
     monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_BATCH_SIZE", 2)
     monkeypatch.setattr(
         chatgpt_migration,
@@ -831,4 +894,96 @@ def test_retry_chatgpt_import_embeddings_batches_retry_items(monkeypatch):
     assert stats["embeddings_persisted"] == 5
     assert stats["embeddings_failed"] == 0
     assert stats["embedding_coverage_degraded"] is False
-    assert dependencies._vector_store.batch_sizes == [2, 2, 1]
+    queued_payloads = _drain_chat_import_embed_queue()
+    assert len(queued_payloads) == 5
+    assert {payload["type"] for payload in queued_payloads} == {
+        "chat_import_embed"
+    }
+
+
+class _FakeChatMessageRow:
+    def __init__(self, message_id: str, content: str) -> None:
+        self.id = message_id
+        self.thread_id = 7
+        self.role = "user"
+        self.content = content
+        self.extra_meta: dict[str, Any] = {
+            "embedding_status": "pending",
+            "embedding_error": None,
+        }
+
+
+class _FakeChatQuery:
+    def __init__(self, row: _FakeChatMessageRow) -> None:
+        self._row = row
+
+    def filter_by(self, **kwargs):
+        assert str(kwargs.get("id")) == str(self._row.id)
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _FakeChatSession:
+    def __init__(self, row: _FakeChatMessageRow) -> None:
+        self._row = row
+        self.commits = 0
+
+    def query(self, model):
+        _ = model
+        return _FakeChatQuery(self._row)
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
+class _FakeChatDbContext:
+    def __init__(self, row: _FakeChatMessageRow) -> None:
+        self._session = _FakeChatSession(row)
+
+    def __enter__(self):
+        return self._session
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeChatDb:
+    def __init__(self, row: _FakeChatMessageRow) -> None:
+        self._row = row
+
+    def get_session(self):
+        return _FakeChatDbContext(self._row)
+
+
+class _FailingChatVectorStore:
+    def add_texts(self, _items):
+        raise RuntimeError("boom")
+
+
+def test_chat_embedding_worker_marks_failed_without_mutating_content():
+    row = _FakeChatMessageRow("m-1", "Preserve me")
+    db = _FakeChatDb(row)
+
+    ok = chat_embedding_worker.process_chat_embed_task(
+        {
+            "thread_id": 7,
+            "role": "user",
+            "message_id": "m-1",
+            "content": "Preserve me",
+            "meta": {
+                "origin": "chatgpt_import",
+                "source": "chatgpt_import",
+            },
+        },
+        vector_store=_FailingChatVectorStore(),
+        db=db,
+    )
+
+    assert ok is False
+    assert row.content == "Preserve me"
+    assert row.extra_meta["embedding_status"] == "failed"
+    assert row.extra_meta["embedding_error"] == "boom"
+    assert row.extra_meta["embedding_started_at"] is not None
+    assert row.extra_meta["embedding_completed_at"] is not None

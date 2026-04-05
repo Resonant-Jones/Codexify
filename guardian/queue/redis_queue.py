@@ -33,6 +33,11 @@ CHAT_EMBED_QUEUE_NAME = os.getenv(
     "CHAT_EMBED_QUEUE_NAME", "codexify:queue:chat-embed"
 )
 CHAT_EMBED_TASK_TYPE = "chat_embed"
+CHAT_IMPORT_EMBED_QUEUE_NAME = os.getenv(
+    "CHAT_IMPORT_EMBED_QUEUE_NAME",
+    "codexify:queue:chat-import-embed",
+)
+CHAT_IMPORT_EMBED_TASK_TYPE = "chat_import_embed"
 QUEUE_ENQUEUE_ERROR_CODE = ErrorCode.QUEUE_ENQUEUE_FAILED.value
 _CLIENT: Any = None
 _QUEUE_CLIENT: Any = None
@@ -568,6 +573,24 @@ def dequeue_chat_embed(
     *, block: bool = True, timeout: int | None = None
 ) -> dict[str, Any] | None:
     return dequeue(CHAT_EMBED_QUEUE_NAME, block=block, timeout=timeout)
+
+
+def enqueue_chat_import_embed(payload: dict[str, Any]) -> str:
+    task_id = str(uuid.uuid4())
+    record = {
+        "task_id": task_id,
+        "type": CHAT_IMPORT_EMBED_TASK_TYPE,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    enqueue(record, CHAT_IMPORT_EMBED_QUEUE_NAME)
+    return task_id
+
+
+def dequeue_chat_import_embed(
+    *, block: bool = True, timeout: int | None = None
+) -> dict[str, Any] | None:
+    return dequeue(CHAT_IMPORT_EMBED_QUEUE_NAME, block=block, timeout=timeout)
 
 
 def cancel(task_id: str) -> None:
