@@ -9,6 +9,8 @@ from guardian.protocol_tokens import (
     EMBEDDING_LIFECYCLE_STATUSES,
     ERROR_CODES,
     EXECUTOR_AUTH_MODES,
+    EXECUTOR_AUTH_STATES,
+    EXECUTOR_AVAILABILITY_STATES,
     EXECUTOR_ESCALATION_KINDS,
     EXECUTOR_EVENT_TYPES,
     EXECUTOR_IDS,
@@ -21,6 +23,8 @@ from guardian.protocol_tokens import (
     EmbeddingLifecycleStatus,
     ErrorCode,
     ExecutorAuthMode,
+    ExecutorAuthState,
+    ExecutorAvailabilityState,
     ExecutorEscalationKind,
     ExecutorEventType,
     ExecutorId,
@@ -82,6 +86,64 @@ def test_executor_protocol_tokens() -> None:
         "official",
         "optional",
         "user_configured",
+    }
+
+    assert ExecutorAuthMode.DIRECT_PROVIDER.value == "direct_provider"
+    assert ExecutorAuthMode.LOCAL_MODEL.value == "local_model"
+    assert ExecutorAuthMode.GATEWAY_BASE_URL.value == "gateway_base_url"
+    assert EXECUTOR_AUTH_MODES == {
+        "direct_provider",
+        "local_model",
+        "gateway_base_url",
+    }
+
+    assert ExecutorAvailabilityState.READY.value == "ready"
+    assert ExecutorAvailabilityState.DEGRADED.value == "degraded"
+    assert ExecutorAvailabilityState.UNAVAILABLE.value == "unavailable"
+    assert ExecutorAvailabilityState.NOT_INSTALLED.value == "not_installed"
+    assert EXECUTOR_AVAILABILITY_STATES == {
+        "ready",
+        "degraded",
+        "unavailable",
+        "not_installed",
+    }
+
+    assert ExecutorAuthState.AUTHENTICATED.value == "authenticated"
+    assert ExecutorAuthState.UNAUTHENTICATED.value == "unauthenticated"
+    assert ExecutorAuthState.UNKNOWN.value == "unknown"
+    assert EXECUTOR_AUTH_STATES == {
+        "authenticated",
+        "unauthenticated",
+        "unknown",
+    }
+
+    assert ExecutorEventType.PROGRESS.value == "executor.progress"
+    assert ExecutorEventType.ESCALATION.value == "executor.escalation"
+    assert ExecutorEventType.COMPLETED.value == "executor.completed"
+    assert ExecutorEventType.FAILED.value == "executor.failed"
+    assert ExecutorEventType.CANCELLED.value == "executor.cancelled"
+    assert EXECUTOR_EVENT_TYPES == {
+        "executor.progress",
+        "executor.escalation",
+        "executor.completed",
+        "executor.failed",
+        "executor.cancelled",
+    }
+
+    assert (
+        ExecutorEscalationKind.NEEDS_CLARIFICATION.value
+        == "needs_clarification"
+    )
+    assert ExecutorEscalationKind.NEEDS_PERMISSION.value == "needs_permission"
+    assert ExecutorEscalationKind.BLOCKED.value == "blocked"
+    assert ExecutorEscalationKind.NEEDS_REVIEW.value == "needs_review"
+    assert ExecutorEscalationKind.TOOLING_LIMIT.value == "tooling_limit"
+    assert EXECUTOR_ESCALATION_KINDS == {
+        "needs_clarification",
+        "needs_permission",
+        "blocked",
+        "needs_review",
+        "tooling_limit",
     }
 
     assert ExecutorAuthMode.DIRECT_PROVIDER.value == "direct_provider"
