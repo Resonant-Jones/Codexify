@@ -18,6 +18,7 @@ from guardian.core.executors.contracts import (
 ExecutorRequest = CodexifyExecutorRequest
 ExecutorResult = ExecutorTerminalResult
 ExecutorStreamChunk = ExecutorProgressEvent
+ExecutorStreamEvent = ExecutorProgressEvent | ExecutorEscalationEvent
 
 
 @runtime_checkable
@@ -26,7 +27,7 @@ class CodeExecutor(Protocol):
         self,
         request: CodexifyExecutorRequest,
         *,
-        on_output: Callable[[ExecutorProgressEvent], None] | None = None,
+        on_output: Callable[[ExecutorStreamEvent], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> ExecutorTerminalResult:
         """Execute a code task and return a structured result."""
@@ -44,5 +45,6 @@ __all__ = [
     "ExecutorRequest",
     "ExecutorResult",
     "ExecutorStreamChunk",
+    "ExecutorStreamEvent",
     "ExecutorTerminalResult",
 ]

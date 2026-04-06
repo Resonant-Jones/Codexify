@@ -152,6 +152,10 @@ def test_error_code_tokens() -> None:
         == "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
     assert (
+        ErrorCode.DELEGATION_EXECUTOR_UNSUPPORTED.value
+        == "DELEGATION_EXECUTOR_UNSUPPORTED"
+    )
+    assert (
         ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value
         == "DELEGATION_EXECUTOR_NOT_FOUND"
     )
@@ -172,6 +176,7 @@ def test_error_code_tokens() -> None:
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
+        "DELEGATION_EXECUTOR_UNSUPPORTED",
         "DELEGATION_EXECUTOR_NOT_FOUND",
         "DELEGATION_EXECUTOR_TIMEOUT",
         "DELEGATION_EXECUTOR_NONZERO_EXIT",

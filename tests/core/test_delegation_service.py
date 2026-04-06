@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 
 from guardian.core.delegation_service import DelegationService
-from guardian.core.executors.base import ExecutorResult
+from guardian.core.executors.base import (
+    CodexifyExecutorRequest,
+    ExecutorTerminalResult,
+)
 from guardian.core.executors.codex_executor import CodexExecutor
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
@@ -72,6 +75,48 @@ def test_approval_creates_job_and_enqueue_payload() -> None:
     assert queued_job.queued_at is not None
 
 
+def test_build_executor_request_preserves_lineage_fields() -> None:
+    service = DelegationService()
+    packet = service.draft_packet(
+        DelegationDraftRequest(
+            thread_id=42,
+            conversation_id="conversation-7",
+            project_id=9,
+            repo_path="/workspace/codexify",
+            executor=DelegationExecutorName.CODEX.value,
+            user_intent="Map the delegation lane end-to-end.",
+            tags=["backend", "delegation"],
+            context={
+                "thread_subject": "delegation slice",
+                "source_message_id": 77,
+            },
+        )
+    )
+    approval = service.approve_packet(packet.packet_id)
+
+    request = service.build_executor_request(
+        approval.job,
+        packet=packet,
+        task=approval.task,
+    )
+
+    assert isinstance(request, CodexifyExecutorRequest)
+    assert request.request_id == approval.job.delegation_id
+    assert request.delegation_id == approval.job.delegation_id
+    assert request.task_id == approval.job.task_id
+    assert request.thread_id == 42
+    assert request.source_message_id == 77
+    assert request.project_id == 9
+    assert request.executor_id == DelegationExecutorName.CODEX.value
+    assert request.title == approval.job.task_prompt
+    assert request.canonical_task_prompt == approval.job.task_prompt
+    assert request.context_bundle.workspace_path == packet.repo_path
+    assert request.context_bundle.thread_context["source_message_id"] == 77
+    assert request.metadata["request_id"] == approval.job.delegation_id
+    assert request.metadata["source_message_id"] == 77
+    assert approval.task.source_message_id == 77
+
+
 def test_canonical_summary_normalization_from_expected_final_format() -> None:
     service = DelegationService()
     packet = service.draft_packet(_request())
@@ -98,9 +143,15 @@ def test_canonical_summary_normalization_from_expected_final_format() -> None:
             "tags": ["backend", "backend", "codex"],
         }
     )
-    executor_result = ExecutorResult(
+    executor_result = ExecutorTerminalResult(
+        request_id=approval.job.delegation_id,
         delegation_id=approval.job.delegation_id,
         task_id=approval.job.task_id,
+        thread_id=approval.job.thread_id,
+        source_message_id=77,
+        project_id=approval.job.project_id,
+        executor_id=DelegationExecutorName.CODEX.value,
+        title="Canonical executor summary title",
         status=DelegationJobStatus.COMPLETED.value,
         summary=final_text,
         final_text=final_text,
@@ -124,7 +175,12 @@ def test_canonical_summary_normalization_from_expected_final_format() -> None:
     )
 
     assert summary.outcome_type == DELEGATION_SUMMARY_OUTCOME_TYPE
-    assert summary.title == approval.job.task_prompt
+    assert summary.request_id == approval.job.delegation_id
+    assert summary.thread_id == approval.job.thread_id
+    assert summary.source_message_id == 77
+    assert summary.project_id == approval.job.project_id
+    assert summary.executor_id == DelegationExecutorName.CODEX.value
+    assert summary.title == "Canonical executor summary title"
     assert summary.summary == "Codex completed the delegation lane."
     assert summary.files_changed == [
         "guardian/core/delegation_service.py",
@@ -150,7 +206,7 @@ def test_summary_normalization_falls_back_to_raw_final_text() -> None:
     approval = service.approve_packet(packet.packet_id)
 
     final_text = "Codex output without structure"
-    executor_result = ExecutorResult(
+    executor_result = ExecutorTerminalResult(
         delegation_id=approval.job.delegation_id,
         task_id=approval.job.task_id,
         status=DelegationJobStatus.COMPLETED.value,
@@ -167,6 +223,8 @@ def test_summary_normalization_falls_back_to_raw_final_text() -> None:
         packet=packet,
     )
 
+    assert summary.request_id == approval.job.delegation_id
+    assert summary.thread_id == approval.job.thread_id
     assert summary.title == approval.job.task_prompt
     assert summary.summary == final_text
     assert summary.files_changed == []
@@ -175,6 +233,7 @@ def test_summary_normalization_falls_back_to_raw_final_text() -> None:
     assert summary.unresolved_questions == []
     assert summary.tags == ["backend", "delegation"]
     assert summary.outcome_type == DELEGATION_SUMMARY_OUTCOME_TYPE
+    assert summary.executor_id == DelegationExecutorName.CODEX.value
 
 
 def test_canonical_summary_shape_defaults() -> None:
@@ -187,6 +246,10 @@ def test_canonical_summary_shape_defaults() -> None:
 
     assert summary.delegation_id == approval.job.delegation_id
     assert summary.task_id == approval.job.task_id
+    assert summary.request_id == approval.job.delegation_id
+    assert summary.thread_id == approval.job.thread_id
+    assert summary.project_id == approval.job.project_id
+    assert summary.executor_id == DelegationExecutorName.CODEX.value
     assert summary.status == DelegationJobStatus.COMPLETED.value
     assert summary.outcome_type == DELEGATION_SUMMARY_OUTCOME_TYPE
     assert summary.title == approval.job.task_prompt
@@ -199,5 +262,6 @@ def test_canonical_summary_shape_defaults() -> None:
     assert summary.result == {}
     assert summary.metadata == {}
     assert summary.error_message is None
+    assert summary.lineage["executor_id"] == DelegationExecutorName.CODEX.value
     assert summary.created_at
     assert summary.completed_at
