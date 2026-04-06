@@ -1950,6 +1950,7 @@ export default function AppShell({
         }}
         onActiveTabChange={handleWorkspaceDrawerTabChange}
         onLayoutModeChange={setWorkspaceLayoutMode}
+        projectId={effectiveDocumentsProjectId}
       />
     </div>
   ) : null;
