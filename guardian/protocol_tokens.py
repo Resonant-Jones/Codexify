@@ -54,6 +54,19 @@ class ExecutorAuthMode(str, Enum):
     GATEWAY_BASE_URL = "gateway_base_url"
 
 
+class ExecutorAvailabilityState(str, Enum):
+    READY = "ready"
+    DEGRADED = "degraded"
+    UNAVAILABLE = "unavailable"
+    NOT_INSTALLED = "not_installed"
+
+
+class ExecutorAuthState(str, Enum):
+    AUTHENTICATED = "authenticated"
+    UNAUTHENTICATED = "unauthenticated"
+    UNKNOWN = "unknown"
+
+
 class ExecutorEventType(str, Enum):
     PROGRESS = "executor.progress"
     ESCALATION = "executor.escalation"
@@ -121,6 +134,12 @@ EXECUTOR_RELEASE_POSTURES: frozenset[str] = frozenset(
 EXECUTOR_AUTH_MODES: frozenset[str] = frozenset(
     {auth_mode.value for auth_mode in ExecutorAuthMode}
 )
+EXECUTOR_AVAILABILITY_STATES: frozenset[str] = frozenset(
+    {state.value for state in ExecutorAvailabilityState}
+)
+EXECUTOR_AUTH_STATES: frozenset[str] = frozenset(
+    {state.value for state in ExecutorAuthState}
+)
 EXECUTOR_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in ExecutorEventType}
 )
@@ -160,6 +179,8 @@ __all__ = [
     "ExecutorId",
     "ExecutorReleasePosture",
     "ExecutorAuthMode",
+    "ExecutorAvailabilityState",
+    "ExecutorAuthState",
     "ExecutorEventType",
     "ExecutorEscalationKind",
     "DelegationEventType",
@@ -172,6 +193,8 @@ __all__ = [
     "EXECUTOR_IDS",
     "EXECUTOR_RELEASE_POSTURES",
     "EXECUTOR_AUTH_MODES",
+    "EXECUTOR_AVAILABILITY_STATES",
+    "EXECUTOR_AUTH_STATES",
     "EXECUTOR_EVENT_TYPES",
     "EXECUTOR_ESCALATION_KINDS",
     "DELEGATION_EVENT_TYPES",

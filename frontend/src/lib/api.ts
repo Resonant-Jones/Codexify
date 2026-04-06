@@ -258,6 +258,17 @@ export type ThreadConfigUpdateResponse = {
   threadConfig?: ThreadConfig;
 };
 
+export type ThreadRecordResponse = {
+  ok?: boolean;
+  thread?: Record<string, unknown>;
+};
+
+export type ThreadMoveResponse = {
+  ok?: boolean;
+  thread?: Record<string, unknown>;
+  move?: Record<string, unknown>;
+};
+
 export async function updateThreadConfig(
   threadId: string | number,
   patch: ThreadConfigUpdate
@@ -265,6 +276,26 @@ export async function updateThreadConfig(
   const response = await api.patch(
     `/chat/threads/${normalizePathSegment(threadId)}/config`,
     patch
+  );
+  return response?.data ?? {};
+}
+
+export async function fetchChatThread(
+  threadId: string | number
+): Promise<ThreadRecordResponse> {
+  const response = await api.get(
+    `/chat/threads/${normalizePathSegment(threadId)}`
+  );
+  return response?.data ?? {};
+}
+
+export async function moveChatThread(
+  threadId: string | number,
+  toProjectId: string | number
+): Promise<ThreadMoveResponse> {
+  const response = await api.post(
+    `/chat/threads/${normalizePathSegment(threadId)}/move`,
+    { toProjectId }
   );
   return response?.data ?? {};
 }

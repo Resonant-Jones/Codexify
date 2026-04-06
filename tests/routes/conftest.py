@@ -32,6 +32,8 @@ def mock_db():
         "title": "Test Thread",
         "summary": "Test summary",
         "project_id": 1,
+        "project_name": "Imports",
+        "last_interaction_at": "2025-11-09T12:00:00",
         "parent_id": None,
         "created_at": "2025-11-09T12:00:00",
         "updated_at": "2025-11-09T12:00:00",
@@ -45,6 +47,8 @@ def mock_db():
             "title": "Test Thread",
             "summary": "Test summary",
             "project_id": 1,
+            "project_name": "Imports",
+            "last_interaction_at": "2025-11-09T12:00:00",
             "parent_id": None,
             "created_at": "2025-11-09T12:00:00",
             "updated_at": "2025-11-09T12:00:00",
@@ -58,6 +62,8 @@ def mock_db():
         "title": "Test Thread",
         "summary": "Test summary",
         "project_id": 1,
+        "project_name": "Imports",
+        "last_interaction_at": "2025-11-09T12:00:00",
         "parent_id": None,
         "created_at": "2025-11-09T12:00:00",
         "updated_at": "2025-11-09T12:00:00",
@@ -83,6 +89,8 @@ def mock_db():
         "title": "Updated Thread",
         "summary": "Updated summary",
         "project_id": 1,
+        "project_name": "Imports",
+        "last_interaction_at": "2025-11-09T12:00:00",
         "parent_id": None,
         "created_at": "2025-11-09T12:00:00",
         "updated_at": "2025-11-09T12:00:00",
@@ -95,6 +103,8 @@ def mock_db():
         "title": "Test Thread",
         "summary": "Test summary",
         "project_id": 1,
+        "project_name": "Imports",
+        "last_interaction_at": "2025-11-09T12:00:00",
         "parent_id": None,
         "created_at": "2025-11-09T12:00:00",
         "updated_at": "2025-11-09T12:00:00",
@@ -114,6 +124,8 @@ def mock_db():
         "title": "Test Thread",
         "summary": "",
         "project_id": 1,
+        "project_name": "Imports",
+        "last_interaction_at": "2025-11-09T12:00:00",
         "parent_id": None,
         "created_at": "2025-11-09T12:00:00",
         "updated_at": "2025-11-09T12:00:00",
@@ -121,6 +133,18 @@ def mock_db():
     }
 
     mock.write_audit_log.return_value = None
+    mock.record_thread_move.return_value = {
+        "id": 1,
+        "thread_id": 1,
+        "from_project_id": 1,
+        "to_project_id": 2,
+        "user_id": "test_user",
+        "timestamp": "2025-11-09T12:00:00",
+    }
+    mock.list_projects.return_value = [
+        {"id": 1, "name": "Imports"},
+        {"id": 2, "name": "General"},
+    ]
 
     # Memory-related mocks
     mock.list_memories.return_value = []
@@ -146,6 +170,11 @@ def mock_require_api_key(mock_auth):
         return mock_auth
 
     return _mock_require_api_key
+
+
+@pytest.fixture
+def mock_request_user_id():
+    return "test_user"
 
 
 @pytest.fixture
@@ -202,6 +231,13 @@ def test_client(mock_db, mock_auth, monkeypatch, tmp_path):
                                 app.dependency_overrides[
                                     require_api_key
                                 ] = mock_require_api_key_override
+                                from guardian.core.dependencies import (
+                                    get_request_user_id,
+                                )
+
+                                app.dependency_overrides[
+                                    get_request_user_id
+                                ] = lambda: "test_user"
 
                                 client = TestClient(app)
                                 yield client
