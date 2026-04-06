@@ -31,7 +31,6 @@ import { ModelProvider } from "@/Providers/ModelProvider";
 import api from "@/lib/api";
 
 import {
-  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
 } from "@/features/chat/chatLane";
 
@@ -507,7 +506,7 @@ export function Composer({
 
       <div
         data-send-wrap
-        className={`shrink-0 m-0 flex gap-2 ${CHAT_COMPOSER_SEND_EDGE_INSET_CLASS} ${CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS}`}
+        className={`shrink-0 m-0 flex gap-2 ${CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS}`}
       >
         {/* Hidden file inputs (triggered by the attachment buttons) */}
         <input
