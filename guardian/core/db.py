@@ -35,6 +35,7 @@ from guardian.db.models import (
     Project,
     RawDocument,
     SyncJob,
+    ThreadMove,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,12 @@ class _PostgresGuardianDB:
             "title": thread.title,
             "summary": thread.summary,
             "project_id": thread.project_id,
+            "project_name": thread.project.name if thread.project else None,
+            "last_interaction_at": (
+                thread.last_interaction_at.isoformat()
+                if thread.last_interaction_at
+                else None
+            ),
             "parent_id": thread.parent_id,
             "active_profile_id": thread.active_profile_id,
             "thread_config": thread.thread_config,
@@ -286,7 +293,7 @@ class _PostgresGuardianDB:
         exclude_from_identity: bool = False,
         diary_mode: Optional[bool] = None,
         modeling_excluded: Optional[bool] = None,
-    ) -> None:
+    ) -> Dict[str, Any]:
         """Ensure thread exists, create if missing."""
         diary_flag = is_diary if diary_mode is None else diary_mode
         modeling_flag = (
@@ -300,31 +307,21 @@ class _PostgresGuardianDB:
         with self.get_session() as session:
             thread = session.query(ChatThread).filter_by(id=thread_id).first()
             if thread:
-                current_project_id = thread.project_id
-                if current_project_id is not None:
-                    try:
-                        current_project_id = int(current_project_id)
-                    except (TypeError, ValueError):
-                        current_project_id = None
-                if project_id is not None or current_project_id is None:
-                    if current_project_id != resolved_project_id:
-                        thread.project_id = resolved_project_id
-                        session.commit()
-                return
-            if not thread:
-                thread = ChatThread(
-                    id=thread_id,
-                    user_id=user_id,
-                    title=title,
-                    summary=summary,
-                    project_id=resolved_project_id,
-                    is_diary=diary_flag,
-                    diary_mode=diary_flag,
-                    exclude_from_identity=modeling_flag,
-                    modeling_excluded=modeling_flag,
-                )
-                session.add(thread)
-                session.commit()
+                return self._thread_to_dict(thread)
+            thread = ChatThread(
+                id=thread_id,
+                user_id=user_id,
+                title=title,
+                summary=summary,
+                project_id=resolved_project_id,
+                is_diary=diary_flag,
+                diary_mode=diary_flag,
+                exclude_from_identity=modeling_flag,
+                modeling_excluded=modeling_flag,
+            )
+            session.add(thread)
+            session.commit()
+            return self._thread_to_dict(thread)
 
     def list_chat_threads(self) -> List[Dict[str, Any]]:
         """List all chat threads."""
@@ -332,7 +329,14 @@ class _PostgresGuardianDB:
             threads = (
                 session.query(ChatThread)
                 .filter(ChatThread.archived_at.is_(None))
-                .order_by(ChatThread.updated_at.desc())
+                .order_by(
+                    func.coalesce(
+                        ChatThread.last_interaction_at,
+                        ChatThread.updated_at,
+                        ChatThread.created_at,
+                    ).desc(),
+                    ChatThread.id.desc(),
+                )
                 .all()
             )
 
@@ -353,7 +357,14 @@ class _PostgresGuardianDB:
             thread = (
                 session.query(ChatThread)
                 .filter_by(user_id=user_id)
-                .order_by(ChatThread.created_at.desc())
+                .order_by(
+                    func.coalesce(
+                        ChatThread.last_interaction_at,
+                        ChatThread.updated_at,
+                        ChatThread.created_at,
+                    ).desc(),
+                    ChatThread.id.desc(),
+                )
                 .first()
             )
 
@@ -530,6 +541,7 @@ class _PostgresGuardianDB:
         extra_meta: Optional[dict] = None,
     ) -> int:
         """Create a new message in a thread."""
+        now = datetime.now(timezone.utc)
         with self.get_session() as session:
             message = ChatMessage(
                 thread_id=thread_id,
@@ -540,8 +552,41 @@ class _PostgresGuardianDB:
                 extra_meta=extra_meta or {},
             )
             session.add(message)
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if thread is not None:
+                thread.updated_at = now
+                thread.last_interaction_at = now
             session.commit()
             return message.id
+
+    def record_thread_move(
+        self,
+        thread_id: int,
+        *,
+        from_project_id: int | None,
+        to_project_id: int,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Insert an explicit thread move audit row."""
+        with self.get_session() as session:
+            move = ThreadMove(
+                thread_id=thread_id,
+                from_project_id=from_project_id,
+                to_project_id=to_project_id,
+                user_id=user_id,
+            )
+            session.add(move)
+            session.commit()
+            return {
+                "id": move.id,
+                "thread_id": move.thread_id,
+                "from_project_id": move.from_project_id,
+                "to_project_id": move.to_project_id,
+                "user_id": move.user_id,
+                "timestamp": (
+                    move.timestamp.isoformat() if move.timestamp else None
+                ),
+            }
 
     def list_messages(
         self,
