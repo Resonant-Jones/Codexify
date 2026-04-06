@@ -228,35 +228,61 @@ export default function WorkspaceShelfPanel({
   );
 
   const renderDocumentTile = (doc: DocumentItem) => (
-    <DocumentTile
+    <div
       key={doc.id}
-      file={documentItemToFile(doc)}
-      onClick={() => handleItemClick({ kind: "document", item: doc })}
-    />
+      draggable
+      onDragStart={(event) => {
+        try {
+          event.dataTransfer.setData(
+            "application/x-cfy-asset",
+            JSON.stringify({ kind: "document", item: doc })
+          );
+          event.dataTransfer.effectAllowed = "copy";
+        } catch {}
+      }}
+    >
+      <DocumentTile
+        file={documentItemToFile(doc)}
+        onClick={() => handleItemClick({ kind: "document", item: doc })}
+      />
+    </div>
   );
 
   const renderImageTile = (img: ImageItem) => (
-    <PreviewTile
+    <div
       key={img.id}
-      tone="panel"
-      className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0"
-      onClick={() => handleItemClick({ kind: "image", item: img })}
+      draggable
+      onDragStart={(event) => {
+        try {
+          event.dataTransfer.setData(
+            "application/x-cfy-asset",
+            JSON.stringify({ kind: "image", item: img })
+          );
+          event.dataTransfer.effectAllowed = "copy";
+        } catch {}
+      }}
     >
-      <div className="min-h-[112px]">
-        <div className="rounded-[10px] aspect-[4/3] overflow-hidden">
-          <img
-            src={normalizeUrl(img.src_url)}
-            alt={img.caption || titleFor(img)}
-            className="h-full w-full object-cover"
-            loading="lazy"
-          />
+      <PreviewTile
+        tone="panel"
+        className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0"
+        onClick={() => handleItemClick({ kind: "image", item: img })}
+      >
+        <div className="min-h-[112px]">
+          <div className="rounded-[10px] aspect-[4/3] overflow-hidden">
+            <img
+              src={normalizeUrl(img.src_url)}
+              alt={img.caption || titleFor(img)}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          </div>
+          <div className="mt-2 text-sm font-medium truncate">
+            {img.caption || titleFor(img)}
+          </div>
+          <div className="text-xs opacity-70 truncate">&nbsp;</div>
         </div>
-        <div className="mt-2 text-sm font-medium truncate">
-          {img.caption || titleFor(img)}
-        </div>
-        <div className="text-xs opacity-70 truncate">&nbsp;</div>
-      </div>
-    </PreviewTile>
+      </PreviewTile>
+    </div>
   );
 
   const hasThreadItems = state.threadDocuments.length > 0 || state.threadImages.length > 0;

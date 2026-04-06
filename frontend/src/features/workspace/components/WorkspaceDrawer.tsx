@@ -31,6 +31,7 @@ type WorkspaceDrawerProps = {
   onActiveTabChange: (tab: WorkspaceDrawerTab) => void;
   onLayoutModeChange?: (layoutMode: WorkspaceLayoutMode) => void;
   activeThreadId?: string | number | null;
+  projectId?: string | number | null;
   onMoveScratchpadToComposer?: (text: string) => void;
 };
 
@@ -57,6 +58,7 @@ export default function WorkspaceDrawer({
   onActiveTabChange,
   onLayoutModeChange,
   activeThreadId,
+  projectId,
   onMoveScratchpadToComposer,
 }: WorkspaceDrawerProps) {
   const [selectedItem, setSelectedItem] = useState<ShelfItem | null>(null);
@@ -191,6 +193,7 @@ export default function WorkspaceDrawer({
           >
             <WorkspaceShelfPanel
               threadIdentity={resolvedThreadIdentity}
+              projectId={projectId}
               onItemClick={handleShelfItemClick}
             />
           </section>

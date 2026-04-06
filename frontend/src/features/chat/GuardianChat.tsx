@@ -35,6 +35,7 @@ import api, {
   buildChatCompletePath,
   clearInFlightCompletionTurnId,
   getInFlightCompletionTurnId,
+  moveChatThread,
   updateThreadConfig,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
@@ -593,6 +594,7 @@ export function GuardianChat({
   onWorkspaceToggle,
   workspaceOpen = false,
   activeThread,
+  workspaceProjectId = null,
   onSendMessage,
   onThreadPersisted,
   onNewChat,
@@ -622,7 +624,8 @@ export function GuardianChat({
   onWorkspaceToggle?: () => void;
   workspaceOpen?: boolean;
   activeThread: Thread;
-  onSendMessage: (text: string) => Promise<void>;
+  workspaceProjectId?: string | number | null;
+  onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<void>;
   onThreadPersisted?: (
     threadId: number,
     title?: string,
@@ -2447,7 +2450,7 @@ export function GuardianChat({
         sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${targetThreadId}`);
       }
       try {
-        await onSendMessage(text);
+        await onSendMessage(text, options);
         const switched = await switchThreadProfile(
           targetThreadId,
           requestedProfileId
@@ -2490,6 +2493,7 @@ export function GuardianChat({
           content: text,
           user_id: normalizedUserId,
           title: provisionalTitle,
+          project_id: workspaceProjectId ?? undefined,
         });
         const th = (resp && resp.data) || {};
         const newThreadId =
@@ -2548,6 +2552,7 @@ export function GuardianChat({
             role: "user",
             content: text,
             user_id: normalizedUserId,
+            project_id: workspaceProjectId ?? undefined,
           });
           emitThreadsRefresh("refresh", {
             reason: "message",
@@ -2555,7 +2560,7 @@ export function GuardianChat({
           });
           setChatReloadVersion((v) => v + 1);
         } else {
-          await onSendMessage(text);
+          await onSendMessage(text, options);
           await refreshSnapshot(targetThreadId, "user-send");
         }
 
@@ -2656,6 +2661,50 @@ export function GuardianChat({
       }
     });
   };
+
+  const emitMoveUndoToast = (
+    fromProjectId: number | null,
+    fromLabel: string,
+    toLabel: string
+  ) => {
+    if (effectiveThreadId == null) return;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("cfy:toast", {
+          detail: {
+            message: `Moved thread from ${fromLabel} → ${toLabel}.`,
+            actionLabel: "Undo",
+            timeoutMs: 10000,
+            onAction: () => {
+              void (async () => {
+                try {
+                  if (fromProjectId == null || effectiveThreadId == null) return;
+                  await moveChatThread(effectiveThreadId, fromProjectId);
+                  emitThreadsRefresh("move", {
+                    id: String(effectiveThreadId),
+                    project_id: fromProjectId,
+                  });
+                } catch (error) {
+                  console.warn("[guardian] undo move failed", error);
+                }
+              })();
+            },
+          },
+        })
+      );
+    } catch {
+      // no-op
+    }
+  };
+  const composerProjectId = (() => {
+    const candidate =
+      workspaceProjectId != null
+        ? Number(workspaceProjectId)
+        : activeThread.projectId != null
+          ? Number(activeThread.projectId)
+          : null;
+    return Number.isFinite(candidate) ? candidate : null;
+  })();
 
   const headerActions = (
     <>
@@ -2790,8 +2839,11 @@ export function GuardianChat({
               const pid = Number(pidRaw);
               if (!Number.isFinite(pid)) return alert("Invalid project id");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                const fromProjectId = activeThread.projectId != null ? Number(activeThread.projectId) : null;
+                const fromLabel = activeThread.projectName ?? (fromProjectId != null ? `Project #${fromProjectId}` : "No Project");
+                await moveChatThread(effectiveThreadId, pid);
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
+                emitMoveUndoToast(fromProjectId, fromLabel, `Project #${pid}`);
               } catch (e) {
                 console.warn(e);
                 alert("Add failed.");
@@ -2808,8 +2860,11 @@ export function GuardianChat({
               const pid = Number(pidRaw);
               if (!Number.isFinite(pid)) return alert("Invalid project id");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                const fromProjectId = activeThread.projectId != null ? Number(activeThread.projectId) : null;
+                const fromLabel = activeThread.projectName ?? (fromProjectId != null ? `Project #${fromProjectId}` : "No Project");
+                await moveChatThread(effectiveThreadId, pid);
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
+                emitMoveUndoToast(fromProjectId, fromLabel, `Project #${pid}`);
               } catch (e) {
                 console.warn(e);
                 alert("Move failed.");
@@ -2822,14 +2877,16 @@ export function GuardianChat({
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
               const generalProjectId = readStoredGeneralProjectId();
+              if (generalProjectId == null) return alert("General project not configured");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, {
-                  project_id: generalProjectId ?? null,
-                });
+                const fromProjectId = activeThread.projectId != null ? Number(activeThread.projectId) : null;
+                const fromLabel = activeThread.projectName ?? (fromProjectId != null ? `Project #${fromProjectId}` : "No Project");
+                await moveChatThread(effectiveThreadId, generalProjectId);
                 emitThreadsRefresh("move", {
                   id: String(effectiveThreadId),
-                  project_id: generalProjectId ?? null,
+                  project_id: generalProjectId,
                 });
+                emitMoveUndoToast(fromProjectId, fromLabel, "General");
               } catch (e) {
                 console.warn(e);
                 alert("Move to General failed.");
@@ -3083,6 +3140,8 @@ export function GuardianChat({
                   onPrefillConsumed?.();
                 }}
                 threadId={effectiveThreadId ?? undefined}
+                projectId={composerProjectId}
+                projectName={activeThread.projectName ?? null}
                 isTurnInFlight={isTurnLocked(effectiveThreadId)}
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
