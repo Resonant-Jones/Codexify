@@ -12,6 +12,7 @@ from guardian.core.executors.base import (
     ExecutorRequest,
     ExecutorResult,
     ExecutorStreamChunk,
+    ExecutorStreamEvent,
     ExecutorTerminalResult,
 )
 from guardian.core.executors.codex_executor import CodexExecutor
@@ -44,6 +45,7 @@ __all__ = [
     "ExecutorRequest",
     "ExecutorResult",
     "ExecutorStreamChunk",
+    "ExecutorStreamEvent",
     "ExecutorTerminalResult",
     "get_executor_entry",
     "get_executor_registry",

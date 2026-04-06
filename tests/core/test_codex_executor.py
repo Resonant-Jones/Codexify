@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
-from guardian.core.executors.base import ExecutorRequest
+from guardian.core.executors.base import CodexifyExecutorRequest
 from guardian.core.executors.codex_executor import CodexExecutor
 from guardian.protocol_tokens import DelegationJobStatus, ErrorCode
 
@@ -51,8 +51,9 @@ class FakeProcess:
         return self.returncode
 
 
-def _request() -> ExecutorRequest:
-    return ExecutorRequest(
+def _request() -> CodexifyExecutorRequest:
+    return CodexifyExecutorRequest(
+        request_id="delegation-1",
         delegation_id="delegation-1",
         task_id="task-1",
         repo_path="/workspace/codexify",
@@ -107,12 +108,16 @@ def test_codex_executor_success_returns_structured_result(monkeypatch) -> None:
         "Return a structured task summary.",
     ]
     assert result.status == DelegationJobStatus.COMPLETED.value
+    assert result.request_id == "delegation-1"
+    assert result.executor_id == "codex"
     assert result.summary == stdout_payload
     assert result.final_text == stdout_payload
     assert result.files_changed == ["guardian/core/delegation_service.py"]
     assert result.commands_run == [
         "pytest -v tests/core/test_codex_executor.py"
     ]
+    assert result.result["request_id"] == "delegation-1"
+    assert result.metadata["thread_id"] == 42
     assert result.raw_transcript
     assert "[stdout]" in result.raw_transcript
     assert "[stderr]" in result.raw_transcript
@@ -141,6 +146,7 @@ def test_codex_executor_missing_binary_becomes_not_found(
     )
     assert result.failure.failure_class == "FileNotFoundError"
     assert result.error_message == "Codex binary not found: codex"
+    assert result.failure.provenance["request_id"] == "delegation-1"
 
 
 def test_codex_executor_timeout_becomes_timeout_failure(monkeypatch) -> None:

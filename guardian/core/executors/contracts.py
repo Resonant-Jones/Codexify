@@ -223,6 +223,25 @@ class CodexifyExecutorRequest:
             self.metadata.setdefault("delegation_id", self.delegation_id)
         if self.request_id:
             self.metadata.setdefault("request_id", self.request_id)
+        if self.thread_id is not None:
+            self.metadata.setdefault("thread_id", self.thread_id)
+        if self.source_message_id is not None:
+            self.metadata.setdefault(
+                "source_message_id", self.source_message_id
+            )
+        if self.project_id is not None:
+            self.metadata.setdefault("project_id", self.project_id)
+        if self.executor_id:
+            self.metadata.setdefault("executor_id", self.executor_id)
+        if self.title:
+            self.metadata.setdefault("title", self.title)
+        if self.tags:
+            self.metadata.setdefault("tags", list(self.tags))
+        if self.repo_path:
+            self.metadata.setdefault("repo_path", self.repo_path)
+        self.metadata.setdefault(
+            "canonical_task_prompt", self.canonical_task_prompt
+        )
 
     @property
     def canonical_prompt(self) -> str:
@@ -758,6 +777,27 @@ class ExecutorTerminalResult:
             )
         if self.final_text is None:
             self.final_text = self.summary
+
+        if self.request_id:
+            self.metadata.setdefault("request_id", self.request_id)
+        if self.delegation_id:
+            self.metadata.setdefault("delegation_id", self.delegation_id)
+        if self.task_id:
+            self.metadata.setdefault("task_id", self.task_id)
+        if self.thread_id is not None:
+            self.metadata.setdefault("thread_id", self.thread_id)
+        if self.source_message_id is not None:
+            self.metadata.setdefault(
+                "source_message_id", self.source_message_id
+            )
+        if self.project_id is not None:
+            self.metadata.setdefault("project_id", self.project_id)
+        if self.executor_id:
+            self.metadata.setdefault("executor_id", self.executor_id)
+        if self.title:
+            self.metadata.setdefault("title", self.title)
+        if self.tags:
+            self.metadata.setdefault("tags", list(self.tags))
 
         if self.task_summary is None:
             self.task_summary = CanonicalTaskSummary(
