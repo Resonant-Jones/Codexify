@@ -8,6 +8,11 @@ from guardian.protocol_tokens import (
     DELEGATION_TERMINAL_STATUSES,
     EMBEDDING_LIFECYCLE_STATUSES,
     ERROR_CODES,
+    EXECUTOR_AUTH_MODES,
+    EXECUTOR_ESCALATION_KINDS,
+    EXECUTOR_EVENT_TYPES,
+    EXECUTOR_IDS,
+    EXECUTOR_RELEASE_POSTURES,
     TASK_EVENT_TYPES,
     AcceptanceStatus,
     DelegationEventType,
@@ -15,6 +20,11 @@ from guardian.protocol_tokens import (
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
     ErrorCode,
+    ExecutorAuthMode,
+    ExecutorEscalationKind,
+    ExecutorEventType,
+    ExecutorId,
+    ExecutorReleasePosture,
     TaskEventType,
 )
 
@@ -59,6 +69,60 @@ def test_delegation_executor_tokens() -> None:
     assert DELEGATION_EXECUTOR_NAMES == {"codex"}
 
 
+def test_executor_protocol_tokens() -> None:
+    assert ExecutorId.CODEX.value == "codex"
+    assert ExecutorId.CLAUDE_CODE.value == "claude_code"
+    assert ExecutorId.OPENCODE.value == "opencode"
+    assert EXECUTOR_IDS == {"codex", "claude_code", "opencode"}
+
+    assert ExecutorReleasePosture.OFFICIAL.value == "official"
+    assert ExecutorReleasePosture.OPTIONAL.value == "optional"
+    assert ExecutorReleasePosture.USER_CONFIGURED.value == "user_configured"
+    assert EXECUTOR_RELEASE_POSTURES == {
+        "official",
+        "optional",
+        "user_configured",
+    }
+
+    assert ExecutorAuthMode.DIRECT_PROVIDER.value == "direct_provider"
+    assert ExecutorAuthMode.LOCAL_MODEL.value == "local_model"
+    assert ExecutorAuthMode.GATEWAY_BASE_URL.value == "gateway_base_url"
+    assert EXECUTOR_AUTH_MODES == {
+        "direct_provider",
+        "local_model",
+        "gateway_base_url",
+    }
+
+    assert ExecutorEventType.PROGRESS.value == "executor.progress"
+    assert ExecutorEventType.ESCALATION.value == "executor.escalation"
+    assert ExecutorEventType.COMPLETED.value == "executor.completed"
+    assert ExecutorEventType.FAILED.value == "executor.failed"
+    assert ExecutorEventType.CANCELLED.value == "executor.cancelled"
+    assert EXECUTOR_EVENT_TYPES == {
+        "executor.progress",
+        "executor.escalation",
+        "executor.completed",
+        "executor.failed",
+        "executor.cancelled",
+    }
+
+    assert (
+        ExecutorEscalationKind.NEEDS_CLARIFICATION.value
+        == "needs_clarification"
+    )
+    assert ExecutorEscalationKind.NEEDS_PERMISSION.value == "needs_permission"
+    assert ExecutorEscalationKind.BLOCKED.value == "blocked"
+    assert ExecutorEscalationKind.NEEDS_REVIEW.value == "needs_review"
+    assert ExecutorEscalationKind.TOOLING_LIMIT.value == "tooling_limit"
+    assert EXECUTOR_ESCALATION_KINDS == {
+        "needs_clarification",
+        "needs_permission",
+        "blocked",
+        "needs_review",
+        "tooling_limit",
+    }
+
+
 def test_delegation_event_tokens() -> None:
     assert DelegationEventType.CREATED.value == "delegation.created"
     assert DelegationEventType.RUNNING.value == "delegation.running"
@@ -88,6 +152,10 @@ def test_error_code_tokens() -> None:
         == "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
     assert (
+        ErrorCode.DELEGATION_EXECUTOR_UNSUPPORTED.value
+        == "DELEGATION_EXECUTOR_UNSUPPORTED"
+    )
+    assert (
         ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value
         == "DELEGATION_EXECUTOR_NOT_FOUND"
     )
@@ -108,6 +176,7 @@ def test_error_code_tokens() -> None:
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
+        "DELEGATION_EXECUTOR_UNSUPPORTED",
         "DELEGATION_EXECUTOR_NOT_FOUND",
         "DELEGATION_EXECUTOR_TIMEOUT",
         "DELEGATION_EXECUTOR_NONZERO_EXIT",
