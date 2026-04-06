@@ -83,8 +83,15 @@ type SourceMode = "project" | "personal_knowledge";
 
 type DraftAttachment = {
   id: string;
-  file: File;
   kind: "image" | "document";
+  file?: File;
+  asset?: {
+    id?: string;
+    src_url: string;
+    filename: string;
+    project_id?: string | number | null;
+    thread_id?: string | number | null;
+  };
   previewUrl?: string;
 };
 
@@ -173,6 +180,8 @@ export function Composer({
   sourceMode = "project",
   sourceOptions = [],
   onSourceModeChange,
+  projectId = null,
+  projectName,
   depthMode = "normal",
   depthOptions = [],
   onDepthModeChange,
@@ -205,6 +214,8 @@ export function Composer({
   sourceMode?: SourceMode;
   sourceOptions?: ComposerSelectOption[];
   onSourceModeChange?: (mode: SourceMode) => void;
+  projectId?: number | null;
+  projectName?: string | null;
   depthMode?: DepthMode;
   depthOptions?: Array<{
     value: DepthMode;
@@ -401,6 +412,7 @@ export function Composer({
         // Prevent duplicate staging of the exact same file within the draft.
         const exists = next.some(
           (item) =>
+            item.file != null &&
             item.file.name === file.name &&
             item.file.size === file.size &&
             item.file.type === file.type
@@ -414,6 +426,31 @@ export function Composer({
           previewUrl: isImage ? URL.createObjectURL(file) : undefined,
         });
       }
+      return next;
+    });
+  }
+
+  function stageRemoteAsset(asset: DraftAttachment["asset"]) {
+    if (!asset) return;
+    setDraftAttachments((prev) => {
+      const next = [...prev];
+      const duplicate = next.some((item) => {
+        if (!item.asset) return false;
+        return (
+          item.asset.id === asset.id &&
+          item.asset.src_url === asset.src_url &&
+          item.asset.filename === asset.filename
+        );
+      });
+      if (duplicate) return prev;
+      next.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        kind: asset.filename.match(/\.(png|jpe?g|gif|webp|avif)$/i)
+          ? "image"
+          : "document",
+        asset,
+        previewUrl: toAbsoluteMediaUrl(asset.src_url),
+      });
       return next;
     });
   }
@@ -434,13 +471,21 @@ export function Composer({
     att: DraftAttachment,
     uploadThreadId: number
   ): Promise<UploadedAttachment | null> {
+    if (att.asset) {
+      return {
+        kind: att.kind,
+        id: att.asset.id,
+        src_url: toAbsoluteMediaUrl(att.asset.src_url),
+        filename: att.asset.filename,
+      };
+    }
     const file = att.file;
     if (!file) return null;
 
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
-    const resolvedProjectId = resolveProjectId();
+    const resolvedProjectId = projectId ?? resolveProjectId();
     if (resolvedProjectId !== null) {
       form.append("project_id", String(resolvedProjectId));
     }
@@ -615,6 +660,51 @@ export function Composer({
       notifyTransportBusy();
       return;
     }
+    const rawAsset = e.dataTransfer?.getData("application/x-cfy-asset");
+    if (rawAsset) {
+      try {
+        const parsed = JSON.parse(rawAsset) as {
+          kind?: "image" | "document";
+          item?: Record<string, unknown>;
+        };
+        const item = parsed?.item ?? {};
+        const droppedProjectId = Number(item.project_id ?? item.projectId ?? null);
+        const droppedThreadId = Number(item.thread_id ?? item.threadId ?? null);
+        const assetProjectId = Number.isFinite(droppedProjectId) ? droppedProjectId : null;
+        const assetThreadId = Number.isFinite(droppedThreadId) ? droppedThreadId : null;
+        const allowed =
+          (projectId != null &&
+            assetProjectId != null &&
+            assetProjectId === projectId) ||
+          (threadId != null &&
+            assetThreadId != null &&
+            assetThreadId === threadId);
+        if (!allowed) {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: {
+                kind: "error",
+                message:
+                  "Cross-context file not allowed. Drag the file into composer to include it manually.",
+              },
+            })
+          );
+          return;
+        }
+        const filename = String(item.filename ?? item.name ?? "Untitled").trim();
+        const srcUrl = String(item.src_url ?? item.srcUrl ?? item.src ?? item.url ?? "");
+        stageRemoteAsset({
+          id: item.id != null ? String(item.id) : undefined,
+          src_url: srcUrl,
+          filename,
+          project_id: item.project_id ?? item.projectId ?? null,
+          thread_id: item.thread_id ?? item.threadId ?? null,
+        });
+        return;
+      } catch {
+        // Fall through to file staging below.
+      }
+    }
     if (e.dataTransfer?.files?.length) {
       stageFiles(e.dataTransfer.files);
     }
@@ -651,6 +741,9 @@ export function Composer({
     sourceOptions.find((option) => option.value === sourceMode)?.label ??
     sourceOptions[0]?.label ??
     "Project";
+  const lineageTargetLabel = projectName?.trim() || "General";
+  const showLineageCopy = !value.trim();
+  const lineageCopy = `Send a message to ${lineageTargetLabel}`;
   const handleAttemptSend = () => {
     if (turnLocked) {
       notifyTurnLocked();
@@ -669,8 +762,16 @@ export function Composer({
       >
         <div
           data-testid="composer-content-plane"
-          className="flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
+          className="relative flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
         >
+          {showLineageCopy ? (
+            <div
+              data-testid="composer-lineage-copy"
+              className="pointer-events-none absolute left-[var(--composer-text-pad-x,14px)] top-[var(--composer-text-pad-y,10px)] text-base leading-relaxed font-normal tracking-normal text-[var(--text)] opacity-[0.85]"
+            >
+              {lineageCopy}
+            </div>
+          ) : null}
           <Textarea
             ref={ref}
             rows={MIN_COMPOSER_ROWS}
@@ -690,7 +791,7 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
-            className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
+            className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-transparent"
             style={{
               color: "var(--text)",
               overflow: "hidden",
@@ -705,12 +806,12 @@ export function Composer({
                   key={att.id}
                   className="relative overflow-hidden rounded-[var(--tile-radius)] border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5"
                   style={{ width: 88, height: 68 }}
-                  title={att.file.name}
+                  title={att.file?.name ?? att.asset?.filename ?? "Attachment"}
                 >
                   {att.kind === "image" ? (
                     <img
                       src={att.previewUrl}
-                      alt={att.file.name}
+                      alt={att.file?.name ?? att.asset?.filename ?? "Attachment"}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -867,7 +968,7 @@ export function Composer({
       <ImageGenModal
         open={showImgGen}
         onOpenChange={setShowImgGen}
-        projectId={resolveProjectId()}
+        projectId={projectId ?? resolveProjectId()}
         threadId={threadId ?? null}
       />
     </>

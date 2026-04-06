@@ -156,7 +156,7 @@ describe("Composer draft sync", () => {
       "justify-center"
     );
     expect(sendSlot.className).not.toMatch(/\bpr-/);
-    expect(sendSlot.previousElementSibling).toBe(controlsStrip);
+    expect(controlsStrip.nextElementSibling).toBe(sendSlot);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
@@ -244,7 +244,9 @@ describe("Composer draft sync", () => {
     expect(onSend.mock.calls[0][0]).toContain("cfy-media:document:doc-1");
     expect(onSend.mock.calls[0][0]).toContain("cfy-media-name:notes.txt");
     expect(onSend.mock.calls[0][0]).toContain("hello attachments");
-    expect(onSend.mock.calls[0][1]).toEqual({ threadIdOverride: 123 });
+    expect(onSend.mock.calls[0][1]).toEqual({
+      threadIdOverride: 123,
+    });
   });
 
   it("omits invalid project_id values when uploading attachments", async () => {
