@@ -9,11 +9,24 @@ from typing import Any
 
 from guardian.core.delegation_service import (
     QUEUE_NAME,
+    DelegationConflictError,
     DelegationNotFoundError,
     DelegationService,
 )
-from guardian.core.executors.base import ExecutorRequest, ExecutorResult
-from guardian.protocol_tokens import DelegationEventType, DelegationJobStatus
+from guardian.core.executors.base import (
+    CodexifyExecutorRequest,
+    ExecutorEscalationEvent,
+    ExecutorFailure,
+    ExecutorProgressEvent,
+    ExecutorTerminalResult,
+)
+from guardian.core.executors.registry import get_executor_entry
+from guardian.protocol_tokens import (
+    DelegationEventType,
+    DelegationJobStatus,
+    ErrorCode,
+    ExecutorEventType,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import clear_cancelled, dequeue, is_cancelled
 from guardian.tasks.types import DelegationTask, task_from_dict
@@ -41,6 +54,8 @@ def _safe_publish(
     task_id: str, event_type: str, data: dict[str, Any]
 ) -> dict[str, Any]:
     payload = dict(data or {})
+    request: CodexifyExecutorRequest | None = None
+
     try:
         return task_events.publish_with_visibility(task_id, event_type, payload)
     except Exception as exc:
@@ -64,6 +79,149 @@ def _safe_publish(
         }
 
 
+def _delegation_lineage(
+    job: Any,
+    task: DelegationTask,
+    request: CodexifyExecutorRequest | None = None,
+) -> dict[str, Any]:
+    request_id = getattr(request, "request_id", None) or job.delegation_id
+    thread_id = getattr(request, "thread_id", None)
+    if thread_id is None:
+        thread_id = job.thread_id
+    source_message_id = getattr(request, "source_message_id", None)
+    if source_message_id is None:
+        source_message_id = getattr(task, "source_message_id", None)
+    project_id = getattr(request, "project_id", None)
+    if project_id is None:
+        project_id = job.project_id
+    executor_id = getattr(request, "executor_id", None) or job.executor
+    title = getattr(request, "title", None) or job.task_prompt
+    tags = list(getattr(request, "tags", None) or job.tags or [])
+    return {
+        "request_id": request_id,
+        "delegation_id": job.delegation_id,
+        "task_id": job.task_id,
+        "packet_id": job.packet_id,
+        "thread_id": thread_id,
+        "source_message_id": source_message_id,
+        "project_id": project_id,
+        "executor_id": executor_id,
+        "title": title,
+        "tags": tags,
+        "repo_path": job.repo_path,
+    }
+
+
+def _executor_event_payload(
+    *,
+    job: Any,
+    task: DelegationTask,
+    request: CodexifyExecutorRequest,
+    event: Any,
+) -> tuple[str, dict[str, Any]]:
+    payload: dict[str, Any]
+    if isinstance(event, (ExecutorProgressEvent, ExecutorEscalationEvent)):
+        payload = dict(event.to_dict())
+    elif hasattr(event, "to_dict"):
+        payload = dict(event.to_dict())  # type: ignore[call-arg]
+    elif isinstance(event, dict):
+        payload = dict(event)
+    else:
+        payload = {
+            "text": getattr(event, "text", ""),
+            "stream": getattr(event, "stream", "stdout"),
+            "sequence": getattr(event, "sequence", None),
+        }
+    event_type = (
+        str(
+            payload.get("event_type")
+            or payload.get("eventType")
+            or getattr(event, "event_type", "")
+            or ExecutorEventType.PROGRESS.value
+        ).strip()
+        or ExecutorEventType.PROGRESS.value
+    )
+    status = (
+        DelegationJobStatus.COMPLETED.value
+        if event_type == ExecutorEventType.COMPLETED.value
+        else DelegationJobStatus.FAILED.value
+        if event_type == ExecutorEventType.FAILED.value
+        else DelegationJobStatus.CANCELLED.value
+        if event_type == ExecutorEventType.CANCELLED.value
+        else DelegationJobStatus.RUNNING.value
+    )
+    lineage = _delegation_lineage(job, task, request)
+    payload.update(
+        {
+            "event_type": event_type,
+            "eventType": event_type,
+            "event_name": event_type,
+            "status": status,
+            **lineage,
+        }
+    )
+    if event_type == ExecutorEventType.ESCALATION.value:
+        payload.setdefault("escalation", getattr(event, "escalation", None))
+    return event_type, payload
+
+
+def _build_failure_summary(
+    *,
+    service: DelegationService,
+    job: Any,
+    task: DelegationTask,
+    message: str,
+    error_code: str,
+    failure_class: str,
+    request: CodexifyExecutorRequest | None = None,
+) -> tuple[ExecutorFailure, dict[str, Any]]:
+    lineage = _delegation_lineage(job, task, request)
+    failure = ExecutorFailure(
+        error_code=error_code,
+        failure_class=failure_class,
+        message=message,
+        request_id=lineage["request_id"],
+        thread_id=lineage["thread_id"],
+        source_message_id=lineage["source_message_id"],
+        project_id=lineage["project_id"],
+        executor_id=lineage["executor_id"],
+        kind=failure_class,
+        details={
+            "delegation_id": job.delegation_id,
+            "task_id": job.task_id,
+            "packet_id": job.packet_id,
+            "executor": job.executor,
+        },
+        provenance={
+            "request_id": lineage["request_id"],
+            "delegation_id": job.delegation_id,
+            "task_id": job.task_id,
+            "thread_id": lineage["thread_id"],
+            "source_message_id": lineage["source_message_id"],
+            "project_id": lineage["project_id"],
+            "executor_id": lineage["executor_id"],
+            "kind": failure_class,
+        },
+    )
+    summary = service.build_summary_packet(
+        job,
+        status=DelegationJobStatus.FAILED.value,
+        summary=message,
+        result={
+            "failure": failure.to_dict(),
+            **lineage,
+            "error_code": error_code,
+        },
+        metadata={
+            "failure": failure.to_dict(),
+            **lineage,
+            "error_code": error_code,
+        },
+        error_message=message,
+    )
+    return failure, summary
+
+
 def process_delegation_task(
     task: DelegationTask,
     *,
@@ -83,12 +241,12 @@ def process_delegation_task(
             cancelled = svc.cancel_delegation(task.delegation_id)
             if cancelled.changed:
                 cancellation_payload = {
-                    "delegation_id": task.delegation_id,
-                    "task_id": task.task_id,
-                    "packet_id": job.packet_id,
+                    **_delegation_lineage(job, task),
                     "status": DelegationJobStatus.CANCELLED.value,
                     "reason": "cancelled_before_execution",
                     "event_name": DelegationEventType.CANCELLED.value,
+                    "event_type": DelegationEventType.CANCELLED.value,
+                    "eventType": DelegationEventType.CANCELLED.value,
                 }
                 _safe_publish(
                     task.task_id,
@@ -100,21 +258,74 @@ def process_delegation_task(
                 status=DelegationJobStatus.CANCELLED.value,
                 summary="Delegation cancelled before execution.",
                 result={
+                    **_delegation_lineage(job, task),
                     "cancelled": True,
                     "reason": "cancelled_before_execution",
                     "packet_id": job.packet_id,
                     "task_id": task.task_id,
                 },
                 metadata={
-                    "delegation_id": task.delegation_id,
-                    "task_id": task.task_id,
+                    **_delegation_lineage(job, task),
                     "executor": job.executor,
-                    "repo_path": job.repo_path,
-                    "tags": list(job.tags),
                 },
                 error_message="cancelled_before_execution",
             )
             return summary.to_dict()
+
+        packet = svc.get_packet(job.packet_id)
+        request: CodexifyExecutorRequest | None = None
+        try:
+            registry_entry = get_executor_entry(job.executor)
+            executor = svc.resolve_executor(registry_entry.executor_id)
+            request = svc.build_executor_request(
+                job,
+                packet=packet,
+                task=task,
+            )
+        except KeyError:
+            message = f"Unsupported executor id: {job.executor or '<missing>'}"
+            _failure, summary = _build_failure_summary(
+                service=svc,
+                job=job,
+                task=task,
+                message=message,
+                error_code=ErrorCode.DELEGATION_EXECUTOR_UNSUPPORTED.value,
+                failure_class="UnsupportedExecutorError",
+            )
+            svc.mark_job_failed(
+                task.delegation_id,
+                error_message=message,
+                summary=summary,
+            )
+            failed_payload = summary.to_dict()
+            _safe_publish(
+                task.task_id,
+                DelegationEventType.FAILED.value,
+                failed_payload,
+            )
+            return failed_payload
+        except DelegationConflictError as exc:
+            message = str(exc) or f"Unsupported executor id: {job.executor}"
+            _failure, summary = _build_failure_summary(
+                service=svc,
+                job=job,
+                task=task,
+                message=message,
+                error_code=ErrorCode.DELEGATION_EXECUTOR_UNSUPPORTED.value,
+                failure_class=exc.__class__.__name__,
+            )
+            svc.mark_job_failed(
+                task.delegation_id,
+                error_message=message,
+                summary=summary,
+            )
+            failed_payload = summary.to_dict()
+            _safe_publish(
+                task.task_id,
+                DelegationEventType.FAILED.value,
+                failed_payload,
+            )
+            return failed_payload
 
         running_job = svc.mark_job_running(task.delegation_id)
         if running_job.is_terminal():
@@ -127,13 +338,12 @@ def process_delegation_task(
             return running_job.to_dict()
 
         running_payload = {
-            "delegation_id": task.delegation_id,
-            "task_id": task.task_id,
-            "packet_id": job.packet_id,
+            **_delegation_lineage(job, task, request),
             "status": DelegationJobStatus.RUNNING.value,
-            "executor": job.executor,
-            "repo_path": job.repo_path,
             "event_name": DelegationEventType.RUNNING.value,
+            "event_type": DelegationEventType.RUNNING.value,
+            "eventType": DelegationEventType.RUNNING.value,
+            "executor": job.executor,
         }
         _safe_publish(
             task.task_id,
@@ -141,40 +351,28 @@ def process_delegation_task(
             running_payload,
         )
 
-        executor = svc.resolve_executor(job.executor)
-        request = ExecutorRequest(
-            delegation_id=task.delegation_id,
-            task_id=task.task_id,
-            repo_path=job.repo_path,
-            executor=job.executor,
-            task_prompt=job.task_prompt,
-            context=dict(job.context),
-            tags=list(job.tags),
-            thread_id=job.thread_id,
-            project_id=job.project_id,
-        )
-
         def _publish_progress(chunk: Any) -> None:
-            if not getattr(chunk, "text", "").strip():
+            if request is None:
                 return
-            progress_payload = {
-                "delegation_id": task.delegation_id,
-                "task_id": task.task_id,
-                "packet_id": job.packet_id,
-                "status": DelegationJobStatus.RUNNING.value,
-                "event_name": DelegationEventType.PROGRESS.value,
-                "stream": getattr(chunk, "stream", "stdout"),
-                "sequence": getattr(chunk, "sequence", None),
-                "message": chunk.text,
-                "text": chunk.text,
-            }
-            _safe_publish(
-                task.task_id,
-                DelegationEventType.PROGRESS.value,
-                progress_payload,
+            event_type, progress_payload = _executor_event_payload(
+                job=job,
+                task=task,
+                request=request,
+                event=chunk,
             )
+            text_value = str(
+                progress_payload.get("text")
+                or progress_payload.get("message")
+                or ""
+            ).strip()
+            if (
+                event_type == ExecutorEventType.PROGRESS.value
+                and not text_value
+            ):
+                return
+            _safe_publish(task.task_id, event_type, progress_payload)
 
-        executor_result: ExecutorResult = executor.execute(
+        executor_result: ExecutorTerminalResult = executor.execute(
             request,
             on_output=_publish_progress,
             should_stop=lambda: is_cancelled(task.task_id),
@@ -184,13 +382,13 @@ def process_delegation_task(
             cancelled = svc.cancel_delegation(task.delegation_id)
             if cancelled.changed:
                 cancellation_payload = {
-                    "delegation_id": task.delegation_id,
-                    "task_id": task.task_id,
-                    "packet_id": job.packet_id,
+                    **_delegation_lineage(job, task, request),
                     "status": DelegationJobStatus.CANCELLED.value,
                     "reason": executor_result.error_message
                     or "cancelled_during_execution",
                     "event_name": DelegationEventType.CANCELLED.value,
+                    "event_type": DelegationEventType.CANCELLED.value,
+                    "eventType": DelegationEventType.CANCELLED.value,
                 }
                 _safe_publish(
                     task.task_id,
@@ -204,11 +402,8 @@ def process_delegation_task(
                 or "Delegation cancelled during execution.",
                 result=executor_result.to_dict(),
                 metadata={
-                    "delegation_id": task.delegation_id,
-                    "task_id": task.task_id,
+                    **_delegation_lineage(job, task, request),
                     "executor": job.executor,
-                    "repo_path": job.repo_path,
-                    "tags": list(job.tags),
                     "executor_failure": (
                         executor_result.failure.to_dict()
                         if executor_result.failure is not None
@@ -255,28 +450,14 @@ def process_delegation_task(
             task.delegation_id,
             task.task_id,
         )
-        summary = svc.build_summary_packet(
-            job,
-            status=DelegationJobStatus.FAILED.value,
-            summary=str(exc),
-            result={
-                "failure": {
-                    "error_code": "DELEGATION_EXECUTOR_SPAWN_FAILED",
-                    "failure_class": exc.__class__.__name__,
-                    "message": str(exc),
-                },
-                "task_id": task.task_id,
-                "packet_id": job.packet_id,
-                "executor": job.executor,
-            },
-            metadata={
-                "delegation_id": task.delegation_id,
-                "task_id": task.task_id,
-                "executor": job.executor,
-                "repo_path": job.repo_path,
-                "tags": list(job.tags),
-            },
-            error_message=str(exc),
+        _failure, summary = _build_failure_summary(
+            service=svc,
+            job=job,
+            task=task,
+            message=str(exc),
+            error_code=ErrorCode.DELEGATION_EXECUTOR_SPAWN_FAILED.value,
+            failure_class=exc.__class__.__name__,
+            request=request,
         )
         svc.mark_job_failed(
             task.delegation_id,
