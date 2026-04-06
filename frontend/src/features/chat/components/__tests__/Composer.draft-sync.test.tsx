@@ -150,6 +150,7 @@ describe("Composer draft sync", () => {
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass(
       "flex",
+      "w-8",
       "shrink-0",
       "items-center",
       "justify-center"
@@ -174,6 +175,8 @@ describe("Composer draft sync", () => {
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
+    expect(composerSource).not.toContain('size="icon"');
+    expect(composerSource).not.toContain("rounded-[var(--tile-radius,19px)]");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"

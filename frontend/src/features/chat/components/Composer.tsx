@@ -5,7 +5,6 @@
  * to prevent overlapping user sends while an assistant reply is in flight.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
@@ -825,9 +824,9 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex shrink-0 items-center justify-center"
+              className="flex w-8 shrink-0 items-center justify-center"
             >
-              <Button
+              <button
                 type="button"
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
@@ -839,9 +838,8 @@ export function Composer({
                     ? "Finish the current reply before sending."
                     : undefined
                 }
-                size="icon"
                 className={cn(
-                  "h-8 w-8 min-w-0 rounded-full p-0 transition-opacity",
+                  "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
                   sendTransportDisabled
                     ? "cursor-not-allowed opacity-50"
                     : sendBlockedByTurnLock
@@ -852,10 +850,11 @@ export function Composer({
                   background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
                   color: "var(--text-on-accent, #111827)",
                   boxShadow: "none",
+                  borderRadius: "9999px",
                 }}
               >
                 <Send className="h-3.5 w-3.5 shrink-0" />
-              </Button>
+              </button>
             </div>
           </div>
           {imageCapabilityMessage ? (
