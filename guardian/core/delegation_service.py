@@ -7,18 +7,21 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 from guardian.core.executors.base import (
     CodeExecutor,
+    CodexifyExecutorContextBundle,
+    CodexifyExecutorRequest,
     ExecutorFailure,
     ExecutorResult,
 )
+from guardian.core.executors.registry import ExecutorId, get_executor_entry
 from guardian.db import models as db_models
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
     DELEGATION_TERMINAL_STATUSES,
-    DelegationExecutorName,
     DelegationJobStatus,
 )
 from guardian.tasks.types import (
@@ -76,6 +79,27 @@ def _preserve_text(value: Any) -> str | None:
 
 def _normalize_context(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _normalize_identifier(value: Any) -> int | str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    return text
+
+
+def _normalize_executor_id(value: Any) -> str:
+    if isinstance(value, Enum):
+        value = value.value
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _dedupe_text_list(raw: Any) -> list[str]:
@@ -257,6 +281,22 @@ def _merge_text_lists(*values: Any) -> list[str]:
             if value not in merged:
                 merged.append(value)
     return merged
+
+
+def _source_message_id_from_context(*contexts: Any) -> int | str | None:
+    for context in contexts:
+        if not isinstance(context, dict):
+            continue
+        for key in (
+            "source_message_id",
+            "sourceMessageId",
+            "message_id",
+            "messageId",
+        ):
+            normalized = _normalize_identifier(context.get(key))
+            if normalized is not None:
+                return normalized
+    return None
 
 
 def _packet_from_row(row: Any) -> DelegationPacket:
@@ -526,14 +566,22 @@ class DelegationService:
         return job
 
     def resolve_executor(self, executor_name: str) -> CodeExecutor:
-        normalized = _normalize_text(executor_name).lower()
-        if normalized == DelegationExecutorName.CODEX.value:
-            from guardian.core.executors.codex_executor import CodexExecutor
+        normalized = _normalize_executor_id(executor_name)
+        try:
+            entry = get_executor_entry(normalized)
+        except KeyError as exc:
+            raise DelegationConflictError(
+                f"unsupported_executor:{normalized or '<missing>'}"
+            ) from exc
 
-            return CodexExecutor()
-        raise DelegationConflictError(
-            f"unsupported_executor:{normalized or '<missing>'}"
-        )
+        if entry.executor_id != ExecutorId.CODEX:
+            raise DelegationConflictError(
+                f"unsupported_executor:{entry.executor_id.value}"
+            )
+
+        from guardian.core.executors.codex_executor import CodexExecutor
+
+        return CodexExecutor()
 
     # ------------------------------------------------------------------
     # Approval / enqueue payloads
@@ -587,7 +635,7 @@ class DelegationService:
                 self._save_packet(packet)
             self._save_job(job)
 
-        task = self.build_enqueue_payload(job)
+        task = self.build_enqueue_payload(job, packet=packet)
         return DelegationApprovalResult(
             packet=packet,
             job=job,
@@ -595,12 +643,25 @@ class DelegationService:
             enqueue_required=enqueue_required,
         )
 
-    def build_enqueue_payload(self, job: DelegationJobRecord) -> DelegationTask:
+    def build_enqueue_payload(
+        self,
+        job: DelegationJobRecord,
+        *,
+        packet: DelegationPacket | None = None,
+    ) -> DelegationTask:
+        packet = packet or self.get_packet(job.packet_id)
+        source_message_id = _source_message_id_from_context(
+            job.context,
+            packet.context if packet is not None else None,
+        )
         return DelegationTask(
             task_id=job.task_id,
             packet_id=job.packet_id,
             delegation_id=job.delegation_id,
             thread_id=job.thread_id,
+            source_message_id=source_message_id
+            if isinstance(source_message_id, int)
+            else None,
             conversation_id=job.conversation_id,
             project_id=job.project_id,
             repo_path=job.repo_path,
@@ -611,6 +672,97 @@ class DelegationService:
             status=DelegationJobStatus.QUEUED.value,
             origin="api:delegations.approve",
         )
+
+    def build_executor_request(
+        self,
+        job: DelegationJobRecord,
+        *,
+        packet: DelegationPacket | None = None,
+        task: DelegationTask | None = None,
+    ) -> CodexifyExecutorRequest:
+        packet = packet or self.get_packet(job.packet_id)
+        task_context = dict(task.context) if task is not None else {}
+        packet_context = dict(packet.context) if packet is not None else {}
+        merged_context: dict[str, Any] = {
+            **packet_context,
+            **task_context,
+            **job.context,
+        }
+        source_message_id = (
+            task.source_message_id
+            if task is not None and task.source_message_id is not None
+            else _source_message_id_from_context(
+                task_context,
+                job.context,
+                packet_context,
+                merged_context,
+            )
+        )
+        workspace_path = _normalize_text(job.repo_path)
+        context_bundle = CodexifyExecutorContextBundle(
+            workspace_path=workspace_path or None,
+            thread_context=dict(merged_context),
+            message_context=_normalize_context(
+                merged_context.get("message_context")
+            ),
+            routing=_normalize_context(merged_context.get("routing")),
+            artifacts=list(merged_context.get("artifacts") or []),
+            metadata={
+                "packet_id": packet.packet_id if packet is not None else None,
+                "delegation_id": job.delegation_id,
+                "task_id": job.task_id,
+                "executor_id": job.executor,
+                "thread_id": job.thread_id,
+                "source_message_id": source_message_id,
+                "project_id": job.project_id,
+            },
+            raw=dict(merged_context),
+        )
+        tags = _normalize_tags(job.tags)
+        request = CodexifyExecutorRequest(
+            request_id=job.delegation_id,
+            thread_id=job.thread_id,
+            source_message_id=source_message_id,
+            project_id=job.project_id,
+            executor_id=job.executor,
+            title=packet.task_prompt if packet is not None else job.task_prompt,
+            canonical_task_prompt=job.task_prompt,
+            context_bundle=context_bundle,
+            permissions=_normalize_context(merged_context.get("permissions")),
+            tags=tags,
+            delegation_id=job.delegation_id,
+            task_id=job.task_id,
+            repo_path=job.repo_path,
+            executor=job.executor,
+            task_prompt=job.task_prompt,
+            context=merged_context,
+            metadata={
+                "packet_id": packet.packet_id if packet is not None else None,
+                "delegation_id": job.delegation_id,
+                "task_id": job.task_id,
+                "thread_id": job.thread_id,
+                "source_message_id": source_message_id,
+                "project_id": job.project_id,
+                "executor_id": job.executor,
+                "title": packet.task_prompt
+                if packet is not None
+                else job.task_prompt,
+                "tags": tags,
+                "repo_path": job.repo_path,
+            },
+        )
+        request.metadata.setdefault("executor", job.executor)
+        request.metadata.setdefault("request_id", request.request_id)
+        request.metadata.setdefault("thread_id", request.thread_id)
+        request.metadata.setdefault(
+            "source_message_id", request.source_message_id
+        )
+        request.metadata.setdefault("project_id", request.project_id)
+        request.metadata.setdefault("executor_id", request.executor_id)
+        request.metadata.setdefault("title", request.title)
+        request.metadata.setdefault("tags", list(request.tags))
+        request.metadata.setdefault("repo_path", request.repo_path)
+        return request
 
     # ------------------------------------------------------------------
     # Status transitions
@@ -701,6 +853,7 @@ class DelegationService:
         status: str | None = None,
         error_message: str | None = None,
     ) -> DelegationSummary:
+        packet = self.get_packet(job.packet_id)
         result_payload = dict(result or {})
         metadata_payload = dict(metadata or {})
         parsed = _parse_structured_summary_text(
@@ -709,6 +862,48 @@ class DelegationService:
             or result_payload.get("final_text")
             or result_payload.get("raw_transcript")
         )
+
+        request_id = (
+            _normalize_text(
+                result_payload.get("request_id")
+                or result_payload.get("requestId")
+                or metadata_payload.get("request_id")
+                or metadata_payload.get("requestId")
+                or job.delegation_id
+            )
+            or job.delegation_id
+        )
+        thread_id = _normalize_identifier(
+            result_payload.get("thread_id")
+            or result_payload.get("threadId")
+            or metadata_payload.get("thread_id")
+            or metadata_payload.get("threadId")
+            or job.thread_id
+        )
+        source_message_id = _normalize_identifier(
+            result_payload.get("source_message_id")
+            or result_payload.get("sourceMessageId")
+            or metadata_payload.get("source_message_id")
+            or metadata_payload.get("sourceMessageId")
+            or _source_message_id_from_context(
+                job.context,
+                packet.context if packet is not None else None,
+            )
+        )
+        project_id = _normalize_identifier(
+            result_payload.get("project_id")
+            or result_payload.get("projectId")
+            or metadata_payload.get("project_id")
+            or metadata_payload.get("projectId")
+            or job.project_id
+        )
+        executor_id = _normalize_executor_id(
+            result_payload.get("executor_id")
+            or result_payload.get("executorId")
+            or metadata_payload.get("executor_id")
+            or metadata_payload.get("executorId")
+            or job.executor
+        ) or _normalize_executor_id(job.executor)
         title = (
             _normalize_text(
                 result_payload.get("title")
@@ -721,9 +916,21 @@ class DelegationService:
             _normalize_text(
                 status
                 or result_payload.get("status")
+                or metadata_payload.get("status")
                 or DelegationJobStatus.COMPLETED.value
             )
             or DelegationJobStatus.COMPLETED.value
+        )
+        outcome_type = (
+            _normalize_text(
+                result_payload.get("outcome_type")
+                or result_payload.get("outcomeType")
+                or metadata_payload.get("outcome_type")
+                or metadata_payload.get("outcomeType")
+                or parsed.get("outcome_type")
+                or DELEGATION_SUMMARY_OUTCOME_TYPE
+            )
+            or DELEGATION_SUMMARY_OUTCOME_TYPE
         )
         files_changed = _merge_text_lists(
             result_payload.get("files_changed"),
@@ -746,13 +953,12 @@ class DelegationService:
             parsed.get("unresolved_questions"),
         )
         packet_tags = _normalize_tags(job.tags)
-        result_tags = _merge_text_lists(
+        request_tags = _merge_text_lists(
             result_payload.get("tags"),
             metadata_payload.get("tags"),
             parsed.get("tags"),
         )
-        tags = _normalize_tags([*packet_tags, *result_tags])
-        outcome_type = DELEGATION_SUMMARY_OUTCOME_TYPE
+        tags = _normalize_tags([*packet_tags, *request_tags])
         raw_transcript = _preserve_text(
             result_payload.get("raw_transcript")
             or result_payload.get("rawTranscript")
@@ -796,6 +1002,19 @@ class DelegationService:
             )
             or None
         )
+        lineage_payload = {
+            "request_id": request_id,
+            "delegation_id": job.delegation_id,
+            "task_id": job.task_id,
+            "thread_id": thread_id,
+            "source_message_id": source_message_id,
+            "project_id": project_id,
+            "executor_id": executor_id,
+            "title": title,
+            "status": normalized_status,
+            "outcome_type": outcome_type,
+            "tags": list(tags),
+        }
         enrich_payload = bool(
             result_payload
             or metadata_payload
@@ -806,6 +1025,11 @@ class DelegationService:
         if enrich_payload:
             result_payload.update(
                 {
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "source_message_id": source_message_id,
+                    "project_id": project_id,
+                    "executor_id": executor_id,
                     "title": title,
                     "summary": canonical_summary,
                     "status": normalized_status,
@@ -820,23 +1044,35 @@ class DelegationService:
                     "transcript": transcript,
                     "failure": normalized_failure,
                     "error_message": normalized_error_message,
+                    "lineage": lineage_payload,
                 }
             )
             metadata_payload.update(
                 {
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "source_message_id": source_message_id,
+                    "project_id": project_id,
+                    "executor_id": executor_id,
                     "title": title,
                     "status": normalized_status,
                     "outcome_type": outcome_type,
                     "tags": tags,
                     "error_message": normalized_error_message,
+                    "lineage": lineage_payload,
                 }
             )
         return DelegationSummary(
+            request_id=request_id,
             delegation_id=job.delegation_id,
             task_id=job.task_id,
+            thread_id=thread_id,
+            source_message_id=source_message_id,
+            project_id=project_id,
+            executor_id=executor_id,
+            title=title,
             status=normalized_status,
             outcome_type=outcome_type,
-            title=title,
             summary=canonical_summary,
             files_changed=files_changed,
             commands_run=commands_run,
@@ -849,6 +1085,7 @@ class DelegationService:
             transcript=transcript,
             failure=normalized_failure,
             error_message=normalized_error_message,
+            lineage=lineage_payload,
             created_at=_now_iso(),
             completed_at=_now_iso(),
         )
@@ -861,9 +1098,16 @@ class DelegationService:
         packet: DelegationPacket | None = None,
     ) -> DelegationSummary:
         packet = packet or self.get_packet(job.packet_id)
+        canonical_summary = executor_result.canonical_task_summary
         result_payload = dict(executor_result.result or {})
         result_payload.update(
             {
+                "request_id": executor_result.request_id,
+                "thread_id": executor_result.thread_id,
+                "source_message_id": executor_result.source_message_id,
+                "project_id": executor_result.project_id,
+                "executor_id": executor_result.executor_id,
+                "title": executor_result.title,
                 "final_text": executor_result.final_text,
                 "summary": executor_result.summary,
                 "stdout": executor_result.stdout,
@@ -880,6 +1124,8 @@ class DelegationService:
                     else None
                 ),
                 "status": executor_result.status,
+                "outcome_type": canonical_summary.outcome_type,
+                "lineage": dict(canonical_summary.lineage),
             }
         )
         metadata_payload = dict(executor_result.metadata or {})
@@ -887,6 +1133,15 @@ class DelegationService:
         metadata_payload.setdefault("repo_path", job.repo_path)
         metadata_payload.setdefault("task_id", job.task_id)
         metadata_payload.setdefault("delegation_id", job.delegation_id)
+        metadata_payload.setdefault("request_id", executor_result.request_id)
+        metadata_payload.setdefault("thread_id", executor_result.thread_id)
+        metadata_payload.setdefault(
+            "source_message_id", executor_result.source_message_id
+        )
+        metadata_payload.setdefault("project_id", executor_result.project_id)
+        metadata_payload.setdefault("executor_id", executor_result.executor_id)
+        metadata_payload.setdefault("title", executor_result.title)
+        metadata_payload.setdefault("lineage", dict(canonical_summary.lineage))
         if packet is not None:
             metadata_payload.setdefault("packet_id", packet.packet_id)
             metadata_payload.setdefault("title", packet.task_prompt)

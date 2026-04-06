@@ -17,15 +17,17 @@ from typing import Any, Callable
 from guardian.core.config import get_settings
 from guardian.core.executors.base import (
     CodeExecutor,
+    CodexifyExecutorRequest,
     ExecutorFailure,
-    ExecutorRequest,
-    ExecutorResult,
-    ExecutorStreamChunk,
+    ExecutorProgressEvent,
+    ExecutorStreamEvent,
+    ExecutorTerminalResult,
 )
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
     DelegationJobStatus,
     ErrorCode,
+    ExecutorEventType,
 )
 
 logger = logging.getLogger(__name__)
@@ -245,11 +247,11 @@ class CodexExecutor(CodeExecutor):
 
     def execute(
         self,
-        request: ExecutorRequest,
+        request: CodexifyExecutorRequest,
         *,
-        on_output: Callable[[ExecutorStreamChunk], None] | None = None,
+        on_output: Callable[[ExecutorStreamEvent], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
-    ) -> ExecutorResult:
+    ) -> ExecutorTerminalResult:
         timeout_seconds = (
             float(request.timeout_seconds)
             if request.timeout_seconds is not None
@@ -259,11 +261,21 @@ class CodexExecutor(CodeExecutor):
         executable = command_prefix[0]
         command = [*command_prefix, "exec", request.task_prompt]
         base_metadata = {
+            "request_id": request.request_id,
+            "delegation_id": request.delegation_id,
+            "task_id": request.task_id,
+            "thread_id": request.thread_id,
+            "source_message_id": request.source_message_id,
+            "project_id": request.project_id,
+            "executor_id": request.executor_id,
+            "title": request.title,
+            "tags": list(request.tags),
             "binary": executable,
             "command": command,
             "cwd": request.repo_path,
             "timeout_seconds": timeout_seconds,
             "executor": request.executor,
+            "canonical_task_prompt": request.canonical_task_prompt,
         }
 
         if not _binary_exists(executable):
@@ -271,19 +283,42 @@ class CodexExecutor(CodeExecutor):
                 error_code=ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value,
                 failure_class="FileNotFoundError",
                 message=f"Codex binary not found: {executable}",
+                request_id=request.request_id,
+                thread_id=request.thread_id,
+                source_message_id=request.source_message_id,
+                project_id=request.project_id,
+                executor_id=request.executor_id,
+                kind="missing_binary",
                 binary=executable,
                 command=command,
                 timeout_seconds=timeout_seconds,
                 stdout="",
                 stderr="",
                 details={"cwd": request.repo_path},
+                provenance={
+                    "request_id": request.request_id,
+                    "delegation_id": request.delegation_id,
+                    "task_id": request.task_id,
+                    "thread_id": request.thread_id,
+                    "source_message_id": request.source_message_id,
+                    "project_id": request.project_id,
+                    "executor_id": request.executor_id,
+                    "kind": "missing_binary",
+                },
             )
-            return ExecutorResult(
+            return ExecutorTerminalResult(
+                request_id=request.request_id,
                 delegation_id=request.delegation_id,
                 task_id=request.task_id,
+                thread_id=request.thread_id,
+                source_message_id=request.source_message_id,
+                project_id=request.project_id,
+                executor_id=request.executor_id,
+                title=request.title,
                 status=DelegationJobStatus.FAILED.value,
                 summary=failure.message,
                 final_text="",
+                tags=list(request.tags),
                 result={
                     **base_metadata,
                     "files_changed": [],
@@ -302,7 +337,7 @@ class CodexExecutor(CodeExecutor):
         stdout_chunks: list[str] = []
         stderr_chunks: list[str] = []
         transcript_chunks: list[str] = []
-        stream_events: list[ExecutorStreamChunk] = []
+        stream_events: list[ExecutorProgressEvent] = []
         sequence = 0
         lock = threading.Lock()
 
@@ -322,6 +357,12 @@ class CodexExecutor(CodeExecutor):
                 error_code=ErrorCode.DELEGATION_EXECUTOR_SPAWN_FAILED.value,
                 failure_class=exc.__class__.__name__,
                 message=str(exc),
+                request_id=request.request_id,
+                thread_id=request.thread_id,
+                source_message_id=request.source_message_id,
+                project_id=request.project_id,
+                executor_id=request.executor_id,
+                kind="spawn_failed",
                 binary=executable,
                 command=command,
                 timeout_seconds=timeout_seconds,
@@ -329,13 +370,30 @@ class CodexExecutor(CodeExecutor):
                 stdout="",
                 stderr="",
                 details={"cwd": request.repo_path},
+                provenance={
+                    "request_id": request.request_id,
+                    "delegation_id": request.delegation_id,
+                    "task_id": request.task_id,
+                    "thread_id": request.thread_id,
+                    "source_message_id": request.source_message_id,
+                    "project_id": request.project_id,
+                    "executor_id": request.executor_id,
+                    "kind": "spawn_failed",
+                },
             )
-            return ExecutorResult(
+            return ExecutorTerminalResult(
+                request_id=request.request_id,
                 delegation_id=request.delegation_id,
                 task_id=request.task_id,
+                thread_id=request.thread_id,
+                source_message_id=request.source_message_id,
+                project_id=request.project_id,
+                executor_id=request.executor_id,
+                title=request.title,
                 status=DelegationJobStatus.FAILED.value,
                 summary=failure.message,
                 final_text="",
+                tags=list(request.tags),
                 result={
                     **base_metadata,
                     "files_changed": [],
@@ -360,10 +418,27 @@ class CodexExecutor(CodeExecutor):
             if not text:
                 return
             with lock:
-                chunk = ExecutorStreamChunk(
+                chunk = ExecutorProgressEvent(
                     stream=stream,
                     text=text,
                     sequence=sequence,
+                    event_type=ExecutorEventType.PROGRESS.value,
+                    request_id=request.request_id,
+                    thread_id=request.thread_id,
+                    source_message_id=request.source_message_id,
+                    project_id=request.project_id,
+                    executor_id=request.executor_id,
+                    title=request.title,
+                    tags=list(request.tags),
+                    metadata={
+                        "stream": stream,
+                        "cwd": request.repo_path,
+                        "binary": executable,
+                        "request_id": request.request_id,
+                        "delegation_id": request.delegation_id,
+                        "task_id": request.task_id,
+                        "executor_id": request.executor_id,
+                    },
                 )
                 sequence += 1
                 stream_events.append(chunk)
@@ -446,6 +521,12 @@ class CodexExecutor(CodeExecutor):
                 error_code=ErrorCode.DELEGATION_EXECUTOR_SPAWN_FAILED.value,
                 failure_class=exc.__class__.__name__,
                 message=str(exc),
+                request_id=request.request_id,
+                thread_id=request.thread_id,
+                source_message_id=request.source_message_id,
+                project_id=request.project_id,
+                executor_id=request.executor_id,
+                kind="spawn_failed",
                 binary=executable,
                 command=command,
                 timeout_seconds=timeout_seconds,
@@ -453,8 +534,18 @@ class CodexExecutor(CodeExecutor):
                 stdout="".join(stdout_chunks),
                 stderr="".join(stderr_chunks),
                 details={"cwd": request.repo_path},
+                provenance={
+                    "request_id": request.request_id,
+                    "delegation_id": request.delegation_id,
+                    "task_id": request.task_id,
+                    "thread_id": request.thread_id,
+                    "source_message_id": request.source_message_id,
+                    "project_id": request.project_id,
+                    "executor_id": request.executor_id,
+                    "kind": "spawn_failed",
+                },
             )
-            return ExecutorResult(
+            return ExecutorTerminalResult(
                 delegation_id=request.delegation_id,
                 task_id=request.task_id,
                 status=DelegationJobStatus.FAILED.value,
@@ -510,6 +601,12 @@ class CodexExecutor(CodeExecutor):
                 error_code=ErrorCode.DELEGATION_EXECUTOR_TIMEOUT.value,
                 failure_class="TimeoutExpired",
                 message=error_message,
+                request_id=request.request_id,
+                thread_id=request.thread_id,
+                source_message_id=request.source_message_id,
+                project_id=request.project_id,
+                executor_id=request.executor_id,
+                kind="timeout",
                 binary=executable,
                 command=command,
                 returncode=returncode,
@@ -519,6 +616,16 @@ class CodexExecutor(CodeExecutor):
                 stdout=stdout_text,
                 stderr=stderr_text,
                 details={"cwd": request.repo_path},
+                provenance={
+                    "request_id": request.request_id,
+                    "delegation_id": request.delegation_id,
+                    "task_id": request.task_id,
+                    "thread_id": request.thread_id,
+                    "source_message_id": request.source_message_id,
+                    "project_id": request.project_id,
+                    "executor_id": request.executor_id,
+                    "kind": "timeout",
+                },
             )
         elif returncode not in (None, 0):
             status = DelegationJobStatus.FAILED.value
@@ -527,6 +634,12 @@ class CodexExecutor(CodeExecutor):
                 error_code=ErrorCode.DELEGATION_EXECUTOR_NONZERO_EXIT.value,
                 failure_class="NonZeroExit",
                 message=error_message,
+                request_id=request.request_id,
+                thread_id=request.thread_id,
+                source_message_id=request.source_message_id,
+                project_id=request.project_id,
+                executor_id=request.executor_id,
+                kind="nonzero_exit",
                 binary=executable,
                 command=command,
                 returncode=returncode,
@@ -535,6 +648,16 @@ class CodexExecutor(CodeExecutor):
                 stdout=stdout_text,
                 stderr=stderr_text,
                 details={"cwd": request.repo_path},
+                provenance={
+                    "request_id": request.request_id,
+                    "delegation_id": request.delegation_id,
+                    "task_id": request.task_id,
+                    "thread_id": request.thread_id,
+                    "source_message_id": request.source_message_id,
+                    "project_id": request.project_id,
+                    "executor_id": request.executor_id,
+                    "kind": "nonzero_exit",
+                },
             )
 
         result_payload = {
@@ -566,15 +689,22 @@ class CodexExecutor(CodeExecutor):
         if failure is not None:
             metadata["failure"] = failure.to_dict()
 
-        return ExecutorResult(
+        return ExecutorTerminalResult(
+            request_id=request.request_id,
             delegation_id=request.delegation_id,
             task_id=request.task_id,
+            thread_id=request.thread_id,
+            source_message_id=request.source_message_id,
+            project_id=request.project_id,
+            executor_id=request.executor_id,
+            title=request.title,
             status=status,
             summary=final_text or error_message,
             final_text=final_text,
             stdout=stdout_text,
             stderr=stderr_text,
             raw_transcript=raw_transcript,
+            tags=list(request.tags),
             files_changed=files_changed,
             commands_run=commands_run,
             output_chunks=stream_events,
