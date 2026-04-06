@@ -19,11 +19,11 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from guardian.core import metrics
+from guardian.core.dependencies import DB_BACKEND, get_database_dsn
 from guardian.core.health_service import (
     build_health_response,
     normalize_health_status,
 )
-from guardian.core.dependencies import DB_BACKEND, get_database_dsn
 from guardian.core.llm_catalog import build_llm_catalog
 from guardian.core.provider_registry import (
     normalize_provider,
@@ -1113,3 +1113,24 @@ def health_deps(format: str = "json"):
             "api_key_masked": masked_api_key,
         },
     )
+
+
+@router.get("/api/health/executors")
+def health_executors():
+    """
+    Report executor availability and auth-state health for all registry executors.
+
+    Returns one row per executor from the canonical registry with:
+    - executor_id, label, release_posture
+    - installed flag and binary_path if resolved
+    - auth_state (authenticated, unauthenticated, unknown)
+    - availability_state (ready, degraded, unavailable, not_installed)
+    - capability flags and supported_auth_modes
+    - status_detail with explanatory text when relevant
+    """
+    from guardian.core.executors.health import get_all_executor_health
+
+    executors = get_all_executor_health()
+    return {
+        "executors": [e.to_dict() for e in executors],
+    }
