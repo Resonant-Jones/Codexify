@@ -135,7 +135,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app \
-    PORT=8888
+    PORT=8888 \
+    HOME=/home/codexify \
+    CODEXIFY_CODEX_BIN=codex \
+    CODEXIFY_CLAUDE_BIN=claude
 
 WORKDIR /app
 
@@ -144,10 +147,19 @@ WORKDIR /app
 # ffmpeg pulls packages (e.g., x11-common) whose postinst calls update-rc.d.
 # Ensure update-rc.d is present via init-system-helpers.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg init-system-helpers && \
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        init-system-helpers \
+        nodejs \
+        npm && \
+    npm install -g @openai/codex @anthropic-ai/claude-code && \
+    mkdir -p /home/codexify && \
     rm -rf /var/lib/apt/lists/*
 
 # qwen-tts pulls python-sox, which shells out through /bin/sh during import.
+# Install Codex CLI and Claude Code into the runtime image so backend and worker
+# containers can execute supervised delegation on the server host. Credentials
+# should be persisted via the runtime HOME volume instead of being baked into the image.
 # Keep a POSIX shell available in the runtime image for compatibility.
 
 # Copy Python site-packages from builder (minimal and secure)

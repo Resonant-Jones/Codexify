@@ -213,6 +213,9 @@ services:
     restart: "no"
     command: ["/app/guardian/scripts/ensure_embed_model.py"]
 
+  # Backend owns supervised Codex/Claude Code execution on the server runtime.
+  # Persist CLI home so interactive login survives container restarts and both
+  # backend + worker-chat can reuse the same local credential state.
   backend:
     build:
       context: .
@@ -237,6 +240,7 @@ services:
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       - ./.chroma:/app/.chroma
       - ./docker:/app/docker
+      - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
       - ./models:/models
     environment:
@@ -246,6 +250,9 @@ services:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       PORT: "8888"
+      HOME: /home/codexify
+      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
+      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       # Command bus loopback: required so command execution re-enters the API via HTTP with full authz/middleware.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       # Policy chokepoint mode for tool/command execution.
@@ -357,6 +364,9 @@ services:
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
+      HOME: /home/codexify
+      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
+      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -390,6 +400,7 @@ services:
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - ./docker:/app/docker
+      - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       - ./models:/models
@@ -417,6 +428,9 @@ services:
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
+      HOME: /home/codexify
+      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
+      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -445,6 +459,7 @@ services:
       - ./guardian:/app/guardian
       - ./backend:/app/backend
       - ./plugins:/app/plugins:ro
+      - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       - ./models:/models
@@ -913,3 +928,4 @@ volumes:
   e2e_pnpm_store:
   corepack_cache:
   frontend_pnpm_store:
+  codexify_cli_home:
