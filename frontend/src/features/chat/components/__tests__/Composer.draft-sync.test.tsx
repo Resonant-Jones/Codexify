@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "@/features/chat/components/Composer";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
 } from "@/features/chat/chatLane";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
@@ -126,9 +125,14 @@ describe("Composer draft sync", () => {
 
     const contentPlane = screen.getByTestId("composer-content-plane");
     const controlsRow = screen.getByTestId("composer-control-row");
-    expect(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS).toBe("pr-[48px]");
     expect(contentPlane).toHaveClass("justify-end", "gap-2");
-    expect(controlsRow.className).toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
+    expect(controlsRow).toHaveClass(
+      "flex",
+      "w-full",
+      "items-center",
+      "gap-3",
+      "px-[var(--composer-text-pad-x,14px)]"
+    );
     expect(controlsRow.className).toContain(CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS);
     expect(controlsRow).toHaveClass("px-[var(--composer-text-pad-x,14px)]");
     expect(contentPlane).toHaveClass("px-[var(--composer-pad-x,12px)]");
@@ -136,6 +140,7 @@ describe("Composer draft sync", () => {
     expect(controlsRow).not.toHaveClass("mt-auto");
     expect(controlsRow).not.toHaveClass("justify-between");
     expect(controlsRow.className).not.toMatch(/\bpl-\[/);
+    expect(controlsRow.className).not.toMatch(/\bmr-\[/);
     expect(controlsRow.className).not.toContain("pb-[6px]");
 
     const controlsStrip = screen.getByTestId("composer-controls-strip");
@@ -167,13 +172,18 @@ describe("Composer draft sync", () => {
     );
 
     const textarea = screen.getByPlaceholderText("Write a message…");
-    expect(composerSource).toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
+    expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
+    expect(composerSource).not.toContain("pr-[48px]");
     expect(composerSource).toContain("justify-end");
+    expect(composerSource).toContain(
+      "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+    );
     expect(textarea.parentElement).toBe(contentPlane);
     expect(composerSource).not.toContain("justify-between");
     expect(composerSource).not.toContain("mt-auto");
     expect(composerSource).not.toContain('pl-[8px]');
     expect(composerSource).not.toContain('pr-[24px]');
+    expect(composerSource).not.toMatch(/\bpr-\[/);
   });
 
   it("stages attachments locally and uploads them only after send", async () => {

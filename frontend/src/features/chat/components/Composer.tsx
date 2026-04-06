@@ -22,7 +22,6 @@ import {
 } from "@/types/inference";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
 } from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
@@ -751,7 +750,6 @@ export function Composer({
             data-testid="composer-control-row"
             className={cn(
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-              CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
               "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
           >
