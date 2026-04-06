@@ -36,6 +36,40 @@ class DelegationExecutorName(str, Enum):
     CODEX = "codex"
 
 
+class ExecutorId(str, Enum):
+    CODEX = "codex"
+    CLAUDE_CODE = "claude_code"
+    OPENCODE = "opencode"
+
+
+class ExecutorReleasePosture(str, Enum):
+    OFFICIAL = "official"
+    OPTIONAL = "optional"
+    USER_CONFIGURED = "user_configured"
+
+
+class ExecutorAuthMode(str, Enum):
+    DIRECT_PROVIDER = "direct_provider"
+    LOCAL_MODEL = "local_model"
+    GATEWAY_BASE_URL = "gateway_base_url"
+
+
+class ExecutorEventType(str, Enum):
+    PROGRESS = "executor.progress"
+    ESCALATION = "executor.escalation"
+    COMPLETED = "executor.completed"
+    FAILED = "executor.failed"
+    CANCELLED = "executor.cancelled"
+
+
+class ExecutorEscalationKind(str, Enum):
+    NEEDS_CLARIFICATION = "needs_clarification"
+    NEEDS_PERMISSION = "needs_permission"
+    BLOCKED = "blocked"
+    NEEDS_REVIEW = "needs_review"
+    TOOLING_LIMIT = "tooling_limit"
+
+
 class DelegationEventType(str, Enum):
     CREATED = "delegation.created"
     RUNNING = "delegation.running"
@@ -77,6 +111,21 @@ DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
 DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
 )
+EXECUTOR_IDS: frozenset[str] = frozenset(
+    {executor.value for executor in ExecutorId}
+)
+EXECUTOR_RELEASE_POSTURES: frozenset[str] = frozenset(
+    {posture.value for posture in ExecutorReleasePosture}
+)
+EXECUTOR_AUTH_MODES: frozenset[str] = frozenset(
+    {auth_mode.value for auth_mode in ExecutorAuthMode}
+)
+EXECUTOR_EVENT_TYPES: frozenset[str] = frozenset(
+    {event_type.value for event_type in ExecutorEventType}
+)
+EXECUTOR_ESCALATION_KINDS: frozenset[str] = frozenset(
+    {kind.value for kind in ExecutorEscalationKind}
+)
 DELEGATION_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in DelegationEventType}
 )
@@ -107,6 +156,11 @@ __all__ = [
     "DelegationJobStatus",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
+    "ExecutorId",
+    "ExecutorReleasePosture",
+    "ExecutorAuthMode",
+    "ExecutorEventType",
+    "ExecutorEscalationKind",
     "DelegationEventType",
     "ErrorCode",
     "EmbeddingLifecycleStatus",
@@ -114,6 +168,11 @@ __all__ = [
     "TASK_EVENT_TYPES",
     "DELEGATION_JOB_STATUSES",
     "DELEGATION_EXECUTOR_NAMES",
+    "EXECUTOR_IDS",
+    "EXECUTOR_RELEASE_POSTURES",
+    "EXECUTOR_AUTH_MODES",
+    "EXECUTOR_EVENT_TYPES",
+    "EXECUTOR_ESCALATION_KINDS",
     "DELEGATION_EVENT_TYPES",
     "DELEGATION_TERMINAL_STATUSES",
     "DELEGATION_TERMINAL_EVENT_TYPES",
