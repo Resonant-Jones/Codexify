@@ -120,6 +120,40 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
+  it("enables send when the draft only contains document tiles", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+        onDocumentTileRemove={vi.fn()}
+        documentTiles={[
+          {
+            id: "doc-1",
+            title: "Project Brief",
+            preview: "Short excerpt",
+            type: "document",
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Remove Project Brief" })
+    ).toBeInTheDocument();
+
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton).not.toBeDisabled();
+
+    fireEvent.click(sendButton);
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("keeps the textarea on the content plane and gives the control row its own padding contract", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 

@@ -395,7 +395,7 @@ codexify-neo4j-1                 1.00%     527.4MiB / 11.67GiB   4.41%
 ## F. Final verdict
 
 ```
-VERDICT: live runtime remained usable during active import catch-up
+VERDICT: runtime remained usable during import backlog presence, but active catch-up processing was not proven
 ```
 
 ### Justification

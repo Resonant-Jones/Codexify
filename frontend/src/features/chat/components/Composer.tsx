@@ -15,10 +15,12 @@ import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMen
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
+import DocumentContextTileView from "@/features/chat/components/DocumentContextTile";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
+import type { DocumentContextTile } from "@/lib/documentContext";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
 } from "@/features/chat/chatLane";
@@ -160,6 +162,8 @@ export function Composer({
   ensureThreadIdForAttachments,
   prefill,
   onPrefillConsumed,
+  documentTiles = [],
+  onDocumentTileRemove,
   threadId,
   isSending,
   isTurnInFlight,
@@ -194,6 +198,8 @@ export function Composer({
   ) => Promise<number | null>;
   prefill?: string;
   onPrefillConsumed?: () => void;
+  documentTiles?: DocumentContextTile[];
+  onDocumentTileRemove?: (tileId: string) => void;
   threadId?: number;
   isSending?: boolean;
   isTurnInFlight?: boolean;
@@ -260,7 +266,8 @@ export function Composer({
   const voiceTurnDisabled = turnLocked || transportBusy;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
-  const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
+  const hasDraftContent =
+    Boolean(value.trim()) || draftAttachments.length > 0 || documentTiles.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -540,7 +547,8 @@ export function Composer({
 
     const bodyText = value.trim();
     const hasAttachments = draftAttachments.length > 0;
-    if (!bodyText && !hasAttachments) return;
+    const hasDocumentTiles = documentTiles.length > 0;
+    if (!bodyText && !hasAttachments && !hasDocumentTiles) return;
 
     setInternalSending(true);
     setUploading(hasAttachments);
@@ -570,7 +578,7 @@ export function Composer({
         ? buildChatAttachmentMessage(uploaded, bodyText)
         : bodyText;
 
-      if (!message) {
+      if (hasAttachments && !message) {
         showToast("No attachments could be uploaded.");
         return;
       }
@@ -742,7 +750,8 @@ export function Composer({
     sourceOptions[0]?.label ??
     "Project";
   const lineageTargetLabel = projectName?.trim() || "General";
-  const showLineageCopy = !value.trim();
+  const showLineageCopy =
+    !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
   const lineageCopy = `Send a message to ${lineageTargetLabel}`;
   const handleAttemptSend = () => {
     if (turnLocked) {
@@ -770,6 +779,22 @@ export function Composer({
               className="pointer-events-none absolute left-[var(--composer-text-pad-x,14px)] top-[var(--composer-text-pad-y,10px)] text-base leading-relaxed font-normal tracking-normal text-[var(--text)] opacity-[0.85]"
             >
               {lineageCopy}
+            </div>
+          ) : null}
+          {documentTiles.length > 0 ? (
+            <div className="flex flex-wrap gap-2 px-[var(--composer-text-pad-x,14px)]">
+              {documentTiles.map((tile) => (
+                <DocumentContextTileView
+                  key={tile.id}
+                  tile={tile}
+                  onRemove={
+                    onDocumentTileRemove
+                      ? () => onDocumentTileRemove(tile.id)
+                      : undefined
+                  }
+                  className="max-w-full"
+                />
+              ))}
             </div>
           ) : null}
           <Textarea

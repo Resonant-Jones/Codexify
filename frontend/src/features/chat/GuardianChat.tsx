@@ -88,6 +88,12 @@ import {
   forwardLegacyDocumentOpenToWorkspace,
   LEGACY_DOCUMENT_OPEN_EVENT,
 } from "@/features/workspace/state/useWorkspaceState";
+import {
+  loadDocumentContentById,
+  serializeDocumentContextMessage,
+  type DocumentContextTile,
+  type DocumentContextContent,
+} from "@/lib/documentContext";
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
@@ -578,6 +584,24 @@ function isTerminalInferencePhase(phase: string): boolean {
   return phase === "completed" || phase === "failed" || phase === "cancelled";
 }
 
+function documentTileScopeKey(tabId: TabId | null | undefined): string {
+  return tabId ? String(tabId) : "global";
+}
+
+function dedupeDocumentContextTiles(
+  tiles: DocumentContextTile[]
+): DocumentContextTile[] {
+  const seen = new Set<string>();
+  const next: DocumentContextTile[] = [];
+  for (const tile of tiles) {
+    const id = String(tile?.id ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    next.push(tile);
+  }
+  return next;
+}
+
 /**
  * Consciousness container for Guardian chat conversations.
  *
@@ -591,6 +615,8 @@ export function GuardianChat({
   userName,
   prefill,
   onPrefillConsumed,
+  pendingDocumentTiles,
+  onPendingDocumentTilesConsumed,
   onWorkspaceToggle,
   workspaceOpen = false,
   activeThread,
@@ -621,6 +647,8 @@ export function GuardianChat({
   userName: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
+  pendingDocumentTiles?: DocumentContextTile[];
+  onPendingDocumentTilesConsumed?: () => void;
   onWorkspaceToggle?: () => void;
   workspaceOpen?: boolean;
   activeThread: Thread;
@@ -665,6 +693,9 @@ export function GuardianChat({
   const [ragTraceOpen, setRagTraceOpen] = useState(false);
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
+  const [documentTilesByScope, setDocumentTilesByScope] = useState<
+    Record<string, DocumentContextTile[]>
+  >({});
   // Chat state management including completion tracking
   const {
     messages,
@@ -749,6 +780,23 @@ export function GuardianChat({
   useEffect(() => {
     activeSessionTabIdRef.current = activeSessionTabId;
   }, [activeSessionTabId]);
+
+  useEffect(() => {
+    if (!pendingDocumentTiles || pendingDocumentTiles.length === 0) {
+      return;
+    }
+
+    const scopeKey = documentTileScopeKey(activeSessionTabId);
+    setDocumentTilesByScope((previous) => {
+      const current = previous[scopeKey] ?? [];
+      const next = dedupeDocumentContextTiles([...current, ...pendingDocumentTiles]);
+      return {
+        ...previous,
+        [scopeKey]: next,
+      };
+    });
+    onPendingDocumentTilesConsumed?.();
+  }, [activeSessionTabId, onPendingDocumentTilesConsumed, pendingDocumentTiles]);
 
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
@@ -2407,6 +2455,58 @@ export function GuardianChat({
     }
   };
 
+  const activeDocumentTiles = useMemo(
+    () => documentTilesByScope[documentTileScopeKey(activeSessionTabId)] ?? [],
+    [activeSessionTabId, documentTilesByScope]
+  );
+
+  const handleDocumentTileRemove = useCallback(
+    (tileId: string) => {
+      const scopeKey = documentTileScopeKey(activeSessionTabId);
+      setDocumentTilesByScope((previous) => {
+        const current = previous[scopeKey] ?? [];
+        const next = current.filter((tile) => tile.id !== tileId);
+        if (next.length === current.length) {
+          return previous;
+        }
+        return {
+          ...previous,
+          [scopeKey]: next,
+        };
+      });
+    },
+    [activeSessionTabId]
+  );
+
+  const buildDocumentContextMessage = useCallback(
+    async (bodyText: string, tiles: DocumentContextTile[]) => {
+      if (!tiles.length) {
+        return bodyText;
+      }
+
+      const loaded: DocumentContextContent[] = await Promise.all(
+        tiles.map(async (tile) => {
+          const record = await loadDocumentContentById(tile.id);
+          const content = String(record.content ?? "").trim();
+          if (!content) {
+            throw new Error(`Document "${tile.title}" has no readable content.`);
+          }
+          return {
+            tile: {
+              ...tile,
+              title: tile.title || record.title || "Untitled",
+              ext: tile.ext || record.ext,
+            },
+            content,
+          };
+        })
+      );
+
+      return serializeDocumentContextMessage(bodyText, loaded);
+    },
+    []
+  );
+
   // Enhanced send handler with auto-thread creation
   const handleSendMessage = async (
     text: string,
@@ -2480,6 +2580,10 @@ export function GuardianChat({
       }
       return;
     }
+    const contentForSend = await buildDocumentContextMessage(
+      text,
+      activeDocumentTiles
+    );
     if (!targetThreadId) {
       const firstLine = text.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -2490,7 +2594,7 @@ export function GuardianChat({
           thread_id: null,
           draft_tab_id: originTabId ?? undefined,
           role: "user",
-          content: text,
+          content: contentForSend,
           user_id: normalizedUserId,
           title: provisionalTitle,
           project_id: workspaceProjectId ?? undefined,
@@ -2550,7 +2654,7 @@ export function GuardianChat({
         if (targetThreadId !== effectiveThreadId) {
           await api.post(`/chat/${targetThreadId}/messages`, {
             role: "user",
-            content: text,
+            content: contentForSend,
             user_id: normalizedUserId,
             project_id: workspaceProjectId ?? undefined,
           });
@@ -2560,7 +2664,7 @@ export function GuardianChat({
           });
           setChatReloadVersion((v) => v + 1);
         } else {
-          await onSendMessage(text, options);
+          await onSendMessage(contentForSend, options);
           await refreshSnapshot(targetThreadId, "user-send");
         }
 
@@ -3139,6 +3243,8 @@ export function GuardianChat({
                   setExternalPrefill(undefined);
                   onPrefillConsumed?.();
                 }}
+                documentTiles={activeDocumentTiles}
+                onDocumentTileRemove={handleDocumentTileRemove}
                 threadId={effectiveThreadId ?? undefined}
                 projectId={composerProjectId}
                 projectName={activeThread.projectName ?? null}

@@ -49,6 +49,7 @@ import {
   requireAuthReady,
   useAuthState,
 } from "@/lib/authState";
+import type { DocumentContextTile } from "@/lib/documentContext";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -208,6 +209,8 @@ type GuardianChatWithSidebarProps = {
   userName: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
+  pendingDocumentTiles?: DocumentContextTile[];
+  onPendingDocumentTilesConsumed?: () => void;
   onWorkspaceToggle?: () => void;
   workspaceOpen?: boolean;
   activeWorkspaceDoc?: DocumentLike | null;
@@ -220,6 +223,8 @@ export default function GuardianChatWithSidebar({
   userName,
   prefill,
   onPrefillConsumed,
+  pendingDocumentTiles,
+  onPendingDocumentTilesConsumed,
   onWorkspaceToggle,
   workspaceOpen = false,
   activeWorkspaceDoc = null,
@@ -1660,14 +1665,16 @@ export default function GuardianChatWithSidebar({
                 </div>
               )}
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-                <GuardianChat
-                  guardianName={guardianName}
-                  userName={userName}
-                  prefill={prefill}
-                  onPrefillConsumed={onPrefillConsumed}
-                  onWorkspaceToggle={onWorkspaceToggle}
-                  workspaceOpen={workspaceOpen}
-                  activeThread={activeThread}
+              <GuardianChat
+                guardianName={guardianName}
+                userName={userName}
+                prefill={prefill}
+                onPrefillConsumed={onPrefillConsumed}
+                pendingDocumentTiles={pendingDocumentTiles}
+                onPendingDocumentTilesConsumed={onPendingDocumentTilesConsumed}
+                onWorkspaceToggle={onWorkspaceToggle}
+                workspaceOpen={workspaceOpen}
+                activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
                   onSendMessage={handleSendMessage}
                   onThreadPersisted={handleDraftThreadPersisted}
