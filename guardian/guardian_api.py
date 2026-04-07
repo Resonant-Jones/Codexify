@@ -93,6 +93,7 @@ from guardian.core.supported_profile import (
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
+from guardian.services import builtin_help_ingest
 from guardian.tasks.types import WarmupTask
 from guardian.utils.embed_paths import (
     get_local_embed_model,
@@ -357,6 +358,39 @@ def _schedule_chatgpt_import_startup_sweep(app: FastAPI) -> asyncio.Task[Any]:
     return task
 
 
+def _run_builtin_help_startup_ingest(guardian_db: Any | None) -> None:
+    if guardian_db is None:
+        logger.info(
+            "[startup] Built-in help ingest skipped: GuardianDB unavailable"
+        )
+        return
+
+    try:
+        result = builtin_help_ingest.ingest_builtin_help_document(guardian_db)
+    except Exception as exc:
+        logger.warning(
+            "[startup] Built-in help ingest failed: %s", exc, exc_info=True
+        )
+        return
+
+    status = str(result.get("status") or "unknown").strip().lower()
+    doc_id = str(result.get("document_id") or "").strip()
+    source_path = str(result.get("source_path") or "").strip()
+    project_id = result.get("project_id")
+    vector_written = bool(result.get("vector_written"))
+    log_level = (
+        logger.warning if status in {"skipped", "unknown"} else logger.info
+    )
+    log_level(
+        "[startup] Built-in help ingest status=%s doc_id=%s path=%s project_id=%s vector_written=%s",
+        status,
+        doc_id,
+        source_path,
+        project_id,
+        vector_written,
+    )
+
+
 from guardian.realtime import collaboration
 
 
@@ -577,6 +611,13 @@ async def app_lifespan(app: FastAPI):
         collaboration.configure_db(guardian_db)
         logger.info(
             "[startup] GuardianDB configured for cron/documents/share/collaboration/websocket routes"
+        )
+
+    try:
+        _run_builtin_help_startup_ingest(guardian_db)
+    except Exception as exc:
+        logger.warning(
+            "[startup] Built-in help ingest hook failed soft: %s", exc
         )
 
     # Configure durable outbox storage
