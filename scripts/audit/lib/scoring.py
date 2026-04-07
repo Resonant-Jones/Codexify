@@ -101,9 +101,9 @@ def score_to_band(score: int) -> str:
     """Convert score to risk band."""
     if score <= 20:
         return "Low"
-    elif score <= 60:
-        return "Moderate"
     elif score <= 120:
+        return "Moderate"
+    elif score <= 180:
         return "High"
     else:
         return "Critical"

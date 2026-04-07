@@ -34,7 +34,6 @@ from scripts.audit.lib.git_utils import (
     check_risky_files_changed,
     check_tests_touched,
     get_changed_files,
-    get_current_branch,
 )
 
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "docs" / "audits" / "regression"
@@ -101,21 +100,36 @@ def check_tests_for_changed_files(
     """Check if tests were touched for changed files."""
     has_tests, test_files = check_tests_touched(files, config)
 
-    # Check if any non-test files lack test coverage
-    non_test_files = [f for f in files if not config.is_test_file(f)]
+    risky_files = [
+        f
+        for f in files
+        if any(
+            fnmatch.fnmatch(f, pattern)
+            for pattern in config.risky_path_patterns
+        )
+    ]
 
-    status = "pass" if has_tests else "warn"
-    level = "info" if has_tests else "warning"
+    if risky_files and not has_tests:
+        return {
+            "check": "tests_touched",
+            "status": "fail",
+            "level": "error",
+            "evidence": risky_files[:10],
+            "message": "Risky code changed without touching tests",
+            "files_without_tests": risky_files,
+            "deterministic": True,
+        }
 
     return {
         "check": "tests_touched",
-        "status": status,
-        "level": level,
+        "status": "pass",
+        "level": "info",
         "evidence": test_files,
         "message": f"Tests touched: {len(test_files)} files"
         if has_tests
-        else "No test files changed",
-        "files_without_tests": non_test_files if not has_tests else [],
+        else "No risky code changes detected",
+        "files_without_tests": [],
+        "deterministic": True,
     }
 
 
@@ -123,21 +137,24 @@ def check_migration_for_schema_changes(
     files: list[str], config: AuditConfig
 ) -> dict[str, Any]:
     """Check if migrations exist when schema files changed."""
-    # Check if models.py or schema-related files changed
-    schema_files = ["guardian/db/models.py"]
-    schema_changed = any(
-        fnmatch.fnmatch(f, pattern) for f in files for pattern in schema_files
-    )
+    schema_files = [
+        f
+        for f in files
+        if any(
+            fnmatch.fnmatch(f, pattern)
+            for pattern in config.schema_path_patterns
+        )
+    ]
 
     has_migration, migration_files = check_migrations_present(files, config)
 
-    if schema_changed and not has_migration:
+    if schema_files and not has_migration:
         return {
             "check": "migration_present",
             "status": "fail",
             "level": "error",
-            "evidence": [f for f in files if "models" in f],
-            "message": "Schema files changed but no migration file found",
+            "evidence": schema_files[:10],
+            "message": "Schema-related files changed but no migration file found",
             "deterministic": True,
         }
 
@@ -401,13 +418,14 @@ def generate_report(
     files: list[str],
     config: AuditConfig,
     gate_filter: str = "all",
+    enforce: bool = False,
 ) -> dict[str, Any]:
     """Generate gate check report."""
     report = {
         "generated_at": datetime.now().isoformat(),
         "base": base,
         "head": head,
-        "mode": "enforce" if gate_filter == "enforce" else "report-only",
+        "mode": "enforce" if enforce else "report-only",
         "files_changed": len(files),
         "gates": {},
     }
@@ -524,7 +542,7 @@ def write_output(
     """Write JSON and Markdown output files."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S_%f")
     json_path = output_dir / f"gates-{timestamp}.json"
     md_path = output_dir / f"gates-{timestamp}.md"
 
@@ -559,7 +577,11 @@ def main() -> int:
         return 1
 
     # Get changed files
-    has_changes, files = check_changed_files(args.base, args.head)
+    try:
+        _, files = check_changed_files(args.base, args.head)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     # Generate report
     report = generate_report(
@@ -568,6 +590,7 @@ def main() -> int:
         files=files,
         config=config,
         gate_filter=args.gate,
+        enforce=args.enforce,
     )
 
     # Render markdown
@@ -584,6 +607,7 @@ def main() -> int:
     print(f"  Files changed: {report['files_changed']}")
     print(f"  Deterministic failures: {exit_rec['deterministic_failures']}")
     print(f"  Report-only recommendation: {exit_rec['report_only']}")
+    print(f"  Mode: {report['mode']}")
     if args.enforce:
         print(f"  Enforce mode: {exit_rec['enforce_mode']}")
 
