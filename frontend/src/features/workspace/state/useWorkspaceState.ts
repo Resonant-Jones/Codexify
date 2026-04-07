@@ -104,10 +104,30 @@ export function toWorkspaceDocument(raw: unknown): DocumentLike | null {
     title,
     ext,
     type: candidate.type === "codex_entry" ? "codex_entry" : "file",
+    content:
+      normalizeString(candidate.content) ??
+      normalizeString(candidate.parsed_text) ??
+      normalizeString(candidate.parsedText),
+    parsed_text:
+      normalizeString(candidate.parsed_text) ??
+      normalizeString(candidate.parsedText) ??
+      normalizeString(candidate.content),
+    parsedText:
+      normalizeString(candidate.parsedText) ??
+      normalizeString(candidate.parsed_text) ??
+      normalizeString(candidate.content),
     src_url: srcUrl,
     srcUrl: normalizeString(candidate.srcUrl),
     src: normalizeString(candidate.src),
     url: normalizeString(candidate.url),
+    mime_type:
+      normalizeString(candidate.mime_type) ??
+      normalizeString(candidate.mimeType) ??
+      normalizeString(candidate.content_type),
+    mimeType:
+      normalizeString(candidate.mimeType) ??
+      normalizeString(candidate.mime_type) ??
+      normalizeString(candidate.content_type),
     projectId:
       normalizeNumericId(candidate.projectId) ??
       normalizeNumericId(candidate.project_id),

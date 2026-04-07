@@ -28,6 +28,11 @@ type Props = {
   file: DocumentFile;
   onClick?: () => void;
   onDeleted?: (file: DocumentFile) => void;
+  contextMenuItems?: Array<{
+    label: string;
+    onSelect: () => void | Promise<void>;
+    destructive?: boolean;
+  }>;
   className?: string;
 };
 
@@ -165,7 +170,13 @@ function readExtColors(): Record<string, string> {
   }
 }
 
-export default function DocumentTile({ file, onClick, onDeleted, className }: Props) {
+export default function DocumentTile({
+  file,
+  onClick,
+  onDeleted,
+  contextMenuItems: extraContextMenuItems,
+  className,
+}: Props) {
   const extColors = React.useMemo(readExtColors, []);
   const fileName = file?.name || "Untitled";
   const ext = (file?.ext || getExt(fileName) || "").toLowerCase();
@@ -247,14 +258,13 @@ export default function DocumentTile({ file, onClick, onDeleted, className }: Pr
 
   const contextMenuItems = React.useMemo(
     () => [
-      ...(canDownload
-        ? [{ label: "Download", onSelect: handleDownload }]
-        : []),
+      ...(extraContextMenuItems ?? []),
+      ...(canDownload ? [{ label: "Download", onSelect: handleDownload }] : []),
       ...(canDelete
         ? [{ label: "Delete", onSelect: handleDelete, destructive: true }]
         : []),
     ],
-    [canDelete, canDownload, handleDelete, handleDownload]
+    [canDelete, canDownload, extraContextMenuItems, handleDelete, handleDownload]
   );
 
   if (isDeleted) return null;
