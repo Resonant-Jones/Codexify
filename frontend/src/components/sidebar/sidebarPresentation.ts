@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
 
@@ -168,6 +169,8 @@ export function projectMatchesSidebarQuery(
 export type SidebarProvenanceOption = {
   value: string;
   label: string;
+  description?: string;
+  Icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 };
 
 const CANONICAL_PROVENANCE_LABELS = new Map<string, string>([
