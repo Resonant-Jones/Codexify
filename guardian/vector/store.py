@@ -142,3 +142,22 @@ class VectorStore:
         if not stale:
             return 0
         return self.embedder.delete_by_ids(stale)
+
+    def delete_by_doc_id(self, doc_id: str) -> int:
+        """Delete all chunks for a document by doc_id metadata.
+
+        Args:
+            doc_id: The document ID to delete chunks for.
+
+        Returns:
+            Number of chunks deleted.
+        """
+        if self.store != "chroma":
+            return 0
+        doc_id = (doc_id or "").strip()
+        if not doc_id:
+            return 0
+        existing_ids = self.embedder.get_ids(where={"doc_id": doc_id})
+        if not existing_ids:
+            return 0
+        return self.embedder.delete_by_ids(existing_ids)
