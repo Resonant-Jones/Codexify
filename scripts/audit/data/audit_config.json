@@ -1,0 +1,218 @@
+{
+  "version": "1.0",
+  "repo_name": "Codexify",
+  "description": "Configuration for regression prevention audit. Adjust paths and patterns to match repo structure.",
+  "risky_path_patterns": [
+    "guardian/db/models.py",
+    "guardian/db/migrations/**/*.py",
+    "guardian/**/*.py",
+    "guardian/routes/*.py",
+    "guardian/core/*.py",
+    "guardian/workers/*.py",
+    "guardian/agents/*.py",
+    "guardian/queue/*.py",
+    "guardian/services/**/*.py",
+    "frontend/**/*",
+    "src-tauri/**/*",
+    "scripts/audit/**/*.py"
+  ],
+  "test_path_patterns": [
+    "tests/**/*.py",
+    "guardian/**/test_*.py",
+    "*_test.py",
+    "frontend/**/__tests__/**/*",
+    "frontend/**/*test.*",
+    "frontend/**/*spec.*"
+  ],
+  "migration_path_patterns": [
+    "guardian/db/migrations/**/*.py"
+  ],
+  "schema_path_patterns": [
+    "guardian/db/models.py",
+    "guardian/core/db.py",
+    "guardian/core/pgdb.py",
+    "guardian/db/migrations/**/*.py"
+  ],
+  "high_blast_radius_paths": [
+    "guardian/db/models.py",
+    "guardian/core/config.py",
+    "guardian/routes/chat.py",
+    "guardian/core/ai_router.py",
+    "guardian/queue/redis_queue.py"
+  ],
+  "subsystems": {
+    "chat": {
+      "patterns": ["guardian/routes/chat*.py", "guardian/workers/chat_worker*.py"],
+      "description": "Chat completion and message handling"
+    },
+    "providers": {
+      "patterns": ["guardian/core/ai_router.py", "guardian/core/provider*.py", "guardian/core/llm_catalog.py"],
+      "description": "AI provider routing and registry"
+    },
+    "ingestion": {
+      "patterns": ["guardian/services/document_*.py", "guardian/workers/document_embed*.py"],
+      "description": "Document ingestion and embedding"
+    },
+    "tools": {
+      "patterns": ["guardian/routes/tools.py", "guardian/tools/**/*.py"],
+      "description": "Tool execution and management"
+    },
+    "federation": {
+      "patterns": ["guardian/routes/federation.py", "guardian/sync/**/*.py"],
+      "description": "Federation and sync"
+    },
+    "command_bus": {
+      "patterns": ["guardian/command_bus/**/*.py", "**/command_bus*.py"],
+      "description": "Command bus infrastructure"
+    },
+    "frontend": {
+      "patterns": ["frontend/**/*", "src-tauri/**/*"],
+      "description": "Frontend and desktop shell"
+    },
+    "tests": {
+      "patterns": ["tests/**/*.py", "**/test_*.py", "*_test.py"],
+      "description": "Test files"
+    },
+    "config": {
+      "patterns": ["guardian/core/config.py", ".env*", "*.toml", "*.yaml", "*.yml"],
+      "description": "Configuration files"
+    },
+    "infra": {
+      "patterns": ["docker-compose.yml", "Dockerfile", "scripts/verification/**/*", "scripts/maintenance/**/*", ".github/**/*"],
+      "description": "Infrastructure and deployment"
+    },
+    "docs": {
+      "patterns": ["docs/**/*.md"],
+      "description": "Documentation"
+    },
+    "workers": {
+      "patterns": ["guardian/workers/*.py"],
+      "description": "Background workers"
+    },
+    "queue": {
+      "patterns": ["guardian/queue/*.py"],
+      "description": "Queue infrastructure"
+    }
+  },
+  "tool_contract_patterns": {
+    "expected_files": [
+      "docs/Future-Features/Tool_Call_Spec.md"
+    ],
+    "level": "warning",
+    "description": "Best-effort check: tool contract documentation presence"
+  },
+  "identity_marker_patterns": {
+    "expected_annotations": ["@identity_scope", "# identity:", "identity_context", "scope="],
+    "check_paths": ["guardian/routes/", "guardian/agents/"],
+    "level": "warning",
+    "description": "Best-effort check: identity isolation markers in routes and agents"
+  },
+  "queue_worker_patterns": {
+    "health_routes": ["/health", "/api/health", "/health/queue", "/health/workers"],
+    "level": "warning",
+    "description": "Best-effort check: queue/worker health endpoint presence"
+  },
+  "gate_checks": {
+    "pre_merge": {
+      "deterministic": [
+        "tests_touched",
+        "migration_present"
+      ],
+      "best_effort": [
+        "risk_docs_updated"
+      ],
+      "manual_attestations": {
+        "required": [
+          {
+            "id": "blast_radius",
+            "description": "Assess actual blast radius of changes",
+            "rationale": "Automated checks cannot determine true impact scope"
+          },
+          {
+            "id": "rollback_path",
+            "description": "Verify rollback can be executed safely",
+            "rationale": "Requires human judgment of deployment state"
+          }
+        ],
+        "recommended": [
+          {
+            "id": "identity_isolation",
+            "description": "Verify identity boundaries are respected",
+            "rationale": "Best-effort automated check only; human verification recommended"
+          }
+        ]
+      }
+    },
+    "pre_release": {
+      "deterministic": [
+        "migration_test_exists"
+      ],
+      "best_effort": [
+        "tool_contract_files",
+        "identity_markers",
+        "queue_health_routes"
+      ],
+      "manual_attestations": {
+        "required": [
+          {
+            "id": "golden_tasks",
+            "description": "Golden task suite passes",
+            "rationale": "No automated eval suite detected"
+          },
+          {
+            "id": "cross_provider_checks",
+            "description": "Cross-provider sanity checks pass",
+            "rationale": "Requires live provider testing"
+          }
+        ],
+        "recommended": [
+          {
+            "id": "schema_migration_tested",
+            "description": "Schema migration tested forward and backward",
+            "rationale": "Automated check found migration tests but cannot verify coverage"
+          },
+          {
+            "id": "retrieval_eval_passes",
+            "description": "Retrieval eval suite passes",
+            "rationale": "Requires eval infrastructure not yet in place"
+          }
+        ]
+      }
+    },
+    "post_release": {
+      "deterministic": [],
+      "best_effort": [],
+      "manual_attestations": {
+        "required": [
+          {
+            "id": "error_rates",
+            "description": "Monitor error rates for 24-48 hours",
+            "rationale": "Post-release observation required"
+          },
+          {
+            "id": "cost_anomaly",
+            "description": "Verify no cost spikes",
+            "rationale": "Requires cost dashboard access"
+          }
+        ],
+        "recommended": [
+          {
+            "id": "retrieval_relevance",
+            "description": "Check retrieval relevance signals",
+            "rationale": "Requires eval suite results"
+          },
+          {
+            "id": "fallback_frequency",
+            "description": "Monitor fallback frequency",
+            "rationale": "Indicates provider/model instability"
+          }
+        ]
+      }
+    }
+  },
+  "exit_codes": {
+    "report_only": 0,
+    "enforce_success": 0,
+    "enforce_failure": 1
+  }
+}
