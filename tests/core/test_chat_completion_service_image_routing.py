@@ -41,6 +41,8 @@ def _seed_common(monkeypatch: pytest.MonkeyPatch, *, provider: str, model: str):
         LLM_MODEL=model,
         DEFAULT_LOCAL_MODEL=model,
         LOCAL_LLM_MODEL=model,
+        LOCAL_CHAT_MODEL=model,
+        LOCAL_BASE_URL="http://127.0.0.1:11434/v1",
         ALLOW_CLOUD_PROVIDERS=True,
         GROQ_API_KEY="test",
         GROQ_VISION_MODEL="meta-llama/llama-4-scout-17b-16e-instruct",
@@ -120,7 +122,9 @@ def test_image_routing_vlm_builds_multimodal_payload(
 
     messages = captured["messages"]
     system_messages = [m for m in messages if str(m.get("role")) == "system"]
-    assert len(system_messages) == 1
+    assert len(system_messages) == 2
+    assert system_messages[0]["content"] == "BASE SYSTEM"
+    assert "Completion targeting guidance" in system_messages[1]["content"]
 
     last_user = messages[-1]
     assert last_user["role"] == "user"
@@ -175,7 +179,9 @@ def test_image_routing_text_only_runs_interpreter(
 
     messages = captured["messages"]
     system_messages = [m for m in messages if str(m.get("role")) == "system"]
-    assert len(system_messages) == 1
+    assert len(system_messages) == 2
+    assert system_messages[0]["content"] == "BASE SYSTEM"
+    assert "Completion targeting guidance" in system_messages[1]["content"]
 
     last_user = messages[-1]
     assert last_user["role"] == "user"
@@ -188,6 +194,74 @@ def test_image_routing_text_only_runs_interpreter(
     assert summary["image_routing_path"] == "interpreter"
     assert summary["image_attachment_count"] == 1
     assert summary["derived_image_context_injected"] is True
+
+
+def test_image_routing_text_only_uses_local_blip_captioning(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="local", model="qwen3.5:9b")
+
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "ENABLE_BLIP_MODEL",
+        True,
+        raising=False,
+    )
+
+    def _caption_local(_src):
+        return "a green hill with clouds"
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_caption_image_with_local_blip",
+        _caption_local,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_caption_image_with_groq_vision",
+        lambda *args, **kwargs: pytest.fail(
+            "cloud fallback should not be used when local BLIP is available"
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def _empty_stream(*_args, **_kwargs):
+        if False:
+            yield ""
+
+    def _capture(messages, **kwargs):
+        captured["messages"] = messages
+        captured["kwargs"] = kwargs
+        return "yes, I do see the image of green hills and floating clouds."
+
+    monkeypatch.setattr(chat_completion_service, "stream_local", _empty_stream)
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
+
+    task = ChatCompletionTask(thread_id=1, provider="local", model="qwen3.5:9b")
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    messages = captured["messages"]
+    system_messages = [m for m in messages if str(m.get("role")) == "system"]
+    assert len(system_messages) == 2
+    assert system_messages[0]["content"] == "BASE SYSTEM"
+    assert "Completion targeting guidance" in system_messages[1]["content"]
+
+    last_user = messages[-1]
+    assert last_user["role"] == "user"
+    assert isinstance(last_user["content"], str)
+    assert "Derived image context" in last_user["content"]
+    assert "a green hill with clouds" in last_user["content"]
+    assert "Describe this." in last_user["content"]
+
+    summary = result["payload_summary"]
+    assert summary["image_routing_path"] == "interpreter"
+    assert summary["image_attachment_count"] == 1
+    assert summary["derived_image_context_injected"] is True
+    assert "green hills and floating clouds" in result["assistant_text"]
 
 
 def test_image_routing_fails_without_path(monkeypatch: pytest.MonkeyPatch):
