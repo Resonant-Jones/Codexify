@@ -157,6 +157,62 @@ def test_chat_with_ai_minimax_default(monkeypatch):
     assert getattr(reply, "raw_payload", {}).get("content")
 
 
+def test_chat_with_ai_minimax_anthropic_preserves_image_blocks(monkeypatch):
+    calls = {}
+
+    def fake_post(url, json, headers, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        calls["headers"] = headers
+        calls["timeout"] = timeout
+        return _FakeResponse({"content": [{"type": "text", "text": "ok"}]})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.provider_registry.requests.get",
+        lambda url, headers, timeout: _MockDiscoveryResponse(
+            {"data": [{"id": "MiniMax-M2.5"}]}
+        ),
+    )
+
+    settings = _fake_settings("minimax")
+    reply = chat_with_ai(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.test/image.png"},
+                    },
+                    {"type": "text", "text": "Describe the image."},
+                ],
+            }
+        ],
+        provider="minimax",
+        model="MiniMax-M2.5",
+        settings=settings,
+    )
+
+    assert "api.minimax.local/anthropic/v1/messages" in calls["url"]
+    assert calls["json"]["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": "https://example.test/image.png",
+                    },
+                },
+                {"type": "text", "text": "Describe the image."},
+            ],
+        }
+    ]
+    assert reply == "ok"
+
+
 def test_chat_with_ai_minimax_anthropic_surface(monkeypatch):
     calls = {}
 
@@ -323,6 +379,67 @@ def test_stream_local_parses_ollama_chat_chunks(monkeypatch):
         )
     )
     assert "".join(tokens) == "Hello"
+
+
+def test_stream_local_keeps_multimodal_payload_and_prefers_compat_endpoint(
+    monkeypatch,
+):
+    calls = {}
+
+    def fake_post(url, json, headers, stream, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        calls["headers"] = headers
+        calls["stream"] = stream
+        calls["timeout"] = timeout
+        return _FakeStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"Vi"}}]}',
+                b'data: {"choices":[{"delta":{"content":"sion"}}]}',
+                b"data: [DONE]",
+            ]
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+
+    tokens = list(
+        stream_local(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe this image."},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "https://example.test/scene.png"
+                            },
+                        },
+                    ],
+                }
+            ],
+            "qwen3.5:4b",
+            settings=settings,
+        )
+    )
+
+    assert "".join(tokens) == "Vision"
+    assert calls["url"].endswith("/v1/chat/completions")
+    assert isinstance(calls["json"]["messages"][-1]["content"], list)
+    assert any(
+        block.get("type") == "image_url"
+        for block in calls["json"]["messages"][-1]["content"]
+        if isinstance(block, dict)
+    )
+    assert any(
+        block.get("type") == "text"
+        and "/no_think" in str(block.get("text") or "")
+        for block in calls["json"]["messages"][-1]["content"]
+        if isinstance(block, dict)
+    )
 
 
 def test_call_local_injects_qwen_no_think_instruction(monkeypatch):
