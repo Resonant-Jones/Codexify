@@ -120,6 +120,40 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
+  it("enables send when the draft only contains document tiles", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+        onDocumentTileRemove={vi.fn()}
+        documentTiles={[
+          {
+            id: "doc-1",
+            title: "Project Brief",
+            preview: "Short excerpt",
+            type: "document",
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Remove Project Brief" })
+    ).toBeInTheDocument();
+
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton).not.toBeDisabled();
+
+    fireEvent.click(sendButton);
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("keeps the textarea on the content plane and gives the control row its own padding contract", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
@@ -150,12 +184,13 @@ describe("Composer draft sync", () => {
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass(
       "flex",
+      "w-8",
       "shrink-0",
       "items-center",
       "justify-center"
     );
     expect(sendSlot.className).not.toMatch(/\bpr-/);
-    expect(sendSlot.previousElementSibling).toBe(controlsStrip);
+    expect(controlsStrip.nextElementSibling).toBe(sendSlot);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
@@ -174,6 +209,8 @@ describe("Composer draft sync", () => {
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
+    expect(composerSource).not.toContain('size="icon"');
+    expect(composerSource).not.toContain("rounded-[var(--tile-radius,19px)]");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
@@ -241,7 +278,9 @@ describe("Composer draft sync", () => {
     expect(onSend.mock.calls[0][0]).toContain("cfy-media:document:doc-1");
     expect(onSend.mock.calls[0][0]).toContain("cfy-media-name:notes.txt");
     expect(onSend.mock.calls[0][0]).toContain("hello attachments");
-    expect(onSend.mock.calls[0][1]).toEqual({ threadIdOverride: 123 });
+    expect(onSend.mock.calls[0][1]).toEqual({
+      threadIdOverride: 123,
+    });
   });
 
   it("omits invalid project_id values when uploading attachments", async () => {

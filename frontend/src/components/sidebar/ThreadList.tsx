@@ -214,12 +214,18 @@ function ThreadPreviewList({
                     <button
                       key={option.value}
                       type="button"
-                      className="pill-tab shrink-0 text-[11px]"
+                      className="pill-tab h-8 w-8 shrink-0 p-0"
                       data-state={active ? "active" : undefined}
                       aria-pressed={active}
+                      aria-label={option.description ?? option.label}
+                      title={option.description ?? option.label}
                       onClick={() => onProvenanceFilterChange(option.value)}
                     >
-                      {option.label}
+                      {option.Icon ? (
+                        <option.Icon className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <span className="sr-only">{option.label}</span>
+                      )}
                     </button>
                   );
                 })}

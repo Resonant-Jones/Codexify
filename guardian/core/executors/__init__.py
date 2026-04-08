@@ -16,6 +16,11 @@ from guardian.core.executors.base import (
     ExecutorTerminalResult,
 )
 from guardian.core.executors.codex_executor import CodexExecutor
+from guardian.core.executors.health import (
+    ExecutorHealth,
+    get_all_executor_health,
+    get_executor_health,
+)
 from guardian.core.executors.registry import (
     ExecutorAuthMode,
     ExecutorCapability,
@@ -38,6 +43,7 @@ __all__ = [
     "ExecutorCapability",
     "ExecutorEscalationEvent",
     "ExecutorFailure",
+    "ExecutorHealth",
     "ExecutorId",
     "ExecutorProgressEvent",
     "ExecutorReleasePosture",
@@ -47,7 +53,9 @@ __all__ = [
     "ExecutorStreamChunk",
     "ExecutorStreamEvent",
     "ExecutorTerminalResult",
+    "get_all_executor_health",
     "get_executor_entry",
+    "get_executor_health",
     "get_executor_registry",
     "is_supported_executor",
 ]

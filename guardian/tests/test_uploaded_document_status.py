@@ -61,6 +61,7 @@ class _FakeDoc:
         self.src_url = f"/media/documents/{doc_id}.pdf"
         self.filename = f"{doc_id}.pdf"
         self.mime_type = "application/pdf"
+        self.parsed_text = "Full document body"
         self.filesize = 123
         self.source_tag = "document"
         self.created_at = datetime(2026, 1, 23, tzinfo=timezone.utc)
@@ -161,3 +162,27 @@ def test_delete_document_soft_deletes_uploaded_document():
     assert response.json()["ok"] is True
     assert doc.deleted_at is not None
     session.commit.assert_called_once()
+
+
+def test_get_document_returns_full_document_body():
+    doc = _FakeDoc()
+    session = MagicMock()
+    session.query.return_value = _FakeQuery([doc])
+    db = MagicMock()
+    db.get_session.return_value = _SessionContext(session)
+
+    from guardian.routes import media as media_routes
+
+    app = FastAPI()
+    app.include_router(media_routes.router, prefix="/api/media")
+
+    with patch("guardian.routes.media._get_db", return_value=db):
+        client = TestClient(app)
+        response = client.get("/api/media/documents/doc-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "doc-1"
+    assert payload["content"] == "Full document body"
+    assert payload["parsed_text"] == "Full document body"
+    assert payload["src_url"].startswith("/media/documents/doc-1.pdf")

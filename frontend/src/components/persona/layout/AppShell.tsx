@@ -51,7 +51,7 @@ import {
 } from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
-import { DocumentLike } from "@/types/documents";
+import { DocumentLike, type DocumentScope } from "@/types/documents";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
@@ -72,6 +72,10 @@ import {
   type WorkspaceDrawerTab,
 } from "@/features/workspace/state/useWorkspaceUiState";
 import { useWorkspaceLayoutMode } from "@/features/workspace/state/useWorkspaceLayoutMode";
+import {
+  createDocumentContextTile,
+  type DocumentContextTile,
+} from "@/lib/documentContext";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -229,6 +233,46 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
       "md"
     ) as keyof ExtColors,
     type: raw?.type === "codex_entry" ? "codex_entry" : "file",
+    content:
+      typeof raw?.content === "string"
+        ? raw.content
+        : typeof raw?.parsed_text === "string"
+          ? raw.parsed_text
+          : typeof raw?.parsedText === "string"
+            ? raw.parsedText
+            : undefined,
+    parsed_text:
+      typeof raw?.parsed_text === "string"
+        ? raw.parsed_text
+        : typeof raw?.parsedText === "string"
+          ? raw.parsedText
+          : typeof raw?.content === "string"
+            ? raw.content
+            : undefined,
+    parsedText:
+      typeof raw?.parsedText === "string"
+        ? raw.parsedText
+        : typeof raw?.parsed_text === "string"
+          ? raw.parsed_text
+          : typeof raw?.content === "string"
+            ? raw.content
+            : undefined,
+    mime_type:
+      typeof raw?.mime_type === "string"
+        ? raw.mime_type
+        : typeof raw?.mimeType === "string"
+          ? raw.mimeType
+          : typeof raw?.content_type === "string"
+            ? raw.content_type
+            : undefined,
+    mimeType:
+      typeof raw?.mimeType === "string"
+        ? raw.mimeType
+        : typeof raw?.mime_type === "string"
+          ? raw.mime_type
+          : typeof raw?.content_type === "string"
+            ? raw.content_type
+            : undefined,
     mock: Boolean(raw?.mock),
     createdAt: raw?.createdAt || raw?.created_at,
     src_url: srcUrl,
@@ -982,7 +1026,7 @@ export default function AppShell({
   });
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
-  const [projectScopeMode, setProjectScopeMode] = useState<"thread" | "project">(
+  const [documentScope, setDocumentScope] = useState<DocumentScope>(
     () => (readRouteThreadId() != null ? "thread" : "project")
   );
   useEffect(() => {
@@ -1002,7 +1046,7 @@ export default function AppShell({
     };
   }, []);
   useEffect(() => {
-    setProjectScopeMode(activeRouteThreadId != null ? "thread" : "project");
+    setDocumentScope(activeRouteThreadId != null ? "thread" : "project");
   }, [activeRouteThreadId]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
@@ -1212,7 +1256,7 @@ export default function AppShell({
     }));
   }, [codexEntries]);
   const scopedProjectDocuments = useMemo<DocItem[]>(() => {
-    if (projectScopeMode !== "thread" || activeRouteThreadId == null) {
+    if (documentScope !== "thread" || activeRouteThreadId == null) {
       return documents;
     }
     return documents.filter((doc) => {
@@ -1220,7 +1264,7 @@ export default function AppShell({
       const threadValue = Number(threadRaw);
       return Number.isFinite(threadValue) && threadValue === activeRouteThreadId;
     });
-  }, [activeRouteThreadId, documents, projectScopeMode]);
+  }, [activeRouteThreadId, documents, documentScope]);
   const allDocuments = useMemo<DocItem[]>(
     () => dedupeDocItems([...codexDocs, ...scopedProjectDocuments]),
     [codexDocs, scopedProjectDocuments]
@@ -1671,6 +1715,9 @@ export default function AppShell({
     onAnyUpload: () => {},
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
+  const [pendingComposerDocumentTiles, setPendingComposerDocumentTiles] = useState<
+    DocumentContextTile[]
+  >([]);
   const {
     isOpen: workspaceDrawerOpen,
     activeTab: workspaceDrawerTab,
@@ -1713,10 +1760,7 @@ export default function AppShell({
     },
     [navigateToView, openWorkspaceDrawer]
   );
-  const {
-    openWorkspaceDocument,
-    closeWorkspace: closeLegacyWorkspace,
-  } = useWorkspaceState({
+  const { closeWorkspace: closeLegacyWorkspace } = useWorkspaceState({
     normalizeDocument: (doc) => normalizeDoc(doc),
     onOpenRequest: handleWorkspaceOpenRequest,
   });
@@ -1814,16 +1858,17 @@ export default function AppShell({
   }
   const openDocInThread = useCallback((doc: DocumentLike) => {
     const normalizedDoc = normalizeDoc(doc);
-    const didOpen = openWorkspaceDocument(normalizedDoc, {
-      source: "documents",
-      targetView: "guardian",
+    const tile = createDocumentContextTile(normalizedDoc, normalizedDoc.content || normalizedDoc.parsed_text || normalizedDoc.parsedText);
+    if (!tile) return;
+    setPendingComposerDocumentTiles((previous) => {
+      const next = [...previous];
+      if (!next.some((item) => item.id === tile.id)) {
+        next.push(tile);
+      }
+      return next;
     });
-    if (!didOpen) return;
-    const displayName = normalizedDoc.ext
-      ? `${normalizedDoc.title}.${normalizedDoc.ext}`
-      : normalizedDoc.title;
-    setPrefill(`Let's review "${displayName}".`);
-  }, [openWorkspaceDocument]);
+    navigateToView("guardian");
+  }, [navigateToView]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
       return;
@@ -1950,6 +1995,7 @@ export default function AppShell({
         }}
         onActiveTabChange={handleWorkspaceDrawerTabChange}
         onLayoutModeChange={setWorkspaceLayoutMode}
+        projectId={effectiveDocumentsProjectId}
       />
     </div>
   ) : null;
@@ -2323,9 +2369,9 @@ export default function AppShell({
                       onOpenInThread={openDocInThread}
                       onDeleteDocument={deleteDocument}
                       defaultProjectId={generalProjectId}
-                      projectScopeMode={projectScopeMode}
-                      onProjectScopeModeChange={setProjectScopeMode}
-                      showProjectScopeToggle={activeRouteThreadId != null}
+                      documentScope={documentScope}
+                      onDocumentScopeChange={setDocumentScope}
+                      threadScopeEnabled={activeRouteThreadId != null}
                     />
                   </FrameCard>
                 </div>
@@ -2434,6 +2480,10 @@ export default function AppShell({
                         userName={userName}
                         prefill={prefill}
                         onPrefillConsumed={() => setPrefill(undefined)}
+                        pendingDocumentTiles={pendingComposerDocumentTiles}
+                        onPendingDocumentTilesConsumed={() =>
+                          setPendingComposerDocumentTiles([])
+                        }
                         onWorkspaceToggle={toggleWorkspaceDrawer}
                         workspaceOpen={false}
                         activeWorkspaceDoc={null}

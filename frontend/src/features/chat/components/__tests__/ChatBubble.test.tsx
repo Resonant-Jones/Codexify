@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { serializeDocumentContextMessage } from "@/lib/documentContext";
+
 const runtimeState = vi.hoisted(() => ({
   invokeTauriCommandMock: vi.fn(),
   tauriRuntime: false,
@@ -219,5 +221,36 @@ describe("ChatBubble", () => {
     expect(plainText?.textContent).toBe(pastedCode);
     expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
     expect(container.querySelector(".codexifyCodeBlock")).not.toBeInTheDocument();
+  });
+
+  it("renders document tiles inline without exposing the full document body", () => {
+    const content = serializeDocumentContextMessage("Please review", [
+      {
+        tile: {
+          id: "doc-1",
+          title: "Project Brief",
+          preview: "Short excerpt",
+          type: "document",
+        },
+        content: "Full document body",
+      },
+    ]);
+
+    render(
+      <ChatBubble
+        isGuardian={false}
+        message={{
+          id: "msg-doc-tile",
+          authorId: "me",
+          authorName: "You",
+          content,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("document-context-tile")).toBeInTheDocument();
+    expect(screen.getByText("Please review")).toBeInTheDocument();
+    expect(screen.queryByText("Full document body")).not.toBeInTheDocument();
   });
 });

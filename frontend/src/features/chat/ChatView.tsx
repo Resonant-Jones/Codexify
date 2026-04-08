@@ -22,6 +22,8 @@ import type {
   StreamingDraft,
 } from "@/features/chat/useChat";
 import { cn } from "@/lib/utils";
+import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
+import { parseDocumentContextContent } from "@/lib/documentContext";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -527,17 +529,19 @@ export function ChatView({
                     : "idle";
 
             return (
-              <div
-                data-testid="chat-message"
-                key={message.id ?? `${message.role}-${message.created_at ?? index}`}
-                className="max-w-full"
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  const content = String(message.content ?? "");
-                  if (!content.trim()) return;
-                  setMenu({ x: event.clientX, y: event.clientY, text: content });
-                }}
-              >
+                <div
+                  data-testid="chat-message"
+                  key={message.id ?? `${message.role}-${message.created_at ?? index}`}
+                  className="max-w-full"
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    const content = parseDocumentContextContent(
+                      String(message.content ?? "")
+                    ).text;
+                    if (!content.trim()) return;
+                    setMenu({ x: event.clientX, y: event.clientY, text: content });
+                  }}
+                >
                 <ChatBubble
                   message={{
                     id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),

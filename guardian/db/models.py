@@ -114,6 +114,9 @@ class ChatThread(Base):
     project_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("projects.id")
     )
+    last_interaction_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     active_profile_id: Mapped[str | None] = mapped_column(String(128))
     thread_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     parent_id: Mapped[int | None] = mapped_column(
@@ -145,6 +148,7 @@ class ChatThread(Base):
     )
 
     # Relationships
+    project: Mapped[Project | None] = relationship("Project")
     messages: Mapped[list[ChatMessage]] = relationship(
         "ChatMessage", back_populates="thread", cascade="all, delete-orphan"
     )
@@ -194,6 +198,35 @@ class ChatMessage(Base):
     # Relationship
     thread: Mapped[ChatThread] = relationship(
         "ChatThread", back_populates="messages"
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ThreadMove(Base):
+    """Explicit project move audit trail for chat threads."""
+
+    __tablename__ = "thread_moves"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_project_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="SET NULL")
+    )
+    to_project_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -2314,8 +2347,13 @@ Index(
 )
 Index("ix_chat_threads_parent_id", ChatThread.parent_id)
 Index("ix_chat_threads_project_id", ChatThread.project_id)
+Index(
+    "ix_chat_threads_last_interaction_at", ChatThread.last_interaction_at.desc()
+)
 Index("ix_chat_threads_user_id", ChatThread.user_id)
 Index("ix_chat_threads_updated", ChatThread.updated_at.desc())
+Index("ix_thread_moves_thread_id", ThreadMove.thread_id)
+Index("ix_thread_moves_timestamp", ThreadMove.timestamp.desc())
 
 # Memory indexes
 Index("ix_memory_entries_silo", MemoryEntry.silo)

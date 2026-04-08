@@ -148,6 +148,7 @@ WORKDIR /app
 # Ensure update-rc.d is present via init-system-helpers.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        bubblewrap \
         ffmpeg \
         init-system-helpers \
         nodejs \

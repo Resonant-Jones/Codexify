@@ -1,21 +1,20 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
+
 import DocumentTile from "@/components/documents/DocumentTile";
-import ContextMenu from "@/components/ui/ContextMenu";
 import useUploader from "@/hooks/useUploader";
-import { ExtColors } from "@/types/ui";
-import { DocumentLike } from "@/types/documents";
 import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
+import { DocumentLike, type DocumentScope } from "@/types/documents";
+import { ExtColors } from "@/types/ui";
 
 interface DocumentsViewProps {
   documents: DocumentLike[];
   extColors: ExtColors;
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
-  defaultBehavior?: "workspace" | "thread";
   defaultProjectId?: number | string | null;
-  projectScopeMode?: "thread" | "project";
-  onProjectScopeModeChange?: (mode: "thread" | "project") => void;
-  showProjectScopeToggle?: boolean;
+  documentScope?: DocumentScope;
+  onDocumentScopeChange?: (mode: DocumentScope) => void;
+  threadScopeEnabled?: boolean;
 }
 
 /**
@@ -23,26 +22,20 @@ interface DocumentsViewProps {
  *
  * Structure:
  * - FrameCard wrapper (glass + bezel)
- *   - Header (title + pill tabs)
+ *   - Header (title + scope pill)
  *   - Content area (scrollable grid of documents)
  *   - Footer (upload UI + controls)
- *
- * Layout principle: fill parent completely, no internal card nesting
  */
 export default function DocumentsView({
   documents,
   extColors: _extColors,
   onOpenInThread,
   onDeleteDocument,
-  defaultBehavior = "workspace",
   defaultProjectId,
-  projectScopeMode = "project",
-  onProjectScopeModeChange,
-  showProjectScopeToggle = false,
+  documentScope = "project",
+  onDocumentScopeChange,
+  threadScopeEnabled = true,
 }: DocumentsViewProps) {
-  const [behavior, setBehavior] = useState<"workspace" | "thread">(defaultBehavior);
-  const [menu, setMenu] = useState<{x:number;y:number;doc?:DocumentLike}|null>(null);
-
   const uploader = useUploader({
     tag: "upload",
     projectId: defaultProjectId ?? undefined,
@@ -58,17 +51,20 @@ export default function DocumentsView({
         projectId: item?.project_id ?? item?.projectId,
         threadId: item?.thread_id ?? item?.threadId ?? null,
       }));
-      try { window.dispatchEvent(new CustomEvent("cfy:documents:add", { detail: { items: normalized } })); } catch {}
+      try {
+        window.dispatchEvent(
+          new CustomEvent("cfy:documents:add", { detail: { items: normalized } })
+        );
+      } catch {}
     },
-    onAnyUpload: () => { try { localStorage.setItem("cfy.hasUserUpload", "true"); } catch {} },
+    onAnyUpload: () => {
+      try {
+        localStorage.setItem("cfy.hasUserUpload", "true");
+      } catch {}
+    },
   });
 
   const handleDocumentClick = (doc: DocumentLike) => {
-    if (behavior === "thread" && onOpenInThread) {
-      onOpenInThread(doc);
-      return;
-    }
-
     requestWorkspaceOpen(
       { doc, source: "documents", targetView: "documents" },
       { source: "documents", targetView: "documents" }
@@ -84,55 +80,37 @@ export default function DocumentsView({
     [documents, realDocuments]
   );
 
-  const pills = [
-    { key: "workspace" as const, label: "Open in Workspace" },
-    { key: "thread" as const, label: "Open in Thread" },
-  ];
   const scopePills = [
-    { key: "thread" as const, label: "This Thread" },
-    { key: "project" as const, label: "All in Project" },
+    { key: "thread" as const, label: "Thread", disabled: !threadScopeEnabled },
+    { key: "project" as const, label: "Project", disabled: false },
   ];
 
   return (
     <section className="flex h-full w-full min-h-0 flex-col overflow-hidden">
-      {/* Content lives directly in the parent card; avoid nested rims */}
       <div className="flex h-full w-full flex-col min-h-0 overflow-hidden px-[var(--card-pad)] pb-[var(--card-pad)]">
-        {/* Header: Title + Controls */}
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] py-4">
-          <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>Documents</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {showProjectScopeToggle && onProjectScopeModeChange && (
-              <div className="glass-pill h-auto py-[3px] px-[6px]">
-                {scopePills.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className="pill-tab text-xs"
-                    data-state={projectScopeMode === key ? "active" : undefined}
-                    onClick={() => onProjectScopeModeChange(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="glass-pill h-auto py-[3px] px-[6px]">
-              {pills.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  className="pill-tab text-xs"
-                  data-state={behavior === key ? "active" : undefined}
-                  onClick={() => setBehavior(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+            Documents
+          </h2>
+          <div className="glass-pill h-auto py-[3px] px-[6px]">
+            {scopePills.map(({ key, label, disabled }) => (
+              <button
+                key={key}
+                type="button"
+                className="pill-tab text-xs"
+                data-state={documentScope === key ? "active" : undefined}
+                disabled={disabled}
+                onClick={() => {
+                  if (disabled) return;
+                  onDocumentScopeChange?.(key);
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Content Area: Scrollable document grid */}
         <div
           className="flex-1 min-h-0 overflow-auto py-4"
           onDrop={uploader.onDrop}
@@ -149,16 +127,18 @@ export default function DocumentsView({
               {docItems.map((d) => {
                 const key = d.id || `${d.title}.${d.ext}`;
                 const isCodex = d.type === "codex_entry";
+                const contextMenuItems =
+                  isCodex || !onOpenInThread
+                    ? []
+                    : [
+                        {
+                          label: "Open in Thread",
+                          onSelect: () => onOpenInThread(d),
+                        },
+                      ];
+
                 return (
-                  <div
-                    key={key}
-                    className="relative"
-                    onContextMenu={(e) => {
-                      if (isCodex) return;
-                      e.preventDefault();
-                      setMenu({ x: e.clientX, y: e.clientY, doc: d });
-                    }}
-                  >
+                  <div key={key} className="relative">
                     <DocumentTile
                       file={{
                         name: d.title,
@@ -167,19 +147,21 @@ export default function DocumentsView({
                         embeddingError: d.embeddingError,
                       }}
                       onClick={() => handleDocumentClick(d)}
+                      onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
+                      contextMenuItems={contextMenuItems}
                     />
-                    {d.mock && (
+                    {d.mock ? (
                       <span
                         className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
                         style={{
                           background: "rgba(255,255,255,0.2)",
                           color: "#111",
-                          borderColor: "rgba(255,255,255,0.5)"
+                          borderColor: "rgba(255,255,255,0.5)",
                         }}
                       >
                         Mock
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}
@@ -187,8 +169,10 @@ export default function DocumentsView({
           )}
         </div>
 
-        {/* Footer: Upload controls */}
-        <div className="flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-4 text-xs" style={{ color: "var(--muted)" }}>
+        <div
+          className="flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-4 text-xs"
+          style={{ color: "var(--muted)" }}
+        >
           <div className="flex items-center gap-2">
             <span>Drag & drop files here, or</span>
             <button
@@ -200,32 +184,6 @@ export default function DocumentsView({
             </button>
           </div>
         </div>
-
-        {/* Context Menu */}
-        {menu && (
-          <ContextMenu
-            x={menu.x}
-            y={menu.y}
-            onClose={() => setMenu(null)}
-            items={[
-              ...(menu.doc && onDeleteDocument ? [{
-                label: "Delete",
-                onClick: () => {
-                  const ev = new CustomEvent("cfy:documents:delete", { detail: { doc: menu.doc } });
-                  try { window.dispatchEvent(ev); } catch {}
-                  onDeleteDocument(menu.doc!);
-                },
-              }] : []),
-            ]}
-          />
-        )}
-
-        {/* Info message */}
-        {behavior === "thread" && !onOpenInThread && (
-          <div className="flex-shrink-0 py-3 text-xs opacity-70 border-t border-[var(--panel-border)]" style={{ color: "var(--muted)" }}>
-            Configure a thread handler to open documents directly in chat.
-          </div>
-        )}
       </div>
     </section>
   );
