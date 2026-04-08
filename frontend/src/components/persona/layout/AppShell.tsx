@@ -19,6 +19,7 @@
  *   - Migration should be trivial if naming consistency is preserved.
  */
 import api from "@/lib/api";
+import { Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
 
 // Global font injection for Apple system font
@@ -1061,6 +1062,7 @@ export default function AppShell({
     },
     [activeRouteThreadId]
   );
+  const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
     return readCachedDocuments() ? "cache" : "default";
@@ -2199,34 +2201,37 @@ export default function AppShell({
           </button>
           <button
             className="pill-tab"
-            data-state={view === "settings" ? "active" : "inactive"}
-            onClick={() => navigateToView("settings")}
-          >
-            Settings
-          </button>
-          <button
-            className="pill-tab"
             data-state={view === "personaStudio" ? "active" : "inactive"}
             onClick={() => navigateToView("personaStudio")}
           >
             Persona Studio
           </button>
         </div>
-        {(workspaceShellEnabled || activeRouteThreadId != null) && (
-          <div className="flex items-center justify-end gap-2">
-            {workspaceShellEnabled && (
-              <button
-                type="button"
-                className="pill-tab"
-                data-state={workspaceDrawerOpen ? "active" : "inactive"}
-                data-testid="workspace-drawer-toggle"
-                aria-pressed={workspaceDrawerOpen}
-                onClick={toggleWorkspaceDrawer}
-              >
-                Workspace
-              </button>
-            )}
-            {activeRouteThreadId != null && (
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="pill-tab h-9 w-9 shrink-0 p-0"
+            data-state={view === "settings" ? "active" : "inactive"}
+            data-testid="settings-utility-toggle"
+            aria-label="Settings"
+            title="Settings"
+            onClick={openSettings}
+          >
+            <Settings2 className="h-4 w-4" aria-hidden="true" />
+          </button>
+          {workspaceShellEnabled && (
+            <button
+              type="button"
+              className="pill-tab"
+              data-state={workspaceDrawerOpen ? "active" : "inactive"}
+              data-testid="workspace-drawer-toggle"
+              aria-pressed={workspaceDrawerOpen}
+              onClick={toggleWorkspaceDrawer}
+            >
+              Workspace
+            </button>
+          )}
+          {activeRouteThreadId != null && (
             <ShareButton
               targetType="thread"
               targetId={activeRouteThreadId}
@@ -2243,9 +2248,8 @@ export default function AppShell({
                   "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
               }}
             />
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {showRuntimeBanner && (

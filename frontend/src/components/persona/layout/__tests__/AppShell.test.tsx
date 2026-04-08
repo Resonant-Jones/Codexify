@@ -364,6 +364,40 @@ describe("AppShell logo wordmark color contract", () => {
   });
 });
 
+describe("AppShell settings utility trigger", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    setRouteThread(null);
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("moves Settings into the utility rail and opens the existing settings surface", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("settings-utility-toggle"));
+
+    expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
+  });
+});
+
 describe("AppShell dashboard create project flow", () => {
   beforeEach(() => {
     localStorage.clear();
