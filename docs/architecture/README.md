@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-05
+Last updated: 2026-04-08
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
