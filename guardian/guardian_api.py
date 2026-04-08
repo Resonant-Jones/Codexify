@@ -68,6 +68,7 @@ from guardian.core.dependencies import (
     ENABLE_OUTBOX,
     allowed_origins,
     get_single_user_id,
+    get_vector_store,
     init_database,
     init_services,
     require_api_key,
@@ -545,6 +546,24 @@ async def app_lifespan(app: FastAPI):
 
     # Initialize shared services (vector store, sensors)
     init_services(db)
+
+    try:
+        from guardian.runtime.ingest.seed_pipeline import (
+            seed_global_system_docs,
+        )
+
+        seed_summary = seed_global_system_docs(get_vector_store())
+        logger.info(
+            "[startup] global system docs seeded count=%s candidates=%s namespace=%s",
+            seed_summary.get("seeded", 0),
+            seed_summary.get("candidate_count", 0),
+            seed_summary.get("namespace"),
+        )
+    except Exception as exc:
+        logger.warning(
+            "[startup] global system doc seeding failed: %s",
+            exc,
+        )
 
     # Initialize Prometheus metrics
     metrics.set_db_backend(dependencies.DB_BACKEND)
@@ -1489,16 +1508,13 @@ def health_retrieval(
     ),
 ):
     """Expose backend retrieval runtime truth for supported-path proofs."""
-    from guardian.vector.store import VectorStore
-
     query = str(q or "").strip()
     normalized_namespace = _normalize_optional_namespace(namespace)
     worker_runtime = _vector_runtime_payload(resolve_vector_store_runtime())
 
-    vector_store = dependencies._vector_store
+    vector_store = dependencies._vector_store or get_vector_store()
     backend_store_source = "shared"
-    if vector_store is None:
-        vector_store = VectorStore()
+    if dependencies._vector_store is None:
         backend_store_source = "local"
     backend_runtime = _backend_vector_runtime_payload(vector_store)
 
