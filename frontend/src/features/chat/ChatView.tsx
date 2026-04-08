@@ -22,7 +22,6 @@ import type {
   StreamingDraft,
 } from "@/features/chat/useChat";
 import { cn } from "@/lib/utils";
-import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import { parseDocumentContextContent } from "@/lib/documentContext";
 import {
   createIdleInferenceRequestState,
