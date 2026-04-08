@@ -40,6 +40,7 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
+import { useShellViewportProfile } from "./shellBreakpointContract";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
@@ -1432,6 +1433,8 @@ export default function AppShell({
   // Local-only: translucent bezel for Dashboard cards
   const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.12)";
   const panelBorderStrong = resolved === "dark" ? "rgba(255,255,255,0.22)" : "rgba(17,24,39,0.16)";
+  const shellViewportProfile = useShellViewportProfile();
+  const isPhoneShell = shellViewportProfile.workspaceArrangement === "stack";
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🏗️ SECTION: Modular Design Token Setup
@@ -1443,15 +1446,15 @@ export default function AppShell({
     "--radius-micro": "8px",                 // chips, inputs, pills
     "--radius-tile": "20px",                  // cards, tiles, panels
     "--card-radius": "20px",    // pointer used by components (explicit for clarity)
-    "--edge-chrome": "6px",                     // Outer padding (PWA safe zone)
-    "--shell-gap": "16px",                      // Gap between cards or columns
+    "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
+    "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
     "--pill-pad-y": "11px", // Vertical padding for the navigation pill dock (controls thickness)
-    "--viewport-radius": "20px",                // Rounding for main window
+    "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
-    "--page-gutter-top": "24px",                // Fixed gutter under the pill dock
-    "--page-pad": layoutMode === "zen" ? "48px" : "0px",  // Layout mode: zen (12px) or focus (0px)
+    "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
+    "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
-    "--card-pad": "12px",                       // Internal card padding
+    "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
     "--frame": "3px",                         // Outer frame thickness
     // --bezel: Visual margin between the refractive glass and the opaque content surface.
     // Changing this variable tunes the glass thickness everywhere.
@@ -1468,8 +1471,8 @@ export default function AppShell({
     "--image-grid-cols": "auto-fit",            // Can be set to fixed or responsive
 
     /* === DIMENSION CONSTRAINTS === */
-    "--min-h": "clamp(520px, 70vh, 1000px)",    // Viewport vertical floor
-    "--card-height": "clamp(480px, 70vh, 800px)", // Centralized card height
+    "--min-h": shellViewportProfile.contentMinHeight,    // Viewport vertical floor
+    "--card-height": shellViewportProfile.viewportClass === "desktop" ? "clamp(480px, 70vh, 800px)" : "auto", // Centralized card height
 
     /* === COLORS & SURFACE === */
     "--panel-bg": panelBg,
@@ -1935,32 +1938,52 @@ export default function AppShell({
   );
   const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
   const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
-    ? {
-        flexBasis: primaryPaneBasis,
-        flexGrow: primaryPaneRatio,
-        flexShrink: 1,
-        minWidth: primaryPaneMinWidth,
-        minHeight: 0,
-      }
+    ? isPhoneShell
+      ? {
+          flex: "1 1 0%",
+          minWidth: 0,
+          minHeight: 0,
+        }
+      : {
+          flexBasis: primaryPaneBasis,
+          flexGrow: primaryPaneRatio,
+          flexShrink: 1,
+          minWidth: primaryPaneMinWidth,
+          minHeight: 0,
+        }
     : {
         flex: "1 1 0%",
         minWidth: 0,
         minHeight: 0,
       };
-  const workspaceDrawerPaneStyle: React.CSSProperties = {
-    padding: "var(--board-edge)",
-    flexBasis: workspacePaneBasis,
-    flexGrow: workspacePaneRatio,
-    flexShrink: 1,
-    minWidth: workspacePaneMinWidth,
-    minHeight: "0",
-    maxHeight: "100%",
-    borderRadius: "var(--card-radius)",
-    boxShadow:
-      workspaceLayoutMode === "workspace_focus"
-        ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
-        : undefined,
-  };
+  const workspaceDrawerPaneStyle: React.CSSProperties = isPhoneShell
+    ? {
+        padding: "var(--board-edge)",
+        flex: "1 1 0%",
+        width: "100%",
+        minWidth: 0,
+        minHeight: 0,
+        maxHeight: "100%",
+        borderRadius: "var(--card-radius)",
+        boxShadow:
+          workspaceLayoutMode === "workspace_focus"
+            ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
+            : undefined,
+      }
+    : {
+        padding: "var(--board-edge)",
+        flexBasis: workspacePaneBasis,
+        flexGrow: workspacePaneRatio,
+        flexShrink: 1,
+        minWidth: workspacePaneMinWidth,
+        minHeight: "0",
+        maxHeight: "100%",
+        borderRadius: "var(--card-radius)",
+        boxShadow:
+          workspaceLayoutMode === "workspace_focus"
+            ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
+            : undefined,
+      };
   const workspaceSplitSurfaceProps = workspaceShellEnabled
     ? {
         "data-testid": "workspace-layout-surface",
@@ -1970,13 +1993,16 @@ export default function AppShell({
         "data-workspace-pane-ratio": workspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-min": minWorkspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-max": maxWorkspacePaneRatio.toFixed(2),
+        "data-shell-viewport-class": shellViewportProfile.viewportClass,
+        "data-shell-workspace-arrangement": shellViewportProfile.workspaceArrangement,
       }
     : {};
   const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
     <div
       data-testid="workspace-drawer-pane"
-      data-pane-basis={workspacePaneBasis}
-      data-pane-min-width={workspacePaneMinWidth}
+      data-pane-basis={isPhoneShell ? "100.00%" : workspacePaneBasis}
+      data-pane-min-width={isPhoneShell ? "0px" : workspacePaneMinWidth}
+      data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
       className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
       style={workspaceDrawerPaneStyle}
     >
@@ -2001,6 +2027,9 @@ export default function AppShell({
       />
     </div>
   ) : null;
+  const workspaceShellLaneClassName = isPhoneShell
+    ? "flex h-full min-h-0 w-full flex-col gap-[var(--gutter)]"
+    : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
   const runtimeDegraded =
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
@@ -2055,9 +2084,9 @@ export default function AppShell({
       className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
       style={{
         /* baseline viewport guardrails */
-        minWidth: "608px",
-        minHeight: "548px",
-        padding: "6px",
+        minWidth: shellViewportProfile.shellMinWidth,
+        minHeight: shellViewportProfile.shellMinHeight,
+        padding: "var(--edge-chrome)",
         alignItems: "center",
         color: "var(--text)",
         colorScheme: resolved,
@@ -2104,9 +2133,9 @@ export default function AppShell({
         style={{
           ...backgroundStyle,
           ...styleVars,
-          borderRadius: "20px",
-          paddingLeft: "6px",
-          paddingRight: "6px",
+          borderRadius: "var(--viewport-radius)",
+          paddingLeft: "var(--edge-chrome)",
+          paddingRight: "var(--edge-chrome)",
           boxSizing: "border-box",
           color: "var(--text)",
           colorScheme: resolved,
@@ -2330,22 +2359,28 @@ export default function AppShell({
                 "--frame": "1px",
                 "--bezel": "var(--bezel, 6px)",
                 "--rim": "1px",
-                "--gutter": "16px",
-                "--card-pad": "10px",
-                "--min-h": "clamp(520px, 70vh, 1000px)",
+                "--gutter": "var(--shell-gap)",
+                "--card-pad": shellViewportProfile.shellCardPad,
+                "--min-h": shellViewportProfile.contentMinHeight,
                 borderRadius: "var(--card-radius)",
               } as React.CSSProperties}
             >
               <div
-                className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]"
+                className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
                 {/* LIST COLUMN (left) */}
                 <div
                   data-testid="workspace-primary-pane"
-                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
                   data-pane-min-width={
-                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
                   }
                   className="min-w-0 min-h-0 overflow-visible rounded-[var(--radius)]"
                   style={{
@@ -2356,7 +2391,7 @@ export default function AppShell({
                     height: "var(--h, auto)",
                     minHeight: "var(--min-h, 0)",
                     maxHeight: "var(--max-h, none)",
-                    ["--min-h"]: "clamp(520px, 70vh, 1000px)",
+                    ["--min-h"]: shellViewportProfile.contentMinHeight,
                     borderRadius: "var(--card-radius)",
                     ...workspacePrimaryPaneStyle,
                   }}
@@ -2450,17 +2485,23 @@ export default function AppShell({
           {!startupLocked && view === "guardian" && (
             <div
               className="h-full w-full isolate"
-              style={{ "--gutter": "16px" } as React.CSSProperties}
+              style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
-                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
                 <div
                   data-testid="workspace-primary-pane"
-                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
                   data-pane-min-width={
-                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
                   }
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
@@ -2503,17 +2544,23 @@ export default function AppShell({
           {!startupLocked && view === "dashboard" && (
             <div
               className="h-full w-full isolate"
-              style={{ "--gutter": "16px" } as React.CSSProperties}
+              style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
-                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
                 <div
                   data-testid="workspace-primary-pane"
-                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
                   data-pane-min-width={
-                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
                   }
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
