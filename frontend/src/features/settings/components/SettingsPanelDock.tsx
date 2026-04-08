@@ -79,10 +79,11 @@ export default function SettingsPanelDock({
       role="tablist"
       aria-label="Settings tabs"
       data-testid="settings-panel-dock"
-      className="glass-pill flex w-full items-center overflow-x-auto"
+      className="glass-pill sticky top-0 z-20 flex w-full max-w-full min-w-0 items-center overflow-x-auto"
       style={
         {
           "--pill-active-text": "var(--text-on-accent)",
+          "--pill-gap": "var(--radius-micro)",
           "--pill-font": "0.82rem",
         } as React.CSSProperties
       }

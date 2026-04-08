@@ -934,7 +934,7 @@ export function SettingsView({
 
   return (
     <div className="w-full" style={{ color: "var(--text)" }}>
-      <div className="mx-auto w-full max-w-[30rem] space-y-6 p-4">
+      <div className="mx-auto w-full max-w-[40rem] min-w-0 space-y-6 px-5 py-5">
         <SettingsPanelDock
           activeTab={tab}
           desktopMode={desktopMode}
