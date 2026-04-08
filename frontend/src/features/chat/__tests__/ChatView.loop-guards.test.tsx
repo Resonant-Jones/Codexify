@@ -235,6 +235,64 @@ describe("ChatView loop guards", () => {
     });
   });
 
+  it("shows a jump-to-latest control only after the viewport is more than one page from the bottom and returns there on click", async () => {
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[buildMessage(1, "user"), buildMessage(2, "assistant")]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    const container = screen.getByTestId("chat-container");
+    Object.defineProperty(container, "clientHeight", {
+      configurable: true,
+      value: 500,
+    });
+    Object.defineProperty(container, "scrollHeight", {
+      configurable: true,
+      value: 2000,
+    });
+    Object.defineProperty(container, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 1000,
+    });
+
+    fireEvent.scroll(container);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /jump to latest turn/i })
+      ).not.toBeInTheDocument();
+    });
+
+    container.scrollTop = 999;
+    fireEvent.scroll(container);
+
+    const jumpToLatest = await screen.findByRole("button", {
+      name: /jump to latest turn/i,
+    });
+    expect(jumpToLatest).toBeInTheDocument();
+
+    fireEvent.click(jumpToLatest);
+
+    await waitFor(() => {
+      expect(container.scrollTop).toBe(1500);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /jump to latest turn/i })
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("shows the shared inference banner for an active completion on the current thread", () => {
     render(
       <ChatView
