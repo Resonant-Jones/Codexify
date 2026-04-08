@@ -350,11 +350,30 @@ class TestChatMessagesPost:
         data = response.json()
         assert data["ok"] is True
         assert "message" in data
+        assert "thread" in data
         assert data["message"]["role"] == "user"
         assert data["message"]["content"] == "Hello, world!"
+        assert data["thread"]["project_id"] == 1
         mock_db.create_message.assert_called_once_with(
             1, "user", "Hello, world!"
         )
+
+    def test_post_message_ignores_project_id(self, test_client, mock_db):
+        """POST /chat/{thread_id}/messages must not mutate project_id from payload."""
+        payload = {
+            "role": "user",
+            "content": "Hello, world!",
+            "user_id": "test_user",
+            "project_id": 99,
+        }
+
+        response = test_client.post("/chat/1/messages", json=payload)
+
+        assert response.status_code == 200
+        mock_db.ensure_chat_thread.assert_called_once()
+        ensure_kwargs = mock_db.ensure_chat_thread.call_args.kwargs
+        assert ensure_kwargs.get("project_id") is None
+        mock_db.update_thread.assert_not_called()
 
     def test_post_message_missing_role(self, test_client, mock_db):
         """Test message posting without role returns 400."""
@@ -392,13 +411,9 @@ class TestChatMessagesPost:
         response = test_client.post("/chat/1/messages", json=payload)
 
         assert response.status_code == 200
-        mock_db.ensure_default_project.assert_called_once_with()
         mock_db.ensure_chat_thread.assert_called_once()
         ensure_kwargs = mock_db.ensure_chat_thread.call_args.kwargs
-        assert (
-            ensure_kwargs.get("project_id")
-            == mock_db.ensure_default_project.return_value
-        )
+        assert ensure_kwargs.get("project_id") is None
 
     def test_create_on_send_creates_thread_and_message(
         self, test_client, mock_db
@@ -420,6 +435,7 @@ class TestChatMessagesPost:
         assert data["created_thread"] is True
         assert data["thread_id"] == 1
         assert data["message"]["thread_id"] == 1
+        assert data["thread"]["id"] == 1
         mock_db.create_chat_thread.assert_called_once()
         mock_db.create_message.assert_called_once_with(
             1, "user", "First message"
@@ -441,6 +457,7 @@ class TestChatMessagesPost:
         assert data["ok"] is True
         assert data["created_thread"] is False
         assert data["thread_id"] == 12
+        assert data["thread"]["id"] == 1
         mock_db.create_chat_thread.assert_not_called()
         mock_db.create_message.assert_called_once_with(
             12, "user", "Hello existing thread"
@@ -1632,6 +1649,79 @@ class TestChatThreadPatch:
         response = test_client.patch("/chat/1", json={}, headers=api_headers)
 
         assert response.status_code == 400
+
+
+class TestChatThreadMove:
+    """Tests for POST /chat/threads/{thread_id}/move endpoint."""
+
+    def test_move_thread_records_audit_and_updates_project(
+        self, test_client, mock_db
+    ):
+        mock_db.get_chat_thread.side_effect = [
+            {
+                "id": 1,
+                "user_id": "test_user",
+                "title": "Test Thread",
+                "summary": "Test summary",
+                "project_id": 1,
+                "project_name": "Imports",
+                "last_interaction_at": "2025-11-09T12:00:00",
+                "parent_id": None,
+                "created_at": "2025-11-09T12:00:00",
+                "updated_at": "2025-11-09T12:00:00",
+                "archived_at": None,
+            },
+            {
+                "id": 1,
+                "user_id": "test_user",
+                "title": "Test Thread",
+                "summary": "Test summary",
+                "project_id": 2,
+                "project_name": "General",
+                "last_interaction_at": "2025-11-09T12:00:00",
+                "parent_id": None,
+                "created_at": "2025-11-09T12:00:00",
+                "updated_at": "2025-11-09T12:00:00",
+                "archived_at": None,
+            },
+        ]
+        response = test_client.post(
+            "/chat/threads/1/move", json={"toProjectId": 2}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["thread"]["project_id"] == 2
+        mock_db.update_thread.assert_called_once()
+        mock_db.record_thread_move.assert_called_once_with(
+            1,
+            from_project_id=1,
+            to_project_id=2,
+            user_id="test_user",
+        )
+
+    def test_move_thread_enforces_acl(self, test_client, mock_db):
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "user_id": "someone-else",
+            "title": "Test Thread",
+            "summary": "Test summary",
+            "project_id": 1,
+            "project_name": "Imports",
+            "last_interaction_at": "2025-11-09T12:00:00",
+            "parent_id": None,
+            "created_at": "2025-11-09T12:00:00",
+            "updated_at": "2025-11-09T12:00:00",
+            "archived_at": None,
+        }
+
+        response = test_client.post(
+            "/chat/threads/1/move", json={"toProjectId": 2}
+        )
+
+        assert response.status_code == 403
+        mock_db.record_thread_move.assert_not_called()
 
 
 class TestChatThreadDelete:

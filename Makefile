@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full
 
 # Python executable
 PYTHON      ?= python
@@ -186,6 +186,38 @@ morning-audit:
 # Generate the evening audit record
 evening-audit:
 	$(PYTHON) scripts/daily_audit.py --phase evening
+
+# ────────────────────────────────
+# Regression Prevention Audit Infrastructure
+#
+# Rationale:
+# - Separate from daily-audit which tracks repo activity
+# - Focuses on risk matrix and regression gates
+# - Report-only by default; --enforce for CI gates
+# ────────────────────────────────
+
+# Generate risk matrix report
+audit-risk:
+	$(PYTHON) scripts/audit/risk_matrix.py
+
+# Check all regression gates
+audit-gates:
+	$(PYTHON) scripts/audit/regression_gates.py
+
+# Check pre-merge gate only
+audit-gates-pre-merge:
+	$(PYTHON) scripts/audit/regression_gates.py --gate pre-merge
+
+# Check pre-release gate only
+audit-gates-pre-release:
+	$(PYTHON) scripts/audit/regression_gates.py --gate pre-release
+
+# Run full regression audit (risk matrix + gates)
+audit-full:
+	@echo "Running full regression audit..."
+	$(PYTHON) scripts/audit/risk_matrix.py --delta
+	$(PYTHON) scripts/audit/regression_gates.py
+	@echo "Audit complete. Reports in docs/audits/regression/"
 
 # Help target
 help:

@@ -10,9 +10,13 @@ import { Volume2 } from "lucide-react";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { Message, MessageAttachment } from "@/types/ui";
 import { resolveMediaSrc } from "@/lib/mediaUrl";
+import {
+  parseDocumentContextContent,
+} from "@/lib/documentContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import DocumentContextTileView from "@/features/chat/components/DocumentContextTile";
 
 type Attachment = {
   kind: "image" | "document";
@@ -424,12 +428,17 @@ export function ChatBubble({
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  const { attachments: contentAttachments, text } = parseAttachments(message.content || "");
+  const { tiles: documentTiles, text: documentCleanText } = parseDocumentContextContent(
+    message.content || ""
+  );
+  const { attachments: contentAttachments, text } = parseAttachments(documentCleanText);
   const attachments = mergeAttachments(message.attachments, contentAttachments);
   const cleanedContent = text;
   const assistantContent = cleanedContent.trim();
+  const hasDocumentTiles = documentTiles.length > 0;
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(assistantContent);
+  const hasVisibleContent = hasText || hasAttachments || hasDocumentTiles;
   const formattedTime = fmtTime(message.createdAt);
   const execution = message.execution;
   const executionBadgeLabel =
@@ -582,50 +591,63 @@ export function ChatBubble({
         >
           {message.authorName}
         </div>
+        {hasDocumentTiles ? (
+          <div className="flex flex-col gap-2">
+            {documentTiles.map((tile) => (
+              <DocumentContextTileView
+                key={tile.id}
+                tile={tile}
+                className="max-w-[min(34rem,100%)]"
+              />
+            ))}
+          </div>
+        ) : null}
         {hasAttachments ? (
           <AttachmentTiles attachments={attachments} align="left" />
         ) : null}
         {renderedContent}
-        <div className="mt-1.5 flex items-center gap-2">
-          {executionBadgeLabel ? (
-            <span
-              className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium"
-              style={{
-                borderColor: "color-mix(in srgb, var(--panel-border) 70%, transparent)",
-                color: "var(--muted)",
-                background:
-                  "color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 90%, transparent)",
-              }}
-            >
-              {executionBadgeLabel}
-            </span>
-          ) : null}
-          {formattedTime ? (
-            <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
-              {formattedTime}
-            </div>
-          ) : null}
-          {showPlay && (
-            <button
-              type="button"
-              className={cn(
-                "inline-flex h-6 w-6 items-center justify-center rounded border",
-                playDisabled ? "opacity-55 cursor-not-allowed" : "opacity-80 hover:opacity-100"
-              )}
-              style={{
-                borderColor: "var(--panel-border)",
-                color: "var(--text)",
-                background: "transparent",
-              }}
-              onClick={playDisabled ? undefined : onPlay}
-              disabled={playDisabled}
-              aria-label={playButtonAriaLabel}
-              title={playButtonTitle}
-            >
-              <Volume2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
+        {hasVisibleContent ? (
+          <div className="mt-1.5 flex items-center gap-2">
+            {executionBadgeLabel ? (
+              <span
+                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                style={{
+                  borderColor: "color-mix(in srgb, var(--panel-border) 70%, transparent)",
+                  color: "var(--muted)",
+                  background:
+                    "color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 90%, transparent)",
+                }}
+              >
+                {executionBadgeLabel}
+              </span>
+            ) : null}
+            {formattedTime ? (
+              <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
+                {formattedTime}
+              </div>
+            ) : null}
+            {showPlay && (
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded border",
+                  playDisabled ? "opacity-55 cursor-not-allowed" : "opacity-80 hover:opacity-100"
+                )}
+                style={{
+                  borderColor: "var(--panel-border)",
+                  color: "var(--text)",
+                  background: "transparent",
+                }}
+                onClick={playDisabled ? undefined : onPlay}
+                disabled={playDisabled}
+                aria-label={playButtonAriaLabel}
+                title={playButtonTitle}
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        ) : null}
       </motion.div>
     );
   }
@@ -637,15 +659,26 @@ export function ChatBubble({
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
       className="ml-auto max-w-[78%] flex flex-col items-end gap-2"
     >
-      {hasAttachments ? (
-        <AttachmentTiles attachments={attachments} align="right" />
-      ) : null}
-      {hasText ? (
+      {hasVisibleContent ? (
         <div
           className="max-w-full rounded-[var(--tile-radius)] p-3 shadow-sm"
           style={{ background: "var(--accent)", color: "var(--pill-active-text)" }}
         >
           <div className="flex flex-col gap-2">
+            {hasDocumentTiles ? (
+              <div className="flex w-full flex-col items-end gap-2">
+                {documentTiles.map((tile) => (
+                  <DocumentContextTileView
+                    key={tile.id}
+                    tile={tile}
+                    className="max-w-[min(34rem,100%)]"
+                  />
+                ))}
+              </div>
+            ) : null}
+            {hasAttachments ? (
+              <AttachmentTiles attachments={attachments} align="right" />
+            ) : null}
             {renderedContent}
             {boundedUserMessage ? (
               <div className="flex items-center justify-end gap-2">
@@ -678,9 +711,7 @@ export function ChatBubble({
             ) : null}
           </div>
         </div>
-      ) : (
-        formattedTime ? <div className="text-[10px] opacity-70">{formattedTime}</div> : null
-      )}
+      ) : null}
     </motion.div>
   );
 }

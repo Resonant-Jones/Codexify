@@ -82,6 +82,8 @@ function sameThread(a: Thread, b: Thread): boolean {
     && a.title === b.title
     && (a.lastMessage ?? "") === (b.lastMessage ?? "")
     && (a.projectId ?? null) === (b.projectId ?? null)
+    && (a.projectName ?? null) === (b.projectName ?? null)
+    && (a.lastInteractionAt ?? null) === (b.lastInteractionAt ?? null)
     && (a.archivedAt ?? null) === (b.archivedAt ?? null)
     && (a.unread ?? 0) === (b.unread ?? 0)
     && getSidebarThreadProvenanceKey(a) === getSidebarThreadProvenanceKey(b);
@@ -287,9 +289,19 @@ export function useSidebarThreads({
             try {
               previewRef.current.set(id, content);
             } catch {}
-            const next = [...prev];
-            next[idx] = { ...next[idx], lastMessage: content };
-            return equalThreadLists(next, prev) ? prev : next;
+            const updated = {
+              ...prev[idx],
+              lastMessage: content,
+              lastInteractionAt: new Date().toISOString(),
+            };
+            const shouldMove = idx > 0;
+            if (!shouldMove && sameThread(prev[idx], updated)) {
+              return prev;
+            }
+            const next = prev.slice();
+            next.splice(idx, 1);
+            next.unshift(updated);
+            return next;
           }
           case "delete": {
             const next = prev.filter((t) => String(t.id) !== id);
@@ -299,7 +311,13 @@ export function useSidebarThreads({
             const proj = d.project_id ?? d.projectId ?? null;
             if ((prev[idx].projectId ?? null) === (proj ?? null)) return prev;
             const next = [...prev];
-            next[idx] = { ...next[idx], projectId: proj };
+            next[idx] = {
+              ...next[idx],
+              projectId: proj,
+              projectName: d.project_name ?? d.projectName ?? next[idx].projectName,
+              lastInteractionAt:
+                d.last_interaction_at ?? d.lastInteractionAt ?? next[idx].lastInteractionAt,
+            };
             return equalThreadLists(next, prev) ? prev : next;
           }
           default:
