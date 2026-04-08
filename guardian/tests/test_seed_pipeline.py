@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -79,6 +80,39 @@ def test_seed_global_system_docs_indexes_global_docs() -> None:
                 "title": "Built-in Help",
                 "owner_user_id": None,
                 "project_id": None,
+                "is_enabled": True,
+            },
+        }
+    ]
+
+
+def test_seed_global_system_docs_includes_backend_builtin_help_asset(
+    tmp_path: Path,
+) -> None:
+    asset_path = tmp_path / "codexify-guide.md"
+    asset_path.write_text("Builtin help content", encoding="utf-8")
+    fake_store = _FakeVectorStore()
+
+    summary = seed_global_system_docs(
+        fake_store,
+        session_factory=_FakeSessionFactory([]),
+        builtin_help_path=asset_path,
+    )
+
+    assert summary["seeded"] == 1
+    assert summary["candidate_count"] == 1
+    assert fake_store.items == [
+        {
+            "id": "system-doc:builtin-help",
+            "text": "Builtin help content",
+            "meta": {
+                "namespace": "system_docs:global",
+                "source": "builtin_help_asset",
+                "scope": "global",
+                "doc_id": "builtin-help",
+                "slug": "builtin-help",
+                "title": "Codexify Guide",
+                "asset_path": str(asset_path),
                 "is_enabled": True,
             },
         }
