@@ -14,7 +14,13 @@ describe("SettingsPanelDock", () => {
       />
     );
 
-    expect(screen.getByRole("tablist", { name: "Settings tabs" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveClass(
+      "sticky",
+      "top-0",
+      "z-20",
+      "max-w-full",
+      "min-w-0"
+    );
     expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
       "data-state",
       "active"
