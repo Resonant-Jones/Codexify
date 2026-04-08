@@ -231,6 +231,35 @@ const normalizeLanguageLabel = (className?: string) => {
   return raw.toUpperCase();
 };
 
+type MarkdownNode = {
+  type?: string;
+  value?: unknown;
+  children?: MarkdownNode[];
+};
+
+const normalizeAssistantProse = (value: string) => {
+  return value
+    .replace(/\$\s*\\rightarrow\s*\$/g, "→")
+    .replace(/\$\s*\\leftarrow\s*\$/g, "←")
+    .replace(/\$\s*\\leftrightarrow\s*\$/g, "↔")
+    .replace(/\$\s*\\to\s*\$/g, "→")
+    .replace(/\\rightarrow/g, "→")
+    .replace(/\\leftarrow/g, "←")
+    .replace(/\\leftrightarrow/g, "↔")
+    .replace(/\\to/g, "→");
+};
+
+const remarkNormalizeAssistantProse = () => (tree: MarkdownNode) => {
+  const walk = (node: MarkdownNode) => {
+    if (node.type === "text" && typeof node.value === "string") {
+      node.value = normalizeAssistantProse(node.value);
+    }
+    node.children?.forEach(walk);
+  };
+
+  walk(tree);
+};
+
 const OVERSIZED_USER_MESSAGE_CHAR_LIMIT = 1200;
 const OVERSIZED_USER_MESSAGE_LINE_LIMIT = 18;
 const COLLAPSED_USER_MESSAGE_MAX_HEIGHT = 224;
@@ -556,7 +585,10 @@ export function ChatBubble({
           wordWrap: "break-word",
         }}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkNormalizeAssistantProse]}
+          components={markdownComponents}
+        >
           {assistantContent}
         </ReactMarkdown>
       </div>
