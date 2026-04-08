@@ -148,7 +148,7 @@ Observed consequence:
 
 ## Verdict
 
-`mounted but blocked by auth/config`
+`inconclusive`
 
 ## Blocker Classification
 
