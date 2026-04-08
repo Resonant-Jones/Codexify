@@ -1,6 +1,7 @@
 /**
  * ChatView - renders Guardian message history without owning fetch loops.
  */
+import { ArrowDown } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -10,14 +11,16 @@ import React, {
   useState,
 } from "react";
 
+import ContextMenu from "@/components/ui/ContextMenu";
+import { CHAT_LANE_INLINE_PADDING, CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import ChatBubble from "@/features/chat/components/ChatBubble";
+import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
+import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import type {
   ChatMessage,
   CompletionState,
   StreamingDraft,
 } from "@/features/chat/useChat";
-import ChatBubble from "@/features/chat/components/ChatBubble";
-import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
-import ContextMenu from "@/components/ui/ContextMenu";
 import { cn } from "@/lib/utils";
 import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import { parseDocumentContextContent } from "@/lib/documentContext";
@@ -26,12 +29,6 @@ import {
   isActiveInferencePhase,
   type InferenceRequestState,
 } from "@/types/inference";
-import {
-  CHAT_LANE_INLINE_PADDING,
-  CHAT_LANE_GUTTER_CLASS,
-  CHAT_LANE_MAX_WIDTH,
-  CHAT_LANE_MAX_WIDTH_CLASS,
-} from "@/features/chat/chatLane";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
 type BubblePlayState =
@@ -101,7 +98,9 @@ export function ChatView({
 }) {
   const { containerRef, endRef } = useChatAutoScroll(messages.length);
   const initialScrollRef = useRef(true);
+  const initialScrollAppliedRef = useRef(false);
   const [hasOverflow, setHasOverflow] = useState(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [voiceUnavailableMessageIds, setVoiceUnavailableMessageIds] = useState<
@@ -113,6 +112,7 @@ export function ChatView({
   const lastAutoReadMessageIdRef = useRef<number | null>(null);
   const autoReadPrimedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const conversationLaneRef = useRef<HTMLDivElement | null>(null);
 
   const isCompletingForThread =
     completionState.isCompleting && completionState.activeThreadId === threadId;
@@ -141,6 +141,27 @@ export function ChatView({
       ? streamingDraft.content
       : "";
   const showStreamingDraft = Boolean(streamingDraftText.trim());
+  const viewportLayoutSignature = useMemo(
+    () =>
+      [
+        messages.length,
+        loading ? "loading" : "idle",
+        error ?? "",
+        hasMore ? "more" : "none",
+        bottomPadding,
+        showCompletionIndicator ? "completion" : "steady",
+        showStreamingDraft ? "draft" : "no-draft",
+      ].join("|"),
+    [
+      bottomPadding,
+      error,
+      hasMore,
+      loading,
+      messages.length,
+      showCompletionIndicator,
+      showStreamingDraft,
+    ]
+  );
 
   const showToast = useCallback((message: string) => {
     try {
@@ -165,8 +186,38 @@ export function ChatView({
     setVoiceUnavailableMessageIds(voiceUnavailableMessageIdsRef.current);
   }, []);
 
+  const measureChatViewport = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) {
+      setHasOverflow(false);
+      setShowJumpToLatest(false);
+      return;
+    }
+
+    const viewportHeight = el.clientHeight;
+    const overflowing = viewportHeight > 0 && el.scrollHeight > viewportHeight + 1;
+    const distanceFromBottom = Math.max(
+      0,
+      el.scrollHeight - viewportHeight - el.scrollTop
+    );
+    const shouldShowJump = overflowing && distanceFromBottom > viewportHeight;
+
+    setHasOverflow(overflowing);
+    setShowJumpToLatest(shouldShowJump);
+  }, [containerRef]);
+
+  const handleJumpToLatest = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    measureChatViewport();
+    el.dispatchEvent(new Event("scroll", { bubbles: true }));
+  }, [containerRef, measureChatViewport]);
+
   useEffect(() => {
     initialScrollRef.current = true;
+    initialScrollAppliedRef.current = false;
     autoReadPrimedRef.current = false;
     lastAutoReadMessageIdRef.current = null;
     if (audioRef.current) {
@@ -178,6 +229,8 @@ export function ChatView({
     setVoiceUnavailableMessageIds({});
     voiceRouteMissingRef.current = false;
     setVoiceRouteMissing(false);
+    setHasOverflow(false);
+    setShowJumpToLatest(false);
   }, [threadId]);
 
   useEffect(() => {
@@ -190,11 +243,10 @@ export function ChatView({
   }, []);
 
   useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const overflowing = el.scrollHeight > el.clientHeight + 1;
-    setHasOverflow(overflowing);
-  }, [containerRef, messages.length]);
+    if (!initialScrollAppliedRef.current) return;
+    void viewportLayoutSignature;
+    measureChatViewport();
+  }, [measureChatViewport, viewportLayoutSignature]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -207,6 +259,8 @@ export function ChatView({
           requestAnimationFrame(() => {
             if (containerRef.current) {
               containerRef.current.scrollTop = parseInt(saved, 10);
+              initialScrollAppliedRef.current = true;
+              measureChatViewport();
             }
           });
           initialScrollRef.current = false;
@@ -220,8 +274,26 @@ export function ChatView({
     if (initialScrollRef.current) {
       el.scrollTop = el.scrollHeight;
       initialScrollRef.current = false;
+      initialScrollAppliedRef.current = true;
+      measureChatViewport();
     }
-  }, [containerRef, messages.length, threadId]);
+  }, [containerRef, measureChatViewport, messages.length, threadId]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    const lane = conversationLaneRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (!initialScrollAppliedRef.current) return;
+      measureChatViewport();
+    });
+    observer.observe(el);
+    if (lane) {
+      observer.observe(lane);
+    }
+    return () => observer.disconnect();
+  }, [containerRef, conversationLaneRef, measureChatViewport]);
 
   const playMessageAudio = useCallback(
     async (
@@ -335,6 +407,8 @@ export function ChatView({
     const el = containerRef.current;
     if (!el) return;
 
+    measureChatViewport();
+
     if (typeof window !== "undefined") {
       try {
         sessionStorage.setItem(`chat-scroll-${threadId}`, String(el.scrollTop));
@@ -351,10 +425,11 @@ export function ChatView({
         if (containerRef.current) {
           containerRef.current.scrollTop =
             containerRef.current.scrollHeight - previousHeight;
+          measureChatViewport();
         }
       });
     }
-  }, [containerRef, hasMore, loading, onLoadOlderMessages, threadId]);
+  }, [containerRef, hasMore, loading, measureChatViewport, onLoadOlderMessages, threadId]);
 
   const savePrompt = useCallback((text: string) => {
     const title = window.prompt("Optional title", "");
@@ -405,7 +480,7 @@ export function ChatView({
   );
 
   return (
-    <div className={cn("flex flex-col h-full min-h-0", className)}>
+    <div className={cn("relative flex flex-col h-full min-h-0", className)}>
       <div
         ref={containerRef}
         onScroll={() => {
@@ -420,6 +495,7 @@ export function ChatView({
         }}
       >
         <div
+          ref={conversationLaneRef}
           data-testid="chat-conversation-lane"
           className="mx-auto w-full max-w-full md:max-w-[888px] space-y-4"
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
@@ -550,6 +626,28 @@ export function ChatView({
           <div ref={endRef} />
         </div>
       </div>
+
+      {showJumpToLatest ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+          <button
+            type="button"
+            data-testid="jump-to-latest-button"
+            aria-label="Jump to latest turn"
+            title="Jump to latest turn"
+            onClick={handleJumpToLatest}
+            className="icon-inline pointer-events-auto inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-2xl backdrop-blur-xl transition-transform duration-150 hover:-translate-y-0.5"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 88%, rgba(255,255,255,0.12))",
+              color: "var(--text)",
+            }}
+          >
+            <ArrowDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>Latest</span>
+          </button>
+        </div>
+      ) : null}
 
       {menu ? (
         <ContextMenu
