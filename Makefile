@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly
 
 # Python executable
 PYTHON      ?= python
@@ -218,6 +218,31 @@ audit-full:
 	$(PYTHON) scripts/audit/risk_matrix.py --delta
 	$(PYTHON) scripts/audit/regression_gates.py
 	@echo "Audit complete. Reports in docs/audits/regression/"
+
+# ────────────────────────────────
+# Pass 2: Heuristic Intelligence
+#
+# Rationale:
+# - Trap detection for preventable patterns
+# - Ritual automation for recurring reviews
+# - All report-only by default
+# ────────────────────────────────
+
+# Detect preventable traps in changed files
+audit-traps:
+	$(PYTHON) scripts/audit/trap_detector.py
+
+# Generate weekly ritual agenda
+audit-ritual-weekly:
+	$(PYTHON) scripts/audit/ritual.py --cadence weekly
+
+# Generate monthly ritual agenda
+audit-ritual-monthly:
+	$(PYTHON) scripts/audit/ritual.py --cadence monthly
+
+# Generate quarterly ritual agenda
+audit-ritual-quarterly:
+	$(PYTHON) scripts/audit/ritual.py --cadence quarterly
 
 # Help target
 help:
