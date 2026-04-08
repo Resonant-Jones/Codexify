@@ -1,0 +1,84 @@
+{
+  "action_items": {
+    "next_month": [
+      {
+        "owner": "Runtime",
+        "task": "Plan quarterly migration drill"
+      }
+    ],
+    "this_month": [
+      {
+        "owner": "Architecture",
+        "task": "Update risk matrix scores"
+      },
+      {
+        "owner": "Platform",
+        "task": "Document or remove temporary shims"
+      },
+      {
+        "owner": "Memory",
+        "task": "Verify memory export path"
+      }
+    ]
+  },
+  "agenda_items": [
+    {
+      "action": "Update scripts/audit/data/risk_matrix_baseline.json",
+      "current_distribution": {
+        "Critical": 16,
+        "High": 2,
+        "Low": 0,
+        "Moderate": 0
+      },
+      "prompt": "Review and update all 18 risk scores based on current state",
+      "time": "15 min",
+      "topic": "Re-score Risk Matrix"
+    },
+    {
+      "action": "Convert or document permanent shims",
+      "prompt": "0 risks have temporary controls that may be permanent",
+      "shims": [],
+      "time": "10 min",
+      "topic": "Review 'Temporary' Shims"
+    },
+    {
+      "action": "Check for provider-specific code outside adapters",
+      "prompt": "Has dependency on any single provider increased?",
+      "time": "10 min",
+      "topic": "Provider Dependency Drift"
+    },
+    {
+      "action": "Verify export path works for new data types",
+      "prompt": "Can we still export all user context?",
+      "time": "10 min",
+      "topic": "Memory Portability Check"
+    },
+    {
+      "action": "Review scripts/audit/traps-*.md for TRAP-8 findings",
+      "prompt": "Have retry/error handling patterns become inconsistent?",
+      "time": "10 min",
+      "topic": "Orchestration Debt Review"
+    },
+    {
+      "action": "Review incident log for unexplained issues",
+      "prompt": "Can we explain recent failures?",
+      "time": "10 min",
+      "topic": "Observability Gaps"
+    },
+    {
+      "action": "Propose at least one simplification",
+      "prompt": "Are there subsystems that could be merged or removed?",
+      "time": "15 min",
+      "topic": "Subsystem Count Review"
+    }
+  ],
+  "cadence": "monthly",
+  "generated_at": "2026-04-07T16:22:05.655819",
+  "metrics": {
+    "critical_risks": 16,
+    "high_risks": 2,
+    "potential_shims": 0,
+    "total_risks": 18
+  },
+  "title": "Monthly Architecture Audit"
+}

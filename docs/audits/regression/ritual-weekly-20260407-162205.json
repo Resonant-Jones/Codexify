@@ -1,0 +1,81 @@
+{
+  "action_items": {
+    "immediate": [],
+    "this_week": [
+      {
+        "owner": "Platform",
+        "task": "Update controls for Model Routing"
+      },
+      {
+        "owner": "Memory",
+        "task": "Update controls for Retrieval"
+      }
+    ]
+  },
+  "agenda_items": [
+    {
+      "action": "File incident entries in docs/audits/regression/incidents/",
+      "prompt": "Review any incidents since last week. Update risk matrix if needed.",
+      "time": "5 min",
+      "topic": "New Incidents or Near-Misses"
+    },
+    {
+      "prompt": "Review 3 highest risks needing attention",
+      "risks": [
+        {
+          "area": "Observability",
+          "id": "observability",
+          "owner": "Ops",
+          "score": 300
+        },
+        {
+          "area": "Persona Boundaries",
+          "id": "persona-boundaries",
+          "owner": "Identity",
+          "score": 240
+        },
+        {
+          "area": "Orchestration",
+          "id": "orchestration",
+          "owner": "Runtime",
+          "score": 240
+        }
+      ],
+      "time": "5 min",
+      "topic": "Highest Score Risks"
+    },
+    {
+      "prompt": "0 risks haven't been reviewed in their interval",
+      "risks": [],
+      "time": "5 min",
+      "topic": "Stale Entries"
+    },
+    {
+      "action": "Review recent changes for complexity-creep indicators",
+      "prompt": "Did any subsystems grow unexpectedly this week?",
+      "time": "5 min",
+      "topic": "Subsystem Complexity Changes"
+    },
+    {
+      "action": "Check docs/audits/regression/traps-*.md for findings",
+      "prompt": "Any high-blast-radius changes skip evaluation?",
+      "time": "5 min",
+      "topic": "Changes Without Full Eval Coverage"
+    },
+    {
+      "action": "Identify at least one removal/simplification candidate",
+      "prompt": "What can be removed or simplified?",
+      "time": "5 min",
+      "topic": "Simplification Candidates"
+    }
+  ],
+  "cadence": "weekly",
+  "generated_at": "2026-04-07T16:22:05.486628",
+  "risks": {
+    "critical_high": 18,
+    "missing_owners": 0,
+    "stale": 0,
+    "total": 18
+  },
+  "title": "Weekly Regression Review (30 minutes)"
+}
