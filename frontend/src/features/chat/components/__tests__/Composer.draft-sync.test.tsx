@@ -299,6 +299,8 @@ describe("Composer draft sync", () => {
     expect(composerSource).not.toContain("mt-auto");
     expect(composerSource).not.toContain('pl-[8px]');
     expect(composerSource).not.toContain('pr-[24px]');
+    expect(composerSource).toContain('from "@/contracts/slashCommands"');
+    expect(composerSource).not.toContain('description: "Start or switch a conversation thread."');
     expect(composerSource).not.toMatch(/\bpr-\[/);
   });
 

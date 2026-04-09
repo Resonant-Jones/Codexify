@@ -17,6 +17,11 @@ import ComposerSelectMenu, {
 } from "@/features/chat/components/ComposerSelectMenu";
 import DocumentContextTileView from "@/features/chat/components/DocumentContextTile";
 import {
+  SLASH_COMMANDS,
+  type SlashCommandDefinition,
+  type SlashCommandId,
+} from "@/contracts/slashCommands";
+import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
@@ -42,90 +47,6 @@ const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
 const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
-
-type SlashCommandDefinition = {
-  id: string;
-  label: string;
-  description: string;
-  aliases: readonly string[];
-  keywords: readonly string[];
-  scaffold: string;
-};
-
-const SLASH_COMMANDS: readonly SlashCommandDefinition[] = [
-  {
-    id: "thread",
-    label: "Thread",
-    description: "Start or switch a conversation thread.",
-    aliases: ["chat", "conversation"],
-    keywords: ["reply", "turn"],
-    scaffold: "/thread",
-  },
-  {
-    id: "doc",
-    label: "Document",
-    description: "Add or reference a document.",
-    aliases: ["do", "docs", "document"],
-    keywords: ["file", "note", "reference"],
-    scaffold: "/doc",
-  },
-  {
-    id: "project",
-    label: "Project",
-    description: "Scope the request to a project.",
-    aliases: ["workspace", "repo"],
-    keywords: ["scope", "context"],
-    scaffold: "/project",
-  },
-  {
-    id: "workspace",
-    label: "Workspace",
-    description: "Work across the current workspace.",
-    aliases: ["root", "local"],
-    keywords: ["folder", "environment"],
-    scaffold: "/workspace",
-  },
-  {
-    id: "profile",
-    label: "Profile",
-    description: "Choose an identity or persona.",
-    aliases: ["identity", "persona", "account"],
-    keywords: ["user", "role"],
-    scaffold: "/profile",
-  },
-  {
-    id: "flow",
-    label: "Flow",
-    description: "Switch to a workflow step.",
-    aliases: ["pipeline", "sequence"],
-    keywords: ["process", "mode"],
-    scaffold: "/flow",
-  },
-  {
-    id: "secure",
-    label: "Secure",
-    description: "Tighten access or permissions.",
-    aliases: ["permission", "lock"],
-    keywords: ["privacy", "acl"],
-    scaffold: "/secure",
-  },
-  {
-    id: "connect",
-    label: "Connect",
-    description: "Link sources or peers.",
-    aliases: ["sync", "attach"],
-    keywords: ["bridge", "federate"],
-    scaffold: "/connect",
-  },
-  {
-    id: "help",
-    label: "Help",
-    description: "Show command help.",
-    aliases: ["?", "commands"],
-    keywords: ["guide", "menu"],
-    scaffold: "/help",
-  },
-] as const;
 
 const SLASH_COMMAND_TOKEN_SPLIT_RE = /\s/;
 
@@ -425,7 +346,7 @@ export function Composer({
   const draftCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [caretIndex, setCaretIndex] = useState(() => resolveInitialDraft().length);
   const [slashPaletteOpen, setSlashPaletteOpen] = useState(false);
-  const [activeSlashCommandId, setActiveSlashCommandId] = useState<string | null>(null);
+  const [activeSlashCommandId, setActiveSlashCommandId] = useState<SlashCommandId | null>(null);
   const dismissedSlashTokenKeyRef = useRef<string | null>(null);
   const activeSlashToken = useMemo(
     () => extractSlashCommandContext(value, caretIndex),
