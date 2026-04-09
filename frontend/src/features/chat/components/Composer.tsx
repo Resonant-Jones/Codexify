@@ -175,7 +175,7 @@ const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
 
 export type ComposerSendOptions = {
   threadIdOverride?: number;
-  slash_intent?: SlashCommandIntentPayload | null;
+  slashIntent?: SlashCommandIntentPayload | null;
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -772,7 +772,7 @@ export function Composer({
           uploadThreadId != null && uploadThreadId !== threadId
             ? uploadThreadId
             : undefined,
-        ...(slashIntent ? { slash_intent: slashIntent } : {}),
+        ...(slashIntent ? { slashIntent } : {}),
       });
 
       // Clear the draft after a successful send.
