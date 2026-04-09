@@ -79,10 +79,9 @@ describe("Composer draft sync", () => {
     );
     expect(buildSlashCommandIntentPayload("/repo scope planning")).toEqual({
       commandId: "project",
-      rawToken: "/project",
-      queryText: "scope planning",
       intentKind: "workspace",
       retrievalHint: "project",
+      rawInput: "/repo scope planning",
     });
     expect(buildSlashCommandIntentPayload("hello world")).toBeNull();
   });
@@ -110,12 +109,11 @@ describe("Composer draft sync", () => {
     expect(onSend).toHaveBeenCalledWith(
       "/repo scope planning",
       expect.objectContaining({
-        slash_intent: {
+        slashIntent: {
           commandId: "project",
-          rawToken: "/project",
-          queryText: "scope planning",
           intentKind: "workspace",
           retrievalHint: "project",
+          rawInput: "/repo scope planning",
         },
       })
     );
@@ -132,7 +130,7 @@ describe("Composer draft sync", () => {
     await waitFor(() => {
       expect(onSend).toHaveBeenCalledTimes(1);
     });
-    expect(onSend.mock.calls[0][1]?.slash_intent).toBeUndefined();
+    expect(onSend.mock.calls[0][1]?.slashIntent).toBeUndefined();
   });
 
   it("closes the slash palette when the slash token is removed", async () => {
@@ -375,6 +373,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).toContain('from "@/contracts/slashCommands"');
     expect(composerSource).toContain("buildSlashCommandIntentPayload");
     expect(composerSource).toContain("resolveSlashCommandIntent");
+    expect(composerSource).toContain("slashIntent");
     expect(composerSource).not.toMatch(/\bpr-\[/);
   });
 

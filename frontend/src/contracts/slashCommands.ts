@@ -168,11 +168,10 @@ export type SlashCommandIntent = {
 };
 
 export type SlashCommandIntentPayload = {
-  commandId: SlashCommandId;
-  rawToken: string;
-  queryText: string;
   intentKind: SlashCommandIntentKind;
-  retrievalHint: SlashCommandRetrievalHint;
+  retrievalHint?: SlashCommandRetrievalHint;
+  commandId?: SlashCommandId;
+  rawInput: string;
 };
 
 function normalizeSlashToken(value: string): string {
@@ -228,9 +227,8 @@ export function buildSlashCommandIntentPayload(
 
   return {
     commandId: intent.command.id,
-    rawToken: `/${intent.command.id}`,
-    queryText: intent.queryText,
     intentKind: intent.command.effects.intentKind,
     retrievalHint: intent.command.effects.retrievalHint,
+    rawInput: input,
   };
 }
