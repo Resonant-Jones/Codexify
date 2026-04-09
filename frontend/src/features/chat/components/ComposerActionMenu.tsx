@@ -63,6 +63,8 @@ export function ComposerActionMenu({
           )}
           style={{
             color: "var(--text)",
+            width: "var(--composer-control-size, 2rem)",
+            height: "var(--composer-control-size, 2rem)",
           }}
         >
           <span className="text-[22px] leading-none">+</span>

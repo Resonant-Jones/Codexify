@@ -1,5 +1,10 @@
+import { useMemo } from "react";
+
 import type { ShellViewportClass, ShellViewportProfile } from "./shellBreakpointContract";
-import { isPhoneShellViewportClass } from "./shellBreakpointContract";
+import {
+  isPhoneShellViewportClass,
+  useShellViewportProfile,
+} from "./shellBreakpointContract";
 
 export type MobileShellProfile = {
   active: boolean;
@@ -18,6 +23,17 @@ export type MobileShellProfile = {
     defaultOpen: boolean;
     autoOpenOnDocumentRequest: boolean;
   };
+  chat: {
+    composer: {
+      padX: string;
+      padY: string;
+      textPadX: string;
+      textPadY: string;
+      controlGap: string;
+      controlSize: string;
+      bottomSafeArea: string;
+    };
+  };
 };
 
 const DESKTOP_SHELL_PROFILE = {
@@ -34,6 +50,17 @@ const DESKTOP_SHELL_PROFILE = {
   workspace: {
     defaultOpen: true,
     autoOpenOnDocumentRequest: true,
+  },
+  chat: {
+    composer: {
+      padX: "12px",
+      padY: "12px",
+      textPadX: "14px",
+      textPadY: "10px",
+      controlGap: "12px",
+      controlSize: "32px",
+      bottomSafeArea: "0px",
+    },
   },
 } as const satisfies Omit<MobileShellProfile, "active" | "viewportClass">;
 
@@ -52,6 +79,17 @@ const PHONE_SHELL_PROFILE = {
     defaultOpen: false,
     autoOpenOnDocumentRequest: false,
   },
+  chat: {
+    composer: {
+      padX: "10px",
+      padY: "10px",
+      textPadX: "12px",
+      textPadY: "8px",
+      controlGap: "8px",
+      controlSize: "40px",
+      bottomSafeArea: "env(safe-area-inset-bottom, 0px)",
+    },
+  },
 } as const satisfies Omit<MobileShellProfile, "active" | "viewportClass">;
 
 export function getMobileShellProfile(
@@ -65,4 +103,12 @@ export function getMobileShellProfile(
     viewportClass: shellViewportProfile.viewportClass,
     ...baseProfile,
   };
+}
+
+export function useMobileShellProfile(): MobileShellProfile {
+  const shellViewportProfile = useShellViewportProfile();
+  return useMemo(
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
+  );
 }
