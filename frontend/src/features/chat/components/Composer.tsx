@@ -20,6 +20,7 @@ import {
   SLASH_COMMANDS,
   type SlashCommandDefinition,
   type SlashCommandId,
+  resolveSlashCommandIntent,
 } from "@/contracts/slashCommands";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
@@ -81,21 +82,28 @@ function fuzzySlashMatchScore(query: string, candidate: string) {
 }
 
 function rankSlashCommands(
-  query: string,
+  query: string | readonly string[],
   commands: readonly SlashCommandDefinition[]
 ) {
-  const normalizedQuery = normalizeSlashCommandQuery(query);
-  if (!normalizedQuery) return [...commands];
+  const normalizedQueries = (
+    Array.isArray(query) ? query : [query]
+  )
+    .map((value) => normalizeSlashCommandQuery(value))
+    .filter(Boolean);
+
+  if (normalizedQueries.length === 0) return [...commands];
 
   return commands
     .map((command, index) => {
       const candidates = [command.label, ...command.aliases, ...command.keywords];
       let bestScore: number | null = null;
       for (const candidate of candidates) {
-        const score = fuzzySlashMatchScore(normalizedQuery, candidate);
-        if (score == null) continue;
-        if (bestScore == null || score > bestScore) {
-          bestScore = score;
+        for (const normalizedQuery of normalizedQueries) {
+          const score = fuzzySlashMatchScore(normalizedQuery, candidate);
+          if (score == null) continue;
+          if (bestScore == null || score > bestScore) {
+            bestScore = score;
+          }
         }
       }
       return bestScore == null ? null : { command, index, score: bestScore };
@@ -110,25 +118,26 @@ function rankSlashCommands(
 
 function extractSlashCommandContext(value: string, caretIndex: number | null) {
   const caret = Math.max(0, Math.min(caretIndex ?? value.length, value.length));
-  let start = caret;
-  while (start > 0 && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[start - 1])) {
-    start -= 1;
+  let start = -1;
+  for (let index = caret - 1; index >= 0; index -= 1) {
+    if (value[index] !== "/") continue;
+    if (index > 0 && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[index - 1])) continue;
+    start = index;
+    break;
   }
 
-  let end = caret;
-  while (end < value.length && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[end])) {
-    end += 1;
-  }
+  if (start < 0) return null;
 
-  const token = value.slice(start, end);
+  const token = value.slice(start, caret);
   if (!token.startsWith("/")) return null;
 
   const query = token.slice(1);
   return {
     start,
-    end,
+    end: caret,
+    text: token,
     query,
-    key: `${start}:${end}:${query}`,
+    key: `${start}:${caret}:${token}`,
   } as const;
 }
 
@@ -352,9 +361,31 @@ export function Composer({
     () => extractSlashCommandContext(value, caretIndex),
     [caretIndex, value]
   );
+  const activeSlashIntent = useMemo(
+    () => (activeSlashToken ? resolveSlashCommandIntent(activeSlashToken.text) : null),
+    [activeSlashToken?.text]
+  );
+  const activeSlashQueries = useMemo(() => {
+    if (!activeSlashToken) return [] as string[];
+
+    const queries = [activeSlashToken.query];
+    const normalizedQuery = normalizeSlashCommandQuery(activeSlashToken.query);
+    if (normalizedQuery) {
+      const commandToken = normalizedQuery.split(/\s+/)[0] ?? "";
+      if (commandToken && commandToken !== normalizedQuery) {
+        queries.push(commandToken);
+      }
+    }
+
+    if (activeSlashIntent?.queryText) {
+      queries.push(activeSlashIntent.queryText);
+    }
+
+    return queries;
+  }, [activeSlashIntent?.queryText, activeSlashToken?.query, activeSlashToken?.text]);
   const visibleSlashCommands = useMemo(
-    () => rankSlashCommands(activeSlashToken?.query ?? "", SLASH_COMMANDS),
-    [activeSlashToken?.query]
+    () => rankSlashCommands(activeSlashQueries, SLASH_COMMANDS),
+    [activeSlashQueries]
   );
 
   const [internalSending, setInternalSending] = useState(false);
@@ -912,6 +943,9 @@ export function Composer({
     visibleSlashCommands.find((command) => command.id === activeSlashCommandId) ??
     visibleSlashCommands[0] ??
     null;
+  const activeSlashSemanticHint = activeSlashIntent
+    ? `intent kind: ${activeSlashIntent.command.effects.intentKind} · retrieval hint: ${activeSlashIntent.command.effects.retrievalHint}`
+    : null;
   const showLineageCopy =
     !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
   const lineageCopy = `Send a message to ${lineageTargetLabel}`;
@@ -1061,6 +1095,14 @@ export function Composer({
                   {activeSlashToken?.query ? `/${activeSlashToken.query}` : "/"}
                 </span>
               </div>
+              {activeSlashSemanticHint ? (
+                <div
+                  className="px-2 pb-2 text-[10px] leading-snug"
+                  style={{ color: "color-mix(in oklab, var(--muted) 76%, transparent)" }}
+                >
+                  {activeSlashSemanticHint}
+                </div>
+              ) : null}
               <div className="max-h-60 overflow-y-auto">
                 {visibleSlashCommands.length > 0 ? (
                   visibleSlashCommands.map((command) => {
