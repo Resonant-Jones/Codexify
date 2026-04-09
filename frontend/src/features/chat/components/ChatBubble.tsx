@@ -154,7 +154,7 @@ const CodeBlock = ({ code, label }: CodeBlockProps) => {
   }, []);
 
   return (
-    <div className="codexifyCodeBlock">
+    <div className="codexifyCodeBlock max-w-full min-w-0">
       <div className="codexifyCodeBlockHeader">
         <div className="codexifyCodeBlockLabel">
           <span className="codexifyCodeBlockAccent" aria-hidden="true" />
@@ -333,7 +333,7 @@ const AttachmentTiles = ({
   };
 
   return (
-    <div className={`flex flex-col gap-2 ${alignClass}`}>
+    <div className={cn("flex min-w-0 flex-col gap-2", alignClass)}>
       {attachments.map((att, idx) => {
         const key = `${att.kind}-${att.id ?? idx}`;
         const resolvedSrc = att.src ? resolveMediaSrc(att.src) : att.src;
@@ -442,6 +442,7 @@ export function ChatBubble({
   playing = false,
   playState,
   onPlay,
+  isPhoneShell = false,
 }: {
   message: Message;
   isGuardian: boolean;
@@ -449,6 +450,7 @@ export function ChatBubble({
   playing?: boolean;
   playState?: "idle" | "playing" | "pending" | "unavailable" | "disabled";
   onPlay?: () => void;
+  isPhoneShell?: boolean;
 }) {
   const fmtTime = (ts: number | null | undefined) => {
     if (!Number.isFinite(ts)) return null;
@@ -515,7 +517,7 @@ export function ChatBubble({
       }
     : undefined;
   const userMessageTextClass = cn(
-    "text-sm leading-relaxed whitespace-pre-wrap break-words",
+    "min-w-0 text-sm leading-relaxed whitespace-pre-wrap break-words",
     userMessageLooksLikeCode ? "font-mono text-[13px] leading-5" : null
   );
 
@@ -524,7 +526,14 @@ export function ChatBubble({
       if (inline) {
         return (
           <code
-            className="rounded bg-black/10 dark:bg-black/30 px-1 py-0.5"
+            className={cn(
+              "rounded bg-black/10 dark:bg-black/30 px-1 py-0.5",
+              isPhoneShell ? "break-all" : "break-words"
+            )}
+            style={{
+              overflowWrap: "anywhere",
+              wordBreak: isPhoneShell ? "break-all" : "break-word",
+            }}
             {...props}
           >
             {children}
@@ -544,7 +553,7 @@ export function ChatBubble({
       const extracted = extractPreCode(node, children);
       if (!extracted) {
         return (
-          <pre className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
+          <pre className="my-2 max-w-full min-w-0 overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2">
             {children}
           </pre>
         );
@@ -552,15 +561,17 @@ export function ChatBubble({
       const label = normalizeLanguageLabel(extracted.className);
       return <CodeBlock code={extracted.code} label={label} />;
     },
-    p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
-    ul: ({ children }: any) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
-    ol: ({ children }: any) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+    p: ({ children }: any) => <p className="mb-2 last:mb-0 break-words">{children}</p>,
+    ul: ({ children }: any) => <ul className="mb-2 list-disc pl-4 break-words">{children}</ul>,
+    ol: ({ children }: any) => <ol className="mb-2 list-decimal pl-4 break-words">{children}</ol>,
+    li: ({ children }: any) => <li className="break-words">{children}</li>,
     a: ({ href, children }: any) => (
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-blue-500 hover:underline"
+        className="break-words text-blue-500 hover:underline"
+        style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
       >
         {children}
       </a>
@@ -578,11 +589,11 @@ export function ChatBubble({
   const renderedContent = hasText ? (
     isGuardian ? (
       <div
-        className="text-sm leading-relaxed prose prose-sm max-w-none break-words dark:prose-invert"
+        className="text-sm leading-relaxed prose prose-sm max-w-none min-w-0 break-words dark:prose-invert"
         style={{
           color: "var(--text)",
-          overflowWrap: "break-word",
-          wordWrap: "break-word",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
         }}
       >
         <ReactMarkdown
@@ -599,8 +610,8 @@ export function ChatBubble({
         className={userMessageTextClass}
         style={{
           color: "var(--pill-active-text)",
-          overflowWrap: "break-word",
-          wordWrap: "break-word",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
           ...userMessagePreviewStyle,
         }}
       >
@@ -615,7 +626,10 @@ export function ChatBubble({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
-        className="mr-auto max-w-[85%] space-y-1"
+        className={cn(
+          "mr-auto min-w-0 space-y-1",
+          isPhoneShell ? "w-full max-w-full" : "max-w-[85%]"
+        )}
       >
         <div
           className="flex items-center gap-2 text-xs font-medium opacity-70"
@@ -689,11 +703,14 @@ export function ChatBubble({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      className="ml-auto max-w-[78%] flex flex-col items-end gap-2"
+      className={cn(
+        "ml-auto flex min-w-0 flex-col items-end gap-2",
+        isPhoneShell ? "w-full max-w-full" : "max-w-[78%]"
+      )}
     >
       {hasVisibleContent ? (
         <div
-          className="max-w-full rounded-[var(--tile-radius)] p-3 shadow-sm"
+          className="max-w-full min-w-0 rounded-[var(--tile-radius)] p-3 shadow-sm"
           style={{ background: "var(--accent)", color: "var(--pill-active-text)" }}
         >
           <div className="flex flex-col gap-2">

@@ -41,6 +41,7 @@ import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWit
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useShellViewportProfile } from "./shellBreakpointContract";
+import { getMobileShellProfile } from "./mobileShellProfile";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
@@ -1434,7 +1435,11 @@ export default function AppShell({
   const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.12)";
   const panelBorderStrong = resolved === "dark" ? "rgba(255,255,255,0.22)" : "rgba(17,24,39,0.16)";
   const shellViewportProfile = useShellViewportProfile();
-  const isPhoneShell = shellViewportProfile.workspaceArrangement === "stack";
+  const mobileShellProfile = useMemo(
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
+  );
+  const isPhoneShell = mobileShellProfile.active;
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🏗️ SECTION: Modular Design Token Setup
@@ -1448,7 +1453,7 @@ export default function AppShell({
     "--card-radius": "20px",    // pointer used by components (explicit for clarity)
     "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
     "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
-    "--pill-pad-y": "11px", // Vertical padding for the navigation pill dock (controls thickness)
+    "--pill-pad-y": isPhoneShell ? shellViewportProfile.shellCardPad : "11px", // Vertical padding for the navigation pill dock (controls thickness)
     "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
     "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
@@ -1761,9 +1766,24 @@ export default function AppShell({
       setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
       setDocuments((prev) => dedupeDocItems([doc, ...prev]));
       navigateToView(request.targetView === "guardian" ? "guardian" : "documents");
-      openWorkspaceDrawer("inspector");
+      if (
+        mobileShellProfile.workspace.autoOpenOnDocumentRequest ||
+        workspaceDrawerOpen
+      ) {
+        openWorkspaceDrawer("inspector");
+        return;
+      }
+      setWorkspaceDrawerTab("inspector");
+      closeWorkspaceDrawerUi();
     },
-    [navigateToView, openWorkspaceDrawer]
+    [
+      closeWorkspaceDrawerUi,
+      mobileShellProfile.workspace.autoOpenOnDocumentRequest,
+      navigateToView,
+      openWorkspaceDrawer,
+      setWorkspaceDrawerTab,
+      workspaceDrawerOpen,
+    ]
   );
   const { closeWorkspace: closeLegacyWorkspace } = useWorkspaceState({
     normalizeDocument: (doc) => normalizeDoc(doc),
@@ -2055,6 +2075,73 @@ export default function AppShell({
   const runtimeLastHealthy = runtimeHealth.lastSuccessAt
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
+  const topNavDockStyle = useMemo<React.CSSProperties>(
+    () => ({
+      paddingTop: "var(--pill-pad-y)",
+      paddingBottom: "var(--pill-pad-y)",
+      width: mobileShellProfile.topNav.width,
+      maxWidth: "100%",
+      minWidth: 0,
+      display: mobileShellProfile.topNav.scrollable ? "flex" : undefined,
+      flexWrap: "nowrap",
+      overflowX: mobileShellProfile.topNav.scrollable ? "auto" : undefined,
+      overflowY: mobileShellProfile.topNav.scrollable ? "hidden" : undefined,
+      overscrollBehaviorX: mobileShellProfile.topNav.scrollable
+        ? "contain"
+        : undefined,
+      scrollbarWidth: mobileShellProfile.topNav.scrollable ? "none" : undefined,
+      WebkitOverflowScrolling: mobileShellProfile.topNav.scrollable
+        ? "touch"
+        : undefined,
+      whiteSpace: "nowrap",
+    }),
+    [mobileShellProfile.topNav.scrollable, mobileShellProfile.topNav.width]
+  );
+  const headerUtilityActions = (
+    <>
+      <button
+        type="button"
+        className="pill-tab h-9 w-9 shrink-0 p-0"
+        data-state={view === "settings" ? "active" : "inactive"}
+        data-testid="settings-utility-toggle"
+        aria-label="Settings"
+        title="Settings"
+        onClick={openSettings}
+      >
+        <Settings2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {workspaceShellEnabled && (
+        <button
+          type="button"
+          className="pill-tab shrink-0 whitespace-nowrap"
+          data-state={workspaceDrawerOpen ? "active" : "inactive"}
+          data-testid="workspace-drawer-toggle"
+          aria-pressed={workspaceDrawerOpen}
+          onClick={toggleWorkspaceDrawer}
+        >
+          Workspace
+        </button>
+      )}
+      {activeRouteThreadId != null && (
+        <ShareButton
+          targetType="thread"
+          targetId={activeRouteThreadId}
+          className="pill-tab shrink-0 whitespace-nowrap"
+          dataState="inactive"
+          style={{
+            borderRadius: 999,
+            border: "1px solid var(--chip-border)",
+            background: "var(--chip-bg)",
+            color: "var(--text)",
+            fontSize: "0.78rem",
+            fontWeight: 500,
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
+          }}
+        />
+      )}
+    </>
+  );
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
@@ -2140,6 +2227,7 @@ export default function AppShell({
           color: "var(--text)",
           colorScheme: resolved,
         }}
+        data-shell-profile={mobileShellProfile.shellMode}
       >
       <div id="cfy-portal-root" />
       {/* {view === "dashboard" && (
@@ -2152,10 +2240,17 @@ export default function AppShell({
         />
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
-      <div className="relative z-10 w-full flex items-center justify-between gap-3">
+      <div
+        className={`relative z-10 w-full ${isPhoneShell ? "flex items-center gap-2" : "flex items-center justify-between gap-3"}`}
+      >
+        <div className={isPhoneShell ? "min-w-0 flex-1" : undefined}>
         <div
-          className="glass-pill isolate"
-          style={{ paddingTop: "var(--pill-pad-y)", paddingBottom: "var(--pill-pad-y)" }}
+          className="glass-pill isolate relative min-w-0"
+          data-testid="app-shell-top-nav"
+          data-shell-nav-mode={
+            mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
+          }
+          style={topNavDockStyle}
         >
           {/* glass backdrop */}
           <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
@@ -2171,7 +2266,7 @@ export default function AppShell({
           {/* brand badge — doubles as layout mode toggle */}
           <button
             type="button"
-            className="pill-tab brand-tab"
+            className="pill-tab brand-tab shrink-0 whitespace-nowrap"
             style={{ color: "var(--text-on-accent)" }}
             title={
               layoutMode === "zen"
@@ -2187,7 +2282,7 @@ export default function AppShell({
 
           {/* beta release indicator — persistent across navigation */}
           <span
-            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase"
+            className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap"
             style={{
               background: "var(--accent)",
               color: "var(--text-on-accent)",
@@ -2201,84 +2296,48 @@ export default function AppShell({
 
           {/* nav tabs */}
           <button
-            className="pill-tab"
+            className="pill-tab shrink-0 whitespace-nowrap"
             data-state={view === "guardian" ? "active" : "inactive"}
             onClick={() => navigateToView("guardian")}
           >
             Guardian
           </button>
           <button
-            className="pill-tab"
+            className="pill-tab shrink-0 whitespace-nowrap"
             data-state={view === "dashboard" ? "active" : "inactive"}
             onClick={() => navigateToView("dashboard")}
           >
             Dashboard
           </button>
           <button
-            className="pill-tab"
+            className="pill-tab shrink-0 whitespace-nowrap"
             data-state={view === "documents" ? "active" : "inactive"}
             onClick={() => navigateToView("documents")}
           >
             Documents
           </button>
           <button
-            className="pill-tab"
+            className="pill-tab shrink-0 whitespace-nowrap"
             data-state={view === "gallery" ? "active" : "inactive"}
             onClick={() => navigateToView("gallery")}
           >
             Gallery
           </button>
           <button
-            className="pill-tab"
+            className="pill-tab shrink-0 whitespace-nowrap"
             data-state={view === "personaStudio" ? "active" : "inactive"}
             onClick={() => navigateToView("personaStudio")}
           >
             Persona Studio
           </button>
+          {isPhoneShell && headerUtilityActions}
         </div>
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            className="pill-tab h-9 w-9 shrink-0 p-0"
-            data-state={view === "settings" ? "active" : "inactive"}
-            data-testid="settings-utility-toggle"
-            aria-label="Settings"
-            title="Settings"
-            onClick={openSettings}
-          >
-            <Settings2 className="h-4 w-4" aria-hidden="true" />
-          </button>
-          {workspaceShellEnabled && (
-            <button
-              type="button"
-              className="pill-tab"
-              data-state={workspaceDrawerOpen ? "active" : "inactive"}
-              data-testid="workspace-drawer-toggle"
-              aria-pressed={workspaceDrawerOpen}
-              onClick={toggleWorkspaceDrawer}
-            >
-              Workspace
-            </button>
-          )}
-          {activeRouteThreadId != null && (
-            <ShareButton
-              targetType="thread"
-              targetId={activeRouteThreadId}
-              className="pill-tab"
-              dataState="inactive"
-              style={{
-                borderRadius: 999,
-                border: "1px solid var(--chip-border)",
-                background: "var(--chip-bg)",
-                color: "var(--text)",
-                fontSize: "0.78rem",
-                fontWeight: 500,
-                boxShadow:
-                  "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
-              }}
-            />
-          )}
         </div>
+        {!isPhoneShell && (
+          <div className="flex items-center justify-end gap-2">
+            {headerUtilityActions}
+          </div>
+        )}
       </div>
 
       {showRuntimeBanner && (

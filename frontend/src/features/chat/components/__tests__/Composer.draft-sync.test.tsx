@@ -17,11 +17,16 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+const originalInnerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+
 describe("Composer draft sync", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
     window.localStorage.clear();
+    if (originalInnerWidth) {
+      Object.defineProperty(window, "innerWidth", originalInnerWidth);
+    }
   });
 
   it("opens the slash palette when the composer starts with /", async () => {
@@ -313,9 +318,9 @@ describe("Composer draft sync", () => {
       "p-0"
     );
     expect(sendButton.className).not.toMatch(/\brounded-md\b/);
-    expect(sendButton.getAttribute("style") ?? "").not.toMatch(
-      /\b(?:width|min-width|height|min-height|padding)\s*:/
-    );
+    expect(sendSlot.style.width).toBe("var(--composer-control-size, 2rem)");
+    expect(sendButton.style.width).toBe("var(--composer-control-size, 2rem)");
+    expect(sendButton.style.height).toBe("var(--composer-control-size, 2rem)");
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
@@ -334,6 +339,26 @@ describe("Composer draft sync", () => {
     expect(composerSource).not.toContain('description: "Start or switch a conversation thread."');
     expect(composerSource).toContain("resolveSlashCommandIntent");
     expect(composerSource).not.toMatch(/\bpr-\[/);
+  });
+
+  it("switches the composer to compact phone spacing and safe-area padding on narrow widths", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+
+    const { container } = render(
+      <Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />
+    );
+
+    const composerRoot = container.querySelector("[data-composer-root]") as HTMLElement | null;
+    expect(composerRoot).not.toBeNull();
+    expect(composerRoot?.style.getPropertyValue("--composer-control-size")).toBe("40px");
+    expect(composerRoot?.style.getPropertyValue("--composer-text-pad-x")).toBe("12px");
+    expect(composerRoot?.style.getPropertyValue("--composer-text-pad-y")).toBe("8px");
+    expect(composerRoot?.style.getPropertyValue("--composer-safe-area-bottom")).toBe(
+      "env(safe-area-inset-bottom, 0px)"
+    );
   });
 
   it("stages attachments locally and uploads them only after send", async () => {

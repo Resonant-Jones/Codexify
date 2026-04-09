@@ -51,6 +51,7 @@ import {
 } from "@/lib/authState";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
+import { getMobileShellProfile } from "./mobileShellProfile";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -253,6 +254,11 @@ export default function GuardianChatWithSidebar({
     } catch { /* ignore */ }
   }, [isSidebarVisible]);
   const shellViewportProfile = useShellViewportProfile();
+  const mobileShellProfile = useMemo(
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
+  );
+  const isPhoneShell = mobileShellProfile.active;
   const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -493,6 +499,11 @@ export default function GuardianChatWithSidebar({
   ]);
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
+  const guardianLayoutMode = mobileShellProfile.guardian.singleLane
+    ? "single_lane"
+    : isDesktopLayout
+      ? "split"
+      : "collapsed_drawer";
 
   // Portal target: mount inside the themed app shell so the overlay inherits
   // the same CSS variables and theme context as the rest of the UI.
@@ -1488,7 +1499,7 @@ export default function GuardianChatWithSidebar({
               top: 0,
               left: 0,
               height: "100%",
-              width: "min(360px, 90vw)",
+              width: mobileShellProfile.guardian.drawerWidth,
               zIndex: 10001,
             }}
             onPointerDown={stopDrawerEvent}
@@ -1535,15 +1546,24 @@ export default function GuardianChatWithSidebar({
     <>
       {mobileOverlay}
       <div
-        className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
+        className={clsx(
+          "relative h-full w-full min-h-0 overflow-hidden box-border items-stretch mx-auto",
+          isPhoneShell ? "flex flex-col" : "grid"
+        )}
+        data-guardian-layout={guardianLayoutMode}
+        data-shell-profile={mobileShellProfile.shellMode}
         style={{
-          gridTemplateColumns: isDesktopLayout && isSidebarOpen
-            ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
-            : "1fr",
-          gap: "8px",
+          maxWidth: mobileShellProfile.guardian.frameMaxWidth,
+          gridTemplateColumns:
+            !isPhoneShell && isDesktopLayout && isSidebarOpen
+              ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+              : "1fr",
+          gap: "var(--gutter)",
           padding: "0px",
           boxSizing: "border-box",
-          transition: "grid-template-columns 0.2s ease-out",
+          transition: isPhoneShell
+            ? undefined
+            : "grid-template-columns 0.2s ease-out",
         }}
       >
         {imprintZero.proposal && (
