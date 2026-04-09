@@ -1467,6 +1467,7 @@ export default function GuardianChatWithSidebar({
   );
 
   const chatDisabled = !isDesktopLayout && isSidebarOpen;
+  const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
   const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
@@ -1636,7 +1637,7 @@ export default function GuardianChatWithSidebar({
                   Authentication required. Please sign in or set a dev key.
                 </div>
               )}
-              {workspaceOpen && (
+              {showWorkspacePreview && (
                 <div className="absolute inset-0 z-[110] pointer-events-auto">
                   <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
