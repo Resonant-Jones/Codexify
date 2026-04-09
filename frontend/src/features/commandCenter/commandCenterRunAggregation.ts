@@ -11,6 +11,7 @@ import type {
   CommandCenterRunTimings,
   CommandCenterRunTraceEvidence,
 } from "@/features/commandCenter/types";
+import { shouldPromoteCommandCenterEvent } from "@/features/commandCenter/commandCenterObservability";
 import {
   COMMAND_CENTER_RUN_STATUSES,
   COMMAND_CENTER_RUN_KINDS,
@@ -22,6 +23,8 @@ import {
 const RUN_EVENT_LIMIT = 50;
 
 type MutableRun = {
+  attemptedModel: string | null;
+  attemptedProvider: string | null;
   eventCount: number;
   events: CommandCenterEvent[];
   identityKind: CommandCenterRunIdentityKind;
@@ -31,7 +34,15 @@ type MutableRun = {
   lastKind: string | null;
   lastType: string | null;
   latestTurnMessageId: string | null;
+  fallbackReason: string | null;
+  fallbackTriggered: boolean | null;
+  finalModel: string | null;
+  finalProvider: string | null;
+  persistenceOutcome: string | null;
   requestId: string | null;
+  retrievalDepth: string | null;
+  retrievalIntent: string | null;
+  selectionSource: string | null;
   runId: string | null;
   runKind: CommandCenterRunKind | null;
   runType: string | null;
@@ -949,6 +960,8 @@ function finalizeRun(run: MutableRun): CommandCenterRun {
   return {
     eventCount: run.eventCount,
     events: run.events,
+    attemptedModel: run.attemptedModel,
+    attemptedProvider: run.attemptedProvider,
     identityKind: run.identityKind,
     key: run.key,
     lifecycleStates: lifecycleStates.length > 0 ? lifecycleStates : undefined,
@@ -957,7 +970,15 @@ function finalizeRun(run: MutableRun): CommandCenterRun {
     lastKind: run.lastKind,
     lastType: run.lastType,
     latestTurnMessageId: run.latestTurnMessageId,
+    fallbackReason: run.fallbackReason,
+    fallbackTriggered: run.fallbackTriggered,
+    finalModel: run.finalModel,
+    finalProvider: run.finalProvider,
+    persistenceOutcome: run.persistenceOutcome,
     requestId: run.requestId,
+    retrievalDepth: run.retrievalDepth,
+    retrievalIntent: run.retrievalIntent,
+    selectionSource: run.selectionSource,
     runId: run.runId,
     runKind: run.runKind,
     runType: run.runType,
@@ -1071,12 +1092,22 @@ function mergeRuns(target: MutableRun, source: MutableRun): MutableRun {
     identityKind:
       latest.identityKind === "synthetic" ? older.identityKind : latest.identityKind,
     key: latest.key,
+    attemptedModel: latest.attemptedModel ?? older.attemptedModel,
+    attemptedProvider: latest.attemptedProvider ?? older.attemptedProvider,
     lastEvent: latest.lastEvent,
     lastEventAt: latest.lastEventAt,
     lastKind: latest.lastKind ?? older.lastKind,
     lastType: latest.lastType ?? older.lastType,
     latestTurnMessageId: latest.latestTurnMessageId ?? older.latestTurnMessageId,
+    fallbackReason: latest.fallbackReason ?? older.fallbackReason,
+    fallbackTriggered: latest.fallbackTriggered ?? older.fallbackTriggered,
+    finalModel: latest.finalModel ?? older.finalModel,
+    finalProvider: latest.finalProvider ?? older.finalProvider,
+    persistenceOutcome: latest.persistenceOutcome ?? older.persistenceOutcome,
     requestId: latest.requestId ?? older.requestId,
+    retrievalDepth: latest.retrievalDepth ?? older.retrievalDepth,
+    retrievalIntent: latest.retrievalIntent ?? older.retrievalIntent,
+    selectionSource: latest.selectionSource ?? older.selectionSource,
     runId: latest.runId ?? older.runId,
     runKind: latest.runKind ?? older.runKind,
     runType: latest.runType ?? older.runType,
@@ -1187,6 +1218,41 @@ export function normalizeCommandCenterEvent(
   const traceUrl = readTraceUrl(records);
   const sourceMode = readSourceMode(records);
   const widenReason = readWidenReason(records);
+  const attemptedProvider = readKey(records, [
+    "attempted_provider",
+    "attemptedProvider",
+  ]);
+  const attemptedModel = readKey(records, [
+    "attempted_model",
+    "attemptedModel",
+  ]);
+  const finalProvider =
+    readKey(records, [
+      "final_provider",
+      "finalProvider",
+      "resolved_provider",
+      "resolvedProvider",
+      "provider",
+    ]) ?? null;
+  const finalModel =
+    readKey(records, [
+      "final_model",
+      "finalModel",
+      "resolved_model",
+      "resolvedModel",
+      "model",
+    ]) ?? null;
+  const fallbackReason = readKey(records, ["fallback_reason", "fallbackReason"]);
+  const fallbackTriggered =
+    readBoolean(records, ["fallback_triggered", "fallbackTriggered"]) ??
+    (fallbackReason != null ? true : null);
+  const selectionSource = readKey(records, ["selection_source", "selectionSource"]);
+  const persistenceOutcome = readKey(records, [
+    "persistence_outcome",
+    "persistenceOutcome",
+  ]);
+  const retrievalIntent = readKey(records, ["retrieval_intent", "retrievalIntent"]);
+  const retrievalDepth = readKey(records, ["retrieval_depth", "retrievalDepth"]);
   const documentCount = readCollectionCount(records, {
     countKeys: [
       "semantic_count",
@@ -1236,16 +1302,26 @@ export function normalizeCommandCenterEvent(
     latestTurnContent,
     sourceMode,
     widenReason,
+    attemptedProvider,
+    attemptedModel,
     documentCount,
     memoryCount,
     graphCount,
+    fallbackReason,
+    fallbackTriggered,
+    finalProvider,
+    finalModel,
     lifecycleState,
     raw,
     receivedAt: Date.now(),
     queuedAt,
+    persistenceOutcome,
+    selectionSource,
     requestId: ids.requestId,
     runId: ids.runId,
     runKind,
+    retrievalDepth,
+    retrievalIntent,
     retrievalQuery,
     retrievalQueryMatchesLatestTurn,
     retrievalTarget,
@@ -1282,6 +1358,8 @@ export function aggregateCommandCenterEvents(
     }
 
     const created: MutableRun = {
+      attemptedModel: event.attemptedModel ?? null,
+      attemptedProvider: event.attemptedProvider ?? null,
       eventCount: 0,
       events: [],
       identityKind,
@@ -1291,7 +1369,15 @@ export function aggregateCommandCenterEvents(
       lastKind: event.kind,
       lastType: event.type,
       latestTurnMessageId: event.latestTurnMessageId,
+      fallbackReason: event.fallbackReason ?? null,
+      fallbackTriggered: event.fallbackTriggered ?? null,
+      finalModel: event.finalModel ?? null,
+      finalProvider: event.finalProvider ?? null,
+      persistenceOutcome: event.persistenceOutcome ?? null,
       requestId: event.requestId,
+      retrievalDepth: event.retrievalDepth ?? null,
+      retrievalIntent: event.retrievalIntent ?? null,
+      selectionSource: event.selectionSource ?? null,
       runId: event.runId,
       runKind: null,
       runType: null,
@@ -1355,7 +1441,25 @@ export function aggregateCommandCenterEvents(
   };
 
   events.forEach((event, index) => {
+    const promoted = shouldPromoteCommandCenterEvent(event);
     const { identityKind, key: rawKey } = getEventIdentity(event);
+    if (!promoted) {
+      if (isApprovalEvent(event)) {
+        approvals.push({
+          event,
+          key: `${rawKey}:${index}:${event.receivedAt}`,
+          label: humanizeToken(event.kind ?? event.type ?? event.sseType ?? event.status),
+          receivedAt: event.receivedAt,
+          runId: event.runId,
+          runKey: event.taskId ?? event.requestId ?? event.runId ?? null,
+          status: event.status,
+          summary: event.summary,
+          taskId: event.taskId,
+        });
+      }
+      return;
+    }
+
     const resolvedKey = resolveAlias(aliases, rawKey) || rawKey;
     const key = resolvedKey || `event:${index}:${event.receivedAt}`;
     const run = ensureRun(key, identityKind, event);
@@ -1386,7 +1490,17 @@ export function aggregateCommandCenterEvents(
     run.lastKind = event.kind;
     run.lastType = event.type;
     run.latestTurnMessageId = event.latestTurnMessageId ?? run.latestTurnMessageId;
+    run.attemptedProvider = event.attemptedProvider ?? run.attemptedProvider;
+    run.attemptedModel = event.attemptedModel ?? run.attemptedModel;
+    run.finalProvider = event.finalProvider ?? run.finalProvider;
+    run.finalModel = event.finalModel ?? run.finalModel;
+    run.fallbackTriggered = event.fallbackTriggered ?? run.fallbackTriggered;
+    run.fallbackReason = event.fallbackReason ?? run.fallbackReason;
+    run.selectionSource = event.selectionSource ?? run.selectionSource;
+    run.persistenceOutcome = event.persistenceOutcome ?? run.persistenceOutcome;
     run.requestId = event.requestId ?? run.requestId;
+    run.retrievalDepth = event.retrievalDepth ?? run.retrievalDepth;
+    run.retrievalIntent = event.retrievalIntent ?? run.retrievalIntent;
     run.runId = event.runId ?? run.runId;
     run.runKind = nextRunKind;
     run.runType = nextRunType;
@@ -1412,20 +1526,6 @@ export function aggregateCommandCenterEvents(
         runs.set(collapsedKey, { ...run, key: collapsedKey });
       }
       runs.delete(key);
-    }
-
-    if (isApprovalEvent(event)) {
-      approvals.push({
-        event,
-        key: `${key}:${index}:${event.receivedAt}`,
-        label: humanizeToken(event.kind ?? event.type ?? event.sseType ?? event.status),
-        receivedAt: event.receivedAt,
-        runId: event.runId,
-        runKey: key,
-        status: event.status,
-        summary: event.summary,
-        taskId: event.taskId,
-      });
     }
   });
 
