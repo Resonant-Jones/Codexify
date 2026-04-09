@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import unquote
 
 from fastapi import HTTPException
 
@@ -109,6 +110,30 @@ def _source_mode_from_origin(origin: Any) -> str:
         if key.strip() == "source_mode":
             return _normalize_source_mode(value.strip())
     return "project"
+
+
+def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
+    text = str(origin or "").strip()
+    if not text:
+        return None
+
+    for segment in text.split("|")[1:]:
+        key, _, value = segment.partition("=")
+        if key.strip() != "slash_intent":
+            continue
+        raw_value = unquote(value.strip())
+        if not raw_value:
+            return None
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:
+            logger.debug(
+                "[chat-completion] failed to decode slash intent origin segment",
+                exc_info=True,
+            )
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 @dataclass(frozen=True)
@@ -1538,6 +1563,9 @@ def run_chat_completion_task(
             ),
         }
     )
+    slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
+    if slash_intent is not None:
+        payload_summary["slash_intent"] = slash_intent
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {

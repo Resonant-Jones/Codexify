@@ -19,7 +19,8 @@ import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
+from urllib.parse import quote, unquote
 
 from fastapi import (
     APIRouter,
@@ -34,9 +35,11 @@ from fastapi.responses import JSONResponse
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     StrictStr,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from starlette.responses import StreamingResponse
 
@@ -219,6 +222,27 @@ def _turn_lock_payload(
             source="api:chat.complete",
         )
     )
+
+
+def _slash_intent_origin_segment(
+    slash_intent: Any | None,
+) -> str:
+    if slash_intent is None:
+        return ""
+
+    payload = slash_intent.model_dump(exclude_none=True)
+    try:
+        encoded = quote(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode slash intent origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|slash_intent={encoded}"
 
 
 def _request_id_from_request(request: Request | None) -> str | None:
@@ -586,6 +610,8 @@ class ThreadMoveRequest(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     model: Optional[str] = None
     max_context: Optional[int] = 50
     provider: Optional[str] = None
@@ -593,9 +619,60 @@ class ChatCompletionRequest(BaseModel):
     system_override: Optional[str] = None
     turn_id: Optional[str] = None
     source_mode: Optional[str] = "project"
+    slash_intent: Optional["SlashIntentRequest"] = Field(
+        default=None, alias="slashIntent"
+    )
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
+
+
+SlashCommandId = Literal[
+    "thread",
+    "doc",
+    "project",
+    "workspace",
+    "profile",
+    "flow",
+    "secure",
+    "connect",
+    "help",
+]
+SlashCommandIntentKind = Literal[
+    "conversation",
+    "knowledge",
+    "workspace",
+    "automation",
+    "security",
+    "integration",
+    "help",
+]
+SlashCommandRetrievalHint = Literal[
+    "none",
+    "conversation",
+    "project",
+    "personal_knowledge",
+]
+
+
+class SlashIntentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commandId: SlashCommandId
+    rawToken: Optional[StrictStr] = None
+    queryText: Optional[StrictStr] = None
+    intentKind: SlashCommandIntentKind
+    retrievalHint: Optional[SlashCommandRetrievalHint] = None
+    rawInput: Optional[StrictStr] = None
+
+    @model_validator(mode="after")
+    def _require_raw_input_or_token(self):
+        if not (self.rawInput or self.rawToken):
+            raise ValueError("slash intent requires rawInput or rawToken")
+        return self
+
+
+ChatCompletionRequest.model_rebuild()
 
 
 # Helper functions
@@ -2459,9 +2536,13 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        # Temporary transport bridge: carry turn_id and source_mode via origin
-        # until ChatCompletionTask gains typed fields for both values.
-        origin=f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}",
+        # Temporary transport bridge: carry turn_id, source_mode, and
+        # bounded slash intent metadata via origin until ChatCompletionTask
+        # gains typed fields for those values.
+        origin=(
+            f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
+            f"{_slash_intent_origin_segment(body.slash_intent)}"
+        ),
     )
     task.turn_id = turn_id
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
