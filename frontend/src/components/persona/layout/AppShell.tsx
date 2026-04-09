@@ -45,6 +45,7 @@ import { getMobileShellProfile } from "./mobileShellProfile";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   describeProviderState,
   PROVIDER_RUNTIME_STATES,
@@ -1445,6 +1446,7 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
     [mobileShellProfile]
@@ -1464,6 +1466,9 @@ export default function AppShell({
     "--radius-micro": "8px",                 // chips, inputs, pills
     "--radius-tile": "20px",                  // cards, tiles, panels
     "--card-radius": "20px",    // pointer used by components (explicit for clarity)
+    "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
+    "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
+    "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
     "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
     "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
     "--pill-pad-y": isPhoneShell ? shellViewportProfile.shellCardPad : "11px", // Vertical padding for the navigation pill dock (controls thickness)
@@ -2236,7 +2241,10 @@ export default function AppShell({
       style={{
         /* baseline viewport guardrails */
         minWidth: shellViewportProfile.shellMinWidth,
-        minHeight: shellViewportProfile.shellMinHeight,
+        height: isPhoneShell ? "var(--shell-viewport-height, 100vh)" : undefined,
+        minHeight: isPhoneShell
+          ? "var(--shell-viewport-height, 100vh)"
+          : shellViewportProfile.shellMinHeight,
         padding: "var(--edge-chrome)",
         alignItems: "center",
         color: "var(--text)",
