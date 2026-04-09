@@ -156,6 +156,28 @@ export type SlashCommandIntent = {
   queryText: string;
 };
 
+export type SlashCommandIntentPayload = {
+  commandId: SlashCommandId;
+  rawToken: string;
+  queryText: string;
+  intentKind: SlashCommandIntentKind;
+  retrievalHint: SlashCommandRetrievalHint;
+};
+
+export function buildSlashCommandIntentPayload(
+  input: string
+): SlashCommandIntentPayload | null {
+  const intent = resolveSlashCommandIntent(input);
+  if (!intent) return null;
+  return {
+    commandId: intent.command.id,
+    rawToken: intent.rawToken,
+    queryText: intent.queryText,
+    intentKind: intent.command.effects.intentKind,
+    retrievalHint: intent.command.effects.retrievalHint,
+  };
+}
+
 export const SLASH_COMMAND_LOOKUP = Object.fromEntries(
   SLASH_COMMANDS.map((command) => [command.id, command])
 ) as Record<SlashCommandId, SlashCommandDefinition>;

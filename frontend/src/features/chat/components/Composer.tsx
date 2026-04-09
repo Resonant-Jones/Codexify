@@ -20,7 +20,9 @@ import {
   SLASH_COMMANDS,
   type SlashCommandDefinition,
   type SlashCommandId,
+  type SlashCommandIntentPayload,
   resolveSlashCommandIntent,
+  buildSlashCommandIntentPayload,
 } from "@/contracts/slashCommands";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
@@ -176,6 +178,7 @@ const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
 
 export type ComposerSendOptions = {
   threadIdOverride?: number;
+  slashIntent?: SlashCommandIntentPayload | null;
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -737,6 +740,8 @@ export function Composer({
     const hasDocumentTiles = documentTiles.length > 0;
     if (!bodyText && !hasAttachments && !hasDocumentTiles) return;
 
+    const slashIntent = buildSlashCommandIntentPayload(value);
+
     setInternalSending(true);
     setUploading(hasAttachments);
 
@@ -776,6 +781,7 @@ export function Composer({
           uploadThreadId != null && uploadThreadId !== threadId
             ? uploadThreadId
             : undefined,
+        slashIntent,
       });
 
       // Clear the draft after a successful send.

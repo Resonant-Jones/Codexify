@@ -7,6 +7,7 @@ import {
 } from "@/features/chat/chatLane";
 import {
   resolveSlashCommandIntent,
+  buildSlashCommandIntentPayload,
 } from "@/contracts/slashCommands";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
@@ -91,6 +92,40 @@ describe("Composer draft sync", () => {
     expect(screen.getByText(/intent kind:\s*workspace/i)).toBeInTheDocument();
     expect(screen.getByText(/retrieval hint:\s*project/i)).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Project/i })).toBeInTheDocument();
+  });
+
+  describe("buildSlashCommandIntentPayload", () => {
+    it("produces the expected canonical slash intent payload for a recognized slash command", () => {
+      const payload = buildSlashCommandIntentPayload("/doc query text");
+      expect(payload).toEqual({
+        commandId: "doc",
+        rawToken: "/doc",
+        queryText: "query text",
+        intentKind: "knowledge",
+        retrievalHint: "personal_knowledge",
+      });
+    });
+
+    it("produces correct canonical commandId for alias-based resolution", () => {
+      const payload = buildSlashCommandIntentPayload("/repo scope planning");
+      expect(payload).toEqual(
+        expect.objectContaining({
+          commandId: "project",
+          rawToken: "/repo",
+          queryText: "scope planning",
+        })
+      );
+    });
+
+    it("produces null for non-slash input", () => {
+      const payload = buildSlashCommandIntentPayload("hello world");
+      expect(payload).toBeNull();
+    });
+
+    it("produces null for empty input", () => {
+      expect(buildSlashCommandIntentPayload("")).toBeNull();
+      expect(buildSlashCommandIntentPayload("/")).toBeNull();
+    });
   });
 
   it("closes the slash palette when the slash token is removed", async () => {
@@ -229,6 +264,96 @@ describe("Composer draft sync", () => {
     });
     expect(onDraftValueChange).toHaveBeenNthCalledWith(1, "hello world");
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("attaches slash intent metadata to onSend when composer contains a recognized slash command", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "/doc query text" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue("/doc");
+    });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("attaches slash intent metadata to onSend when sending a slash command after palette is dismissed", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "/doc query text" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: "Slash commands" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+    expect(onSend).toHaveBeenCalledWith(
+      "hello",
+      expect.objectContaining({
+        slashIntent: null,
+      })
+    );
+  });
+
+  it("does not attach slash intent when composer contains no recognized slash command", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+    expect(onSend).toHaveBeenCalledWith(
+      "hello world",
+      expect.objectContaining({
+        slashIntent: null,
+      })
+    );
   });
 
   it("enables send when the draft only contains document tiles", async () => {
@@ -393,6 +518,7 @@ describe("Composer draft sync", () => {
     expect(onSend.mock.calls[0][0]).toContain("hello attachments");
     expect(onSend.mock.calls[0][1]).toEqual({
       threadIdOverride: 123,
+      slashIntent: null,
     });
   });
 
