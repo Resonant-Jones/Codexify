@@ -39,6 +39,8 @@ export default function SettingsPanelDock({
     [desktopMode]
   );
 
+  const desktopGridColumns = `repeat(${visibleTabs.length}, minmax(0, 1fr))`;
+
   const focusTab = (tab: SettingsTab) => {
     onTabChange(tab);
     buttonRefs.current[tab]?.focus();
@@ -79,12 +81,13 @@ export default function SettingsPanelDock({
       role="tablist"
       aria-label="Settings tabs"
       data-testid="settings-panel-dock"
-      className="glass-pill sticky top-0 z-20 flex w-full max-w-full min-w-0 items-center overflow-x-auto"
+      className="glass-pill sticky top-0 z-30 flex w-full max-w-full min-w-0 items-stretch overflow-x-auto lg:grid lg:overflow-visible"
       style={
         {
           "--pill-active-text": "var(--text-on-accent)",
           "--pill-gap": "var(--radius-micro)",
-          "--pill-font": "0.82rem",
+          "--pill-font": "0.84rem",
+          gridTemplateColumns: desktopGridColumns,
         } as React.CSSProperties
       }
     >
@@ -106,7 +109,7 @@ export default function SettingsPanelDock({
             data-state={isActive ? "active" : "inactive"}
             data-testid={`settings-panel-dock-tab-${tab.id}`}
             className={[
-              "pill-tab shrink-0 whitespace-nowrap text-xs transition-opacity",
+              "pill-tab shrink-0 whitespace-nowrap text-xs transition-opacity lg:w-full lg:justify-center lg:text-center",
               isActive
                 ? "opacity-100"
                 : "opacity-25 hover:opacity-100 focus-visible:opacity-100",
