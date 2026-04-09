@@ -28,10 +28,10 @@ describe("SettingsPanelShell", () => {
       "sticky",
       "top-0",
       "z-30",
-      "w-full",
-      "min-w-0",
-      "lg:grid",
-      "lg:overflow-visible"
+      "inline-flex",
+      "w-fit",
+      "max-w-full",
+      "min-w-0"
     );
     expect(screen.getByTestId("shell-child")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();

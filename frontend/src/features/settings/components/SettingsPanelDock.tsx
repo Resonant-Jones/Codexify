@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { useRef } from "react";
 
 export type SettingsTab =
   | "appearance"
@@ -34,12 +34,7 @@ export default function SettingsPanelDock({
 }: SettingsPanelDockProps) {
   const buttonRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({});
 
-  const visibleTabs = useMemo(
-    () => SETTINGS_TABS.filter((tab) => !tab.desktopOnly || desktopMode),
-    [desktopMode]
-  );
-
-  const desktopGridColumns = `repeat(${visibleTabs.length}, minmax(0, 1fr))`;
+  const visibleTabs = SETTINGS_TABS.filter((tab) => !tab.desktopOnly || desktopMode);
 
   const focusTab = (tab: SettingsTab) => {
     onTabChange(tab);
@@ -81,13 +76,12 @@ export default function SettingsPanelDock({
       role="tablist"
       aria-label="Settings tabs"
       data-testid="settings-panel-dock"
-      className="glass-pill sticky top-0 z-30 flex w-full min-w-0 items-stretch overflow-x-auto lg:grid lg:overflow-visible"
+      className="glass-pill sticky top-0 z-30 inline-flex w-fit max-w-full min-w-0 items-stretch overflow-x-auto"
       style={
         {
           "--pill-active-text": "var(--text-on-accent)",
           "--pill-gap": "var(--radius-micro)",
           "--pill-font": "0.84rem",
-          gridTemplateColumns: desktopGridColumns,
         } as React.CSSProperties
       }
     >
@@ -109,7 +103,7 @@ export default function SettingsPanelDock({
             data-state={isActive ? "active" : "inactive"}
             data-testid={`settings-panel-dock-tab-${tab.id}`}
             className={[
-              "pill-tab min-w-0 shrink-0 whitespace-nowrap text-xs transition-opacity lg:w-full lg:justify-center lg:text-center",
+              "pill-tab min-w-0 shrink-0 whitespace-nowrap text-xs transition-opacity",
               isActive
                 ? "opacity-100"
                 : "opacity-25 hover:opacity-100 focus-visible:opacity-100",

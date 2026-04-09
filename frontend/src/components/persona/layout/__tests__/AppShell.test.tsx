@@ -403,6 +403,12 @@ describe("AppShell settings utility trigger", () => {
 
     render(<AppShell />);
 
+    expect(screen.getByTestId("app-shell-top-nav")).toHaveClass(
+      "glass-pill",
+      "inline-flex",
+      "w-fit",
+      "max-w-full"
+    );
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("settings-utility-toggle"));
