@@ -113,7 +113,12 @@ def test_chat_complete_accepts_slash_intent_without_changing_source_mode(
     assert "|slash_intent=" in origin
     slash_intent_raw = origin.split("|slash_intent=", 1)[1]
     slash_intent = json.loads(unquote(slash_intent_raw))
-    assert slash_intent == payload["slashIntent"]
+    assert slash_intent == {
+        "commandId": "project",
+        "intentKind": "workspace",
+        "retrievalHint": "project",
+    }
+    assert "rawInput" not in slash_intent
     assert captured["queue_name"] == "codexify:queue:chat"
 
 

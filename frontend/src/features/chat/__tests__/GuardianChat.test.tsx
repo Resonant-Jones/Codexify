@@ -27,6 +27,18 @@ const chatState = vi.hoisted(() => ({
   error: null as string | null,
   hasMore: false,
 }));
+const composerState = vi.hoisted(() => ({
+  slashIntent: null as
+    | {
+        commandId: string;
+        rawToken: string;
+        queryText: string;
+        intentKind: string;
+        retrievalHint: string;
+        rawInput: string;
+      }
+    | null,
+}));
 
 type MockGuardianEventSource = EventTarget & {
   url: string;
@@ -220,11 +232,22 @@ vi.mock("@/features/chat/components", () => ({
     onSend,
     onProviderChange,
   }: {
-    onSend: (text: string) => Promise<void>;
+    onSend: (text: string, options?: { slashIntent?: Record<string, unknown> }) => Promise<void>;
     onProviderChange?: (providerId: string) => void;
   }) => (
     <div data-testid="composer-stub">
-      <button type="button" data-testid="composer-send" onClick={() => void onSend("hello")}>
+      <button
+        type="button"
+        data-testid="composer-send"
+        onClick={() =>
+          void onSend(
+            "hello",
+            composerState.slashIntent
+              ? { slashIntent: composerState.slashIntent }
+              : undefined
+          )
+        }
+      >
         Send
       </button>
       <button
@@ -340,6 +363,7 @@ describe("GuardianChat inference rail", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-05T00:00:00.000Z"));
     vi.clearAllMocks();
+    composerState.slashIntent = null;
     chatState.messages = [];
     chatState.loading = false;
     chatState.error = null;
@@ -481,6 +505,34 @@ describe("GuardianChat inference rail", () => {
       screen.getByText(/still waiting for a terminal task event/i)
     ).toBeInTheDocument();
     expect(screen.queryByText("Reply failed")).not.toBeInTheDocument();
+  });
+
+  it("attaches slashIntent to the completion request payload", async () => {
+    composerState.slashIntent = {
+      commandId: "project",
+      rawToken: "/repo",
+      queryText: "scope planning",
+      intentKind: "workspace",
+      retrievalHint: "project",
+      rawInput: "/repo scope planning",
+    };
+
+    renderChat("1");
+    await startTrackedRequest();
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/1/complete",
+        expect.objectContaining({
+          slashIntent: expect.objectContaining({
+            commandId: "project",
+            rawInput: "/repo scope planning",
+            intentKind: "workspace",
+            retrievalHint: "project",
+          }),
+        })
+      );
+    });
   });
 
   it("collapses oversized user messages by default and keeps the chat scroll container intact", async () => {
