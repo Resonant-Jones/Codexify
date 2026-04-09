@@ -91,6 +91,15 @@ const EXT_COLORS = {
   codex: "#000",
 } as const;
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 describe("DashboardView demo content", () => {
   beforeEach(() => {
     authState.allowGate = false;
@@ -99,6 +108,7 @@ describe("DashboardView demo content", () => {
   });
 
   afterEach(() => {
+    setViewportWidth(1280);
     runtimeState.tauriRuntime = false;
     runtimeState.invokeTauriCommandMock.mockReset();
     cleanup();
@@ -178,5 +188,26 @@ describe("DashboardView demo content", () => {
     expect(screen.queryByText("Mock dashboard image")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo documents")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
+  });
+
+  it("uses the mobile stacked layout at phone widths", () => {
+    setViewportWidth(390);
+
+    const { container } = render(
+      <DashboardView
+        extColors={EXT_COLORS}
+        gallery={[]}
+        onImagePrompt={vi.fn()}
+        onRequestNewProject={vi.fn()}
+        onRequestNewThread={vi.fn()}
+        onNavigateDocuments={vi.fn()}
+        onNavigateGallery={vi.fn()}
+        threadGridRows={2}
+      />
+    );
+
+    expect(
+      container.querySelector('[data-layout-mode="mobile-stack"]')
+    ).toBeTruthy();
   });
 });

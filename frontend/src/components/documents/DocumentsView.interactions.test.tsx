@@ -41,8 +41,18 @@ const DOCUMENT = {
   src_url: "/media/documents/doc-1.pdf",
 };
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 describe("DocumentsView interactions", () => {
   afterEach(() => {
+    setViewportWidth(1280);
     requestWorkspaceOpenMock.mockReset();
     vi.restoreAllMocks();
   });
@@ -126,5 +136,25 @@ describe("DocumentsView interactions", () => {
         })
       );
     });
+  });
+
+  it("uses the mobile list layout at phone widths", () => {
+    setViewportWidth(390);
+
+    const { container } = render(
+      <DocumentsView
+        documents={[DOCUMENT]}
+        extColors={EXT_COLORS}
+        onDocumentScopeChange={vi.fn()}
+        threadScopeEnabled
+      />
+    );
+
+    expect(
+      container.querySelector('[data-layout-mode="mobile-list"]')
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Quarterly Plan" })).toHaveClass(
+      "!w-full"
+    );
   });
 });

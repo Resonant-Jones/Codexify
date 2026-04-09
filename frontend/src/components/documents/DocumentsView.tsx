@@ -5,6 +5,7 @@ import useUploader from "@/hooks/useUploader";
 import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 import { DocumentLike, type DocumentScope } from "@/types/documents";
 import { ExtColors } from "@/types/ui";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useShellViewportProfile } from "@/components/persona/layout/shellBreakpointContract";
 
 interface DocumentsViewProps {
@@ -37,7 +38,9 @@ export default function DocumentsView({
   onDocumentScopeChange,
   threadScopeEnabled = true,
 }: DocumentsViewProps) {
+  const mobileShellProfile = useMobileShellProfile();
   const shellViewportProfile = useShellViewportProfile();
+  const isPhoneShell = mobileShellProfile.active;
   const uploader = useUploader({
     tag: "upload",
     projectId: defaultProjectId ?? undefined,
@@ -86,8 +89,27 @@ export default function DocumentsView({
     { key: "thread" as const, label: "Thread", disabled: !threadScopeEnabled },
     { key: "project" as const, label: "Project", disabled: false },
   ];
+  const contentAreaClassName = isPhoneShell
+    ? "flex-1 min-h-0 overflow-auto py-[var(--card-pad)]"
+    : "flex-1 min-h-0 overflow-auto py-4";
+  const footerClassName = isPhoneShell
+    ? "flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-[var(--card-pad)] text-xs"
+    : "flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-4 text-xs";
 
   const documentsGridStyle = useMemo<React.CSSProperties>(() => {
+    if (mobileShellProfile.documents.layout === "list") {
+      return {
+        display: "flex",
+        width: "100%",
+        minWidth: 0,
+        minHeight: 0,
+        flexDirection: "column",
+        gap: mobileShellProfile.documents.contentGap,
+        overflow: "auto",
+        paddingBottom: 0,
+      };
+    }
+
     const columns = shellViewportProfile.documentsGridColumns;
     const gridTemplateColumns =
       columns === 4
@@ -113,8 +135,8 @@ export default function DocumentsView({
 
   return (
     <section className="flex h-full w-full min-h-0 flex-col overflow-hidden">
-      <div className="flex h-full w-full flex-col min-h-0 overflow-hidden px-[var(--card-pad)] pb-[var(--card-pad)]">
-        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] py-4">
+      <div className="flex h-full w-full flex-col min-h-0 overflow-hidden p-[var(--card-pad)]">
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] pb-[var(--card-pad)]">
           <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
             Documents
           </h2>
@@ -138,8 +160,9 @@ export default function DocumentsView({
         </div>
 
         <div
-          className="flex-1 min-h-0 overflow-auto py-4"
+          className={contentAreaClassName}
           style={{ overflowX: "hidden" }}
+          data-layout-mode={mobileShellProfile.documents.layout === "list" ? "mobile-list" : "grid"}
           onDrop={uploader.onDrop}
           onDragOver={uploader.onDragOver}
         >
@@ -173,6 +196,7 @@ export default function DocumentsView({
                         embeddingStatus: d.embeddingStatus,
                         embeddingError: d.embeddingError,
                       }}
+                      className={isPhoneShell ? "!w-full !max-w-none" : undefined}
                       onClick={() => handleDocumentClick(d)}
                       onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
                       contextMenuItems={contextMenuItems}
@@ -196,10 +220,7 @@ export default function DocumentsView({
           )}
         </div>
 
-        <div
-          className="flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-4 text-xs"
-          style={{ color: "var(--muted)" }}
-        >
+        <div className={footerClassName} style={{ color: "var(--muted)" }}>
           <div className="flex items-center gap-2">
             <span>Drag & drop files here, or</span>
             <button
