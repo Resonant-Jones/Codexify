@@ -209,6 +209,7 @@ export function ComposerSelectMenu({
             borderColor: "transparent",
             background: "transparent",
             color: "color-mix(in oklab, var(--text) 86%, var(--muted) 14%)",
+            height: "var(--composer-control-size, 2rem)",
           }}
         >
           <span className="truncate">{valueLabel}</span>
