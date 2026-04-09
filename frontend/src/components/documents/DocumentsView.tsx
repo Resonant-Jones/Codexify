@@ -5,6 +5,7 @@ import useUploader from "@/hooks/useUploader";
 import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 import { DocumentLike, type DocumentScope } from "@/types/documents";
 import { ExtColors } from "@/types/ui";
+import { useShellViewportProfile } from "@/components/persona/layout/shellBreakpointContract";
 
 interface DocumentsViewProps {
   documents: DocumentLike[];
@@ -36,6 +37,7 @@ export default function DocumentsView({
   onDocumentScopeChange,
   threadScopeEnabled = true,
 }: DocumentsViewProps) {
+  const shellViewportProfile = useShellViewportProfile();
   const uploader = useUploader({
     tag: "upload",
     projectId: defaultProjectId ?? undefined,
@@ -85,6 +87,30 @@ export default function DocumentsView({
     { key: "project" as const, label: "Project", disabled: false },
   ];
 
+  const documentsGridStyle = useMemo<React.CSSProperties>(() => {
+    const columns = shellViewportProfile.documentsGridColumns;
+    const gridTemplateColumns =
+      columns === 4
+        ? "repeat(auto-fill, minmax(132px, 1fr))"
+        : `repeat(${columns}, minmax(0, 1fr))`;
+
+    return {
+      display: "grid",
+      width: "100%",
+      minWidth: 0,
+      minHeight: 0,
+      gap: "var(--shell-gap)",
+      gridTemplateColumns,
+      gridAutoRows: "minmax(112px, auto)",
+      gridAutoFlow: "row",
+      alignItems: "start",
+      alignContent: "start",
+      justifyContent: "stretch",
+      overflow: "auto",
+      paddingBottom: "0.5rem",
+    };
+  }, [shellViewportProfile.documentsGridColumns]);
+
   return (
     <section className="flex h-full w-full min-h-0 flex-col overflow-hidden">
       <div className="flex h-full w-full flex-col min-h-0 overflow-hidden px-[var(--card-pad)] pb-[var(--card-pad)]">
@@ -113,6 +139,7 @@ export default function DocumentsView({
 
         <div
           className="flex-1 min-h-0 overflow-auto py-4"
+          style={{ overflowX: "hidden" }}
           onDrop={uploader.onDrop}
           onDragOver={uploader.onDragOver}
         >
@@ -123,7 +150,7 @@ export default function DocumentsView({
               </div>
             </div>
           ) : (
-            <div className="grid auto-rows-[minmax(112px,auto)] grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-4 pb-2">
+            <div style={documentsGridStyle}>
               {docItems.map((d) => {
                 const key = d.id || `${d.title}.${d.ext}`;
                 const isCodex = d.type === "codex_entry";

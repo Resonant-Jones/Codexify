@@ -99,6 +99,28 @@ def test_resolve_persona_precedence() -> None:
     assert fallback.body == "system default persona"
 
 
+def test_resolve_persona_record_override_can_select_inactive_persona() -> None:
+    Session = _setup_session()
+    persona_store._set_session_factory(Session)
+
+    active = persona_store.create_persona("u1", 3, "user", "active persona")
+    persona_store.activate_persona("u1", 3, active.id)
+    override = persona_store.create_persona(
+        "u1", 3, "user", "thread override persona"
+    )
+
+    resolved = resolve_persona(
+        "u1",
+        3,
+        requested_persona_id_or_name=str(override.id),
+    )
+
+    assert resolved.source == "request_override"
+    assert resolved.persona_id == override.id
+    assert resolved.body == "thread override persona"
+    assert persona_store.get_active_persona("u1", 3).id == active.id
+
+
 def test_resolve_imprint_precedence_and_scope() -> None:
     Session = _setup_session()
     imprint_store._set_session_factory(Session)

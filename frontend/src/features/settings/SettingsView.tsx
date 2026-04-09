@@ -7,9 +7,11 @@ import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
-import { MemoryBrowser } from "@/features/settings/diagnostics";
 import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
 import PersonaSettingsPanel from "@/features/settings/components/PersonaSettingsPanel";
+import PersonalFactsPanel from "@/features/settings/components/PersonalFactsPanel";
+import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
+import type { SettingsTab } from "@/features/settings/components/SettingsPanelDock";
 import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
 import {
   ChatGPTImportModal,
@@ -242,14 +244,6 @@ function getResponseErrorMessage(error: unknown): string | null {
   return null;
 }
 
-function readRouteThreadId(): number | null {
-  if (typeof window === "undefined") return null;
-  const match = window.location.pathname.match(/^\/chat\/(\d+)/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 export function SettingsView({
   mode,
   setMode,
@@ -304,9 +298,7 @@ export function SettingsView({
   setDashboardThreadRows: (n: number) => void;
 }) {
   const desktopMode = isTauriRuntime();
-  const [tab, setTab] = useState<
-    "appearance" | "system" | "connectors" | "data" | "connection" | "diagnostics"
-  >("appearance");
+  const [tab, setTab] = useState<SettingsTab>("appearance");
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
   const [migrationStepSkipped, setMigrationStepSkipped] = useState(false);
   const [migrationStats, setMigrationStats] = useState<MigrationStats | null>(
@@ -317,9 +309,6 @@ export function SettingsView({
   const [uRole, setURole] = useState(role);
   const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
-  const [activeThreadId, setActiveThreadId] = useState<number | null>(() =>
-    readRouteThreadId()
-  );
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
   const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
   const [desktopApiKeyInput, setDesktopApiKeyInput] = useState("");
@@ -353,30 +342,6 @@ export function SettingsView({
   const [systemPromptSyncRetryNeeded, setSystemPromptSyncRetryNeeded] =
     useState(false);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-
-    const syncActiveThreadId = () => {
-      setActiveThreadId(readRouteThreadId());
-    };
-
-    syncActiveThreadId();
-    window.addEventListener("popstate", syncActiveThreadId);
-    window.addEventListener(
-      "cfy:threads:refresh",
-      syncActiveThreadId as EventListener
-    );
-
-    return () => {
-      window.removeEventListener("popstate", syncActiveThreadId);
-      window.removeEventListener(
-        "cfy:threads:refresh",
-        syncActiveThreadId as EventListener
-      );
-    };
-  }, []);
   const [lastSavedPersonaId, setLastSavedPersonaId] = useState<number | null>(
     null
   );
@@ -967,39 +932,13 @@ export function SettingsView({
   } = useConnectors({ enabled: connectorsEnabled });
 
   return (
-    <div className="w-full" style={{ color: "var(--text)" }}>
-      <div className="mx-auto w-full max-w-[30rem] space-y-6 p-4">
-        <div className="flex items-center gap-2">
-          <Button type="button" variant={tab === "appearance" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("appearance")}>
-            Appearance
-          </Button>
-          <Button type="button" variant={tab === "system" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("system")}>
-            Imprint
-          </Button>
-          <Button type="button" variant={tab === "connectors" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("connectors")}>
-            Connectors
-          </Button>
-          <Button type="button" variant={tab === "data" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("data")}>
-            Data
-          </Button>
-          {desktopMode && (
-            <Button
-              type="button"
-              variant={tab === "connection" ? "default" : "ghost"}
-              size="sm"
-              className="rounded-[var(--tile-radius,19px)]"
-              onClick={() => setTab("connection")}
-            >
-              Connection
-            </Button>
-          )}
-          <Button type="button" variant={tab === "diagnostics" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("diagnostics")}>
-            Diagnostics
-          </Button>
-        </div>
-
-        {tab === "system" && (
-          <div className="space-y-4">
+    <SettingsPanelShell
+      activeTab={tab}
+      desktopMode={desktopMode}
+      onTabChange={setTab}
+    >
+      {tab === "system" && (
+        <div className="space-y-[var(--shell-gap)]">
             <div
               className="space-y-2 rounded-[var(--tile-radius,19px)] border p-4"
               style={{
@@ -1046,9 +985,17 @@ export function SettingsView({
                   >
                     {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
                   </Button>
-                  {systemPromptSaveStatus === "saved" && (
-                    <span className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
-                      Preview prompt saved.
+                  {systemPromptSaveMessage && systemPromptSaveStatus !== "saving" && (
+                    <span
+                      className="text-xs opacity-70"
+                      style={{
+                        color:
+                          systemPromptSaveStatus === "error"
+                            ? "var(--error, #ef4444)"
+                            : "var(--muted)",
+                      }}
+                    >
+                      {systemPromptSaveMessage}
                     </span>
                   )}
                 </div>
@@ -1084,8 +1031,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "appearance" && (
-          <div className="space-y-6">
+      {tab === "appearance" && (
+        <div className="space-y-[var(--shell-gap)]">
             <div className="space-y-2">
               <div className="text-sm font-semibold">Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
@@ -1205,8 +1152,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "connectors" && (
-          <div className="space-y-4">
+      {tab === "connectors" && (
+        <div className="space-y-[var(--shell-gap)]">
             {runtimeCapabilitiesReady &&
               connectorsCapability === "unavailable" && (
                 <div className="text-sm opacity-70">
@@ -1245,8 +1192,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "data" && (
-          <div className="space-y-4">
+      {tab === "data" && (
+        <div className="space-y-[var(--shell-gap)]">
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-2">
@@ -1418,8 +1365,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "connection" && desktopMode && (
-          <div className="space-y-4">
+      {tab === "connection" && desktopMode && (
+        <div className="space-y-[var(--shell-gap)]">
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="text-sm font-semibold">Desktop Connection</div>
               <p className="text-xs opacity-70">
@@ -1517,12 +1464,17 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "diagnostics" && (
-          <div className="space-y-4">
-            <MemoryBrowser activeThreadId={activeThreadId} />
-          </div>
-        )}
-      </div>
+      {tab === "personalFacts" && (
+        <div
+          className="space-y-[var(--shell-gap)]"
+          id="settings-panel-personalFacts"
+          role="tabpanel"
+          aria-labelledby="settings-tab-personalFacts"
+          data-testid="settings-panel-personal-facts"
+        >
+            <PersonalFactsPanel />
+        </div>
+      )}
 
       <ChatGPTImportModal
         open={chatGPTModalOpen}
@@ -1533,7 +1485,7 @@ export function SettingsView({
           setMigrationStepSkipped(false);
         }}
       />
-    </div>
+    </SettingsPanelShell>
   );
 }
 

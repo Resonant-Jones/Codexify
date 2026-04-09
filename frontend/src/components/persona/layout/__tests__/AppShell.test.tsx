@@ -286,6 +286,19 @@ function readPaneBasis(element: HTMLElement): number {
   return Number.parseFloat(element.getAttribute("data-pane-basis") ?? "0");
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
+beforeEach(() => {
+  setViewportWidth(1280);
+});
+
 describe("AppShell logo wordmark color contract", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -659,6 +672,37 @@ describe("AppShell workspace drawer shell", () => {
       expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
     }
   );
+
+  it("keeps the mobile workspace summon explicit and opens the drawer as an overlay", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("app-shell-top-nav")).toHaveAttribute(
+      "data-shell-nav-mode",
+      "scroll_rail"
+    );
+    expect(
+      screen.getByRole("button", { name: "Open Workspace" })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open Workspace" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Close Workspace" })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-overlay-mode",
+      "mobile"
+    );
+    expect(screen.getByTestId("workspace-drawer-pane")).toHaveAttribute(
+      "data-overlay",
+      "true"
+    );
+  });
 
   it("resolves supported views to chat_focus while the workspace is closed", () => {
     localStorage.setItem("cfy.lastView", "dashboard");
