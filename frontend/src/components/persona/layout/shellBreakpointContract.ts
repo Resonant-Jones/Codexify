@@ -88,6 +88,24 @@ export function isDesktopShellWidth(width: number): boolean {
   return width >= SHELL_BREAKPOINTS.desktop;
 }
 
+export function isPhoneShellViewportClass(
+  viewportClass: ShellViewportClass
+): boolean {
+  return viewportClass === "phone";
+}
+
+export function isSmallTabletShellViewportClass(
+  viewportClass: ShellViewportClass
+): boolean {
+  return viewportClass === "small_tablet";
+}
+
+export function isDesktopShellViewportClass(
+  viewportClass: ShellViewportClass
+): boolean {
+  return viewportClass === "desktop";
+}
+
 export function getShellViewportClass(width: number = getViewportWidth()): ShellViewportClass {
   if (isPhoneShellWidth(width)) {
     return "phone";

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { DocumentLike } from "@/types/documents";
-import { useShellViewportClass } from "@/components/persona/layout/shellBreakpointContract";
+import {
+  isPhoneShellViewportClass,
+  useShellViewportClass,
+} from "@/components/persona/layout/shellBreakpointContract";
 
 export const WORKSPACE_OPEN_EVENT = "cfy:workspace:open";
 export const LEGACY_DOCUMENT_OPEN_EVENT = "cfy:documents:open";
@@ -245,7 +248,7 @@ export function useWorkspaceState({
   onOpenRequest,
 }: UseWorkspaceStateOptions = {}) {
   const shellViewportClass = useShellViewportClass();
-  const isPhoneShell = shellViewportClass === "phone";
+  const isPhoneShell = isPhoneShellViewportClass(shellViewportClass);
   const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
@@ -271,7 +274,7 @@ export function useWorkspaceState({
       const nextRequest = { ...request, doc: nextDoc };
 
       setActiveDoc(nextDoc);
-      setWorkspaceOpen(!isPhoneShell);
+      setWorkspaceOpen((previous) => (isPhoneShell ? previous : true));
       onOpenRequest?.(nextRequest);
       return true;
     },
@@ -288,13 +291,8 @@ export function useWorkspaceState({
       return;
     }
 
-    if (isPhoneShell) {
-      setWorkspaceOpen(false);
-      return;
-    }
-
     setWorkspaceOpen((previous) => !previous);
-  }, [isPhoneShell]);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
