@@ -937,7 +937,7 @@ export default function PersonalFactsPanel() {
 
   return (
     <div
-      className="min-w-0 space-y-[var(--shell-gap)] text-[var(--text)]"
+      className="text-[var(--text)]"
       data-testid="personal-facts-panel"
     >
       <SettingsSectionCard

@@ -60,12 +60,7 @@ export default function ImprintReviewPanel({
 
   return (
     <div
-      className={[
-        "min-w-0 space-y-[var(--shell-gap)]",
-        className ?? "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={className ?? ""}
       data-testid="imprint-review-panel"
     >
       <SettingsSectionCard

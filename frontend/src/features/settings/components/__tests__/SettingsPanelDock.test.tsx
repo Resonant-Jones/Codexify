@@ -20,7 +20,6 @@ describe("SettingsPanelDock", () => {
       "z-30",
       "items-stretch",
       "overflow-x-auto",
-      "max-w-full",
       "min-w-0"
     );
     expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveStyle({

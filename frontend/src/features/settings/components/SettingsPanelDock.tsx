@@ -81,7 +81,7 @@ export default function SettingsPanelDock({
       role="tablist"
       aria-label="Settings tabs"
       data-testid="settings-panel-dock"
-      className="glass-pill sticky top-0 z-30 flex w-full max-w-full min-w-0 items-stretch overflow-x-auto lg:grid lg:overflow-visible"
+      className="glass-pill sticky top-0 z-30 flex w-full min-w-0 items-stretch overflow-x-auto lg:grid lg:overflow-visible"
       style={
         {
           "--pill-active-text": "var(--text-on-accent)",
