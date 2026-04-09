@@ -67,6 +67,11 @@ def test_build_guardian_system_prompt_includes_segments():
     assert "=== IMPRINT_ZERO ===" in prompt
     assert "=== PERSONA ===" in prompt
     assert "=== SYSTEM DOCS ===" in prompt
+    assert (
+        prompt.index("=== BASE SYSTEM ===")
+        < prompt.index("=== IMPRINT_ZERO ===")
+        < prompt.index("=== PERSONA ===")
+    )
     assert meta["estimated_tokens"] > 0
     assert meta["docs_count"] == 1
 

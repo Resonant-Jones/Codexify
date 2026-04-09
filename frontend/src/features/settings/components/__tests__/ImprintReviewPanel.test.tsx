@@ -96,7 +96,7 @@ describe("ImprintReviewPanel", () => {
     expect(screen.getByText("Proposal available for review")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Imprint is a deeper style and reasoning layer\. Persona is the user-editable mask or voice layer\./
+        /Imprint is a persisted style and presentation layer\. Persona is the user-editable voice layer\./
       )
     ).toBeInTheDocument();
     expect(
