@@ -1365,6 +1365,7 @@ export function GuardianChat({
     providerId?: string | null;
     modelId?: string | null;
     reasoningMode?: ComposerInferenceMode;
+    slashIntent?: ComposerSendOptions["slashIntent"];
   };
 
   const resolveCompletionSelection = useCallback(
@@ -1409,6 +1410,7 @@ export function GuardianChat({
         reasoningMode: selection.reasoningMode,
       }),
       source_mode: sourceMode,
+      ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),
     };
     const provisionalTaskId = `pending-${Date.now()}`;
     setCompletionInFlight(tid, true);
@@ -2628,7 +2630,7 @@ export function GuardianChat({
 
         // Complete the thread and refresh.
         startInferenceForThread(numericNewId);
-        const completionOutcome = await completeThread(numericNewId);
+        const completionOutcome = await completeThread(numericNewId, options);
         if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
           setTurnLockForThread(numericNewId, false);
           if (completionOutcome === "failed") {
@@ -2673,7 +2675,7 @@ export function GuardianChat({
         setTimeout(() => {
           if (targetThreadId == null) return;
           void (async () => {
-            const completionOutcome = await completeThread(targetThreadId);
+            const completionOutcome = await completeThread(targetThreadId, options);
             if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
               setTurnLockForThread(targetThreadId, false);
               if (completionOutcome === "failed") {
