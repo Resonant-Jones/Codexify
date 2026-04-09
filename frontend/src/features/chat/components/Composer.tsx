@@ -11,6 +11,7 @@ import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
@@ -394,6 +395,7 @@ export function Composer({
   const [internalSending, setInternalSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showImgGen, setShowImgGen] = useState(false);
+  const mobileShellProfile = useMobileShellProfile();
   const effectiveSending = Boolean(isSending) || internalSending;
   const turnLocked = Boolean(isTurnInFlight);
   const transportBusy = effectiveSending || uploading;
@@ -962,18 +964,33 @@ export function Composer({
     }
     void send();
   };
+  const composerSurfaceStyle = useMemo<React.CSSProperties>(
+    () =>
+      ({
+        "--composer-pad-x": mobileShellProfile.chat.composer.padX,
+        "--composer-pad-y": mobileShellProfile.chat.composer.padY,
+        "--composer-text-pad-x": mobileShellProfile.chat.composer.textPadX,
+        "--composer-text-pad-y": mobileShellProfile.chat.composer.textPadY,
+        "--composer-control-gap": mobileShellProfile.chat.composer.controlGap,
+        "--composer-control-size": mobileShellProfile.chat.composer.controlSize,
+        "--composer-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
+        paddingBottom: "calc(var(--composer-pad-y, 12px) + var(--composer-safe-area-bottom, 0px))",
+      }) as React.CSSProperties,
+    [mobileShellProfile]
+  );
 
   return (
     <>
       <div
         data-composer-root
-        className="flex flex-col flex-1 w-full py-[var(--composer-pad-y,12px)]"
+        className="flex min-w-0 flex-col flex-1 w-full py-[var(--composer-pad-y,12px)] overflow-x-hidden"
+        style={composerSurfaceStyle}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
         <div
           data-testid="composer-content-plane"
-          className="relative flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
         >
           {showLineageCopy ? (
             <div
@@ -1002,6 +1019,7 @@ export function Composer({
           <Textarea
             ref={ref}
             rows={MIN_COMPOSER_ROWS}
+            wrap="soft"
             value={value}
             onChange={(e) => {
               const next = e.target.value;
@@ -1071,10 +1089,12 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
-            className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-transparent"
+            className="w-full min-w-0 resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-transparent"
             style={{
               color: "var(--text)",
               overflow: "hidden",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
               padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
             }}
           />
@@ -1220,10 +1240,12 @@ export function Composer({
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
               "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
+            style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
             <div
               data-testid="composer-controls-strip"
               className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
+              style={{ gap: "var(--composer-control-gap, 12px)" }}
             >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
@@ -1294,6 +1316,7 @@ export function Composer({
             <div
               data-testid="composer-send-slot"
               className="flex w-8 shrink-0 items-center justify-center"
+              style={{ width: "var(--composer-control-size, 2rem)" }}
             >
               <button
                 type="button"
@@ -1316,6 +1339,8 @@ export function Composer({
                     : ""
                 )}
                 style={{
+                  width: "var(--composer-control-size, 2rem)",
+                  height: "var(--composer-control-size, 2rem)",
                   background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
                   color: "var(--text-on-accent, #111827)",
                   boxShadow: "none",
