@@ -22,8 +22,8 @@ import {
   type SlashCommandDefinition,
   type SlashCommandId,
   type SlashCommandIntentPayload,
-  resolveSlashCommandIntent,
   buildSlashCommandIntentPayload,
+  resolveSlashCommandIntent,
 } from "@/contracts/slashCommands";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
@@ -51,6 +51,95 @@ const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
 const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
+const SLASH_COMMAND_TOKEN_SPLIT_RE = /\s/;
+
+function normalizeSlashCommandQuery(query: string) {
+  return query.replace(/^\/+/, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function fuzzySlashMatchScore(query: string, candidate: string) {
+  const normalizedCandidate = candidate.toLowerCase().trim().replace(/\s+/g, " ");
+  if (!query) return 1000;
+  if (normalizedCandidate === query) return 2000;
+  if (normalizedCandidate.startsWith(query)) return 1800 - normalizedCandidate.length;
+
+  const containsAt = normalizedCandidate.indexOf(query);
+  if (containsAt >= 0) return 1600 - containsAt * 10 - normalizedCandidate.length * 0.1;
+
+  let queryIndex = 0;
+  let lastMatchIndex = -1;
+  let gapCount = 0;
+  for (let candidateIndex = 0; candidateIndex < normalizedCandidate.length; candidateIndex += 1) {
+    if (normalizedCandidate[candidateIndex] !== query[queryIndex]) continue;
+    if (lastMatchIndex >= 0) {
+      gapCount += candidateIndex - lastMatchIndex - 1;
+    }
+    lastMatchIndex = candidateIndex;
+    queryIndex += 1;
+    if (queryIndex >= query.length) break;
+  }
+
+  if (queryIndex < query.length) return null;
+  return 400 - gapCount * 8 - normalizedCandidate.length * 0.1;
+}
+
+function rankSlashCommands(
+  query: string | readonly string[],
+  commands: readonly SlashCommandDefinition[]
+) {
+  const normalizedQueries = (Array.isArray(query) ? query : [query])
+    .map((value) => normalizeSlashCommandQuery(value))
+    .filter(Boolean);
+
+  if (normalizedQueries.length === 0) return [...commands];
+
+  return commands
+    .map((command, index) => {
+      const candidates = [command.label, ...command.aliases, ...command.keywords];
+      let bestScore: number | null = null;
+      for (const candidate of candidates) {
+        for (const normalizedQuery of normalizedQueries) {
+          const score = fuzzySlashMatchScore(normalizedQuery, candidate);
+          if (score == null) continue;
+          if (bestScore == null || score > bestScore) {
+            bestScore = score;
+          }
+        }
+      }
+      return bestScore == null ? null : { command, index, score: bestScore };
+    })
+    .filter(
+      (entry): entry is { command: SlashCommandDefinition; index: number; score: number } =>
+        entry != null
+    )
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.command);
+}
+
+function extractSlashCommandContext(value: string, caretIndex: number | null) {
+  const caret = Math.max(0, Math.min(caretIndex ?? value.length, value.length));
+  let start = -1;
+  for (let index = caret - 1; index >= 0; index -= 1) {
+    if (value[index] !== "/") continue;
+    if (index > 0 && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[index - 1])) continue;
+    start = index;
+    break;
+  }
+
+  if (start < 0) return null;
+
+  const token = value.slice(start, caret);
+  if (!token.startsWith("/")) return null;
+
+  const query = token.slice(1);
+  return {
+    start,
+    end: caret,
+    text: token,
+    query,
+    key: `${start}:${caret}:${token}`,
+  } as const;
+}
 
 const SLASH_COMMAND_TOKEN_SPLIT_RE = /\s/;
 
@@ -386,7 +475,7 @@ export function Composer({
     }
 
     return queries;
-  }, [activeSlashIntent?.queryText, activeSlashToken?.query, activeSlashToken?.text]);
+  }, [activeSlashIntent?.queryText, activeSlashToken?.query]);
   const visibleSlashCommands = useMemo(
     () => rankSlashCommands(activeSlashQueries, SLASH_COMMANDS),
     [activeSlashQueries]
@@ -501,6 +590,9 @@ export function Composer({
     lastCommittedDraftRef.current = initial;
     setValue(initial);
     setCaretIndex(initial.length);
+    setSlashPaletteOpen(false);
+    setActiveSlashCommandId(null);
+    dismissedSlashTokenKeyRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftScopeKey, draftValue, threadId]);
 
@@ -771,6 +863,7 @@ export function Composer({
       const message = hasAttachments
         ? buildChatAttachmentMessage(uploaded, bodyText)
         : bodyText;
+      const slashIntent = buildSlashCommandIntentPayload(value);
 
       if (hasAttachments && !message) {
         showToast("No attachments could be uploaded.");
@@ -783,7 +876,7 @@ export function Composer({
           uploadThreadId != null && uploadThreadId !== threadId
             ? uploadThreadId
             : undefined,
-        slashIntent,
+        ...(slashIntent ? { slashIntent } : {}),
       });
 
       // Clear the draft after a successful send.
