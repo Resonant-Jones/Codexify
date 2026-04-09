@@ -150,34 +150,6 @@ export const SLASH_COMMANDS = [
   },
 ] as const satisfies readonly SlashCommandDefinition[];
 
-export type SlashCommandIntent = {
-  command: SlashCommandDefinition;
-  rawToken: string;
-  queryText: string;
-};
-
-export type SlashCommandIntentPayload = {
-  commandId: SlashCommandId;
-  rawToken: string;
-  queryText: string;
-  intentKind: SlashCommandIntentKind;
-  retrievalHint: SlashCommandRetrievalHint;
-};
-
-export function buildSlashCommandIntentPayload(
-  input: string
-): SlashCommandIntentPayload | null {
-  const intent = resolveSlashCommandIntent(input);
-  if (!intent) return null;
-  return {
-    commandId: intent.command.id,
-    rawToken: intent.rawToken,
-    queryText: intent.queryText,
-    intentKind: intent.command.effects.intentKind,
-    retrievalHint: intent.command.effects.retrievalHint,
-  };
-}
-
 export const SLASH_COMMAND_LOOKUP = Object.fromEntries(
   SLASH_COMMANDS.map((command) => [command.id, command])
 ) as Record<SlashCommandId, SlashCommandDefinition>;
@@ -189,7 +161,26 @@ export const SLASH_COMMAND_TOKEN_LOOKUP = Object.fromEntries(
   ])
 ) as Record<string, SlashCommandDefinition>;
 
-export function resolveSlashCommandIntent(input: string): SlashCommandIntent | null {
+export type SlashCommandIntent = {
+  command: SlashCommandDefinition;
+  rawToken: string;
+  queryText: string;
+};
+
+export type SlashCommandIntentPayload = {
+  intentKind: SlashCommandIntentKind;
+  retrievalHint?: SlashCommandRetrievalHint;
+  commandId?: SlashCommandId;
+  rawInput: string;
+};
+
+function normalizeSlashToken(value: string): string {
+  return value.trim().replace(/^\/+/, "").toLowerCase();
+}
+
+export function resolveSlashCommandIntent(
+  input: string
+): SlashCommandIntent | null {
   const normalizedInput = input.trimEnd();
   if (!normalizedInput) return null;
 
@@ -212,7 +203,7 @@ export function resolveSlashCommandIntent(input: string): SlashCommandIntent | n
   const firstWhitespaceIndex = body.search(/\s/);
   const commandToken =
     firstWhitespaceIndex === -1 ? body : body.slice(0, firstWhitespaceIndex);
-  const normalizedToken = commandToken.trim().toLowerCase();
+  const normalizedToken = normalizeSlashToken(commandToken);
   if (!normalizedToken) return null;
 
   const command = SLASH_COMMAND_TOKEN_LOOKUP[normalizedToken];
@@ -225,5 +216,19 @@ export function resolveSlashCommandIntent(input: string): SlashCommandIntent | n
     command,
     rawToken: `/${normalizedToken}`,
     queryText,
+  };
+}
+
+export function buildSlashCommandIntentPayload(
+  input: string
+): SlashCommandIntentPayload | null {
+  const intent = resolveSlashCommandIntent(input);
+  if (!intent) return null;
+
+  return {
+    commandId: intent.command.id,
+    intentKind: intent.command.effects.intentKind,
+    retrievalHint: intent.command.effects.retrievalHint,
+    rawInput: input,
   };
 }
