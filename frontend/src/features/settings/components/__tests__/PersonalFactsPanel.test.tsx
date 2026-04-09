@@ -172,6 +172,10 @@ describe("PersonalFactsPanel", () => {
     renderPanel();
 
     expect(screen.getByTestId("personal-facts-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("personal-facts-panel")).toHaveClass(
+      "w-full",
+      "min-w-0"
+    );
     expect(screen.getByTestId("personal-facts-summary")).toBeInTheDocument();
     expect(screen.getByTestId("personal-facts-guardrail")).toBeInTheDocument();
     expect(screen.getByText("Quarantine before trust")).toBeInTheDocument();

@@ -18,9 +18,10 @@ describe("SettingsPanelDock", () => {
       "sticky",
       "top-0",
       "z-30",
+      "w-full",
+      "min-w-0",
       "items-stretch",
       "overflow-x-auto",
-      "min-w-0"
     );
     expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveStyle({
       gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
@@ -31,6 +32,7 @@ describe("SettingsPanelDock", () => {
     );
     expect(screen.getByRole("tab", { name: "Appearance" })).toHaveClass(
       "opacity-100",
+      "min-w-0",
       "lg:w-full"
     );
     expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveClass(

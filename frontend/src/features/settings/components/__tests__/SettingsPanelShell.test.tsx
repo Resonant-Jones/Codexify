@@ -19,10 +19,17 @@ describe("SettingsPanelShell", () => {
       "min-w-0",
       "overflow-x-clip"
     );
+    expect(screen.getByText("Body").parentElement).toHaveClass(
+      "w-full",
+      "min-w-0",
+      "space-y-[var(--shell-gap)]"
+    );
     expect(screen.getByTestId("settings-panel-dock")).toHaveClass(
       "sticky",
       "top-0",
       "z-30",
+      "w-full",
+      "min-w-0",
       "lg:grid",
       "lg:overflow-visible"
     );

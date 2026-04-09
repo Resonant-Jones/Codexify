@@ -109,7 +109,7 @@ export default function SettingsPanelDock({
             data-state={isActive ? "active" : "inactive"}
             data-testid={`settings-panel-dock-tab-${tab.id}`}
             className={[
-              "pill-tab shrink-0 whitespace-nowrap text-xs transition-opacity lg:w-full lg:justify-center lg:text-center",
+              "pill-tab min-w-0 shrink-0 whitespace-nowrap text-xs transition-opacity lg:w-full lg:justify-center lg:text-center",
               isActive
                 ? "opacity-100"
                 : "opacity-25 hover:opacity-100 focus-visible:opacity-100",

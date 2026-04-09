@@ -87,6 +87,10 @@ describe("ImprintReviewPanel", () => {
 
     render(<ImprintReviewPanel projectId={5} threadId={11} />);
 
+    expect(screen.getByTestId("imprint-review-panel")).toHaveClass(
+      "w-full",
+      "min-w-0"
+    );
     expect(screen.getByRole("status")).toHaveTextContent(
       "Loading imprint review state…"
     );
