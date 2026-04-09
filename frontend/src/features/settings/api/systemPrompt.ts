@@ -1,5 +1,8 @@
 import api from "@/lib/api";
 
+// This snapshot merges persisted active identity rows with resolved prompt
+// summary data. It is not a raw last-request trace.
+
 export type PromptCostStatus = "ok" | "warn" | "hard" | "unknown";
 
 export type SystemPromptInspectorContext = {

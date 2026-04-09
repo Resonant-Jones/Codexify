@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -56,6 +56,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
+- [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
 - [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, and machine-readable failure codes.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
@@ -70,6 +71,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 - Chat thread/message API contract: `guardian/routes/chat.py`
 - Completion assembly and provider execution: `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`
+- Identity precedence, persona/imprint assembly, and status-surface wording: `docs/architecture/identity-precedence-contract.md`, `guardian/cognition/identity_contract.py`, `guardian/cognition/identity_resolution.py`, `guardian/cognition/system_prompt_builder.py`, `guardian/core/chat_completion_service.py`, `guardian/routes/imprint.py`, `guardian/routes/chat.py`, `frontend/src/features/settings/`
 - RAG depth behavior and retrieval composition: `guardian/context/broker.py`, `guardian/memoryos/retriever.py`
 - Provider catalog, model selection, and runtime support: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py`
 - Startup order, router wiring, middleware, SSE: `guardian/guardian_api.py`

@@ -71,7 +71,7 @@ export default function ImprintReviewPanel({
       <SettingsSectionCard
         eyebrow="Review workspace"
         title="Imprint Review"
-        subtitle="Imprint is a deeper style and reasoning layer. Persona is the user-editable mask or voice layer. This panel consumes the backend proposal response directly, and the backend result wins over any preview state."
+        subtitle="Imprint is a persisted style and presentation layer. Persona is the user-editable voice layer. This panel consumes the backend proposal response directly, and the backend result wins over any preview state."
         testId="imprint-review-overview"
       >
         {loading ? (
