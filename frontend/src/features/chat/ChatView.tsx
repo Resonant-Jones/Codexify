@@ -23,6 +23,7 @@ import type {
 } from "@/features/chat/useChat";
 import { cn } from "@/lib/utils";
 import { parseDocumentContextContent } from "@/lib/documentContext";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -112,6 +113,7 @@ export function ChatView({
   const autoReadPrimedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const conversationLaneRef = useRef<HTMLDivElement | null>(null);
+  const mobileShellProfile = useMobileShellProfile();
 
   const isCompletingForThread =
     completionState.isCompleting && completionState.activeThreadId === threadId;
@@ -465,7 +467,8 @@ export function ChatView({
   const shouldMask = hasOverflow && bottomPadding > 0;
   const scrollStyle: React.CSSProperties = useMemo(
     () => ({
-      paddingBottom: bottomPadding ?? 0,
+      "--chat-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
+      paddingBottom: `calc(${bottomPadding ?? 0}px + var(--chat-safe-area-bottom, 0px))`,
       ...(shouldMask
         ? {
             maskImage:
@@ -475,11 +478,11 @@ export function ChatView({
           }
         : {}),
     }),
-    [bottomPadding, shouldMask]
+    [bottomPadding, mobileShellProfile.chat.composer.bottomSafeArea, shouldMask]
   );
 
   return (
-    <div className={cn("relative flex flex-col h-full min-h-0", className)}>
+    <div className={cn("relative flex min-h-0 min-w-0 flex-col h-full", className)}>
       <div
         ref={containerRef}
         onScroll={() => {
@@ -487,7 +490,7 @@ export function ChatView({
         }}
         data-testid="chat-container"
         data-debug-scroll
-        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain"
+        className="flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto overflow-x-hidden overscroll-contain"
         style={{
           ...scrollStyle,
           paddingInline: CHAT_LANE_INLINE_PADDING,
@@ -496,7 +499,7 @@ export function ChatView({
         <div
           ref={conversationLaneRef}
           data-testid="chat-conversation-lane"
-          className="mx-auto w-full max-w-full md:max-w-[888px] space-y-4"
+          className="mx-auto w-full min-w-0 max-w-full md:max-w-[888px] space-y-4"
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
         >
           {messages.map((message, index) => {
@@ -561,6 +564,7 @@ export function ChatView({
                   showPlay={showPlay}
                   playing={playState === "playing"}
                   playState={playState}
+                  isPhoneShell={mobileShellProfile.active}
                   onPlay={() => {
                     if (!Number.isFinite(messageId)) return;
                     handlePlayClick(message);
@@ -572,10 +576,10 @@ export function ChatView({
 
           {showStreamingDraft ? (
             <div
-              className="w-full flex justify-start"
+              className="w-full flex justify-start min-w-0"
               data-testid="chat-streaming-draft"
             >
-              <div className="max-w-[min(34rem,calc(100%-1rem))] opacity-90">
+              <div className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 opacity-90">
                 <ChatBubble
                   message={{
                     id: `${threadId}-streaming-draft`,
@@ -585,6 +589,7 @@ export function ChatView({
                     createdAt: streamingDraft?.updatedAt ?? null,
                   }}
                   isGuardian
+                  isPhoneShell={mobileShellProfile.active}
                 />
               </div>
             </div>
@@ -596,7 +601,7 @@ export function ChatView({
               data-testid="chat-completing-indicator"
             >
               <div
-                className="max-w-[min(34rem,calc(100%-1rem))] rounded-[22px] px-4 py-3 shadow-sm"
+                className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 rounded-[22px] px-4 py-3 shadow-sm"
                 style={{
                   background:
                     "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
@@ -613,12 +618,12 @@ export function ChatView({
           ) : null}
 
           {loading ? (
-            <div className="text-xs opacity-70" data-testid="chat-loading">
+            <div className="min-w-0 text-xs opacity-70" data-testid="chat-loading">
               Loading...
             </div>
           ) : null}
           {error ? (
-            <div className="text-xs text-red-500" data-testid="chat-error">
+            <div className="min-w-0 text-xs text-red-500" data-testid="chat-error">
               {error}
             </div>
           ) : null}
@@ -627,7 +632,10 @@ export function ChatView({
       </div>
 
       {showJumpToLatest ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+        <div
+          className="pointer-events-none absolute inset-x-0 z-30 flex justify-center px-4"
+          style={{ bottom: "calc(1rem + var(--chat-safe-area-bottom, 0px))" }}
+        >
           <button
             type="button"
             data-testid="jump-to-latest-button"

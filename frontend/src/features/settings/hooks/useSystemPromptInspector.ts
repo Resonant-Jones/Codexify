@@ -142,7 +142,7 @@ function buildLayers(
   return [
     {
       description:
-        "Core system rules are active when this layer is present. Raw base prompt contents remain hidden here.",
+        "Core system rules are part of the resolved prompt preview and remain immutable. Raw base prompt contents remain hidden here.",
       editableHere: false,
       key: "base",
       metadata: baseMetadata,
@@ -151,7 +151,7 @@ function buildLayers(
     },
     {
       description:
-        "The current depth or mode selection is not exposed as a dedicated backend status field, so this inspector cannot verify it directly.",
+        "Depth and mode are request-time settings. This inspector only sees persisted active identity records and resolved prompt metadata, so it cannot verify the exact value directly.",
       editableHere: false,
       key: "depthMode",
       metadata: [],
@@ -160,7 +160,7 @@ function buildLayers(
     },
     {
       description:
-        "Persona contributes user-facing voice and style when present. This inspector does not edit it.",
+        "Persona contributes user-facing voice and style when it is resolved into the prompt preview. This inspector shows the persisted record and resolved preview, not the raw request payload.",
       editableHere: false,
       key: "persona",
       metadata: personaMetadata,
@@ -172,7 +172,7 @@ function buildLayers(
     },
     {
       description:
-        "Imprint contributes a style layer when present. Review only; no accept/reject controls here.",
+        "Imprint contributes style and presentation when it is present in the resolved prompt preview. Review only; no accept/reject controls here.",
       editableHere: false,
       key: "imprint",
       metadata: imprintMetadata,
@@ -184,7 +184,7 @@ function buildLayers(
     },
     {
       description:
-        "Attached system documents add supporting context when present. The inspector reports counts and budget hints only.",
+        "Attached system documents add supporting context when present in the resolved prompt preview. The inspector reports counts and budget hints only.",
       editableHere: false,
       key: "systemDocs",
       metadata: docsMetadata,

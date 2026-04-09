@@ -96,7 +96,7 @@ describe("ImprintReviewPanel", () => {
     expect(screen.getByText("Proposal available for review")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Imprint is a deeper style and reasoning layer\. Persona is the user-editable mask or voice layer\./
+        /Imprint is a persisted style and presentation layer\. Persona is the user-editable voice layer\./
       )
     ).toBeInTheDocument();
     expect(
@@ -379,9 +379,13 @@ describe("ImprintReviewPanel", () => {
     await screen.findByText("Proposal available for review");
     await user.click(screen.getByRole("button", { name: "Accept" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "identity updates disabled for this context"
-    );
+    expect(await screen.findByText("Imprint review issue")).toBeInTheDocument();
+    expect(
+      screen.getByText("Some review details could not be loaded right now.")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("identity updates disabled for this context")
+    ).not.toBeInTheDocument();
   });
 
   test("surfaces backend failure on reject", async () => {
@@ -416,8 +420,10 @@ describe("ImprintReviewPanel", () => {
     await screen.findByText("Proposal available for review");
     await user.click(screen.getByRole("button", { name: "Reject" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "imprint not found"
-    );
+    expect(await screen.findByText("Imprint review issue")).toBeInTheDocument();
+    expect(
+      screen.getByText("Some review details could not be loaded right now.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("imprint not found")).not.toBeInTheDocument();
   });
 });
