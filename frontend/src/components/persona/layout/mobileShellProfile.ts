@@ -13,6 +13,8 @@ export type MobileShellProfile = {
   topNav: {
     scrollable: boolean;
     width: string;
+    railEdgePadding: string;
+    railGap: string;
   };
   guardian: {
     singleLane: boolean;
@@ -41,6 +43,8 @@ const DESKTOP_SHELL_PROFILE = {
   topNav: {
     scrollable: false,
     width: "auto",
+    railEdgePadding: "0px",
+    railGap: "var(--pill-gap)",
   },
   guardian: {
     singleLane: false,
@@ -69,6 +73,8 @@ const PHONE_SHELL_PROFILE = {
   topNav: {
     scrollable: true,
     width: "100%",
+    railEdgePadding: "10px",
+    railGap: "var(--pill-gap)",
   },
   guardian: {
     singleLane: true,
