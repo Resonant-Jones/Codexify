@@ -2714,7 +2714,7 @@ export default function AppShell({
               className="mx-auto w-full max-w-[36rem] min-h-0 max-h-full flex flex-col overflow-hidden"
               data-testid="settings-framecard"
             >
-              <div className="w-full min-h-0 max-h-full overflow-auto p-[var(--card-pad)]" data-testid="settings-scroll-body">
+              <div className="w-full min-h-0 max-h-full overflow-auto p-0" data-testid="settings-scroll-body">
                 <ErrorBoundary>
                   <SettingsView
                     mode={mode}
