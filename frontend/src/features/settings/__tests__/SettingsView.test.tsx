@@ -17,7 +17,7 @@ vi.mock("@/features/settings/components/ImprintReviewPanel", () => ({
   ),
 }));
 
-vi.mock("@/features/settings/components/PersonaSettingsPanel", () => ({
+vi.mock("@/features/settings/components/PersonalFactsPanel", () => ({
   default: () => (
     <section data-testid="mock-persona-settings">Persona Settings</section>
   ),

@@ -1854,12 +1854,12 @@ export default function AppShell({
 
   // Responsive layout helper for Settings view
   const settingsLayout = useMemo(() => {
-    // On small (sm, md) breakpoints, let the settings card fill width
+    // Keep the settings card compact, but give it enough width to breathe.
     if (bp === "sm" || bp === "md") {
-      return { flex: "1 1 100%", maxWidth: "none" };
+      return { maxWidth: "none" };
     }
-    // On larger screens, enforce max width (18rem)
-    return { flex: "1 1 0%", maxWidth: "18rem" };
+    // On larger screens, let the shell expand modestly without becoming a takeover.
+    return { maxWidth: "min(46rem, calc(100vw - 2rem))" };
   }, [bp]);
 
   const galleryGridStyle = useMemo(
@@ -2482,8 +2482,9 @@ export default function AppShell({
             <FrameCard
               refractiveFallback
               shimmerMode="subtle"
-              className="mx-auto w-full max-w-[36rem] min-h-0 max-h-full flex flex-col overflow-hidden"
+              className="mx-auto w-full min-h-0 max-h-full flex flex-col overflow-hidden"
               data-testid="settings-framecard"
+              style={settingsLayout}
             >
               <div className="w-full min-h-0 max-h-full overflow-auto p-[var(--card-pad)]" data-testid="settings-scroll-body">
                 <ErrorBoundary>

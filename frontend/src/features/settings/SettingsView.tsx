@@ -9,8 +9,11 @@ import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
 import { MemoryBrowser } from "@/features/settings/diagnostics";
 import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
-import PersonaSettingsPanel from "@/features/settings/components/PersonaSettingsPanel";
+import PersonalFactsPanel from "@/features/settings/components/PersonalFactsPanel";
 import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
+import SettingsPanelDock from "@/features/settings/components/SettingsPanelDock";
+import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
+import SettingsSectionCard from "@/features/settings/components/SettingsSectionCard";
 import {
   ChatGPTImportModal,
   type MigrationStats,
@@ -968,8 +971,8 @@ export function SettingsView({
 
   return (
     <div className="w-full" style={{ color: "var(--text)" }}>
-      <div className="mx-auto w-full max-w-[30rem] space-y-6 p-4">
-        <div className="flex items-center gap-2">
+      <SettingsPanelShell>
+        <SettingsPanelDock>
           <Button type="button" variant={tab === "appearance" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("appearance")}>
             Appearance
           </Button>
@@ -996,10 +999,13 @@ export function SettingsView({
           <Button type="button" variant={tab === "diagnostics" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("diagnostics")}>
             Diagnostics
           </Button>
-        </div>
+        </SettingsPanelDock>
 
         {tab === "system" && (
-          <div className="space-y-4">
+          <SettingsSectionCard
+            data-testid="settings-system-surface"
+            className="space-y-4"
+          >
             <div
               className="space-y-2 rounded-[var(--tile-radius,19px)] border p-4"
               style={{
@@ -1060,13 +1066,9 @@ export function SettingsView({
               </div>
             </div>
 
-            <section
-              className="space-y-4 rounded-[var(--tile-radius,19px)] border p-4"
-              style={{
-                borderColor: "var(--panel-border)",
-                background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
-              }}
+            <SettingsSectionCard
               data-testid="imprint-workspace"
+              className="space-y-4"
             >
               <div className="space-y-1">
                 <div className="text-sm font-semibold">Imprint Workspace</div>
@@ -1077,15 +1079,18 @@ export function SettingsView({
               </div>
               <ImprintReviewPanel />
               <div className="grid gap-4 xl:grid-cols-2">
-                <PersonaSettingsPanel />
+                <PersonalFactsPanel />
                 <SystemPromptInspector />
               </div>
-            </section>
-          </div>
+            </SettingsSectionCard>
+          </SettingsSectionCard>
         )}
 
         {tab === "appearance" && (
-          <div className="space-y-6">
+          <SettingsSectionCard
+            data-testid="settings-appearance-surface"
+            className="space-y-5"
+          >
             <div className="space-y-2">
               <div className="text-sm font-semibold">Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
@@ -1202,11 +1207,14 @@ export function SettingsView({
               </div>
             </div>
 
-          </div>
+          </SettingsSectionCard>
         )}
 
         {tab === "connectors" && (
-          <div className="space-y-4">
+          <SettingsSectionCard
+            data-testid="settings-connectors-surface"
+            className="space-y-4"
+          >
             {runtimeCapabilitiesReady &&
               connectorsCapability === "unavailable" && (
                 <div className="text-sm opacity-70">
@@ -1242,11 +1250,14 @@ export function SettingsView({
                 <div className="text-sm opacity-70">No connectors available</div>
               )
             )}
-          </div>
+          </SettingsSectionCard>
         )}
 
         {tab === "data" && (
-          <div className="space-y-4">
+          <SettingsSectionCard
+            data-testid="settings-data-surface"
+            className="space-y-4"
+          >
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-2">
@@ -1415,11 +1426,14 @@ export function SettingsView({
                 </p>
               )}
             </div>
-          </div>
+          </SettingsSectionCard>
         )}
 
         {tab === "connection" && desktopMode && (
-          <div className="space-y-4">
+          <SettingsSectionCard
+            data-testid="settings-connection-surface"
+            className="space-y-4"
+          >
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="text-sm font-semibold">Desktop Connection</div>
               <p className="text-xs opacity-70">
@@ -1514,15 +1528,18 @@ export function SettingsView({
             {connectionError && (
               <div className="text-xs text-red-400">{connectionError}</div>
             )}
-          </div>
+          </SettingsSectionCard>
         )}
 
         {tab === "diagnostics" && (
-          <div className="space-y-4">
+          <SettingsSectionCard
+            data-testid="settings-diagnostics-surface"
+            className="space-y-4"
+          >
             <MemoryBrowser activeThreadId={activeThreadId} />
-          </div>
+          </SettingsSectionCard>
         )}
-      </div>
+      </SettingsPanelShell>
 
       <ChatGPTImportModal
         open={chatGPTModalOpen}

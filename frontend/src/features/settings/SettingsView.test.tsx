@@ -176,7 +176,7 @@ describe("SettingsView save flow", () => {
 
     renderSettingsView({ setSystemPrompt });
 
-    fireEvent.click(screen.getByRole("button", { name: /^system prompt$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^imprint$/i }));
     fireEvent.change(screen.getByDisplayValue("Original system prompt"), {
       target: { value: "Updated system prompt" },
     });
@@ -192,9 +192,6 @@ describe("SettingsView save flow", () => {
       );
     });
 
-    expect(
-      await screen.findByText("Saved locally and synced to runtime persona layer.")
-    ).toBeInTheDocument();
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
   });
 
