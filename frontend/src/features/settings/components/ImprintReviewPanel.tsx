@@ -60,7 +60,12 @@ export default function ImprintReviewPanel({
 
   return (
     <div
-      className={className ?? ""}
+      className={[
+        "w-full min-w-0",
+        className ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-testid="imprint-review-panel"
     >
       <SettingsSectionCard

@@ -41,7 +41,7 @@ export default function SettingsPanelShell({
         />
         <div
           className={[
-            "min-w-0 space-y-[var(--shell-gap)]",
+            "w-full min-w-0 space-y-[var(--shell-gap)]",
             contentClassName ?? "",
           ]
             .filter(Boolean)

@@ -938,7 +938,7 @@ export function SettingsView({
       onTabChange={setTab}
     >
       {tab === "system" && (
-        <div className="space-y-[var(--shell-gap)]">
+        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
             <div
               className="space-y-2 rounded-[var(--tile-radius,19px)] border p-4"
               style={{
@@ -1032,7 +1032,7 @@ export function SettingsView({
         )}
 
       {tab === "appearance" && (
-        <div className="space-y-[var(--shell-gap)]">
+        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
             <div className="space-y-2">
               <div className="text-sm font-semibold">Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
@@ -1153,7 +1153,7 @@ export function SettingsView({
         )}
 
       {tab === "connectors" && (
-        <div className="space-y-[var(--shell-gap)]">
+        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
             {runtimeCapabilitiesReady &&
               connectorsCapability === "unavailable" && (
                 <div className="text-sm opacity-70">
@@ -1193,7 +1193,7 @@ export function SettingsView({
         )}
 
       {tab === "data" && (
-        <div className="space-y-[var(--shell-gap)]">
+        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-2">
@@ -1366,7 +1366,7 @@ export function SettingsView({
         )}
 
       {tab === "connection" && desktopMode && (
-        <div className="space-y-[var(--shell-gap)]">
+        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="text-sm font-semibold">Desktop Connection</div>
               <p className="text-xs opacity-70">
@@ -1466,7 +1466,7 @@ export function SettingsView({
 
       {tab === "personalFacts" && (
         <div
-          className="space-y-[var(--shell-gap)]"
+          className="w-full min-w-0 space-y-[var(--shell-gap)]"
           id="settings-panel-personalFacts"
           role="tabpanel"
           aria-labelledby="settings-tab-personalFacts"
