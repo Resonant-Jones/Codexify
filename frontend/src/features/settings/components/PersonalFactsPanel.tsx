@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import SettingsSectionCard from "@/features/settings/components/SettingsSectionCard";
 import usePersonalFacts, {
   type PersonalFactCandidateView,
   type PersonalFactHistoryView,
@@ -70,33 +71,6 @@ const SECTION_META: Record<SectionId, SectionMeta> = {
 };
 
 const SECTION_ORDER: SectionId[] = ["candidates", "verified", "history"];
-
-function PanelCard({
-  children,
-  className,
-  testId,
-  label,
-}: {
-  children: ReactNode;
-  className?: string;
-  label: string;
-  testId?: string;
-}) {
-  return (
-    <section
-      aria-label={label}
-      data-testid={testId}
-      className={[
-        "space-y-[var(--shell-gap)] rounded-[var(--card-radius)] border border-[var(--panel-border)] bg-[var(--panel-bg)] p-[var(--card-pad)]",
-        className ?? "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {children}
-    </section>
-  );
-}
 
 function MetaItem({
   label,
@@ -191,6 +165,13 @@ function formatTimestamp(value: string | null | undefined): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function isLikelyAbsenceError(message: string | null): boolean {
+  if (!message) return false;
+  return /(^|\b)(not found|404|no (?:personal facts|history|evidence|proposal)|unavailable)(\b|$)/i.test(
+    message
+  );
 }
 
 function SectionTabRail({
@@ -714,28 +695,17 @@ function SectionContent({
 
   if (activeSection === "candidates") {
     return (
-      <PanelCard
-        label={meta.label}
-        testId="personal-facts-section-candidates"
-      >
-        <div className="flex flex-wrap items-start justify-between gap-[var(--shell-gap)]">
-          <div className="space-y-[calc(var(--radius-micro)/2)]">
-            <div className="flex flex-wrap items-center gap-[var(--radius-micro)]">
-              <meta.icon className="h-4 w-4" aria-hidden="true" />
-              <div className="text-sm font-semibold text-[var(--text)]">
-                {sectionHeading}
-              </div>
-            </div>
-            <p className="text-xs leading-5 text-[var(--muted)]">
-              Quarantine-state facts extracted from evidence. They never
-              participate in runtime behavior until approved.
-            </p>
-          </div>
+      <SettingsSectionCard
+        eyebrow="Review surface"
+        title={sectionHeading}
+        subtitle={meta.description}
+        actions={
           <LifecycleChip className="bg-[var(--tag-surface)] text-[var(--tag-text)]">
             {meta.badge}
           </LifecycleChip>
-        </div>
-
+        }
+        testId="personal-facts-section-candidates"
+      >
         {candidates.length ? (
           <div className="space-y-[var(--shell-gap)]">
             {candidates.map((fact) => (
@@ -756,34 +726,23 @@ function SectionContent({
             description="This quarantine queue is empty. When the backend returns real candidate facts, they will appear here automatically."
           />
         )}
-      </PanelCard>
+      </SettingsSectionCard>
     );
   }
 
   if (activeSection === "verified") {
     return (
-      <PanelCard
-        label={meta.label}
-        testId="personal-facts-section-verified"
-      >
-        <div className="flex flex-wrap items-start justify-between gap-[var(--shell-gap)]">
-          <div className="space-y-[calc(var(--radius-micro)/2)]">
-            <div className="flex flex-wrap items-center gap-[var(--radius-micro)]">
-              <meta.icon className="h-4 w-4" aria-hidden="true" />
-              <div className="text-sm font-semibold text-[var(--text)]">
-                {sectionHeading}
-              </div>
-            </div>
-            <p className="text-xs leading-5 text-[var(--muted)]">
-              Stable personal facts vault slice. These entries stay runtime
-              eligible while active.
-            </p>
-          </div>
+      <SettingsSectionCard
+        eyebrow="Review surface"
+        title={sectionHeading}
+        subtitle={meta.description}
+        actions={
           <LifecycleChip className="bg-[var(--info-surface)] text-[var(--info-text)]">
             {meta.badge}
           </LifecycleChip>
-        </div>
-
+        }
+        testId="personal-facts-section-verified"
+      >
         {verified.length ? (
           <div className="space-y-[var(--shell-gap)]">
             {verified.map((fact) => (
@@ -804,33 +763,22 @@ function SectionContent({
             description="Once the backend returns approved facts, this stable vault slice will populate automatically."
           />
         )}
-      </PanelCard>
+      </SettingsSectionCard>
     );
   }
 
   return (
-    <PanelCard
-      label={meta.label}
-      testId="personal-facts-section-history"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-[var(--shell-gap)]">
-        <div className="space-y-[calc(var(--radius-micro)/2)]">
-          <div className="flex flex-wrap items-center gap-[var(--radius-micro)]">
-            <meta.icon className="h-4 w-4" aria-hidden="true" />
-            <div className="text-sm font-semibold text-[var(--text)]">
-              {sectionHeading}
-            </div>
-          </div>
-          <p className="text-xs leading-5 text-[var(--muted)]">
-            Revision history shows how a fact changed over time so identity
-            drift stays visible instead of hidden.
-          </p>
-        </div>
+    <SettingsSectionCard
+      eyebrow="Review surface"
+      title={sectionHeading}
+      subtitle={meta.description}
+      actions={
         <LifecycleChip className="bg-[var(--chip-bg)] text-[var(--text)]">
           {meta.badge}
         </LifecycleChip>
-      </div>
-
+      }
+      testId="personal-facts-section-history"
+    >
       {history.length ? (
         <div className="space-y-[var(--shell-gap)]">
           {history.map((entry) => (
@@ -843,7 +791,7 @@ function SectionContent({
           description="Amendments, disputes, and retirements will appear here once the backend returns revision rows."
         />
       )}
-    </PanelCard>
+    </SettingsSectionCard>
   );
 }
 
@@ -982,23 +930,22 @@ export default function PersonalFactsPanel() {
       ? "Refreshing live personal facts…"
       : "Loading live personal facts…"
     : "Live backend data only.";
+  const hasAbsenceLikeError = isLikelyAbsenceError(error);
+  const showErrorNotice = Boolean(error) && !hasAbsenceLikeError;
+  const showAvailabilityNotice =
+    hasAbsenceLikeError && !candidates.length && !verified.length && !history.length;
 
   return (
     <div
       className="min-w-0 space-y-[var(--shell-gap)] text-[var(--text)]"
       data-testid="personal-facts-panel"
     >
-      <PanelCard label="Personal facts overview" testId="personal-facts-summary">
-        <div className="space-y-[var(--radius-micro)]">
-          <div className="text-sm font-semibold text-[var(--text)]">
-            Personal Facts
-          </div>
-          <p className="text-xs leading-5 text-[var(--muted)]">
-            A compact lifecycle surface for quarantine, approval, amendment,
-            and retirement. Live backend data only.
-          </p>
-        </div>
-
+      <SettingsSectionCard
+        eyebrow="Summary / policy"
+        title="Personal Facts"
+        subtitle="A compact lifecycle surface for quarantine, approval, amendment, and retirement. Live backend data only."
+        testId="personal-facts-summary"
+      >
         <div className="grid gap-[var(--shell-gap)] md:grid-cols-3">
           <SummaryStat
             icon={ShieldAlert}
@@ -1044,39 +991,52 @@ export default function PersonalFactsPanel() {
         </div>
 
         <div className="text-xs leading-5 text-[var(--muted)]">{loadingLabel}</div>
-      </PanelCard>
+      </SettingsSectionCard>
 
-      <PanelCard label="Personal facts guardrail" testId="personal-facts-guardrail">
-        <div className="flex flex-wrap items-start justify-between gap-[var(--shell-gap)]">
-          <div className="space-y-[calc(var(--radius-micro)/2)]">
-            <div className="text-sm font-semibold text-[var(--text)]">
-              Quarantine before trust
-            </div>
-            <p className="text-xs leading-5 text-[var(--muted)]">
-              Candidate facts must never participate in retrieval, prompt
-              assembly, or runtime behavior. Only user-approved, verified,
-              active facts are runtime-eligible.
-            </p>
-          </div>
+      <SettingsSectionCard
+        eyebrow="Rule / guardrail"
+        title="Quarantine before trust"
+        subtitle="Candidate facts must never participate in retrieval, prompt assembly, or runtime behavior. Only user-approved, verified, active facts are runtime-eligible."
+        actions={
           <LifecycleChip className="bg-[var(--tag-surface)] text-[var(--tag-text)]">
             Quarantine only
           </LifecycleChip>
-        </div>
-      </PanelCard>
+        }
+        testId="personal-facts-guardrail"
+      />
+
+      {showAvailabilityNotice ? (
+        <SettingsSectionCard
+          eyebrow="Status"
+          title="No personal facts yet"
+          subtitle="The backend has not returned any personal-facts rows for this workspace yet."
+          testId="personal-facts-availability"
+        >
+          <p className="text-xs leading-5 text-[var(--muted)]">
+            Candidate, verified, and history surfaces will populate automatically
+            when live data arrives.
+          </p>
+        </SettingsSectionCard>
+      ) : null}
 
       <SectionTabRail
         activeSection={activeSection}
         onSectionChange={setActiveSection}
       />
 
-      {error && (
-        <div
-          className="rounded-[var(--card-radius)] border border-[var(--danger-border)] bg-[var(--danger-surface)] px-[var(--card-pad)] py-[calc(var(--card-pad)*0.8)] text-sm text-[var(--text)]"
-          role="alert"
+      {showErrorNotice ? (
+        <SettingsSectionCard
+          eyebrow="Status"
+          title="Personal facts load issue"
+          subtitle="Some personal facts details could not be loaded right now."
+          testId="personal-facts-error"
         >
-          {error}
-        </div>
-      )}
+          <p className="text-xs leading-5 text-[var(--muted)]">
+            The panel will keep showing the data that did arrive. You can try
+            again after the backend recovers.
+          </p>
+        </SettingsSectionCard>
+      ) : null}
 
       {editingFact && (
         <FactEditor

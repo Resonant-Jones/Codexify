@@ -10,9 +10,8 @@ import { ConnectorCard } from "@/features/connectors/ConnectorCard";
 import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
 import PersonaSettingsPanel from "@/features/settings/components/PersonaSettingsPanel";
 import PersonalFactsPanel from "@/features/settings/components/PersonalFactsPanel";
-import SettingsPanelDock, {
-  type SettingsTab,
-} from "@/features/settings/components/SettingsPanelDock";
+import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
+import type { SettingsTab } from "@/features/settings/components/SettingsPanelDock";
 import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
 import {
   ChatGPTImportModal,
@@ -933,16 +932,13 @@ export function SettingsView({
   } = useConnectors({ enabled: connectorsEnabled });
 
   return (
-    <div className="w-full" style={{ color: "var(--text)" }}>
-      <div className="mx-auto w-full max-w-[40rem] min-w-0 space-y-6 px-5 py-5">
-        <SettingsPanelDock
-          activeTab={tab}
-          desktopMode={desktopMode}
-          onTabChange={setTab}
-        />
-
-        {tab === "system" && (
-          <div className="space-y-4">
+    <SettingsPanelShell
+      activeTab={tab}
+      desktopMode={desktopMode}
+      onTabChange={setTab}
+    >
+      {tab === "system" && (
+        <div className="space-y-[var(--shell-gap)]">
             <div
               className="space-y-2 rounded-[var(--tile-radius,19px)] border p-4"
               style={{
@@ -1035,8 +1031,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "appearance" && (
-          <div className="space-y-6">
+      {tab === "appearance" && (
+        <div className="space-y-[var(--shell-gap)]">
             <div className="space-y-2">
               <div className="text-sm font-semibold">Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
@@ -1156,8 +1152,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "connectors" && (
-          <div className="space-y-4">
+      {tab === "connectors" && (
+        <div className="space-y-[var(--shell-gap)]">
             {runtimeCapabilitiesReady &&
               connectorsCapability === "unavailable" && (
                 <div className="text-sm opacity-70">
@@ -1196,8 +1192,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "data" && (
-          <div className="space-y-4">
+      {tab === "data" && (
+        <div className="space-y-[var(--shell-gap)]">
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-2">
@@ -1369,8 +1365,8 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "connection" && desktopMode && (
-          <div className="space-y-4">
+      {tab === "connection" && desktopMode && (
+        <div className="space-y-[var(--shell-gap)]">
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="text-sm font-semibold">Desktop Connection</div>
               <p className="text-xs opacity-70">
@@ -1468,18 +1464,17 @@ export function SettingsView({
           </div>
         )}
 
-        {tab === "personalFacts" && (
-          <div
-            className="space-y-4"
-            id="settings-panel-personalFacts"
-            role="tabpanel"
-            aria-labelledby="settings-tab-personalFacts"
-            data-testid="settings-panel-personal-facts"
-          >
+      {tab === "personalFacts" && (
+        <div
+          className="space-y-[var(--shell-gap)]"
+          id="settings-panel-personalFacts"
+          role="tabpanel"
+          aria-labelledby="settings-tab-personalFacts"
+          data-testid="settings-panel-personal-facts"
+        >
             <PersonalFactsPanel />
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <ChatGPTImportModal
         open={chatGPTModalOpen}
@@ -1490,7 +1485,7 @@ export function SettingsView({
           setMigrationStepSkipped(false);
         }}
       />
-    </div>
+    </SettingsPanelShell>
   );
 }
 

@@ -310,6 +310,7 @@ describe("PersonalFactsPanel", () => {
     renderPanel({
       candidates: [],
       hasLoaded: true,
+      error: "Not Found",
       history: [],
       loading: false,
       verified: [],
@@ -317,6 +318,8 @@ describe("PersonalFactsPanel", () => {
       verifiedCount: 0,
     });
 
+    expect(screen.getByText("No personal facts yet")).toBeInTheDocument();
+    expect(screen.queryByText("Not Found")).not.toBeInTheDocument();
     expect(screen.getByText("No candidate facts yet")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Verified" }));

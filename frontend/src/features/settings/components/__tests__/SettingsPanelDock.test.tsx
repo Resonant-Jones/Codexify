@@ -17,16 +17,22 @@ describe("SettingsPanelDock", () => {
     expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveClass(
       "sticky",
       "top-0",
-      "z-20",
+      "z-30",
+      "items-stretch",
+      "overflow-x-auto",
       "max-w-full",
       "min-w-0"
     );
+    expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveStyle({
+      gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    });
     expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
       "data-state",
       "active"
     );
     expect(screen.getByRole("tab", { name: "Appearance" })).toHaveClass(
-      "opacity-100"
+      "opacity-100",
+      "lg:w-full"
     );
     expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveClass(
       "opacity-25"
@@ -57,6 +63,9 @@ describe("SettingsPanelDock", () => {
       "true"
     );
     expect(screen.getByRole("tab", { name: "Personal Facts" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveStyle({
+      gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+    });
 
     fireEvent.keyDown(screen.getByRole("tab", { name: "Connection" }), {
       key: "ArrowRight",
