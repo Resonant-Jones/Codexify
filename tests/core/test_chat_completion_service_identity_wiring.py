@@ -210,3 +210,82 @@ async def test_build_messages_for_llm_uses_persisted_active_imprint_and_persona(
     assert summary["persona_or_imprint_present"] is True
     assert summary["message_count"] >= 2
     assert trace is not None
+
+
+@pytest.mark.asyncio
+async def test_build_messages_for_llm_prefers_thread_persona_override_without_rebinding_actor(
+    _runtime_prompt_setup,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    imprint = imprint_store.save_imprint(
+        "u1",
+        7,
+        status="active",
+        guardian_name="Auri",
+        preferred_name="Friend",
+        style="playful-dry",
+    )
+    imprint_store.activate_imprint(imprint.id)
+
+    active_persona = persona_store.set_persona(
+        "u1",
+        7,
+        body="Active persona text.",
+        source="user",
+    )
+    override_persona = persona_store.create_persona(
+        "u1",
+        7,
+        "thread",
+        "Thread override persona text.",
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "chatlog_db",
+        SimpleNamespace(
+            get_chat_thread=lambda thread_id: {
+                "id": thread_id,
+                "user_id": "u1",
+                "project_id": 7,
+                "thread_config": {
+                    "providerId": "groq",
+                    "modelId": "runtime-model",
+                    "inferenceMode": "fast",
+                    "retrievalSource": "project",
+                    "personaId": str(override_persona.id),
+                },
+                "active_profile_id": None,
+            },
+            list_messages=lambda thread_id, limit, offset: [
+                {"id": 1, "role": "user", "content": "What changed?"}
+            ],
+        ),
+        raising=False,
+    )
+
+    task = ChatCompletionTask(thread_id=1, max_context=50, depth_mode="normal")
+
+    (
+        messages_for_llm,
+        _provider,
+        _model,
+        bundle,
+        _trace,
+    ) = await chat_completion_service.build_messages_for_llm(task)
+
+    system_content = messages_for_llm[0]["content"]
+    assert "=== BASE SYSTEM ===" in system_content
+    assert "You are Guardian" in system_content
+    assert "=== IMPRINT_ZERO ===" in system_content
+    assert "Auri" in system_content
+    assert "=== PERSONA ===" in system_content
+    assert "Thread override persona text." in system_content
+    assert "Active persona text." not in system_content
+
+    prompt_meta = bundle["_prompt_meta"]
+    assert prompt_meta["resolved_imprint_source"] == "active_scope"
+    assert prompt_meta["resolved_persona_source"] == "request_override"
+    assert prompt_meta["resolved_persona_id"] == override_persona.id
+    assert prompt_meta["persona_has_body"] is True
+    assert persona_store.get_active_persona("u1", 7).id == active_persona.id

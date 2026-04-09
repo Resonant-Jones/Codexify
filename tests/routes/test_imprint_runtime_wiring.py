@@ -141,6 +141,12 @@ def test_accept_imprint_promotes_active_records_and_prompt_layers():
     assert (
         status_body["system_prompt_meta"]["segments_present"]["persona"] is True
     )
+    assert set(status_body["system_prompt_meta"]) == {
+        "estimated_tokens",
+        "docs_count",
+        "segments_present",
+        "segments",
+    }
 
 
 def test_update_persona_persists_project_scoped_active_persona_and_prompt_layers():
@@ -192,3 +198,9 @@ def test_update_persona_persists_project_scoped_active_persona_and_prompt_layers
         status_body["system_prompt_meta"]["segments_present"]["imprint"]
         is False
     )
+    assert set(status_body["system_prompt_meta"]) == {
+        "estimated_tokens",
+        "docs_count",
+        "segments_present",
+        "segments",
+    }

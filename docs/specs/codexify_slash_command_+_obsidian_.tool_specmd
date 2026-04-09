@@ -1,0 +1,447 @@
+# Codexify Slash Command + Obsidian Tool Spec v0.1
+
+## 1. Purpose
+
+Define a **single canonical command system** that powers:
+
+1. Composer `/` palette
+
+2. Internal CLI (`codexify ...`)
+
+3. Guardian action invocation
+
+And introduce **Obsidian as a first-class tool surface** with:
+
+- read (retrieval)
+
+- control (commands)
+
+- maintenance (lint / health)
+
+---
+
+# 2. Core Principle
+
+> One command registry → many surfaces
+
+No duplication.
+
+```ts
+CommandRegistry → {
+  CLI
+  Slash UI
+  Guardian invocation
+}
+```
+
+---
+
+# 3. Command Contract (Canonical)
+
+This is the core shape every command must conform to.
+
+```ts
+type Command = {
+  id: string            // "obsidian.ingest"
+  namespace: string     // "obsidian"
+  name: string          // "ingest"
+
+  description: string
+  aliases?: string[]
+
+  category: 
+    | "thread"
+    | "doc"
+    | "project"
+    | "workspace"
+    | "profile"
+    | "flow"
+    | "secure"
+    | "connect"
+    | "obsidian"
+
+  args: CommandArg[]
+
+  permissions: {
+    requiresAuth: boolean
+    requiresProject?: boolean
+    filesystem?: "none" | "scoped" | "full"
+  }
+
+  execution: {
+    mode: "sync" | "async"
+    handler: string        // command bus handler id
+  }
+
+  preview?: {
+    available: boolean
+    description?: string
+  }
+}
+```
+
+---
+
+# 4. Execution Flow
+
+All commands go through the same pipeline:
+
+```text
+Composer / CLI / Guardian
+        ↓
+Command Bus
+        ↓
+Validation (args + permissions)
+        ↓
+Command Run (persisted)
+        ↓
+Execution Handler
+        ↓
+Command Events (streamed)
+        ↓
+Result → Chat / UI / Flow
+```
+
+This already aligns with your system:
+
+- command runs
+
+- event stream
+
+- deterministic execution layer
+
+---
+
+# 5. Slash Command UX Contract
+
+When user types `/`:
+
+### UI must provide
+
+- fuzzy search
+
+- aliases
+
+- short description
+
+- argument hints
+
+- permission badges
+
+- preview/dry-run indicator
+
+### Example
+
+```id="cmd_ui_example"
+/obsidian ingest
+→ Ingest new raw files into your vault
+
+/obsidian find "context broker"
+→ Search compiled wiki
+
+/secure lock
+→ Lock encrypted vault
+```
+
+---
+
+# 6. Obsidian Tool Definition
+
+## Identity
+
+```ts
+Tool: Obsidian
+Type: Local Knowledge Substrate
+Mode: Read + Compile + Maintain
+```
+
+## Responsibilities
+
+|Capability|Description|
+|---|---|
+|ingest|process `/raw` into structured wiki|
+|compile|build / update knowledge graph|
+|lint|detect gaps, inconsistencies|
+|query|serve structured knowledge|
+|link|maintain relationships|
+
+This directly mirrors Karpathy’s pattern:
+
+- ingest → compile → maintain → query ([techbuddies.io](https://www.techbuddies.io/2026/04/04/inside-karpathys-llm-knowledge-base-a-markdown-first-alternative-to-rag-for-autonomous-archives/?utm_source=chatgpt.com "Inside Karpathy’s LLM Knowledge Base: A Markdown-First Alternative to RAG for Autonomous Archives - techbuddies.io"))
+
+---
+
+# 7. Obsidian Command Set (v0.1)
+
+## 7.1 Ingest
+
+```ts
+id: "obsidian.ingest"
+```
+
+### Behavior
+
+- scans `/raw`
+
+- processes new files
+
+- updates wiki
+
+### Args
+
+```ts
+{
+  path?: string
+  force?: boolean
+}
+```
+
+---
+
+## 7.2 Status
+
+```ts
+id: "obsidian.status"
+```
+
+### Returns
+
+- number of notes
+
+- last ingest time
+
+- health status
+
+- orphan nodes
+
+---
+
+## 7.3 Find
+
+```ts
+id: "obsidian.find"
+```
+
+### Args
+
+```ts
+{
+  query: string
+}
+```
+
+### Behavior
+
+- navigates compiled wiki
+
+- returns:
+
+  - relevant notes
+
+  - linked concepts
+
+---
+
+## 7.4 Lint (critical)
+
+```ts
+id: "obsidian.lint"
+```
+
+### Behavior
+
+- detect:
+
+  - unlinked notes
+
+  - missing backlinks
+
+  - contradictions
+
+  - stale summaries
+
+This is what turns the system into a **living archive**.
+
+---
+
+## 7.5 Summarize
+
+```ts
+id: "obsidian.summarize"
+```
+
+### Args
+
+```ts
+{
+  topic: string
+}
+```
+
+### Behavior
+
+- reads multiple wiki nodes
+
+- synthesizes answer
+
+---
+
+## 7.6 Refresh
+
+```ts
+id: "obsidian.refresh"
+```
+
+### Behavior
+
+- recompile selected nodes
+
+- update relationships
+
+---
+
+# 8. Retrieval Integration (critical boundary)
+
+## Source Selector
+
+```ts
+source_mode:
+  - project
+  - personal_knowledge
+  - obsidian   // new
+```
+
+### Behavior
+
+When `obsidian` selected:
+
+```text
+1. Query wiki index
+2. Traverse linked notes
+3. Assemble context
+4. Pass to LLM
+```
+
+---
+
+## Retrieval Precedence (v0.1)
+
+```text
+IF source == obsidian:
+    use wiki first
+    fallback → project RAG
+
+IF source == personal_knowledge:
+    use RAG first
+    optional → wiki enrichment
+```
+
+---
+
+# 9. Dual Memory Model (explicit)
+
+Codexify now has:
+
+## A. Retrieval Memory (RAG)
+
+- raw docs
+
+- embeddings
+
+- broad recall
+
+## B. Compiled Memory (Obsidian)
+
+- structured markdown
+
+- linked concepts
+
+- accumulated knowledge
+
+Karpathy’s model replaces repeated recomputation with:
+
+> “compile once, reuse forever” ([Agent Wars](https://agent-wars.com/news/2025-01-15-karpathy-llm-wiki-persistent-knowledge-base?utm_source=chatgpt.com "Karpathy's LLM Wiki Pattern: Compile Knowledge Once, Query Forever — Agent Wars"))
+
+Codexify should **not replace RAG**  
+It should **layer on top of it**
+
+---
+
+# 10. Guardrails
+
+## DO NOT
+
+- treat Obsidian as writable from chat (yet)
+
+- claim live sync
+
+- collapse command + retrieval layers
+
+- expose raw filesystem mutation without permissions
+
+## MUST
+
+- keep Obsidian read-only in retrieval
+
+- keep ingest behind commands
+
+- preserve audit trail (command runs)
+
+---
+
+# 11. Future Extensions (not v0.1)
+
+- `/obsidian.suggest-save`
+
+- `/obsidian.auto-link`
+
+- `/obsidian.graph-view`
+
+- flow integration:
+
+  - `/flow create from obsidian`
+
+---
+
+# 12. System Summary (compressed)
+
+```text
+Slash Commands → Control plane
+Source Selector → Data plane
+
+Obsidian:
+  - controlled via commands
+  - read via retrieval
+
+Guardian:
+  - executes commands
+  - queries knowledge
+  - bridges both
+```
+
+---
+
+# Final Read
+
+You now have:
+
+- a **shell (commands)**
+
+- a **memory system (wiki + RAG)**
+
+- a **runtime (Guardian)**
+
+That combination is rare.
+
+Most systems pick one.
+
+You’re wiring all three together.
+
+---
+
+If you want next, we should define:
+
+> **exact retrieval arbitration logic**  
+> (when Guardian chooses Obsidian vs RAG vs external tools)
+
+That’s where this stops being “cool” and becomes **predictable and reliable**.

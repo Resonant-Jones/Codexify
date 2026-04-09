@@ -3,6 +3,12 @@ System prompt builder.
 
 Fetches imprint/persona/system-doc data, composes deterministic prompt segments
 through the modular builder, and returns prompt metadata for UI/token warnings.
+
+Current contract:
+- Guardian is the stable actor.
+- Imprint and persona are additive layers.
+- Request-scoped persona selection is resolved before prompt assembly, but it
+  never replaces the core base prompt or safety rules.
 """
 
 from __future__ import annotations
@@ -145,6 +151,8 @@ def build_guardian_system_prompt(
     """
     bundle_payload = bundle if isinstance(bundle, dict) else {}
     resolved_imprint = resolve_imprint(user_id, project_id)
+    # Requested persona is request-scoped state copied in by the completion
+    # path. It may select a persisted persona record or supply inline text.
     resolved_persona = resolve_persona(
         user_id,
         project_id,

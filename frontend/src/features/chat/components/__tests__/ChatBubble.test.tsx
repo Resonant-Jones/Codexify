@@ -200,6 +200,35 @@ describe("ChatBubble", () => {
     expect(screen.getByText("const total = 1;")).toBeInTheDocument();
   });
 
+  it("keeps long assistant content and code blocks bounded on phone shells", () => {
+    const longToken = "a".repeat(160);
+
+    const { container } = render(
+      <ChatBubble
+        isGuardian
+        isPhoneShell
+        message={{
+          id: "msg-phone-wrap",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: `Phone-safe wrap token: ${longToken}\n\n\`\`\`ts\nconst payload = "${longToken}";\n\`\`\``,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    const prose = container.querySelector(".prose");
+    expect(prose).toHaveStyle({
+      overflowWrap: "anywhere",
+      wordBreak: "break-word",
+    });
+    expect(container.querySelector(".codexifyCodeBlock")).toHaveClass(
+      "max-w-full",
+      "min-w-0"
+    );
+    expect(container.querySelector(".codexifyCodeBlockPre")).toBeInTheDocument();
+  });
+
   it("normalizes TeX-style arrows in assistant prose without breaking markdown", () => {
     render(
       <ChatBubble

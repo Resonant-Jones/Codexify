@@ -146,6 +146,19 @@ function WorkspaceProbe() {
   );
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
+beforeEach(() => {
+  setViewportWidth(1280);
+});
+
 describe("workspace invocation contract", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -225,6 +238,43 @@ describe("workspace invocation contract", () => {
       );
       expect(screen.getByTestId("workspace-probe")).toHaveTextContent(
         "Thread Attachment"
+      );
+    });
+  });
+
+  it("keeps Workspace collapsed by default on phone widths after a document open request", async () => {
+    setViewportWidth(390);
+    render(<WorkspaceProbe />);
+
+    let didOpen = false;
+    await act(async () => {
+      didOpen = forwardLegacyDocumentOpenToWorkspace(
+        {
+          doc: {
+            id: "phone-1",
+            title: "Phone Notes",
+            name: "Phone Notes",
+            ext: "md",
+            type: "file",
+            src_url: "/media/documents/phone-notes.md",
+          },
+        },
+        {
+          source: "documents",
+          targetView: "documents",
+        }
+      );
+    });
+
+    expect(didOpen).toBe(true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-probe")).toHaveAttribute(
+        "data-open",
+        "false"
+      );
+      expect(screen.getByTestId("workspace-probe")).toHaveTextContent(
+        "Phone Notes"
       );
     });
   });
