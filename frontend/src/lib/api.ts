@@ -13,6 +13,11 @@ import {
   getRuntimeApiKey,
   setRuntimeApiKey as setRuntimeApiKeyState,
 } from "@/lib/runtimeAuth";
+import type {
+  SlashCommandIntentPayload,
+} from "@/contracts/slashCommands";
+
+export type { SlashCommandIntentPayload };
 
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
