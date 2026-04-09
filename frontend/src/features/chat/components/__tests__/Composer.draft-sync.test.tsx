@@ -5,6 +5,9 @@ import { Composer } from "@/features/chat/components/Composer";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
 } from "@/features/chat/chatLane";
+import {
+  resolveSlashCommandIntent,
+} from "@/contracts/slashCommands";
 import api from "@/lib/api";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
 
@@ -60,6 +63,34 @@ describe("Composer draft sync", () => {
     expect(
       screen.queryByRole("menuitem", { name: /Thread/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("resolves alias tokens through the shared slash parser", () => {
+    expect(resolveSlashCommandIntent("/repo scope planning")).toEqual(
+      expect.objectContaining({
+        rawToken: "/repo",
+        queryText: "scope planning",
+        command: expect.objectContaining({
+          id: "project",
+          scaffold: "/project",
+        }),
+      })
+    );
+  });
+
+  it("surfaces semantic hint metadata for a resolved command", async () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "/repo scope planning" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/intent kind:\s*workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/retrieval hint:\s*project/i)).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Project/i })).toBeInTheDocument();
   });
 
   it("closes the slash palette when the slash token is removed", async () => {
@@ -301,6 +332,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).not.toContain('pr-[24px]');
     expect(composerSource).toContain('from "@/contracts/slashCommands"');
     expect(composerSource).not.toContain('description: "Start or switch a conversation thread."');
+    expect(composerSource).toContain("resolveSlashCommandIntent");
     expect(composerSource).not.toMatch(/\bpr-\[/);
   });
 
