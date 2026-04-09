@@ -30,10 +30,6 @@ vi.mock("@/features/connectors/ConnectorCard", () => ({
   ConnectorCard: () => null,
 }));
 
-vi.mock("@/features/settings/diagnostics", () => ({
-  MemoryBrowser: () => null,
-}));
-
 vi.mock("@/components/modals/ChatGPTImportModal", () => ({
   ChatGPTImportModal: () => null,
 }));
@@ -195,7 +191,7 @@ describe("SettingsView restricted profile behavior", () => {
     const user = userEvent.setup();
     const props = renderSettingsView();
 
-    await user.click(screen.getByRole("button", { name: "System Prompt" }));
+    await user.click(screen.getByRole("tab", { name: "Imprint" }));
     const promptField = screen.getByDisplayValue("Current system prompt.");
     await user.clear(promptField);
     await user.type(promptField, "Local-only prompt update.");
@@ -221,7 +217,7 @@ describe("SettingsView restricted profile behavior", () => {
 
     const props = renderSettingsView();
 
-    await user.click(screen.getByRole("button", { name: "System Prompt" }));
+    await user.click(screen.getByRole("tab", { name: "Imprint" }));
     const promptField = screen.getByDisplayValue("Current system prompt.");
     await user.clear(promptField);
     await user.type(promptField, "Unknown route prompt update.");
@@ -256,7 +252,7 @@ describe("SettingsView restricted profile behavior", () => {
 
     const props = renderSettingsView();
 
-    await user.click(screen.getByRole("button", { name: "System Prompt" }));
+    await user.click(screen.getByRole("tab", { name: "Imprint" }));
     const promptField = screen.getByDisplayValue("Current system prompt.");
     await user.clear(promptField);
     await user.type(promptField, "Retryable prompt update.");

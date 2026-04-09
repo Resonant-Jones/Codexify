@@ -11,6 +11,7 @@ import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
@@ -87,6 +88,98 @@ function rankSlashCommands(
   commands: readonly SlashCommandDefinition[]
 ) {
   const normalizedQueries = (Array.isArray(query) ? query : [query])
+    .map((value) => normalizeSlashCommandQuery(value))
+    .filter(Boolean);
+
+  if (normalizedQueries.length === 0) return [...commands];
+
+  return commands
+    .map((command, index) => {
+      const candidates = [command.label, ...command.aliases, ...command.keywords];
+      let bestScore: number | null = null;
+      for (const candidate of candidates) {
+        for (const normalizedQuery of normalizedQueries) {
+          const score = fuzzySlashMatchScore(normalizedQuery, candidate);
+          if (score == null) continue;
+          if (bestScore == null || score > bestScore) {
+            bestScore = score;
+          }
+        }
+      }
+      return bestScore == null ? null : { command, index, score: bestScore };
+    })
+    .filter(
+      (entry): entry is { command: SlashCommandDefinition; index: number; score: number } =>
+        entry != null
+    )
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.command);
+}
+
+function extractSlashCommandContext(value: string, caretIndex: number | null) {
+  const caret = Math.max(0, Math.min(caretIndex ?? value.length, value.length));
+  let start = -1;
+  for (let index = caret - 1; index >= 0; index -= 1) {
+    if (value[index] !== "/") continue;
+    if (index > 0 && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[index - 1])) continue;
+    start = index;
+    break;
+  }
+
+  if (start < 0) return null;
+
+  const token = value.slice(start, caret);
+  if (!token.startsWith("/")) return null;
+
+  const query = token.slice(1);
+  return {
+    start,
+    end: caret,
+    text: token,
+    query,
+    key: `${start}:${caret}:${token}`,
+  } as const;
+}
+
+const SLASH_COMMAND_TOKEN_SPLIT_RE = /\s/;
+
+function normalizeSlashCommandQuery(query: string) {
+  return query.replace(/^\/+/, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function fuzzySlashMatchScore(query: string, candidate: string) {
+  const normalizedCandidate = candidate.toLowerCase().trim().replace(/\s+/g, " ");
+  if (!query) return 1000;
+  if (normalizedCandidate === query) return 2000;
+  if (normalizedCandidate.startsWith(query)) return 1800 - normalizedCandidate.length;
+
+  const containsAt = normalizedCandidate.indexOf(query);
+  if (containsAt >= 0) return 1600 - containsAt * 10 - normalizedCandidate.length * 0.1;
+
+  let queryIndex = 0;
+  let lastMatchIndex = -1;
+  let gapCount = 0;
+  for (let candidateIndex = 0; candidateIndex < normalizedCandidate.length; candidateIndex += 1) {
+    if (normalizedCandidate[candidateIndex] !== query[queryIndex]) continue;
+    if (lastMatchIndex >= 0) {
+      gapCount += candidateIndex - lastMatchIndex - 1;
+    }
+    lastMatchIndex = candidateIndex;
+    queryIndex += 1;
+    if (queryIndex >= query.length) break;
+  }
+
+  if (queryIndex < query.length) return null;
+  return 400 - gapCount * 8 - normalizedCandidate.length * 0.1;
+}
+
+function rankSlashCommands(
+  query: string | readonly string[],
+  commands: readonly SlashCommandDefinition[]
+) {
+  const normalizedQueries = (
+    Array.isArray(query) ? query : [query]
+  )
     .map((value) => normalizeSlashCommandQuery(value))
     .filter(Boolean);
 
@@ -369,12 +462,20 @@ export function Composer({
     if (!activeSlashToken) return [] as string[];
 
     const queries = [activeSlashToken.query];
+    const normalizedQuery = normalizeSlashCommandQuery(activeSlashToken.query);
+    if (normalizedQuery) {
+      const commandToken = normalizedQuery.split(/\s+/)[0] ?? "";
+      if (commandToken && commandToken !== normalizedQuery) {
+        queries.push(commandToken);
+      }
+    }
+
     if (activeSlashIntent?.queryText) {
       queries.push(activeSlashIntent.queryText);
     }
 
     return queries;
-  }, [activeSlashIntent?.queryText, activeSlashToken?.query, activeSlashToken?.text]);
+  }, [activeSlashIntent?.queryText, activeSlashToken?.query]);
   const visibleSlashCommands = useMemo(
     () => rankSlashCommands(activeSlashQueries, SLASH_COMMANDS),
     [activeSlashQueries]
@@ -383,6 +484,7 @@ export function Composer({
   const [internalSending, setInternalSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showImgGen, setShowImgGen] = useState(false);
+  const mobileShellProfile = useMobileShellProfile();
   const effectiveSending = Boolean(isSending) || internalSending;
   const turnLocked = Boolean(isTurnInFlight);
   const transportBusy = effectiveSending || uploading;
@@ -732,6 +834,8 @@ export function Composer({
     const hasDocumentTiles = documentTiles.length > 0;
     if (!bodyText && !hasAttachments && !hasDocumentTiles) return;
 
+    const slashIntent = buildSlashCommandIntentPayload(value);
+
     setInternalSending(true);
     setUploading(hasAttachments);
 
@@ -953,18 +1057,33 @@ export function Composer({
     }
     void send();
   };
+  const composerSurfaceStyle = useMemo<React.CSSProperties>(
+    () =>
+      ({
+        "--composer-pad-x": mobileShellProfile.chat.composer.padX,
+        "--composer-pad-y": mobileShellProfile.chat.composer.padY,
+        "--composer-text-pad-x": mobileShellProfile.chat.composer.textPadX,
+        "--composer-text-pad-y": mobileShellProfile.chat.composer.textPadY,
+        "--composer-control-gap": mobileShellProfile.chat.composer.controlGap,
+        "--composer-control-size": mobileShellProfile.chat.composer.controlSize,
+        "--composer-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
+        paddingBottom: "calc(var(--composer-pad-y, 12px) + var(--composer-safe-area-bottom, 0px))",
+      }) as React.CSSProperties,
+    [mobileShellProfile]
+  );
 
   return (
     <>
       <div
         data-composer-root
-        className="flex flex-col flex-1 w-full py-[var(--composer-pad-y,12px)]"
+        className="flex min-w-0 flex-col flex-1 w-full py-[var(--composer-pad-y,12px)] overflow-x-hidden"
+        style={composerSurfaceStyle}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
         <div
           data-testid="composer-content-plane"
-          className="relative flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
         >
           {showLineageCopy ? (
             <div
@@ -993,6 +1112,7 @@ export function Composer({
           <Textarea
             ref={ref}
             rows={MIN_COMPOSER_ROWS}
+            wrap="soft"
             value={value}
             onChange={(e) => {
               const next = e.target.value;
@@ -1062,10 +1182,12 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
-            className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-transparent"
+            className="w-full min-w-0 resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-transparent"
             style={{
               color: "var(--text)",
               overflow: "hidden",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
               padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
             }}
           />
@@ -1211,10 +1333,12 @@ export function Composer({
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
               "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
+            style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
             <div
               data-testid="composer-controls-strip"
               className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
+              style={{ gap: "var(--composer-control-gap, 12px)" }}
             >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
@@ -1285,6 +1409,7 @@ export function Composer({
             <div
               data-testid="composer-send-slot"
               className="flex w-8 shrink-0 items-center justify-center"
+              style={{ width: "var(--composer-control-size, 2rem)" }}
             >
               <button
                 type="button"
@@ -1307,6 +1432,8 @@ export function Composer({
                     : ""
                 )}
                 style={{
+                  width: "var(--composer-control-size, 2rem)",
+                  height: "var(--composer-control-size, 2rem)",
                   background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
                   color: "var(--text-on-accent, #111827)",
                   boxShadow: "none",

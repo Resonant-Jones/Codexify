@@ -108,7 +108,7 @@ describe("SettingsView", () => {
 
     render(<SettingsView {...props} />);
 
-    await user.click(screen.getByRole("button", { name: "Imprint" }));
+    await user.click(screen.getByRole("tab", { name: "Imprint" }));
 
     expect(screen.getByText("Local Preview")).toBeInTheDocument();
     expect(screen.getByTestId("imprint-workspace")).toBeInTheDocument();

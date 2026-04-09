@@ -142,6 +142,7 @@ class ThreadCompletionSettings:
     model: str
     reasoning_mode: str | None
     source_mode: str
+    # Request-scoped persona selector copied from the thread config.
     persona_id: str | None = None
     has_thread_config: bool = False
 
@@ -1354,6 +1355,8 @@ async def build_messages_for_llm(
             source_mode=source_mode,
         )
         if thread_execution.persona_id:
+            # Thread config personaId is request-scoped input, not actor
+            # replacement. It only selects the persona layer for this request.
             bundle["requested_persona"] = thread_execution.persona_id
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
@@ -1367,6 +1370,8 @@ async def build_messages_for_llm(
 
     if isinstance(bundle, dict):
         if thread_execution.persona_id:
+            # Keep the request-scoped selector with the bundle so the prompt
+            # builder can resolve the correct persona layer.
             bundle["requested_persona"] = thread_execution.persona_id
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
