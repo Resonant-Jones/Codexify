@@ -4,7 +4,7 @@
  * Renders the chat composer input and controls, including turn-based gating
  * to prevent overlapping user sends while an assistant reply is in flight.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
@@ -42,6 +42,174 @@ const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
 const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
+
+type SlashCommandDefinition = {
+  id: string;
+  label: string;
+  description: string;
+  aliases: readonly string[];
+  keywords: readonly string[];
+  scaffold: string;
+};
+
+const SLASH_COMMANDS: readonly SlashCommandDefinition[] = [
+  {
+    id: "thread",
+    label: "Thread",
+    description: "Start or switch a conversation thread.",
+    aliases: ["chat", "conversation"],
+    keywords: ["reply", "turn"],
+    scaffold: "/thread",
+  },
+  {
+    id: "doc",
+    label: "Document",
+    description: "Add or reference a document.",
+    aliases: ["do", "docs", "document"],
+    keywords: ["file", "note", "reference"],
+    scaffold: "/doc",
+  },
+  {
+    id: "project",
+    label: "Project",
+    description: "Scope the request to a project.",
+    aliases: ["workspace", "repo"],
+    keywords: ["scope", "context"],
+    scaffold: "/project",
+  },
+  {
+    id: "workspace",
+    label: "Workspace",
+    description: "Work across the current workspace.",
+    aliases: ["root", "local"],
+    keywords: ["folder", "environment"],
+    scaffold: "/workspace",
+  },
+  {
+    id: "profile",
+    label: "Profile",
+    description: "Choose an identity or persona.",
+    aliases: ["identity", "persona", "account"],
+    keywords: ["user", "role"],
+    scaffold: "/profile",
+  },
+  {
+    id: "flow",
+    label: "Flow",
+    description: "Switch to a workflow step.",
+    aliases: ["pipeline", "sequence"],
+    keywords: ["process", "mode"],
+    scaffold: "/flow",
+  },
+  {
+    id: "secure",
+    label: "Secure",
+    description: "Tighten access or permissions.",
+    aliases: ["permission", "lock"],
+    keywords: ["privacy", "acl"],
+    scaffold: "/secure",
+  },
+  {
+    id: "connect",
+    label: "Connect",
+    description: "Link sources or peers.",
+    aliases: ["sync", "attach"],
+    keywords: ["bridge", "federate"],
+    scaffold: "/connect",
+  },
+  {
+    id: "help",
+    label: "Help",
+    description: "Show command help.",
+    aliases: ["?", "commands"],
+    keywords: ["guide", "menu"],
+    scaffold: "/help",
+  },
+] as const;
+
+const SLASH_COMMAND_TOKEN_SPLIT_RE = /\s/;
+
+function normalizeSlashCommandQuery(query: string) {
+  return query.replace(/^\/+/, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function fuzzySlashMatchScore(query: string, candidate: string) {
+  const normalizedCandidate = candidate.toLowerCase().trim().replace(/\s+/g, " ");
+  if (!query) return 1000;
+  if (normalizedCandidate === query) return 2000;
+  if (normalizedCandidate.startsWith(query)) return 1800 - normalizedCandidate.length;
+
+  const containsAt = normalizedCandidate.indexOf(query);
+  if (containsAt >= 0) return 1600 - containsAt * 10 - normalizedCandidate.length * 0.1;
+
+  let queryIndex = 0;
+  let lastMatchIndex = -1;
+  let gapCount = 0;
+  for (let candidateIndex = 0; candidateIndex < normalizedCandidate.length; candidateIndex += 1) {
+    if (normalizedCandidate[candidateIndex] !== query[queryIndex]) continue;
+    if (lastMatchIndex >= 0) {
+      gapCount += candidateIndex - lastMatchIndex - 1;
+    }
+    lastMatchIndex = candidateIndex;
+    queryIndex += 1;
+    if (queryIndex >= query.length) break;
+  }
+
+  if (queryIndex < query.length) return null;
+  return 400 - gapCount * 8 - normalizedCandidate.length * 0.1;
+}
+
+function rankSlashCommands(
+  query: string,
+  commands: readonly SlashCommandDefinition[]
+) {
+  const normalizedQuery = normalizeSlashCommandQuery(query);
+  if (!normalizedQuery) return [...commands];
+
+  return commands
+    .map((command, index) => {
+      const candidates = [command.label, ...command.aliases, ...command.keywords];
+      let bestScore: number | null = null;
+      for (const candidate of candidates) {
+        const score = fuzzySlashMatchScore(normalizedQuery, candidate);
+        if (score == null) continue;
+        if (bestScore == null || score > bestScore) {
+          bestScore = score;
+        }
+      }
+      return bestScore == null ? null : { command, index, score: bestScore };
+    })
+    .filter(
+      (entry): entry is { command: SlashCommandDefinition; index: number; score: number } =>
+        entry != null
+    )
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.command);
+}
+
+function extractSlashCommandContext(value: string, caretIndex: number | null) {
+  const caret = Math.max(0, Math.min(caretIndex ?? value.length, value.length));
+  let start = caret;
+  while (start > 0 && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[start - 1])) {
+    start -= 1;
+  }
+
+  let end = caret;
+  while (end < value.length && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[end])) {
+    end += 1;
+  }
+
+  const token = value.slice(start, end);
+  if (!token.startsWith("/")) return null;
+
+  const query = token.slice(1);
+  return {
+    start,
+    end,
+    query,
+    key: `${start}:${end}:${query}`,
+  } as const;
+}
 
 const parsePx = (value?: string | null) => {
   const parsed = Number.parseFloat(value ?? "");
@@ -255,6 +423,18 @@ export function Composer({
   const valueRef = useRef(value);
   const lastCommittedDraftRef = useRef(value);
   const draftCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [caretIndex, setCaretIndex] = useState(() => resolveInitialDraft().length);
+  const [slashPaletteOpen, setSlashPaletteOpen] = useState(false);
+  const [activeSlashCommandId, setActiveSlashCommandId] = useState<string | null>(null);
+  const dismissedSlashTokenKeyRef = useRef<string | null>(null);
+  const activeSlashToken = useMemo(
+    () => extractSlashCommandContext(value, caretIndex),
+    [caretIndex, value]
+  );
+  const visibleSlashCommands = useMemo(
+    () => rankSlashCommands(activeSlashToken?.query ?? "", SLASH_COMMANDS),
+    [activeSlashToken?.query]
+  );
 
   const [internalSending, setInternalSending] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -318,6 +498,36 @@ export function Composer({
     valueRef.current = value;
   }, [value]);
 
+  useEffect(() => {
+    if (!activeSlashToken) {
+      dismissedSlashTokenKeyRef.current = null;
+      setSlashPaletteOpen(false);
+      setActiveSlashCommandId(null);
+      return;
+    }
+
+    if (dismissedSlashTokenKeyRef.current === activeSlashToken.key) {
+      setSlashPaletteOpen(false);
+      return;
+    }
+
+    setSlashPaletteOpen(true);
+  }, [activeSlashToken]);
+
+  useEffect(() => {
+    if (!slashPaletteOpen || visibleSlashCommands.length === 0) {
+      setActiveSlashCommandId(null);
+      return;
+    }
+
+    setActiveSlashCommandId((current) => {
+      if (current && visibleSlashCommands.some((command) => command.id === current)) {
+        return current;
+      }
+      return visibleSlashCommands[0]?.id ?? null;
+    });
+  }, [slashPaletteOpen, visibleSlashCommands]);
+
   // Flush pending draft for previous scope before switching tabs/unmounting.
   useEffect(() => {
     return () => {
@@ -333,6 +543,7 @@ export function Composer({
     valueRef.current = initial;
     lastCommittedDraftRef.current = initial;
     setValue(initial);
+    setCaretIndex(initial.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftScopeKey, draftValue, threadId]);
 
@@ -403,6 +614,29 @@ export function Composer({
     const fromStorage = inferProjectIdFromStorage();
     if (fromStorage !== null) return fromStorage;
     return inferProjectIdFromLocation(null);
+  };
+
+  const closeSlashPalette = (tokenKey: string | null = activeSlashToken?.key ?? null) => {
+    dismissedSlashTokenKeyRef.current = tokenKey;
+    setSlashPaletteOpen(false);
+    setActiveSlashCommandId(null);
+  };
+
+  const applySlashCommand = (command: SlashCommandDefinition) => {
+    if (!activeSlashToken) return;
+
+    const nextValue =
+      `${value.slice(0, activeSlashToken.start)}` +
+      `${command.scaffold}` +
+      `${value.slice(activeSlashToken.end)}`;
+    const nextCaretIndex = activeSlashToken.start + command.scaffold.length;
+    const normalizedNextToken = extractSlashCommandContext(nextValue, nextCaretIndex);
+
+    setValue(nextValue);
+    valueRef.current = nextValue;
+    setCaretIndex(nextCaretIndex);
+    scheduleDraftCommit(nextValue);
+    closeSlashPalette(normalizedNextToken?.key ?? null);
   };
 
   function stageFiles(files: FileList | File[]) {
@@ -532,6 +766,7 @@ export function Composer({
     if (prefill && prefill !== value) {
       setValue(prefill);
       valueRef.current = prefill;
+      setCaretIndex(prefill.length);
       commitDraftNow(prefill);
       setTimeout(() => ref.current?.focus(), 0);
       onPrefillConsumed && onPrefillConsumed();
@@ -594,7 +829,9 @@ export function Composer({
       // Clear the draft after a successful send.
       setValue("");
       valueRef.current = "";
+      setCaretIndex(0);
       commitDraftNow("");
+      closeSlashPalette(null);
       setDraftAttachments((prev) => {
         for (const attachment of prev) {
           if (attachment.previewUrl) {
@@ -750,6 +987,10 @@ export function Composer({
     sourceOptions[0]?.label ??
     "Project";
   const lineageTargetLabel = projectName?.trim() || "General";
+  const activeSlashCommand =
+    visibleSlashCommands.find((command) => command.id === activeSlashCommandId) ??
+    visibleSlashCommands[0] ??
+    null;
   const showLineageCopy =
     !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
   const lineageCopy = `Send a message to ${lineageTargetLabel}`;
@@ -805,12 +1046,65 @@ export function Composer({
               const next = e.target.value;
               setValue(next);
               valueRef.current = next;
+              setCaretIndex(e.currentTarget.selectionStart ?? next.length);
               scheduleDraftCommit(next);
             }}
-            onBlur={() => commitDraftNow(valueRef.current)}
+            onSelect={(e) => {
+              setCaretIndex(e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+            }}
+            onBlur={() => {
+              commitDraftNow(valueRef.current);
+              if (slashPaletteOpen) {
+                closeSlashPalette(activeSlashToken?.key ?? null);
+              }
+            }}
             placeholder="Write a message…"
             onPaste={onPaste}
             onKeyDown={(e) => {
+              if (slashPaletteOpen) {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  closeSlashPalette(activeSlashToken?.key ?? null);
+                  return;
+                }
+
+                if (e.key === "ArrowDown" && visibleSlashCommands.length > 0) {
+                  e.preventDefault();
+                  const currentIndex = visibleSlashCommands.findIndex(
+                    (command) => command.id === activeSlashCommandId
+                  );
+                  const nextIndex =
+                    currentIndex < 0
+                      ? 0
+                      : (currentIndex + 1) % visibleSlashCommands.length;
+                  setActiveSlashCommandId(visibleSlashCommands[nextIndex]?.id ?? null);
+                  return;
+                }
+
+                if (e.key === "ArrowUp" && visibleSlashCommands.length > 0) {
+                  e.preventDefault();
+                  const currentIndex = visibleSlashCommands.findIndex(
+                    (command) => command.id === activeSlashCommandId
+                  );
+                  const nextIndex =
+                    currentIndex < 0
+                      ? visibleSlashCommands.length - 1
+                      : (currentIndex - 1 + visibleSlashCommands.length) %
+                        visibleSlashCommands.length;
+                  setActiveSlashCommandId(visibleSlashCommands[nextIndex]?.id ?? null);
+                  return;
+                }
+
+                if (e.key === "Enter" && !e.shiftKey && visibleSlashCommands.length > 0) {
+                  e.preventDefault();
+                  const nextCommand = activeSlashCommand ?? visibleSlashCommands[0];
+                  if (nextCommand) {
+                    applySlashCommand(nextCommand);
+                  }
+                  return;
+                }
+              }
+
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleAttemptSend();
@@ -823,6 +1117,86 @@ export function Composer({
               padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
             }}
           />
+
+          {slashPaletteOpen ? (
+            <div
+              role="menu"
+              aria-label="Slash commands"
+              className="overflow-hidden rounded-2xl border px-1 py-1.5"
+              style={{
+                marginTop: "2px",
+                borderColor: "color-mix(in oklab, var(--panel-border) 70%, transparent)",
+                background:
+                  "color-mix(in oklab, var(--panel-bg) 90%, var(--text) 10%)",
+                boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
+                backdropFilter: "blur(18px)",
+              }}
+            >
+              <div className="flex items-center justify-between px-2 pb-1 text-[10px] font-medium uppercase tracking-[0.18em]">
+                <span style={{ color: "color-mix(in oklab, var(--muted) 82%, transparent)" }}>
+                  Slash commands
+                </span>
+                <span style={{ color: "color-mix(in oklab, var(--muted) 72%, transparent)" }}>
+                  {activeSlashToken?.query ? `/${activeSlashToken.query}` : "/"}
+                </span>
+              </div>
+              <div className="max-h-60 overflow-y-auto">
+                {visibleSlashCommands.length > 0 ? (
+                  visibleSlashCommands.map((command) => {
+                    const isActive = command.id === activeSlashCommand?.id;
+                    return (
+                      <button
+                        key={command.id}
+                        type="button"
+                        role="menuitem"
+                        aria-label={`${command.label} ${command.description}`}
+                        aria-current={isActive ? "true" : undefined}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setActiveSlashCommandId(command.id)}
+                        onClick={() => applySlashCommand(command)}
+                        className={cn(
+                          "flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors",
+                          isActive
+                            ? "bg-[color-mix(in_oklab,var(--accent)_14%,var(--panel-bg)_86%)]"
+                            : "hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]"
+                        )}
+                        style={{
+                          color: "var(--text)",
+                        }}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12px] font-medium leading-snug">
+                            {command.label}
+                          </span>
+                          <span
+                            className="mt-0.5 block text-[11px] leading-snug"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            {command.description}
+                          </span>
+                        </span>
+                        <span
+                          className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
+                          style={{
+                            color: isActive ? "var(--accent)" : "var(--muted)",
+                            background: isActive
+                              ? "color-mix(in oklab, var(--accent) 10%, transparent)"
+                              : "transparent",
+                          }}
+                        >
+                          /{command.id}
+                        </span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-3 text-sm" style={{ color: "var(--muted)" }}>
+                    No slash commands match this query.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           {draftAttachments.length > 0 && (
             <div className="flex flex-wrap gap-2">

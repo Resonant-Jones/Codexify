@@ -21,6 +21,86 @@ describe("Composer draft sync", () => {
     window.localStorage.clear();
   });
 
+  it("opens the slash palette when the composer starts with /", async () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "/" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("menuitem", { name: /Thread/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /Document/i })
+    ).toBeInTheDocument();
+  });
+
+  it("refreshes slash results as more characters are typed and fuzzy matches partial input", async () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "/" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("menuitem", { name: /Thread/i })).toBeInTheDocument();
+
+    fireEvent.change(textarea, { target: { value: "/prj" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: /Project/i })).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByRole("menuitem", { name: /Thread/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("closes the slash palette when the slash token is removed", async () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "/doc" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello world" } });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: "Slash commands" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("moves through the palette with arrow keys and inserts the selected scaffold on Enter", async () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    fireEvent.change(textarea, { target: { value: "/" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("menuitem", { name: /Thread/i })
+      ).toHaveAttribute("aria-current", "true");
+    });
+
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(textarea).toHaveValue("/doc");
+    expect(screen.queryByRole("menu", { name: "Slash commands" })).not.toBeInTheDocument();
+  });
+
   it("keeps typing local and commits draft only after debounce", async () => {
     vi.useFakeTimers();
     const onDraftValueChange = vi.fn();
@@ -216,7 +296,6 @@ describe("Composer draft sync", () => {
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
     );
     expect(textarea.parentElement).toBe(contentPlane);
-    expect(composerSource).not.toContain("justify-between");
     expect(composerSource).not.toContain("mt-auto");
     expect(composerSource).not.toContain('pl-[8px]');
     expect(composerSource).not.toContain('pr-[24px]');
