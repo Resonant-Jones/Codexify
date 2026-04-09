@@ -231,9 +231,16 @@ def _slash_intent_origin_segment(
         return ""
 
     payload = slash_intent.model_dump(exclude_none=True)
+    bounded_payload = {
+        key: payload[key]
+        for key in ("commandId", "intentKind", "retrievalHint")
+        if key in payload
+    }
     try:
         encoded = quote(
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            json.dumps(
+                bounded_payload, ensure_ascii=False, separators=(",", ":")
+            ),
             safe="",
         )
     except Exception:

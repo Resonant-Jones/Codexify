@@ -66,7 +66,6 @@ def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
 
     slash_intent = {
         "commandId": "project",
-        "rawInput": "/project search",
         "intentKind": "workspace",
         "retrievalHint": "project",
     }
@@ -254,7 +253,6 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
     task_two_id = str(uuid.uuid4())
     slash_intent = {
         "commandId": "doc",
-        "rawInput": "/doc notes",
         "intentKind": "knowledge",
         "retrievalHint": "personal_knowledge",
     }
