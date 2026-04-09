@@ -7,6 +7,7 @@ import {
   getRuntimeConfigSync,
   resolveApiUrl,
 } from "@/lib/runtimeConfig";
+import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
 import {
   clearRuntimeApiKey as clearRuntimeApiKeyState,
@@ -238,6 +239,16 @@ export function buildLlmCatalogPath(): string {
 export function buildChatCompletePath(threadId: string | number): string {
   return `/chat/${normalizePathSegment(threadId)}/complete`;
 }
+
+export type ChatCompletionRequestBody = {
+  depth_mode: string;
+  provider?: string;
+  model?: string;
+  reasoning_mode?: string;
+  source_mode?: string;
+  slash_intent?: SlashCommandIntentPayload | null;
+  [key: string]: unknown;
+};
 
 export function buildLatestRagTracePath(threadId: string | number): string {
   return `/api/chat/debug/rag-trace/${normalizePathSegment(threadId)}/latest`;
