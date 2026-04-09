@@ -83,7 +83,7 @@ const PHONE_SHELL_PROFILE = {
   },
   workspace: {
     defaultOpen: false,
-    autoOpenOnDocumentRequest: false,
+    autoOpenOnDocumentRequest: true,
   },
   chat: {
     composer: {
