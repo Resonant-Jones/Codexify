@@ -2305,11 +2305,11 @@ export default function AppShell({
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
       <div
-        className={`relative z-10 w-full ${isPhoneShell ? "flex items-center gap-[var(--shell-gap)]" : "flex items-center justify-between gap-3"}`}
+        className={`relative z-10 flex w-full items-start gap-3 ${isPhoneShell ? "flex-col" : "flex-row"}`}
       >
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 shrink-0">
           <div
-            className="glass-pill isolate relative min-w-0"
+            className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
             data-testid="app-shell-top-nav"
             data-shell-nav-mode={
               mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
@@ -2328,7 +2328,7 @@ export default function AppShell({
             </div>
 
             <div
-              className="flex min-w-0 flex-1 items-center"
+              className="inline-flex min-w-0 items-center"
               style={mobileTopNavRailStyle}
             >
               {/* brand badge — doubles as layout mode toggle */}
@@ -2402,7 +2402,7 @@ export default function AppShell({
           </div>
         </div>
         <div
-          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "justify-end gap-2"}`}
+          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
         >
           {isPhoneShell ? mobileHeaderUtilityActions : desktopHeaderUtilityActions}
         </div>
