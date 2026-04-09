@@ -79,6 +79,11 @@ import {
   createDocumentContextTile,
   type DocumentContextTile,
 } from "@/lib/documentContext";
+import {
+  getMobileTopNavDockStyle,
+  getMobileTopNavRailStyle,
+  getMobileWorkspaceSummonCopy,
+} from "./mobileNavigationContract";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -1440,6 +1445,14 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
+    () => getMobileTopNavDockStyle(mobileShellProfile),
+    [mobileShellProfile]
+  );
+  const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
+    () => getMobileTopNavRailStyle(mobileShellProfile),
+    [mobileShellProfile]
+  );
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🏗️ SECTION: Modular Design Token Setup
@@ -1979,11 +1992,13 @@ export default function AppShell({
   const workspaceDrawerPaneStyle: React.CSSProperties = isPhoneShell
     ? {
         padding: "var(--board-edge)",
-        flex: "1 1 0%",
-        width: "100%",
-        minWidth: 0,
-        minHeight: 0,
+        flex: "0 0 auto",
+        width: mobileShellProfile.workspace.drawerWidth,
+        minWidth: mobileShellProfile.workspace.drawerWidth,
+        height: "100%",
+        minHeight: "100%",
         maxHeight: "100%",
+        alignSelf: "stretch",
         borderRadius: "var(--card-radius)",
         boxShadow:
           workspaceLayoutMode === "workspace_focus"
@@ -2018,34 +2033,80 @@ export default function AppShell({
       }
     : {};
   const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
-    <div
-      data-testid="workspace-drawer-pane"
-      data-pane-basis={isPhoneShell ? "100.00%" : workspacePaneBasis}
-      data-pane-min-width={isPhoneShell ? "0px" : workspacePaneMinWidth}
-      data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
-      className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
-      style={workspaceDrawerPaneStyle}
-    >
-      <WorkspaceDrawer
-        routeContext={workspaceRouteContext}
-        isOpen={workspaceDrawerOpen}
-        activeTab={workspaceDrawerTab}
-        layoutMode={workspaceLayoutMode}
-        paneRatio={workspacePaneRatio}
-        minPaneRatio={minWorkspacePaneRatio}
-        maxPaneRatio={maxWorkspacePaneRatio}
-        onOpenChange={(nextOpen) => {
-          if (nextOpen) {
-            openWorkspaceDrawer();
-            return;
-          }
-          closeWorkspaceDrawer();
-        }}
-        onActiveTabChange={handleWorkspaceDrawerTabChange}
-        onLayoutModeChange={setWorkspaceLayoutMode}
-        projectId={effectiveDocumentsProjectId}
-      />
-    </div>
+    isPhoneShell ? (
+      <div
+        data-testid="workspace-drawer-overlay"
+        data-overlay-mode="mobile"
+        className="absolute inset-0 z-20 flex items-stretch justify-end bg-black/35 backdrop-blur-sm"
+      >
+        <button
+          type="button"
+          aria-label="Close workspace drawer"
+          className="absolute inset-0 border-0 bg-transparent p-0"
+          onClick={closeWorkspaceDrawer}
+        />
+        <div
+          data-testid="workspace-drawer-pane"
+          data-overlay="true"
+          data-pane-basis={mobileShellProfile.workspace.drawerWidth}
+          data-pane-min-width="0px"
+          data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
+          className="relative z-10 h-full min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
+          style={workspaceDrawerPaneStyle}
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <WorkspaceDrawer
+            routeContext={workspaceRouteContext}
+            isOpen={workspaceDrawerOpen}
+            activeTab={workspaceDrawerTab}
+            layoutMode={workspaceLayoutMode}
+            paneRatio={workspacePaneRatio}
+            minPaneRatio={minWorkspacePaneRatio}
+            maxPaneRatio={maxWorkspacePaneRatio}
+            onOpenChange={(nextOpen) => {
+              if (nextOpen) {
+                openWorkspaceDrawer();
+                return;
+              }
+              closeWorkspaceDrawer();
+            }}
+            onActiveTabChange={handleWorkspaceDrawerTabChange}
+            onLayoutModeChange={setWorkspaceLayoutMode}
+            projectId={effectiveDocumentsProjectId}
+          />
+        </div>
+      </div>
+    ) : (
+      <div
+        data-testid="workspace-drawer-pane"
+        data-pane-basis={workspacePaneBasis}
+        data-pane-min-width={workspacePaneMinWidth}
+        data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
+        className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
+        style={workspaceDrawerPaneStyle}
+      >
+        <WorkspaceDrawer
+          routeContext={workspaceRouteContext}
+          isOpen={workspaceDrawerOpen}
+          activeTab={workspaceDrawerTab}
+          layoutMode={workspaceLayoutMode}
+          paneRatio={workspacePaneRatio}
+          minPaneRatio={minWorkspacePaneRatio}
+          maxPaneRatio={maxWorkspacePaneRatio}
+          onOpenChange={(nextOpen) => {
+            if (nextOpen) {
+              openWorkspaceDrawer();
+              return;
+            }
+            closeWorkspaceDrawer();
+          }}
+          onActiveTabChange={handleWorkspaceDrawerTabChange}
+          onLayoutModeChange={setWorkspaceLayoutMode}
+          projectId={effectiveDocumentsProjectId}
+        />
+      </div>
+    )
   ) : null;
   const workspaceShellLaneClassName = isPhoneShell
     ? "flex h-full min-h-0 w-full flex-col gap-[var(--gutter)]"
@@ -2075,71 +2136,74 @@ export default function AppShell({
   const runtimeLastHealthy = runtimeHealth.lastSuccessAt
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
-  const topNavDockStyle = useMemo<React.CSSProperties>(
-    () => ({
-      paddingTop: "var(--pill-pad-y)",
-      paddingBottom: "var(--pill-pad-y)",
-      width: mobileShellProfile.topNav.width,
-      maxWidth: "100%",
-      minWidth: 0,
-      display: mobileShellProfile.topNav.scrollable ? "flex" : undefined,
-      flexWrap: "nowrap",
-      overflowX: mobileShellProfile.topNav.scrollable ? "auto" : undefined,
-      overflowY: mobileShellProfile.topNav.scrollable ? "hidden" : undefined,
-      overscrollBehaviorX: mobileShellProfile.topNav.scrollable
-        ? "contain"
-        : undefined,
-      scrollbarWidth: mobileShellProfile.topNav.scrollable ? "none" : undefined,
-      WebkitOverflowScrolling: mobileShellProfile.topNav.scrollable
-        ? "touch"
-        : undefined,
-      whiteSpace: "nowrap",
-    }),
-    [mobileShellProfile.topNav.scrollable, mobileShellProfile.topNav.width]
+  const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
+  const workspaceDrawerToggle = workspaceShellEnabled ? (
+    <button
+      type="button"
+      className="pill-tab shrink-0 whitespace-nowrap"
+      data-state={workspaceDrawerOpen ? "active" : "inactive"}
+      data-testid="workspace-drawer-toggle"
+      aria-pressed={workspaceDrawerOpen}
+      aria-label={
+        isPhoneShell
+          ? workspaceSummonCopy.ariaLabel
+          : "Toggle workspace drawer"
+      }
+      title={
+        isPhoneShell
+          ? workspaceSummonCopy.title
+          : workspaceDrawerOpen
+            ? "Close workspace drawer"
+            : "Open workspace drawer"
+      }
+      onClick={toggleWorkspaceDrawer}
+    >
+      {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
+    </button>
+  ) : null;
+  const settingsUtilityAction = (
+    <button
+      type="button"
+      className="pill-tab h-9 w-9 shrink-0 p-0"
+      data-state={view === "settings" ? "active" : "inactive"}
+      data-testid="settings-utility-toggle"
+      aria-label="Settings"
+      title="Settings"
+      onClick={openSettings}
+    >
+      <Settings2 className="h-4 w-4" aria-hidden="true" />
+    </button>
   );
-  const headerUtilityActions = (
+  const shareUtilityAction = activeRouteThreadId != null ? (
+    <ShareButton
+      targetType="thread"
+      targetId={activeRouteThreadId}
+      className="pill-tab shrink-0 whitespace-nowrap"
+      dataState="inactive"
+      style={{
+        borderRadius: 999,
+        border: "1px solid var(--chip-border)",
+        background: "var(--chip-bg)",
+        color: "var(--text)",
+        fontSize: "0.78rem",
+        fontWeight: 500,
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
+      }}
+    />
+  ) : null;
+  const desktopHeaderUtilityActions = (
     <>
-      <button
-        type="button"
-        className="pill-tab h-9 w-9 shrink-0 p-0"
-        data-state={view === "settings" ? "active" : "inactive"}
-        data-testid="settings-utility-toggle"
-        aria-label="Settings"
-        title="Settings"
-        onClick={openSettings}
-      >
-        <Settings2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      {workspaceShellEnabled && (
-        <button
-          type="button"
-          className="pill-tab shrink-0 whitespace-nowrap"
-          data-state={workspaceDrawerOpen ? "active" : "inactive"}
-          data-testid="workspace-drawer-toggle"
-          aria-pressed={workspaceDrawerOpen}
-          onClick={toggleWorkspaceDrawer}
-        >
-          Workspace
-        </button>
-      )}
-      {activeRouteThreadId != null && (
-        <ShareButton
-          targetType="thread"
-          targetId={activeRouteThreadId}
-          className="pill-tab shrink-0 whitespace-nowrap"
-          dataState="inactive"
-          style={{
-            borderRadius: 999,
-            border: "1px solid var(--chip-border)",
-            background: "var(--chip-bg)",
-            color: "var(--text)",
-            fontSize: "0.78rem",
-            fontWeight: 500,
-            boxShadow:
-              "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
-          }}
-        />
-      )}
+      {settingsUtilityAction}
+      {workspaceDrawerToggle}
+      {shareUtilityAction}
+    </>
+  );
+  const mobileHeaderUtilityActions = (
+    <>
+      {workspaceDrawerToggle}
+      {settingsUtilityAction}
+      {shareUtilityAction}
     </>
   );
 
@@ -2241,103 +2305,107 @@ export default function AppShell({
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
       <div
-        className={`relative z-10 w-full ${isPhoneShell ? "flex items-center gap-2" : "flex items-center justify-between gap-3"}`}
+        className={`relative z-10 w-full ${isPhoneShell ? "flex items-center gap-[var(--shell-gap)]" : "flex items-center justify-between gap-3"}`}
       >
-        <div className={isPhoneShell ? "min-w-0 flex-1" : undefined}>
+        <div className="min-w-0 flex-1">
+          <div
+            className="glass-pill isolate relative min-w-0"
+            data-testid="app-shell-top-nav"
+            data-shell-nav-mode={
+              mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
+            }
+            style={mobileTopNavDockStyle}
+          >
+            {/* glass backdrop */}
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
+              <RefractiveGlassCard
+                wallpaperUrl={activeWallpaper}
+                className="w-full h-full rounded-full"
+                style={{ background: "transparent", border: "none" }}
+                intensity={0.006}
+                aberration={0.006}
+              />
+            </div>
+
+            <div
+              className="flex min-w-0 flex-1 items-center"
+              style={mobileTopNavRailStyle}
+            >
+              {/* brand badge — doubles as layout mode toggle */}
+              <button
+                type="button"
+                className="pill-tab brand-tab shrink-0 whitespace-nowrap"
+                style={{ color: "var(--text-on-accent)" }}
+                title={
+                  layoutMode === "zen"
+                    ? "Zen layout — click to switch to Focus"
+                    : "Focus layout — click to switch to Zen"
+                }
+                onClick={() =>
+                  setLayoutMode((prev) => (prev === "focus" ? "zen" : "focus"))
+                }
+              >
+                Codexify
+              </button>
+
+              {/* beta release indicator — persistent across navigation */}
+              <span
+                className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap"
+                style={{
+                  background: "var(--accent)",
+                  color: "var(--text-on-accent)",
+                  opacity: 0.85,
+                  letterSpacing: "0.05em",
+                }}
+                title="Beta release — feedback welcome"
+              >
+                Beta
+              </span>
+
+              {/* nav tabs */}
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "guardian" ? "active" : "inactive"}
+                onClick={() => navigateToView("guardian")}
+              >
+                Guardian
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "dashboard" ? "active" : "inactive"}
+                onClick={() => navigateToView("dashboard")}
+              >
+                Dashboard
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "documents" ? "active" : "inactive"}
+                onClick={() => navigateToView("documents")}
+              >
+                Documents
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "gallery" ? "active" : "inactive"}
+                onClick={() => navigateToView("gallery")}
+              >
+                Gallery
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "personaStudio" ? "active" : "inactive"}
+                onClick={() => navigateToView("personaStudio")}
+              >
+                Persona Studio
+              </button>
+            </div>
+          </div>
+        </div>
         <div
-          className="glass-pill isolate relative min-w-0"
-          data-testid="app-shell-top-nav"
-          data-shell-nav-mode={
-            mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
-          }
-          style={topNavDockStyle}
+          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "justify-end gap-2"}`}
         >
-          {/* glass backdrop */}
-          <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
-            <RefractiveGlassCard
-              wallpaperUrl={activeWallpaper}
-              className="w-full h-full rounded-full"
-              style={{ background: "transparent", border: "none" }}
-              intensity={0.006}
-              aberration={0.006}
-            />
-          </div>
-
-          {/* brand badge — doubles as layout mode toggle */}
-          <button
-            type="button"
-            className="pill-tab brand-tab shrink-0 whitespace-nowrap"
-            style={{ color: "var(--text-on-accent)" }}
-            title={
-              layoutMode === "zen"
-                ? "Zen layout — click to switch to Focus"
-                : "Focus layout — click to switch to Zen"
-            }
-            onClick={() =>
-              setLayoutMode((prev) => (prev === "focus" ? "zen" : "focus"))
-            }
-          >
-            Codexify
-          </button>
-
-          {/* beta release indicator — persistent across navigation */}
-          <span
-            className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap"
-            style={{
-              background: "var(--accent)",
-              color: "var(--text-on-accent)",
-              opacity: 0.85,
-              letterSpacing: "0.05em",
-            }}
-            title="Beta release — feedback welcome"
-          >
-            Beta
-          </span>
-
-          {/* nav tabs */}
-          <button
-            className="pill-tab shrink-0 whitespace-nowrap"
-            data-state={view === "guardian" ? "active" : "inactive"}
-            onClick={() => navigateToView("guardian")}
-          >
-            Guardian
-          </button>
-          <button
-            className="pill-tab shrink-0 whitespace-nowrap"
-            data-state={view === "dashboard" ? "active" : "inactive"}
-            onClick={() => navigateToView("dashboard")}
-          >
-            Dashboard
-          </button>
-          <button
-            className="pill-tab shrink-0 whitespace-nowrap"
-            data-state={view === "documents" ? "active" : "inactive"}
-            onClick={() => navigateToView("documents")}
-          >
-            Documents
-          </button>
-          <button
-            className="pill-tab shrink-0 whitespace-nowrap"
-            data-state={view === "gallery" ? "active" : "inactive"}
-            onClick={() => navigateToView("gallery")}
-          >
-            Gallery
-          </button>
-          <button
-            className="pill-tab shrink-0 whitespace-nowrap"
-            data-state={view === "personaStudio" ? "active" : "inactive"}
-            onClick={() => navigateToView("personaStudio")}
-          >
-            Persona Studio
-          </button>
-          {isPhoneShell && headerUtilityActions}
+          {isPhoneShell ? mobileHeaderUtilityActions : desktopHeaderUtilityActions}
         </div>
-        </div>
-        {!isPhoneShell && (
-          <div className="flex items-center justify-end gap-2">
-            {headerUtilityActions}
-          </div>
-        )}
       </div>
 
       {showRuntimeBanner && (
@@ -2589,7 +2657,7 @@ export default function AppShell({
                           setPendingComposerDocumentTiles([])
                         }
                         onWorkspaceToggle={toggleWorkspaceDrawer}
-                        workspaceOpen={false}
+                        workspaceOpen={workspaceDrawerOpen}
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                       />
