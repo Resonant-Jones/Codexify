@@ -2605,6 +2605,7 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
+        retrieval_override=retrieval_override,
         # Temporary transport bridge: carry turn_id, source_mode, and
         # bounded slash intent metadata via origin until ChatCompletionTask
         # gains typed fields for those values.

@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { parseDocumentContextContent } from "@/lib/documentContext";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
+import { resolveMessageLaneBottomPad } from "@/components/persona/layout/mobileBottomEdgeContract";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -485,10 +486,18 @@ export function ChatView({
   }, []);
 
   const shouldMask = hasOverflow && bottomPadding > 0;
+  // Mobile bottom-edge contract: when keyboard is open on phone, the composer
+  // anchors the bottom and the message lane should not add extra padding.
+  const isPhoneClass = mobileShellProfile.active;
+  const effectiveBottomPad = resolveMessageLaneBottomPad(
+    isPhoneClass,
+    viewportInsets.isKeyboardOpen,
+    bottomPadding ?? 0
+  );
   const scrollStyle: React.CSSProperties = useMemo(
     () => ({
       "--chat-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
-      paddingBottom: `calc(${bottomPadding ?? 0}px + var(--chat-safe-area-bottom, 0px))`,
+      paddingBottom: `calc(${effectiveBottomPad}px + var(--chat-safe-area-bottom, 0px))`,
       ...(shouldMask
         ? {
             maskImage:
@@ -498,7 +507,7 @@ export function ChatView({
           }
         : {}),
     }),
-    [bottomPadding, mobileShellProfile.chat.composer.bottomSafeArea, shouldMask]
+    [effectiveBottomPad, mobileShellProfile.chat.composer.bottomSafeArea, shouldMask]
   );
 
   return (

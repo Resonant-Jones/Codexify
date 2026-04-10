@@ -13,14 +13,12 @@ describe("SettingsPanelShell", () => {
 
     const shell = screen.getByTestId("settings-panel-shell");
     expect(shell).toHaveClass(
-    expect(screen.getByTestId("settings-panel-shell")).toHaveClass(
       "flex",
       "h-full",
       "min-h-0",
       "w-full",
       "min-w-0",
-      "overflow-x-clip",
-      "overflow-y-auto"
+      "overflow-hidden"
     );
     expect(shell).toHaveStyle({
       padding: "calc(var(--card-pad) + var(--board-edge))",
