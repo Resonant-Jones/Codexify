@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import SettingsPanelDock, {
   type SettingsTab,
@@ -11,6 +11,7 @@ type SettingsPanelShellProps = {
   contentClassName?: string;
   desktopMode?: boolean;
   onTabChange: (tab: SettingsTab) => void;
+  scrollContainerRef?: RefObject<HTMLDivElement>;
   testId?: string;
 };
 
@@ -21,13 +22,15 @@ export default function SettingsPanelShell({
   contentClassName,
   desktopMode = false,
   onTabChange,
+  scrollContainerRef,
   testId = "settings-panel-shell",
 }: SettingsPanelShellProps) {
   return (
     <div
       data-testid={testId}
+      ref={scrollContainerRef}
       className={[
-        "w-full min-w-0 overflow-x-clip text-[var(--text)]",
+        "flex h-full min-h-0 w-full min-w-0 flex-col overflow-x-clip overflow-y-auto text-[var(--text)]",
         className ?? "",
       ]
         .filter(Boolean)
