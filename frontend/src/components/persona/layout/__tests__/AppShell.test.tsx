@@ -403,6 +403,12 @@ describe("AppShell settings utility trigger", () => {
 
     render(<AppShell />);
 
+    expect(screen.getByTestId("app-shell-top-nav")).toHaveClass(
+      "glass-pill",
+      "inline-flex",
+      "w-fit",
+      "max-w-full"
+    );
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("settings-utility-toggle"));
@@ -702,6 +708,51 @@ describe("AppShell workspace drawer shell", () => {
       "data-overlay",
       "true"
     );
+  });
+
+  it("tracks the phone shell height from the visual viewport instead of plain 100vh", () => {
+    const originalInnerHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    const originalVisualViewport = Object.getOwnPropertyDescriptor(
+      window,
+      "visualViewport"
+    );
+
+    setViewportWidth(390);
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      writable: true,
+      value: 844,
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: {
+        height: 544,
+        offsetTop: 0,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(null);
+
+    try {
+      const { container } = render(<AppShell />);
+      const root = container.firstElementChild as HTMLElement;
+
+      expect(root.style.height).toBe("var(--shell-viewport-height, 100vh)");
+      expect(root.style.minHeight).toBe("var(--shell-viewport-height, 100vh)");
+      expect(root.style.getPropertyValue("--shell-viewport-height")).toBe("544px");
+      expect(root.style.getPropertyValue("--shell-keyboard-inset")).toBe("300px");
+    } finally {
+      if (originalInnerHeight) {
+        Object.defineProperty(window, "innerHeight", originalInnerHeight);
+      }
+      if (originalVisualViewport) {
+        Object.defineProperty(window, "visualViewport", originalVisualViewport);
+      } else {
+        delete (window as any).visualViewport;
+      }
+    }
   });
 
   it("resolves supported views to chat_focus while the workspace is closed", () => {

@@ -2,6 +2,7 @@ import * as React from "react";
 import ContextMenu, { type ContextMenuItem } from "@/components/menus/ContextMenu";
 import MediaGrid from "@/components/media/MediaGrid";
 import TileShell from "@/components/surface/TileShell";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import "@/components/media/media.css";
@@ -66,6 +67,7 @@ function DashboardGalleryImageTile({
   alt,
   provenance,
   provenanceClass,
+  isPhoneShell,
   onOpenPreview,
   onOpenContextMenu,
 }: {
@@ -73,6 +75,7 @@ function DashboardGalleryImageTile({
   alt: string;
   provenance: string;
   provenanceClass: string;
+  isPhoneShell: boolean;
   onOpenPreview: (item: DashboardGalleryItem) => void;
   onOpenContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
@@ -92,9 +95,22 @@ function DashboardGalleryImageTile({
     <TileShell
       as="button"
       type="button"
-      sizeVariant="dashboard-image"
-      className="codexifyMediaTile dashboardGalleryTile cursor-pointer"
-      style={{ padding: 0 }}
+      sizeVariant={isPhoneShell ? undefined : "dashboard-image"}
+      className={`codexifyMediaTile dashboardGalleryTile cursor-pointer ${
+        isPhoneShell ? "dashboardGalleryTile--mobile" : ""
+      }`.trim()}
+      style={
+        isPhoneShell
+          ? {
+              padding: 0,
+              width: "100%",
+              minWidth: 0,
+              height: "auto",
+              aspectRatio: "4 / 3",
+              flex: "0 0 auto",
+            }
+          : { padding: 0 }
+      }
       onClick={() => onOpenPreview(item)}
       onContextMenu={onOpenContextMenu}
       aria-label={alt}
@@ -129,6 +145,8 @@ export default function DashboardGallery({
   onOpenPreview,
   onAddToThread,
 }: DashboardGalleryProps) {
+  const mobileShellProfile = useMobileShellProfile();
+  const isPhoneShell = mobileShellProfile.active;
   const INITIAL_VISIBLE = 4;
   const [menu, setMenu] = React.useState<{
     x: number;
@@ -231,40 +249,82 @@ export default function DashboardGallery({
   );
 
   return (
-    <div className="dashboardGalleryRoot">
-      <MediaGrid className="codexifyMediaGrid--dashboard-image">
-        {visibleItems.map((item, index) => {
-          const resolvedSrc = normalizeMediaUrl(item.src);
-          const alt = item.prompt || "Gallery image";
-          const key = `${item.id ?? "dashboard"}:${item.src}:${index}`;
-          const provenance = provenanceLabel(item);
-          const provenanceClass =
-            provenance === "Generated"
-              ? "dashboardGalleryBadge--generated"
-              : "dashboardGalleryBadge--uploaded";
-          return (
-            <DashboardGalleryImageTile
-              key={key}
-              item={item}
-              alt={alt}
-              provenance={provenance}
-              provenanceClass={provenanceClass}
-              onOpenPreview={onOpenPreview}
-              onOpenContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  item,
-                  resolvedSrc,
-                  alt,
-                });
-              }}
-            />
-          );
-        })}
-      </MediaGrid>
+    <div
+      className="dashboardGalleryRoot"
+      data-gallery-layout={isPhoneShell ? "mobile_stack" : "desktop_grid"}
+      data-testid="dashboard-gallery"
+    >
+      {isPhoneShell ? (
+        <div className="flex flex-col gap-[var(--gutter)]">
+          {visibleItems.map((item, index) => {
+            const resolvedSrc = normalizeMediaUrl(item.src);
+            const alt = item.prompt || "Gallery image";
+            const key = `${item.id ?? "dashboard"}:${item.src}:${index}`;
+            const provenance = provenanceLabel(item);
+            const provenanceClass =
+              provenance === "Generated"
+                ? "dashboardGalleryBadge--generated"
+                : "dashboardGalleryBadge--uploaded";
+            return (
+              <DashboardGalleryImageTile
+                key={key}
+                item={item}
+                alt={alt}
+                provenance={provenance}
+                provenanceClass={provenanceClass}
+                isPhoneShell={isPhoneShell}
+                onOpenPreview={onOpenPreview}
+                onOpenContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    item,
+                    resolvedSrc,
+                    alt,
+                  });
+                }}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <MediaGrid className="codexifyMediaGrid--dashboard-image">
+          {visibleItems.map((item, index) => {
+            const resolvedSrc = normalizeMediaUrl(item.src);
+            const alt = item.prompt || "Gallery image";
+            const key = `${item.id ?? "dashboard"}:${item.src}:${index}`;
+            const provenance = provenanceLabel(item);
+            const provenanceClass =
+              provenance === "Generated"
+                ? "dashboardGalleryBadge--generated"
+                : "dashboardGalleryBadge--uploaded";
+            return (
+              <DashboardGalleryImageTile
+                key={key}
+                item={item}
+                alt={alt}
+                provenance={provenance}
+                provenanceClass={provenanceClass}
+                isPhoneShell={isPhoneShell}
+                onOpenPreview={onOpenPreview}
+                onOpenContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    item,
+                    resolvedSrc,
+                    alt,
+                  });
+                }}
+              />
+            );
+          })}
+        </MediaGrid>
+      )}
       {hasOverflow && (
         <button
           type="button"
