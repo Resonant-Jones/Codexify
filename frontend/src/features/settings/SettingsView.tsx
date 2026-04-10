@@ -404,6 +404,29 @@ export function SettingsView({
     const syncActiveThreadId = () => {
       setActiveThreadId(readRouteThreadId());
     };
+    const history = window.history;
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    const emitRouteChange = () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    };
+
+    history.pushState = function (
+      ...args: Parameters<History["pushState"]>
+    ) {
+      const result = originalPushState.apply(history, args);
+      emitRouteChange();
+      return result;
+    };
+
+    history.replaceState = function (
+      ...args: Parameters<History["replaceState"]>
+    ) {
+      const result = originalReplaceState.apply(history, args);
+      emitRouteChange();
+      return result;
+    };
 
     syncActiveThreadId();
     window.addEventListener("popstate", syncActiveThreadId);
@@ -413,6 +436,8 @@ export function SettingsView({
     );
 
     return () => {
+      history.pushState = originalPushState;
+      history.replaceState = originalReplaceState;
       window.removeEventListener("popstate", syncActiveThreadId);
       window.removeEventListener(
         "cfy:threads:refresh",
@@ -1172,11 +1197,20 @@ export function SettingsView({
                   >
                     {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
                   </Button>
-                  {systemPromptSaveStatus === "saved" && (
-                    <span className="text-xs opacity-70" style={{ color: "var(--muted)" }}>
-                      Preview prompt saved.
-                    </span>
-                  )}
+                  {systemPromptSaveMessage &&
+                    systemPromptSaveStatus !== "saving" && (
+                      <span
+                        className="text-xs opacity-70"
+                        style={{
+                          color:
+                            systemPromptSaveStatus === "error"
+                              ? "var(--error, #ef4444)"
+                              : "var(--muted)",
+                        }}
+                      >
+                        {systemPromptSaveMessage}
+                      </span>
+                    )}
                 </div>
                 {systemPromptSaveError && (
                   <div className="text-xs" style={{ color: "var(--error, #ef4444)" }}>

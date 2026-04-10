@@ -109,7 +109,7 @@ describe("SettingsView", () => {
     render(<SettingsView {...props} />);
 
     expect(
-      screen.getByRole("tablist", { name: "Settings sections" })
+      screen.getByRole("tablist", { name: "Settings tabs" })
     ).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Imprint" }));
 
