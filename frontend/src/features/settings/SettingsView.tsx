@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,12 +8,13 @@ import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
+import { MemoryBrowser } from "@/features/settings/diagnostics";
 import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
-import PersonaSettingsPanel from "@/features/settings/components/PersonaSettingsPanel";
 import PersonalFactsPanel from "@/features/settings/components/PersonalFactsPanel";
-import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
-import type { SettingsTab } from "@/features/settings/components/SettingsPanelDock";
 import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
+import SettingsPanelDock from "@/features/settings/components/SettingsPanelDock";
+import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
+import SettingsSectionCard from "@/features/settings/components/SettingsSectionCard";
 import {
   ChatGPTImportModal,
   type MigrationStats,
@@ -63,6 +65,37 @@ type StoredChatGPTImportTask = {
   detail: string;
   lastEventAt: number;
 };
+
+type SettingsTab =
+  | "appearance"
+  | "system"
+  | "connectors"
+  | "data"
+  | "connection"
+  | "diagnostics";
+
+type SettingsTabDefinition = {
+  value: SettingsTab;
+  label: string;
+  requiresDesktop?: boolean;
+};
+
+const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
+  { value: "appearance", label: "Appearance" },
+  { value: "system", label: "Imprint" },
+  { value: "connectors", label: "Connectors" },
+  { value: "data", label: "Data" },
+  { value: "connection", label: "Connection", requiresDesktop: true },
+  { value: "diagnostics", label: "Diagnostics" },
+];
+
+function getSettingsTabButtonId(tab: SettingsTab): string {
+  return `settings-tab-${tab}`;
+}
+
+function getSettingsTabPanelId(tab: SettingsTab): string {
+  return `settings-panel-${tab}`;
+}
 
 const CHATGPT_IMPORT_TASK_STORAGE_KEY = "codexify.chatgpt_import_task";
 
@@ -244,6 +277,14 @@ function getResponseErrorMessage(error: unknown): string | null {
   return null;
 }
 
+function readRouteThreadId(): number | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/chat\/(\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function SettingsView({
   mode,
   setMode,
@@ -299,7 +340,15 @@ export function SettingsView({
 }) {
   const desktopMode = isTauriRuntime();
   const [tab, setTab] = useState<SettingsTab>("appearance");
-  const settingsScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
+    appearance: null,
+    system: null,
+    connectors: null,
+    data: null,
+    connection: null,
+    diagnostics: null,
+  });
+  const settingsScrollContainerRef = useRef<HTMLElement | null>(null);
   const tabScrollPositionsRef = useRef<Partial<Record<SettingsTab, number>>>({});
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
   const [migrationStepSkipped, setMigrationStepSkipped] = useState(false);
@@ -311,6 +360,9 @@ export function SettingsView({
   const [uRole, setURole] = useState(role);
   const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
+  const [activeThreadId, setActiveThreadId] = useState<number | null>(() =>
+    readRouteThreadId()
+  );
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
   const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
   const [desktopApiKeyInput, setDesktopApiKeyInput] = useState("");
@@ -344,6 +396,55 @@ export function SettingsView({
   const [systemPromptSyncRetryNeeded, setSystemPromptSyncRetryNeeded] =
     useState(false);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const syncActiveThreadId = () => {
+      setActiveThreadId(readRouteThreadId());
+    };
+    const history = window.history;
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    const emitRouteChange = () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    };
+
+    history.pushState = function (
+      ...args: Parameters<History["pushState"]>
+    ) {
+      const result = originalPushState.apply(history, args);
+      emitRouteChange();
+      return result;
+    };
+
+    history.replaceState = function (
+      ...args: Parameters<History["replaceState"]>
+    ) {
+      const result = originalReplaceState.apply(history, args);
+      emitRouteChange();
+      return result;
+    };
+
+    syncActiveThreadId();
+    window.addEventListener("popstate", syncActiveThreadId);
+    window.addEventListener(
+      "cfy:threads:refresh",
+      syncActiveThreadId as EventListener
+    );
+
+    return () => {
+      history.pushState = originalPushState;
+      history.replaceState = originalReplaceState;
+      window.removeEventListener("popstate", syncActiveThreadId);
+      window.removeEventListener(
+        "cfy:threads:refresh",
+        syncActiveThreadId as EventListener
+      );
+    };
+  }, []);
   const [lastSavedPersonaId, setLastSavedPersonaId] = useState<number | null>(
     null
   );
@@ -682,6 +783,12 @@ export function SettingsView({
     };
   }, []);
 
+  useEffect(() => {
+    if (tab === "connection" && !desktopMode) {
+      setTab("appearance");
+    }
+  }, [desktopMode, tab]);
+
   async function handleSave() {
     const localDirty =
       name !== guardianName ||
@@ -933,6 +1040,10 @@ export function SettingsView({
     syncConnector,
   } = useConnectors({ enabled: connectorsEnabled });
 
+  const visibleTabs = SETTINGS_TAB_DEFINITIONS.filter(
+    (definition) => !definition.requiresDesktop || desktopMode
+  );
+
   useLayoutEffect(() => {
     const scrollContainer = settingsScrollContainerRef.current;
     if (!scrollContainer) return;
@@ -967,15 +1078,79 @@ export function SettingsView({
     setTab(nextTab);
   }
 
+    function activateTab(nextTab: SettingsTab) {
+    handleTabChange(nextTab);
+    tabButtonRefs.current[nextTab]?.focus();
+  }
+
+  function handleTabKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentTab: SettingsTab
+  ) {
+    const navigationTabs = visibleTabs.map((definition) => definition.value);
+    const currentIndex = navigationTabs.indexOf(currentTab);
+    if (currentIndex < 0 || navigationTabs.length === 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % navigationTabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + navigationTabs.length) % navigationTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = navigationTabs.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    activateTab(navigationTabs[nextIndex]);
+  }
+
+  function renderTabButton(definition: SettingsTabDefinition) {
+    const selected = tab === definition.value;
+    const tabButtonId = getSettingsTabButtonId(definition.value);
+    const tabPanelId = getSettingsTabPanelId(definition.value);
+
+    return (
+      <Button
+        ref={(node) => {
+          tabButtonRefs.current[definition.value] = node;
+        }}
+        key={definition.value}
+        type="button"
+        role="tab"
+        id={tabButtonId}
+        aria-controls={tabPanelId}
+        aria-selected={selected}
+        tabIndex={selected ? 0 : -1}
+        variant={selected ? "default" : "ghost"}
+        size="sm"
+        className="rounded-[var(--tile-radius,19px)]"
+        onClick={() => activateTab(definition.value)}
+        onKeyDown={(event) => handleTabKeyDown(event, definition.value)}
+      >
+        {definition.label}
+      </Button>
+    );
+  }
+
   return (
-    <SettingsPanelShell
-      activeTab={tab}
-      desktopMode={desktopMode}
-      onTabChange={handleTabChange}
-      scrollContainerRef={settingsScrollContainerRef}
-    >
-      {tab === "system" && (
-        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
+    <div className="w-full" style={{ color: "var(--text)" }}>
+      <SettingsPanelShell scrollContainerRef={settingsScrollContainerRef}>
+        <SettingsPanelDock>
+          {visibleTabs.map(renderTabButton)}
+        </SettingsPanelDock>
+
+        {tab === "system" && (
+          <SettingsSectionCard
+            data-testid="settings-system-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("system")}
+            aria-labelledby={getSettingsTabButtonId("system")}
+            className="space-y-4"
+          >
             <div
               className="space-y-2 rounded-[var(--tile-radius,19px)] border p-4"
               style={{
@@ -1022,19 +1197,20 @@ export function SettingsView({
                   >
                     {systemPromptSaveStatus === "saving" ? "Saving…" : "Save"}
                   </Button>
-                  {systemPromptSaveMessage && systemPromptSaveStatus !== "saving" && (
-                    <span
-                      className="text-xs opacity-70"
-                      style={{
-                        color:
-                          systemPromptSaveStatus === "error"
-                            ? "var(--error, #ef4444)"
-                            : "var(--muted)",
-                      }}
-                    >
-                      {systemPromptSaveMessage}
-                    </span>
-                  )}
+                  {systemPromptSaveMessage &&
+                    systemPromptSaveStatus !== "saving" && (
+                      <span
+                        className="text-xs opacity-70"
+                        style={{
+                          color:
+                            systemPromptSaveStatus === "error"
+                              ? "var(--error, #ef4444)"
+                              : "var(--muted)",
+                        }}
+                      >
+                        {systemPromptSaveMessage}
+                      </span>
+                    )}
                 </div>
                 {systemPromptSaveError && (
                   <div className="text-xs" style={{ color: "var(--error, #ef4444)" }}>
@@ -1044,13 +1220,9 @@ export function SettingsView({
               </div>
             </div>
 
-            <section
-              className="space-y-4 rounded-[var(--tile-radius,19px)] border p-4"
-              style={{
-                borderColor: "var(--panel-border)",
-                background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
-              }}
+            <SettingsSectionCard
               data-testid="imprint-workspace"
+              className="space-y-4"
             >
               <div className="space-y-1">
                 <div className="text-sm font-semibold">Imprint Workspace</div>
@@ -1061,15 +1233,21 @@ export function SettingsView({
               </div>
               <ImprintReviewPanel />
               <div className="grid gap-4 xl:grid-cols-2">
-                <PersonaSettingsPanel />
+                <PersonalFactsPanel />
                 <SystemPromptInspector />
               </div>
-            </section>
-          </div>
+            </SettingsSectionCard>
+          </SettingsSectionCard>
         )}
 
-      {tab === "appearance" && (
-        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
+        {tab === "appearance" && (
+          <SettingsSectionCard
+            data-testid="settings-appearance-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("appearance")}
+            aria-labelledby={getSettingsTabButtonId("appearance")}
+            className="space-y-5"
+          >
             <div className="space-y-2">
               <div className="text-sm font-semibold">Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
@@ -1186,11 +1364,17 @@ export function SettingsView({
               </div>
             </div>
 
-          </div>
+          </SettingsSectionCard>
         )}
 
-      {tab === "connectors" && (
-        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
+        {tab === "connectors" && (
+          <SettingsSectionCard
+            data-testid="settings-connectors-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("connectors")}
+            aria-labelledby={getSettingsTabButtonId("connectors")}
+            className="space-y-4"
+          >
             {runtimeCapabilitiesReady &&
               connectorsCapability === "unavailable" && (
                 <div className="text-sm opacity-70">
@@ -1226,11 +1410,17 @@ export function SettingsView({
                 <div className="text-sm opacity-70">No connectors available</div>
               )
             )}
-          </div>
+          </SettingsSectionCard>
         )}
 
-      {tab === "data" && (
-        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
+        {tab === "data" && (
+          <SettingsSectionCard
+            data-testid="settings-data-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("data")}
+            aria-labelledby={getSettingsTabButtonId("data")}
+            className="space-y-4"
+          >
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-2">
@@ -1409,11 +1599,17 @@ export function SettingsView({
                 setMigrationStepSkipped(false);
               }}
             />
-          </div>
+          </SettingsSectionCard>
         )}
 
-      {tab === "connection" && desktopMode && (
-        <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
+        {tab === "connection" && desktopMode && (
+          <SettingsSectionCard
+            data-testid="settings-connection-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("connection")}
+            aria-labelledby={getSettingsTabButtonId("connection")}
+            className="space-y-4"
+          >
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
               <div className="text-sm font-semibold">Desktop Connection</div>
               <p className="text-xs opacity-70">
@@ -1508,9 +1704,23 @@ export function SettingsView({
             {connectionError && (
               <div className="text-xs text-red-400">{connectionError}</div>
             )}
-          </div>
+          </SettingsSectionCard>
         )}
 
+        {tab === "diagnostics" && (
+          <SettingsSectionCard
+            data-testid="settings-diagnostics-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("diagnostics")}
+            aria-labelledby={getSettingsTabButtonId("diagnostics")}
+            className="space-y-4"
+          >
+            <MemoryBrowser activeThreadId={activeThreadId} />
+          </SettingsSectionCard>
+        )}
+      </SettingsPanelShell>
+
+    </div>
       {tab === "personalFacts" && (
         <div
           className="w-full min-w-0 space-y-[var(--shell-gap)]"
