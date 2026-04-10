@@ -258,11 +258,14 @@ def _include_router(
         )
         return
     if _BETA_CORE_ONLY and not core_surface:
-        logger.info(
-            "[routers] quarantined %s (CODEXIFY_BETA_CORE_ONLY=true)",
-            label,
-        )
-        return
+        if not (
+            profile_manifest is not None and profile_status == "internal_only"
+        ):
+            logger.info(
+                "[routers] quarantined %s (CODEXIFY_BETA_CORE_ONLY=true)",
+                label,
+            )
+            return
     if not _env_bool(flag_name, default=default_enabled):
         logger.info("[routers] quarantined %s (%s=false)", label, flag_name)
         return

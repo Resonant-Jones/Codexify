@@ -346,12 +346,20 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
             {"id": "doc-a", "title": "a.md", "score": 0.8, "snippet": "a..."}
         ],
         "graph": [],
+        "slash_intent": "slash:thread-one",
+        "retrieval_override": {"mode": "project"},
+        "source_mode": "project",
+        "widen_reason": "none",
     }
     trace_two = {
         "documents": [
             {"id": "doc-b", "title": "b.md", "score": 0.7, "snippet": "b..."}
         ],
         "graph": [{"node_id": "node-b", "kind": "memory", "text": "b node"}],
+        "slash_intent": "slash:thread-two",
+        "retrieval_override": {"mode": "personal_knowledge"},
+        "source_mode": "personal_knowledge",
+        "widen_reason": "explicit_personal_knowledge",
     }
     task_one_id = str(uuid.uuid4())
     task_two_id = str(uuid.uuid4())
@@ -419,6 +427,10 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
 
     assert first["documents"] == trace_one["documents"]
     assert first["graph"] == trace_one["graph"]
+    assert first["slash_intent"] == trace_one["slash_intent"]
+    assert first["retrieval_override"] == trace_one["retrieval_override"]
+    assert first["source_mode"] == "project"
+    assert first["widen_reason"] == "none"
     assert first["payload_summary"]["slash_intent"] == slash_intent
     assert first["payload_summary"]["retrieval_override"] == retrieval_override
     assert first["payload_summary"]["source_mode"] == "personal_knowledge"
@@ -427,6 +439,10 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
     )
     assert second["documents"] == trace_two["documents"]
     assert second["graph"] == trace_two["graph"]
+    assert second["slash_intent"] == trace_two["slash_intent"]
+    assert second["retrieval_override"] == trace_two["retrieval_override"]
+    assert second["source_mode"] == "personal_knowledge"
+    assert second["widen_reason"] == "explicit_personal_knowledge"
     assert "slash_intent" not in second["payload_summary"]
     assert "retrieval_override" not in second["payload_summary"]
 
@@ -445,6 +461,8 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
         "thread_id": thread_id,
         "project_id": 11,
         "depth_mode": "normal",
+        "slash_intent": "slash:search",
+        "retrieval_override": {"mode": "personal_knowledge"},
         "documents": [
             {
                 "id": "doc-1",
@@ -456,6 +474,12 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
         "graph": [],
         "source_mode": "personal_knowledge",
         "widen_reason": "explicit_personal_knowledge",
+    }
+    payload_summary = {
+        "message_count": 2,
+        "slash_intent": "slash:search",
+        "retrieval_override": {"mode": "personal_knowledge"},
+        "effective_source_mode": "personal_knowledge",
     }
 
     monkeypatch.setattr(
@@ -473,7 +497,10 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
     monkeypatch.setattr(
         chat,
         "_get_task_completed_payload",
-        lambda _task_id: {"thread_id": thread_id},
+        lambda _task_id: {
+            "thread_id": thread_id,
+            "payload_summary": payload_summary,
+        },
     )
 
     trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
@@ -482,8 +509,11 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
     assert trace["thread_id"] == thread_id
     assert trace["project_id"] == 11
     assert trace["depth_mode"] == "normal"
+    assert trace["slash_intent"] == "slash:search"
+    assert trace["retrieval_override"] == {"mode": "personal_knowledge"}
     assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
+    assert trace["payload_summary"] == payload_summary
 
     chat._thread_latest_task.pop(thread_id, None)
     chat._rag_traces.pop(thread_id, None)
