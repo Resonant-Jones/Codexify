@@ -71,6 +71,7 @@ type SettingsTab =
   | "system"
   | "connectors"
   | "data"
+  | "personalFacts"
   | "connection"
   | "diagnostics";
 
@@ -85,6 +86,7 @@ const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
   { value: "system", label: "Imprint" },
   { value: "connectors", label: "Connectors" },
   { value: "data", label: "Data" },
+  { value: "personalFacts", label: "Personal Facts" },
   { value: "connection", label: "Connection", requiresDesktop: true },
   { value: "diagnostics", label: "Diagnostics" },
 ];
@@ -384,6 +386,7 @@ export function SettingsView({
     system: null,
     connectors: null,
     data: null,
+    personalFacts: null,
     connection: null,
     diagnostics: null,
   });
@@ -1120,7 +1123,7 @@ export function SettingsView({
     setTab(nextTab);
   }
 
-  function activateTab(nextTab: SettingsTab) {
+    function activateTab(nextTab: SettingsTab) {
     handleTabChange(nextTab);
     tabButtonRefs.current[nextTab]?.focus();
   }
@@ -1274,10 +1277,7 @@ export function SettingsView({
                 </p>
               </div>
               <ImprintReviewPanel />
-              <div className="grid gap-4 xl:grid-cols-2">
-                <PersonalFactsPanel />
-                <SystemPromptInspector />
-              </div>
+              <SystemPromptInspector />
             </SettingsSectionCard>
           </SettingsSectionCard>
         )}
@@ -1641,6 +1641,18 @@ export function SettingsView({
                 setMigrationStepSkipped(false);
               }}
             />
+          </SettingsSectionCard>
+        )}
+
+        {tab === "personalFacts" && (
+          <SettingsSectionCard
+            data-testid="settings-personal-facts-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("personalFacts")}
+            aria-labelledby={getSettingsTabButtonId("personalFacts")}
+            className="space-y-4"
+          >
+            <PersonalFactsPanel />
           </SettingsSectionCard>
         )}
 

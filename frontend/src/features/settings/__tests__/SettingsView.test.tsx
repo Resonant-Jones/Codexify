@@ -126,7 +126,6 @@ describe("SettingsView", () => {
     );
     expect(screen.getByTestId("imprint-workspace")).toBeInTheDocument();
     expect(screen.getByTestId("mock-imprint-review")).toBeInTheDocument();
-    expect(screen.getByTestId("mock-persona-settings")).toBeInTheDocument();
     expect(screen.getByTestId("mock-system-prompt-inspector")).toBeInTheDocument();
   });
 
@@ -147,38 +146,39 @@ describe("SettingsView", () => {
     ).toBeInTheDocument();
   });
 
-  test("persists the selected tab and restores it on remount", async () => {
+  test("persists the Personal Facts tab and restores it on remount", async () => {
     const user = userEvent.setup();
     const props = createSettingsViewProps();
     const { unmount } = render(<SettingsView {...props} />);
 
-    await user.click(screen.getByRole("tab", { name: "Data" }));
+    await user.click(screen.getByRole("tab", { name: "Personal Facts" }));
 
-    expect(screen.getByRole("tab", { name: "Data" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveAttribute(
       "aria-selected",
       "true"
     );
+    expect(screen.getByTestId("mock-persona-settings")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
-    ).toBeInTheDocument();
-    expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe("data");
+      screen.queryByRole("button", { name: "Import ChatGPT history" })
+    ).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe(
+      "personalFacts"
+    );
 
     unmount();
     render(<SettingsView {...props} />);
 
-    expect(screen.getByRole("tab", { name: "Data" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveAttribute(
       "aria-selected",
       "true"
     );
-    expect(
-      screen.getByRole("button", { name: "Import ChatGPT history" })
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("tab", { name: "Appearance" }));
-
+    expect(screen.getByTestId("mock-persona-settings")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Import ChatGPT history" })
     ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
     expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe(
       "appearance"
     );
