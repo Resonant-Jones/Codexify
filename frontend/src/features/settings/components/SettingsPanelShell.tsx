@@ -1,13 +1,13 @@
+import type { PropsWithChildren, RefObject } from "react";
 import type { ReactNode, RefObject } from "react";
 
-import SettingsPanelDock, {
-  type SettingsTab,
-} from "@/features/settings/components/SettingsPanelDock";
+import { cn } from "@/lib/utils";
 
-type SettingsPanelShellProps = {
-  activeTab: SettingsTab;
-  children: ReactNode;
+type SettingsPanelShellProps = PropsWithChildren<{
   className?: string;
+  "data-testid"?: string;
+  scrollContainerRef?: RefObject<HTMLElement | null>;
+}>;
   contentClassName?: string;
   desktopMode?: boolean;
   onTabChange: (tab: SettingsTab) => void;
@@ -16,9 +16,27 @@ type SettingsPanelShellProps = {
 };
 
 export default function SettingsPanelShell({
-  activeTab,
   children,
   className,
+  "data-testid": dataTestId = "settings-panel-shell",
+  scrollContainerRef,
+}: SettingsPanelShellProps) {
+  return (
+    <section
+      data-testid={dataTestId}
+      ref={scrollContainerRef}
+      className={cn(
+        "flex h-full min-h-0 w-full min-w-0 flex-col gap-[var(--shell-gap)] overflow-x-clip overflow-y-auto text-[var(--text)]",
+        className
+      )}
+      style={{
+        borderRadius: "calc(var(--card-radius) + var(--board-edge) / 2)",
+        border: "1px solid color-mix(in srgb, var(--panel-bezel) 86%, transparent)",
+        background: "color-mix(in srgb, var(--panel-bg) 80%, transparent)",
+        padding: "calc(var(--card-pad) + var(--board-edge))",
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)",
+      }}
   contentClassName,
   desktopMode = false,
   onTabChange,
@@ -36,23 +54,7 @@ export default function SettingsPanelShell({
         .filter(Boolean)
         .join(" ")}
     >
-      <div className="mx-auto flex w-full min-w-0 max-w-[84rem] flex-col gap-[var(--shell-gap)] px-[var(--shell-gap)] py-[var(--shell-gap)] sm:px-5 lg:px-6">
-        <SettingsPanelDock
-          activeTab={activeTab}
-          desktopMode={desktopMode}
-          onTabChange={onTabChange}
-        />
-        <div
-          className={[
-            "w-full min-w-0 space-y-[var(--shell-gap)]",
-            contentClassName ?? "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          {children}
-        </div>
-      </div>
-    </div>
+      {children}
+    </section>
   );
 }
