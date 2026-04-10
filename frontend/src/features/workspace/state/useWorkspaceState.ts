@@ -42,6 +42,19 @@ function normalizeNumericId(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function normalizeWorkspaceTargetView(
+  value: unknown,
+  fallback: WorkspaceTargetView
+): WorkspaceTargetView {
+  if (value === "guardian") {
+    return "guardian";
+  }
+  if (value === "documents") {
+    return "documents";
+  }
+  return fallback;
+}
+
 function inferExtension(candidate: Record<string, unknown>): string {
   const direct = normalizeString(
     candidate.ext ?? candidate.extension ?? candidate.format
@@ -183,12 +196,10 @@ export function normalizeWorkspaceOpenRequest(
       ? sourceCandidate
       : "documents";
 
-  const targetView: WorkspaceTargetView =
-    targetViewCandidate === "guardian"
-      ? "guardian"
-      : defaults.targetView === "guardian"
-        ? "guardian"
-        : "documents";
+  const targetView = normalizeWorkspaceTargetView(
+    targetViewCandidate,
+    defaults.targetView ?? "documents"
+  );
 
   return {
     doc,

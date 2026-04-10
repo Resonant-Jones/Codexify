@@ -131,6 +131,7 @@ vi.mock("@/pages/SharePage", () => ({
 import DocumentsView from "@/components/documents/DocumentsView";
 import {
   forwardLegacyDocumentOpenToWorkspace,
+  requestWorkspaceOpen,
   useWorkspaceState,
 } from "@/features/workspace/state/useWorkspaceState";
 
@@ -238,6 +239,38 @@ describe("workspace invocation contract", () => {
       );
       expect(screen.getByTestId("workspace-probe")).toHaveTextContent(
         "Thread Attachment"
+      );
+    });
+  });
+
+  it("treats an unsupported dashboard target as the shared documents workspace", async () => {
+    render(<WorkspaceProbe />);
+
+    let didOpen = false;
+    await act(async () => {
+      didOpen = requestWorkspaceOpen({
+        doc: {
+          id: "dashboard-rail",
+          title: "Dashboard Notes",
+          name: "Dashboard Notes",
+          ext: "md",
+          type: "file",
+          src_url: "/media/documents/dashboard-notes.md",
+        },
+        source: "documents",
+        targetView: "dashboard" as any,
+      });
+    });
+
+    expect(didOpen).toBe(true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-probe")).toHaveAttribute(
+        "data-open",
+        "true"
+      );
+      expect(screen.getByTestId("workspace-probe")).toHaveTextContent(
+        "Dashboard Notes"
       );
     });
   });
