@@ -105,7 +105,6 @@ function MobileDocumentRow({
           aria-hidden="true"
         />
       </div>
-
     </TileShell>
   );
 }
@@ -131,7 +130,6 @@ export default function DocumentsView({
 }: DocumentsViewProps) {
   const mobileShellProfile = useMobileShellProfile();
   const shellViewportProfile = useShellViewportProfile();
-  const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
   const uploader = useUploader({
     tag: "upload",
@@ -181,6 +179,7 @@ export default function DocumentsView({
     { key: "thread" as const, label: "Thread", disabled: !threadScopeEnabled },
     { key: "project" as const, label: "Project", disabled: false },
   ];
+
   const contentAreaClassName = isPhoneShell
     ? "flex-1 min-h-0 overflow-auto py-[var(--card-pad)]"
     : "flex-1 min-h-0 overflow-auto py-4";
@@ -189,7 +188,6 @@ export default function DocumentsView({
     : "flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-4 text-xs";
 
   const documentsGridStyle = useMemo<React.CSSProperties>(() => {
-    if (mobileShellProfile.documents.layout === "list") {
     if (isPhoneShell) {
       return {
         display: "flex",
@@ -198,9 +196,6 @@ export default function DocumentsView({
         minHeight: 0,
         flexDirection: "column",
         gap: mobileShellProfile.documents.contentGap,
-        overflow: "auto",
-        paddingBottom: 0,
-        gap: "var(--shell-gap)",
         alignItems: "stretch",
         justifyContent: "flex-start",
         overflow: "visible",
@@ -229,14 +224,15 @@ export default function DocumentsView({
       overflow: "auto",
       paddingBottom: "0.5rem",
     };
-  }, [isPhoneShell, shellViewportProfile.documentsGridColumns]);
+  }, [
+    isPhoneShell,
+    mobileShellProfile.documents.contentGap,
+    shellViewportProfile.documentsGridColumns,
+  ]);
 
   const documentsLayoutMode = isPhoneShell ? "mobile_list" : "desktop_grid";
 
   return (
-    <section className="flex h-full w-full min-h-0 flex-col overflow-hidden">
-      <div className="flex h-full w-full flex-col min-h-0 overflow-hidden p-[var(--card-pad)]">
-        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] pb-[var(--card-pad)]">
     <section
       className="flex h-full w-full min-h-0 flex-col overflow-hidden"
       data-documents-layout={documentsLayoutMode}
@@ -279,7 +275,7 @@ export default function DocumentsView({
         <div
           className={contentAreaClassName}
           style={{ overflowX: "hidden" }}
-          data-layout-mode={mobileShellProfile.documents.layout === "list" ? "mobile-list" : "grid"}
+          data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
           onDrop={uploader.onDrop}
           onDragOver={uploader.onDragOver}
         >
@@ -296,18 +292,6 @@ export default function DocumentsView({
 
                 return (
                   <div key={key} className="relative">
-                    <DocumentTile
-                      file={{
-                        name: d.title,
-                        ext: d.ext,
-                        embeddingStatus: d.embeddingStatus,
-                        embeddingError: d.embeddingError,
-                      }}
-                      className={isPhoneShell ? "!w-full !max-w-none" : undefined}
-                      onClick={() => handleDocumentClick(d)}
-                      onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
-                      contextMenuItems={contextMenuItems}
-                    />
                     {isPhoneShell ? (
                       <MobileDocumentRow
                         doc={d}
@@ -356,15 +340,6 @@ export default function DocumentsView({
         </div>
 
         <div className={footerClassName} style={{ color: "var(--muted)" }}>
-          <div className="flex items-center gap-2">
-        <div
-          className={`flex-shrink-0 border-t border-[var(--panel-border)] py-4 text-xs ${
-            isPhoneShell
-              ? "flex flex-col items-start gap-2"
-              : "flex items-center gap-2"
-          }`}
-          style={{ color: "var(--muted)" }}
-        >
           <div className={`flex items-center gap-2 ${isPhoneShell ? "flex-wrap" : ""}`}>
             <span>Drag & drop files here, or</span>
             <button
