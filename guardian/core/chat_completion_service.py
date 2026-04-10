@@ -1466,6 +1466,7 @@ async def build_messages_for_llm(
 
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
+    trace_candidate: dict[str, Any] | None = None
     try:
         broker = ContextBroker(
             dependencies.chatlog_db,
@@ -1496,6 +1497,8 @@ async def build_messages_for_llm(
             exc,
         )
         bundle = {}
+    else:
+        trace_candidate = trace
 
     if isinstance(bundle, dict):
         if thread_execution.persona_id:
@@ -1630,7 +1633,8 @@ async def build_messages_for_llm(
             exc,
         )
 
-    _persist_thread_trace_candidate(task, trace)
+    if isinstance(trace_candidate, dict):
+        _persist_thread_trace_candidate(task, trace)
 
     messages_for_llm.extend(retrieved_context_messages)
     messages_for_llm.extend(context)
