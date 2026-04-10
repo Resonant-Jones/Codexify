@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -6,6 +6,7 @@ import { SettingsView } from "@/features/settings/SettingsView";
 import type { ExtColors, ThemeMode } from "@/types/ui";
 
 const useConnectorsMock = vi.fn();
+const SETTINGS_TAB_STORAGE_KEY = "cfy.settings.activeTab";
 
 vi.mock("@/features/connectors/useConnectors", () => ({
   useConnectors: () => useConnectorsMock(),
@@ -53,8 +54,49 @@ vi.mock("@/lib/runtimeConfig", () => ({
   saveDesktopConnectionSettings: vi.fn(),
 }));
 
+function createSettingsViewProps() {
+  return {
+    baseColor: "#111111",
+    dashboardThreadRows: 2,
+    depth: 0.4,
+    extColors: {
+      codex: "#000000",
+      doc: "#000000",
+      docx: "#000000",
+      jpeg: "#000000",
+      md: "#000000",
+      pdf: "#000000",
+      png: "#000000",
+      sketch: "#000000",
+      txt: "#000000",
+    } satisfies ExtColors,
+    fade: 0.2,
+    guardianName: "Harbor",
+    mode: "light" as ThemeMode,
+    notes: "Local notes",
+    resolved: "light" as const,
+    role: "Researcher",
+    setBaseColor: vi.fn(),
+    setDashboardThreadRows: vi.fn(),
+    setDepth: vi.fn(),
+    setExtColors: vi.fn(),
+    setFade: vi.fn(),
+    setGuardianName: vi.fn(),
+    setMode: vi.fn(),
+    setNotes: vi.fn(),
+    setRole: vi.fn(),
+    setSystemPrompt: vi.fn(),
+    setUserName: vi.fn(),
+    setWallpaper: vi.fn(),
+    systemPrompt: "Local preview prompt",
+    userName: "Ari",
+    wallpaper: null,
+  };
+}
+
 describe("SettingsView", () => {
   beforeEach(() => {
+    window.sessionStorage.clear();
     useConnectorsMock.mockReturnValue({
       connectors: [],
       error: null,
@@ -68,43 +110,7 @@ describe("SettingsView", () => {
 
   test("mounts the Imprint workspace as one consumer flow", async () => {
     const user = userEvent.setup();
-    const props = {
-      baseColor: "#111111",
-      dashboardThreadRows: 2,
-      depth: 0.4,
-      extColors: {
-        codex: "#000000",
-        doc: "#000000",
-        docx: "#000000",
-        jpeg: "#000000",
-        md: "#000000",
-        pdf: "#000000",
-        png: "#000000",
-        sketch: "#000000",
-        txt: "#000000",
-      } satisfies ExtColors,
-      fade: 0.2,
-      guardianName: "Harbor",
-      mode: "light" as ThemeMode,
-      notes: "Local notes",
-      resolved: "light" as const,
-      role: "Researcher",
-      setBaseColor: vi.fn(),
-      setDashboardThreadRows: vi.fn(),
-      setDepth: vi.fn(),
-      setExtColors: vi.fn(),
-      setFade: vi.fn(),
-      setGuardianName: vi.fn(),
-      setMode: vi.fn(),
-      setNotes: vi.fn(),
-      setRole: vi.fn(),
-      setSystemPrompt: vi.fn(),
-      setUserName: vi.fn(),
-      setWallpaper: vi.fn(),
-      systemPrompt: "Local preview prompt",
-      userName: "Ari",
-      wallpaper: null,
-    };
+    const props = createSettingsViewProps();
 
     render(<SettingsView {...props} />);
 
@@ -126,43 +132,7 @@ describe("SettingsView", () => {
 
   test("scopes the import controls to the Data tab", async () => {
     const user = userEvent.setup();
-    const props = {
-      baseColor: "#111111",
-      dashboardThreadRows: 2,
-      depth: 0.4,
-      extColors: {
-        codex: "#000000",
-        doc: "#000000",
-        docx: "#000000",
-        jpeg: "#000000",
-        md: "#000000",
-        pdf: "#000000",
-        png: "#000000",
-        sketch: "#000000",
-        txt: "#000000",
-      } satisfies ExtColors,
-      fade: 0.2,
-      guardianName: "Harbor",
-      mode: "light" as ThemeMode,
-      notes: "Local notes",
-      resolved: "light" as const,
-      role: "Researcher",
-      setBaseColor: vi.fn(),
-      setDashboardThreadRows: vi.fn(),
-      setDepth: vi.fn(),
-      setExtColors: vi.fn(),
-      setFade: vi.fn(),
-      setGuardianName: vi.fn(),
-      setMode: vi.fn(),
-      setNotes: vi.fn(),
-      setRole: vi.fn(),
-      setSystemPrompt: vi.fn(),
-      setUserName: vi.fn(),
-      setWallpaper: vi.fn(),
-      systemPrompt: "Local preview prompt",
-      userName: "Ari",
-      wallpaper: null,
-    };
+    const props = createSettingsViewProps();
 
     render(<SettingsView {...props} />);
 
@@ -172,6 +142,81 @@ describe("SettingsView", () => {
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
 
+    expect(
+      screen.getByRole("button", { name: "Import ChatGPT history" })
+    ).toBeInTheDocument();
+  });
+
+  test("persists the selected tab and restores it on remount", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+    const { unmount } = render(<SettingsView {...props} />);
+
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+
+    expect(screen.getByRole("tab", { name: "Data" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(
+      screen.getByRole("button", { name: "Import ChatGPT history" })
+    ).toBeInTheDocument();
+    expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe("data");
+
+    unmount();
+    render(<SettingsView {...props} />);
+
+    expect(screen.getByRole("tab", { name: "Data" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(
+      screen.getByRole("button", { name: "Import ChatGPT history" })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
+    expect(
+      screen.queryByRole("button", { name: "Import ChatGPT history" })
+    ).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe(
+      "appearance"
+    );
+  });
+
+  test("falls back safely when persisted tab state is invalid", async () => {
+    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, "broken-tab");
+
+    render(<SettingsView {...createSettingsViewProps()} />);
+
+    expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(
+      screen.queryByRole("button", { name: "Import ChatGPT history" })
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe(
+        "appearance"
+      );
+    });
+  });
+
+  test("keeps per-tab scroll memory intact while switching between tabs", async () => {
+    const user = userEvent.setup();
+    render(<SettingsView {...createSettingsViewProps()} />);
+
+    const shell = screen.getByTestId("settings-panel-shell") as HTMLElement;
+
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+    shell.scrollTop = 180;
+
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+
+    expect(shell.scrollTop).toBe(180);
     expect(
       screen.getByRole("button", { name: "Import ChatGPT history" })
     ).toBeInTheDocument();
