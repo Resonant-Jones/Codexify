@@ -483,7 +483,7 @@ describe("Composer draft sync", () => {
 
     const composerRoot = container.querySelector("[data-composer-root]") as HTMLElement | null;
     expect(composerRoot).not.toBeNull();
-    expect(composerRoot?.style.getPropertyValue("--composer-control-size")).toBe("40px");
+    expect(composerRoot?.style.getPropertyValue("--composer-control-size")).toBe("44px");
     expect(composerRoot?.style.getPropertyValue("--composer-text-pad-x")).toBe("12px");
     expect(composerRoot?.style.getPropertyValue("--composer-text-pad-y")).toBe("8px");
     expect(composerRoot?.style.getPropertyValue("--composer-safe-area-bottom")).toBe(

@@ -111,7 +111,7 @@ const PHONE_SHELL_PROFILE = {
   topNav: {
     scrollable: true,
     width: "100%",
-    railEdgePadding: "10px",
+    railEdgePadding: "12px",
     railGap: "var(--pill-gap)",
   },
   guardian: {
@@ -129,8 +129,8 @@ const PHONE_SHELL_PROFILE = {
       padY: "10px",
       textPadX: "12px",
       textPadY: "8px",
-      controlGap: "8px",
-      controlSize: "40px",
+      controlGap: "10px",
+      controlSize: "44px",
       shellMaxHeight: "calc(var(--shell-viewport-height, 100vh) * 0.6)",
       bottomSafeArea: "env(safe-area-inset-bottom, 0px)",
     },

@@ -12,6 +12,7 @@ import {
   useRef,
   useLayoutEffect,
 } from "react";
+import type { CSSProperties } from "react";
 import { debounce } from "lodash-es";
 import {
   DropdownMenu,
@@ -43,6 +44,11 @@ import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
+import {
+  getMobileChromeMotionStyle,
+  getMobileTouchTargetStyle,
+} from "@/components/persona/layout/mobileMotionContract";
+import { useMobileGestureState } from "@/hooks/useMobileGestureState";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
@@ -1170,12 +1176,25 @@ export function GuardianChat({
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
   const mobileShellProfile = useMobileShellProfile();
+  const mobileGestureState = useMobileGestureState(mobileShellProfile.active);
   const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
     const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
     composer?.focus();
   }, []);
+  const mobileComposerShellMotionStyle = useMemo<CSSProperties>(
+    () => getMobileChromeMotionStyle(mobileGestureState),
+    [
+      mobileGestureState.isKeyboardOpen,
+      mobileGestureState.prefersReducedMotion,
+      mobileGestureState.isPhoneShell,
+    ]
+  );
+  const mobileHeaderIconTouchTargetStyle = useMemo<CSSProperties>(
+    () => getMobileTouchTargetStyle(mobileGestureState, { square: true }),
+    [mobileGestureState.isPhoneShell]
+  );
   const handleTellGuardianWhatToDoInstead = useCallback(
     ({ suggestedPrompt }: { suggestedPrompt: string }) => {
       const normalizedPrompt = suggestedPrompt.trim() || "Guardian, do this instead: ";
@@ -2875,7 +2894,10 @@ export function GuardianChat({
           aria-expanded={promptCostPopoverOpen}
           aria-controls="prompt-cost-popover"
           onClick={handlePromptCostToggle}
-          style={{ borderRadius: "var(--radius-micro)" }}
+          style={{
+            borderRadius: "var(--radius-micro)",
+            ...mobileHeaderIconTouchTargetStyle,
+          }}
           data-testid="prompt-cost-trigger"
         >
           <Zap className="h-5 w-5" />
@@ -2930,6 +2952,7 @@ export function GuardianChat({
         style={{
           borderRadius: "var(--radius-micro)",
           opacity: voiceReadAloudEnabled ? (autoReadEnabled ? 1 : 0.65) : 0.45,
+          ...mobileHeaderIconTouchTargetStyle,
         }}
       >
         <Volume2 className="h-5 w-5" />
@@ -2946,13 +2969,22 @@ export function GuardianChat({
           background: workspaceOpen
             ? "color-mix(in oklab, var(--panel-bg), var(--accent) 18%)"
             : "transparent",
+          ...mobileHeaderIconTouchTargetStyle,
         }}
       >
         <SquareStack className="h-5 w-5" />
       </button>
           <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className="icon-inline" aria-label="Thread actions" style={{ borderRadius: "var(--radius-micro)" }}>
+          <button
+            type="button"
+            className="icon-inline"
+            aria-label="Thread actions"
+            style={{
+              borderRadius: "var(--radius-micro)",
+              ...mobileHeaderIconTouchTargetStyle,
+            }}
+          >
             <MoreVertical className="h-5 w-5" />
           </button>
         </DropdownMenuTrigger>
@@ -3262,8 +3294,9 @@ export function GuardianChat({
         <div
           ref={composerShellRef}
           data-testid="composer-shell"
-          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
+          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden`}
           style={{
+            ...mobileComposerShellMotionStyle,
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
