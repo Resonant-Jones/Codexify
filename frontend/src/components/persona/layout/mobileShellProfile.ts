@@ -45,6 +45,7 @@ export type MobileShellProfile = {
       textPadY: string;
       controlGap: string;
       controlSize: string;
+      shellMaxHeight: string;
       bottomSafeArea: string;
     };
   };
@@ -87,6 +88,7 @@ const DESKTOP_SHELL_PROFILE = {
       textPadY: "10px",
       controlGap: "12px",
       controlSize: "32px",
+      shellMaxHeight: "60vh",
       bottomSafeArea: "0px",
     },
   },
@@ -119,7 +121,7 @@ const PHONE_SHELL_PROFILE = {
   },
   workspace: {
     defaultOpen: false,
-    autoOpenOnDocumentRequest: false,
+    autoOpenOnDocumentRequest: true,
   },
   chat: {
     composer: {
@@ -129,6 +131,7 @@ const PHONE_SHELL_PROFILE = {
       textPadY: "8px",
       controlGap: "8px",
       controlSize: "40px",
+      shellMaxHeight: "calc(var(--shell-viewport-height, 100vh) * 0.6)",
       bottomSafeArea: "env(safe-area-inset-bottom, 0px)",
     },
   },

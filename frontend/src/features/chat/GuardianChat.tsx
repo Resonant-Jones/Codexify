@@ -42,6 +42,7 @@ import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
@@ -811,8 +812,10 @@ export function GuardianChat({
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
+  const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerShellRef = useRef<HTMLDivElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
   const [voiceCapabilities, setVoiceCapabilities] = useState<VoiceCapabilities>(
     DEFAULT_VOICE_CAPABILITIES
@@ -1166,6 +1169,7 @@ export function GuardianChat({
   const llmStatusMessage =
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
+  const mobileShellProfile = useMobileShellProfile();
   const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
@@ -1187,6 +1191,51 @@ export function GuardianChat({
     },
     [focusComposer]
   );
+  useLayoutEffect(() => {
+    const el = composerShellRef.current;
+    if (!el || typeof window === "undefined") return;
+
+    const measure = () => {
+      const style = window.getComputedStyle(el);
+      const marginTop = Number.parseFloat(style.marginTop || "0") || 0;
+      const measured = Math.max(
+        0,
+        Math.ceil(el.getBoundingClientRect().height + marginTop)
+      );
+      setComposerShellReserve((previous) => {
+        const next = measured > 0 ? measured : previous;
+        return previous === next ? previous : next;
+      });
+    };
+
+    let frameId = 0;
+    const scheduleMeasure = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        measure();
+      });
+    };
+
+    measure();
+    window.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("scroll", scheduleMeasure);
+
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleMeasure);
+    observer?.observe(el);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      observer?.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("scroll", scheduleMeasure);
+    };
+  }, [mobileShellProfile.chat.composer.shellMaxHeight]);
   const handleSessionTabOpenRequest = useCallback(() => {
     if (onSessionTabOpen) {
       onSessionTabOpen();
@@ -3187,7 +3236,7 @@ export function GuardianChat({
               completionState={completionState}
               endCompletion={endCompletion}
               className="flex flex-col flex-1 min-h-0"
-              bottomPadding={160}
+              bottomPadding={composerShellReserve}
               autoReadEnabled={autoReadEnabled}
               depthMode={depth}
               profileId={resolvedProfile.id}
@@ -3211,6 +3260,7 @@ export function GuardianChat({
 
       <div className="shrink-0 z-20 mt-2 flex w-full justify-center">
         <div
+          ref={composerShellRef}
           data-testid="composer-shell"
           className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
@@ -3220,7 +3270,7 @@ export function GuardianChat({
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
             minHeight: "140px",
-            maxHeight: "60vh",
+            maxHeight: mobileShellProfile.chat.composer.shellMaxHeight,
           }}
         >
           <div className="flex h-full min-h-0 flex-col">

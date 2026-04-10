@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DocumentsView from "@/components/documents/DocumentsView";
 import type { ExtColors } from "@/types/ui";
@@ -51,6 +51,10 @@ function setViewportWidth(width: number) {
 }
 
 describe("DocumentsView interactions", () => {
+  beforeEach(() => {
+    setViewportWidth(1280);
+  });
+
   afterEach(() => {
     setViewportWidth(1280);
     requestWorkspaceOpenMock.mockReset();
@@ -142,6 +146,10 @@ describe("DocumentsView interactions", () => {
     setViewportWidth(390);
 
     const { container } = render(
+  it("switches to a mobile list layout and keeps document taps explicit", () => {
+    setViewportWidth(390);
+
+    render(
       <DocumentsView
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
@@ -155,6 +163,29 @@ describe("DocumentsView interactions", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Quarterly Plan" })).toHaveClass(
       "!w-full"
+    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+      "data-documents-layout",
+      "mobile_list"
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Quarterly Plan in Workspace" })
+    );
+
+    expect(requestWorkspaceOpenMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        doc: expect.objectContaining({
+          id: "doc-1",
+          title: "Quarterly Plan",
+          ext: "pdf",
+        }),
+        source: "documents",
+        targetView: "documents",
+      }),
+      expect.objectContaining({
+        source: "documents",
+        targetView: "documents",
+      })
     );
   });
 });

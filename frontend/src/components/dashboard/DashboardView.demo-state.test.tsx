@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -14,6 +14,10 @@ const authState = vi.hoisted(() => ({
 
 const apiState = vi.hoisted(() => ({
   get: vi.fn(),
+}));
+
+const workspaceState = vi.hoisted(() => ({
+  requestWorkspaceOpenMock: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/runtimeConfig", () => ({
@@ -35,6 +39,10 @@ vi.mock("@/lib/api", () => ({
   default: {
     get: apiState.get,
   },
+}));
+
+vi.mock("@/features/workspace/state/useWorkspaceState", () => ({
+  requestWorkspaceOpen: workspaceState.requestWorkspaceOpenMock,
 }));
 
 vi.mock("@/lib/authState", () => ({
@@ -79,6 +87,15 @@ vi.mock("@/features/dashboard/components/DashboardGallery", () => ({
 
 import DashboardView from "@/components/dashboard/DashboardView";
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 const EXT_COLORS = {
   pdf: "#000",
   doc: "#000",
@@ -102,9 +119,11 @@ function setViewportWidth(width: number) {
 
 describe("DashboardView demo content", () => {
   beforeEach(() => {
+    setViewportWidth(1280);
     authState.allowGate = false;
     authState.value = { token: null };
     apiState.get.mockReset();
+    workspaceState.requestWorkspaceOpenMock.mockReset();
   });
 
   afterEach(() => {
@@ -197,6 +216,38 @@ describe("DashboardView demo content", () => {
       <DashboardView
         extColors={EXT_COLORS}
         gallery={[]}
+  it("switches Dashboard into a mobile stack and opens recent documents explicitly", async () => {
+    setViewportWidth(390);
+    authState.allowGate = true;
+    apiState.get.mockImplementation(async (url: string) => {
+      if (url === "/chat/threads") {
+        return { data: [] };
+      }
+      if (url === "/media/documents") {
+        return {
+          data: {
+            documents: [
+              {
+                id: "doc-1",
+                filename: "User Plan.md",
+                ext: "md",
+              },
+            ],
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <DashboardView
+        extColors={EXT_COLORS}
+        gallery={[
+          {
+            src: "/media/images/real-dashboard.png",
+            prompt: "Real dashboard image",
+          },
+        ]}
         onImagePrompt={vi.fn()}
         onRequestNewProject={vi.fn()}
         onRequestNewThread={vi.fn()}
@@ -209,5 +260,30 @@ describe("DashboardView demo content", () => {
     expect(
       container.querySelector('[data-layout-mode="mobile-stack"]')
     ).toBeTruthy();
+    expect(await screen.findByText("User Plan.md")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-layout")).toHaveAttribute(
+      "data-dashboard-layout",
+      "mobile_stack"
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open User Plan.md in Workspace" })
+    );
+
+    expect(workspaceState.requestWorkspaceOpenMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        doc: expect.objectContaining({
+          id: "doc-1",
+          name: "User Plan.md",
+          ext: "md",
+        }),
+        source: "documents",
+        targetView: "documents",
+      }),
+      expect.objectContaining({
+        source: "documents",
+        targetView: "documents",
+      })
+    );
   });
 });
