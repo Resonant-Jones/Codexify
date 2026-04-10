@@ -19,7 +19,7 @@ export default function SettingsPanelDock({
       aria-label="Settings tabs"
       aria-orientation="horizontal"
       className={cn(
-        "sticky top-[calc(var(--card-pad) + var(--board-edge))] z-30 flex w-full shrink-0 justify-center",
+        "sticky top-[calc(var(--card-pad) + var(--board-edge))] z-30 flex w-full shrink-0 items-center justify-center",
         className
       )}
       style={{

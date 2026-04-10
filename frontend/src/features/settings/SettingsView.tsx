@@ -72,6 +72,7 @@ type SettingsTab =
   | "connectors"
   | "data"
   | "connection"
+  | "personalFacts"
   | "diagnostics";
 
 type SettingsTabDefinition = {
@@ -86,6 +87,7 @@ const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
   { value: "connectors", label: "Connectors" },
   { value: "data", label: "Data" },
   { value: "connection", label: "Connection", requiresDesktop: true },
+  { value: "personalFacts", label: "Personal Facts" },
   { value: "diagnostics", label: "Diagnostics" },
 ];
 
@@ -95,6 +97,42 @@ function getSettingsTabButtonId(tab: SettingsTab): string {
 
 function getSettingsTabPanelId(tab: SettingsTab): string {
   return `settings-panel-${tab}`;
+}
+
+const SETTINGS_TAB_STORAGE_KEY = "cfy.settingsTab";
+
+function normalizeSettingsTab(value: unknown): SettingsTab | null {
+  if (typeof value !== "string") return null;
+  const compact = value.trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (!compact) return null;
+  if (compact === "appearance") return "appearance";
+  if (compact === "system" || compact === "imprint") return "system";
+  if (compact === "connectors") return "connectors";
+  if (compact === "data") return "data";
+  if (compact === "connection") return "connection";
+  if (compact === "personalfacts") return "personalFacts";
+  if (compact === "diagnostics") return "diagnostics";
+  return null;
+}
+
+function readPersistedSettingsTab(): SettingsTab | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return normalizeSettingsTab(
+      window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)
+    );
+  } catch {
+    return null;
+  }
+}
+
+function persistSettingsTab(tab: SettingsTab): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, tab);
+  } catch {
+    /* ignore */
+  }
 }
 
 const CHATGPT_IMPORT_TASK_STORAGE_KEY = "codexify.chatgpt_import_task";
@@ -339,13 +377,20 @@ export function SettingsView({
   setDashboardThreadRows: (n: number) => void;
 }) {
   const desktopMode = isTauriRuntime();
-  const [tab, setTab] = useState<SettingsTab>("appearance");
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const storedTab = readPersistedSettingsTab();
+    if (storedTab === "connection" && !desktopMode) {
+      return "appearance";
+    }
+    return storedTab ?? "appearance";
+  });
   const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
     appearance: null,
     system: null,
     connectors: null,
     data: null,
     connection: null,
+    personalFacts: null,
     diagnostics: null,
   });
   const settingsScrollContainerRef = useRef<HTMLElement | null>(null);
@@ -492,6 +537,9 @@ export function SettingsView({
     setSystemPromptSaveMessage(null);
     setSystemPromptSaveError(null);
   }, [memo, name, prompt, uName, uRole]);
+  useEffect(() => {
+    persistSettingsTab(tab);
+  }, [tab]);
   useEffect(() => {
     if (!desktopMode) return;
     const settings = getDesktopConnectionSettings();
@@ -1078,7 +1126,7 @@ export function SettingsView({
     setTab(nextTab);
   }
 
-    function activateTab(nextTab: SettingsTab) {
+  function activateTab(nextTab: SettingsTab) {
     handleTabChange(nextTab);
     tabButtonRefs.current[nextTab]?.focus();
   }
@@ -1710,6 +1758,18 @@ export function SettingsView({
             {connectionError && (
               <div className="text-xs text-red-400">{connectionError}</div>
             )}
+          </SettingsSectionCard>
+        )}
+
+        {tab === "personalFacts" && (
+          <SettingsSectionCard
+            data-testid="settings-panel-personal-facts"
+            role="tabpanel"
+            id={getSettingsTabPanelId("personalFacts")}
+            aria-labelledby={getSettingsTabButtonId("personalFacts")}
+            className="space-y-4"
+          >
+            <PersonalFactsPanel />
           </SettingsSectionCard>
         )}
 

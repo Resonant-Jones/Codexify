@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -103,6 +103,7 @@ function createSettingsViewProps() {
 
 describe("SettingsView", () => {
   beforeEach(() => {
+    window.sessionStorage.clear();
     useConnectorsMock.mockReturnValue({
       connectors: [],
       error: null,
@@ -114,13 +115,16 @@ describe("SettingsView", () => {
     });
   });
 
-  test("mounts the Imprint workspace as one consumer flow", async () => {
+  test("renders the Personal Facts tab and panel without breaking the Imprint workspace", async () => {
     const user = userEvent.setup();
     const props = createSettingsViewProps();
     render(<SettingsView {...props} />);
 
     expect(
       screen.getByRole("tablist", { name: "Settings tabs" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Personal Facts" })
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Imprint" }));
@@ -134,6 +138,42 @@ describe("SettingsView", () => {
       "aria-selected",
       "true"
     );
+
+    await user.click(screen.getByRole("tab", { name: "Personal Facts" }));
+
+    expect(
+      screen.getByRole("tabpanel", { name: "Personal Facts" })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("mock-persona-settings")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  test("restores the Personal Facts tab after remounting when it was last active", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+    const { unmount } = render(<SettingsView {...props} />);
+
+    await user.click(screen.getByRole("tab", { name: "Personal Facts" }));
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem("cfy.settingsTab")).toBe(
+        "personalFacts"
+      );
+    });
+
+    unmount();
+    render(<SettingsView {...props} />);
+
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(
+      screen.getByRole("tabpanel", { name: "Personal Facts" })
+    ).toBeInTheDocument();
   });
 
   test("keeps the import surface scoped to the Data tab and isolates the scroll body", async () => {
@@ -167,12 +207,24 @@ describe("SettingsView", () => {
       screen.getByRole("button", { name: "Import ChatGPT history" })
     ).toBeInTheDocument();
 
-    for (const tabName of ["Appearance", "Imprint", "Connectors"]) {
+    for (const tabName of ["Appearance", "Imprint", "Connectors", "Personal Facts"]) {
       await user.click(screen.getByRole("tab", { name: tabName }));
       expect(scrollBody).toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "Import ChatGPT history" })
       ).not.toBeInTheDocument();
     }
+  });
+
+  test("falls back safely when the persisted tab is invalid", () => {
+    window.sessionStorage.setItem("cfy.settingsTab", "definitely-not-a-tab");
+
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
   });
 });
