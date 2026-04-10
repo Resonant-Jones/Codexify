@@ -52,8 +52,6 @@ function setViewportWidth(width: number) {
 
 describe("DocumentsView interactions", () => {
   beforeEach(() => {
-    localStorage.clear();
-    setViewportWidth(1280);
     act(() => {
       setViewportWidth(1280);
     });
@@ -67,7 +65,7 @@ describe("DocumentsView interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the thread rail with its scope pills inside the rail chrome", () => {
+  it("shows only the Thread and Project scope pills in the header", () => {
     render(
       <DocumentsView
         documents={[]}
@@ -78,13 +76,6 @@ describe("DocumentsView interactions", () => {
       />
     );
 
-    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
-      "data-rail-state",
-      "open"
-    );
-    expect(
-      screen.getByRole("button", { name: "Hide thread rail" })
-    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Thread" })).toHaveAttribute(
       "data-state",
       "active"
@@ -96,34 +87,6 @@ describe("DocumentsView interactions", () => {
     expect(
       screen.queryByRole("button", { name: /Open in Thread/i })
     ).not.toBeInTheDocument();
-  });
-
-  it("collapses the rail and keeps a summon affordance visible", () => {
-    render(
-      <DocumentsView
-        documents={[]}
-        extColors={EXT_COLORS}
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Hide thread rail" }));
-
-    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
-      "data-rail-state",
-      "collapsed"
-    );
-    expect(
-      screen.getByRole("button", { name: "Show thread rail" })
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Show thread rail" }));
-
-    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
-      "data-rail-state",
-      "open"
-    );
   });
 
   it("opens the workspace on primary click", () => {
@@ -170,9 +133,7 @@ describe("DocumentsView interactions", () => {
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "Quarterly Plan" }));
 
-    const menuItem = await screen.findByRole("menuitem", {
-      name: "Open in Thread",
-    });
+    const menuItem = await screen.findByRole("menuitem", { name: "Open in Thread" });
     fireEvent.click(menuItem);
 
     await waitFor(() => {
@@ -199,17 +160,6 @@ describe("DocumentsView interactions", () => {
       />
     );
 
-    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
-      "data-documents-layout",
-      "mobile_list"
-    );
-    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
-      "data-rail-state",
-      "collapsed"
-    );
-    expect(
-      screen.getByRole("button", { name: "Show thread rail" })
-    ).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId("documents-layout")).toHaveAttribute(
         "data-documents-layout",
