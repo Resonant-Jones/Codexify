@@ -487,9 +487,10 @@ export function usePersonalFacts(): UsePersonalFactsResult {
       if (loadSeq !== loadSeqRef.current) return;
       setError(getErrorMessage(nextError, "Failed to load personal facts."));
     } finally {
-      if (loadSeq !== loadSeqRef.current) return;
-      setLoading(false);
-      setHasLoaded(true);
+      if (loadSeq === loadSeqRef.current) {
+        setLoading(false);
+        setHasLoaded(true);
+      }
     }
   }, []);
 
