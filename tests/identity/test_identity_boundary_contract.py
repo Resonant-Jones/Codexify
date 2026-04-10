@@ -1,16 +1,62 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from types import SimpleNamespace
+from typing import Any
+from copy import deepcopy
 from unittest.mock import MagicMock
 
 import pytest
 
 from guardian.context.broker import ContextBroker
 
-ACTIVE_THREAD_ID = 1
-ACTIVE_USER_ID = "user-1"
-ACTIVE_PROJECT_ID = 11
+ACTIVE_THREAD = {
+    "id": 1,
+    "user_id": "user-1",
+    "project_id": 11,
+    "archived_at": None,
+}
+
+THREAD_ROWS = [
+    ACTIVE_THREAD,
+    {
+        "id": 2,
+        "user_id": "user-1",
+        "project_id": 11,
+        "archived_at": None,
+    },
+    {
+        "id": 3,
+        "user_id": "user-1",
+        "project_id": 22,
+        "archived_at": None,
+    },
+    {
+        "id": 4,
+        "user_id": "user-1",
+        "project_id": 11,
+        "archived_at": "2026-03-31T10:00:00Z",
+    },
+    {
+        "id": 5,
+        "user_id": "user-1",
+        "project_id": 11,
+        "archived_at": None,
+        "exclude_from_identity": True,
+    },
+    {
+        "id": 6,
+        "user_id": "user-1",
+        "project_id": 11,
+        "archived_at": None,
+        "modeling_excluded": True,
+    },
+    {
+        "id": 7,
+        "user_id": "user-2",
+        "project_id": 11,
+        "archived_at": None,
+    },
+]
 
 
 def _identity_hit(
@@ -22,7 +68,7 @@ def _identity_hit(
     thread_id: int,
     project_id: int,
     user_id: str,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     return {
         "id": hit_id,
         "text": text,
@@ -38,380 +84,367 @@ def _identity_hit(
     }
 
 
-def _trace_document(hit: dict[str, object]) -> dict[str, object]:
-    return {
-        "id": str(hit["id"]),
-        "title": str(hit["metadata"]["filename"]),
-        "score": float(hit["score"]),
-        "snippet": f"{str(hit['text'])[:100]}...",
-    }
+def _searched_namespaces(search_mock: MagicMock) -> list[str | None]:
+    return [call.kwargs.get("namespace") for call in search_mock.call_args_list]
 
 
-def _namespaces(mock_vector_store) -> list[str | None]:
-    return [
-        call.kwargs.get("namespace")
-        for call in mock_vector_store.search.call_args_list
+def _document_titles(trace: dict[str, Any]) -> list[str]:
+    return [document["title"] for document in trace["documents"]]
+
+
+def _semantic_thread_ids(context: dict[str, Any]) -> list[int]:
+    return [int(item["metadata"]["thread_id"]) for item in context["semantic"]]
+
+
+@pytest.fixture
+def identity_boundary_broker():
+    search_results: dict[str | None, list[dict[str, Any]]] = {}
+
+    chatlog_db = MagicMock()
+    chatlog_db.get_chat_thread.return_value = ACTIVE_THREAD
+    chatlog_db.last_messages.return_value = [
+        {
+            "id": 101,
+            "role": "user",
+            "content": "Where is the identity boundary?",
+        }
     ]
+    chatlog_db.list_chat_threads.return_value = list(THREAD_ROWS)
+    chatlog_db.get_connector_config.return_value = None
 
+    vector_store = MagicMock()
 
-def _install_search(
-    mock_vector_store,
-    results_by_namespace: dict[str, list[dict[str, object]]],
-) -> None:
-    def _search(query, k, namespace=None):
-        hits = results_by_namespace.get(namespace or "", [])
-        return [deepcopy(hit) for hit in hits[:k]]
+    def _search(query: str, k: int, namespace: str | None = None):
+        return search_results.get(namespace, [])
 
-    mock_vector_store.search = MagicMock(side_effect=_search)
+    vector_store.search = MagicMock(side_effect=_search)
 
-
-@pytest.fixture
-def identity_chatlog_db():
-    return SimpleNamespace(
-        last_messages=MagicMock(
-            return_value=[
-                {
-                    "id": 1,
-                    "role": "user",
-                    "content": "identity boundary query",
-                }
-            ]
-        ),
-        get_chat_thread=MagicMock(
-            return_value={
-                "id": ACTIVE_THREAD_ID,
-                "user_id": ACTIVE_USER_ID,
-                "project_id": ACTIVE_PROJECT_ID,
-            }
-        ),
-        get_connector_config=MagicMock(return_value=None),
-        list_chat_threads=MagicMock(
-            return_value=[
-                {
-                    "id": 2,
-                    "user_id": ACTIVE_USER_ID,
-                    "project_id": ACTIVE_PROJECT_ID,
-                    "archived_at": None,
-                },
-                {
-                    "id": 3,
-                    "user_id": ACTIVE_USER_ID,
-                    "project_id": 22,
-                    "archived_at": None,
-                },
-                {
-                    "id": 4,
-                    "user_id": ACTIVE_USER_ID,
-                    "project_id": ACTIVE_PROJECT_ID,
-                    "archived_at": "2026-03-31T10:00:00Z",
-                },
-                {
-                    "id": 5,
-                    "user_id": ACTIVE_USER_ID,
-                    "project_id": ACTIVE_PROJECT_ID,
-                    "archived_at": None,
-                    "exclude_from_identity": True,
-                },
-                {
-                    "id": 6,
-                    "user_id": "user-2",
-                    "project_id": ACTIVE_PROJECT_ID,
-                    "archived_at": None,
-                },
-            ]
-        ),
-    )
-
-
-@pytest.fixture
-def mock_vector_store():
-    return SimpleNamespace()
-
-
-@pytest.fixture
-def identity_broker(identity_chatlog_db, mock_vector_store):
-    return ContextBroker(
-        chatlog_db=identity_chatlog_db,
-        vector_store=mock_vector_store,
+    broker = ContextBroker(
+        chatlog_db=chatlog_db,
+        vector_store=vector_store,
         memory_store=None,
         sensors=None,
         settings=SimpleNamespace(GUARDIAN_ENABLE_GRAPH_CONTEXT=False),
     )
 
+    return SimpleNamespace(
+        broker=broker,
+        chatlog_db=chatlog_db,
+        vector_store=vector_store,
+        search_results=search_results,
+    )
 
+
+# Identity Boundary A - Project scope stays local
 @pytest.mark.asyncio
 async def test_identity_boundary_project_scope_stays_local(
-    identity_broker, mock_vector_store
-):
-    same_project_hit = _identity_hit(
-        hit_id="doc-project-2",
-        text="project-local widening hit",
-        filename="project-2.md",
-        score=0.91,
-        thread_id=2,
-        project_id=ACTIVE_PROJECT_ID,
-        user_id=ACTIVE_USER_ID,
-    )
-    cross_project_hit = _identity_hit(
-        hit_id="doc-project-3",
-        text="cross-project leakage candidate",
-        filename="project-3.md",
-        score=0.99,
-        thread_id=3,
-        project_id=22,
-        user_id=ACTIVE_USER_ID,
-    )
-    _install_search(
-        mock_vector_store,
+    identity_boundary_broker,
+) -> None:
+    identity_boundary_broker.search_results.update(
         {
             "thread:1": [],
-            "thread:2": [same_project_hit],
-            "thread:3": [cross_project_hit],
-        },
+            "thread:2": [
+                _identity_hit(
+                    hit_id="doc-project-sibling",
+                    text="project-local sibling evidence",
+                    filename="project-sibling.md",
+                    score=0.93,
+                    thread_id=2,
+                    project_id=11,
+                    user_id="user-1",
+                )
+            ],
+            "thread:3": [
+                _identity_hit(
+                    hit_id="doc-cross-project",
+                    text="cross-project evidence",
+                    filename="cross-project.md",
+                    score=0.98,
+                    thread_id=3,
+                    project_id=22,
+                    user_id="user-1",
+                )
+            ],
+        }
     )
 
-    context, trace = await identity_broker.assemble(
-        thread_id=ACTIVE_THREAD_ID,
-        query="project scope check",
+    context, trace = await identity_boundary_broker.broker.assemble(
+        thread_id=1,
+        query="identity boundary",
         depth_mode="normal",
         k_semantic=2,
         source_mode="project",
     )
 
-    assert [item["text"] for item in context["semantic"]] == [
-        "project-local widening hit"
+    assert _searched_namespaces(
+        identity_boundary_broker.vector_store.search
+    ) == [
+        "thread:1",
+        "thread:2",
     ]
+    assert (
+        identity_boundary_broker.chatlog_db.list_chat_threads.call_args.kwargs[
+            "user_id"
+        ]
+        == "user-1"
+    )
+    assert (
+        identity_boundary_broker.chatlog_db.list_chat_threads.call_args.kwargs[
+            "project_id"
+        ]
+        == 11
+    )
+    assert _semantic_thread_ids(context) == [2]
+    assert context["semantic"][0]["metadata"]["project_id"] == 11
+    assert context["semantic"][0]["metadata"]["user_id"] == "user-1"
+    assert _document_titles(trace) == ["project-sibling.md"]
     assert trace["source_mode"] == "project"
     assert trace["widen_reason"] == "insufficient_thread_hits"
-    assert trace["documents"] == [_trace_document(same_project_hit)]
-    assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
-    assert "cross-project leakage candidate" not in " ".join(
-        doc["snippet"] for doc in trace["documents"]
-    )
 
 
+# Identity Boundary B - Personal knowledge widening is explicit, not ambient
 @pytest.mark.asyncio
 async def test_identity_boundary_personal_knowledge_widening_is_explicit(
-    identity_broker, mock_vector_store
-):
-    same_project_hit = _identity_hit(
-        hit_id="doc-personal-2",
-        text="same-user project widening hit",
-        filename="personal-2.md",
-        score=0.84,
-        thread_id=2,
-        project_id=ACTIVE_PROJECT_ID,
-        user_id=ACTIVE_USER_ID,
-    )
-    cross_project_hit = _identity_hit(
-        hit_id="doc-personal-3",
-        text="same-user cross-project widening hit",
-        filename="personal-3.md",
-        score=0.88,
-        thread_id=3,
-        project_id=22,
-        user_id=ACTIVE_USER_ID,
-    )
-    _install_search(
-        mock_vector_store,
+    identity_boundary_broker,
+) -> None:
+    identity_boundary_broker.search_results.update(
         {
             "thread:1": [],
-            "thread:2": [same_project_hit],
-            "thread:3": [cross_project_hit],
-        },
+            "thread:2": [
+                _identity_hit(
+                    hit_id="doc-project-sibling",
+                    text="project-local sibling evidence",
+                    filename="project-sibling.md",
+                    score=0.93,
+                    thread_id=2,
+                    project_id=11,
+                    user_id="user-1",
+                )
+            ],
+            "thread:3": [
+                _identity_hit(
+                    hit_id="doc-cross-project",
+                    text="cross-project evidence",
+                    filename="cross-project.md",
+                    score=0.98,
+                    thread_id=3,
+                    project_id=22,
+                    user_id="user-1",
+                )
+            ],
+        }
     )
 
-    context, trace = await identity_broker.assemble(
-        thread_id=ACTIVE_THREAD_ID,
-        query="personal knowledge check",
+    context, trace = await identity_boundary_broker.broker.assemble(
+        thread_id=1,
+        query="identity boundary",
         depth_mode="normal",
         k_semantic=2,
         source_mode="personal_knowledge",
     )
 
-    assert [item["text"] for item in context["semantic"]] == [
-        "same-user project widening hit",
-        "same-user cross-project widening hit",
-    ]
-    assert trace["source_mode"] == "personal_knowledge"
-    assert trace["widen_reason"] == "explicit_personal_knowledge"
-    assert trace["documents"] == [
-        _trace_document(same_project_hit),
-        _trace_document(cross_project_hit),
-    ]
-    assert _namespaces(mock_vector_store) == [
+    assert _searched_namespaces(
+        identity_boundary_broker.vector_store.search
+    ) == [
         "thread:1",
         "thread:2",
         "thread:3",
     ]
+    assert (
+        identity_boundary_broker.chatlog_db.list_chat_threads.call_args.kwargs[
+            "user_id"
+        ]
+        == "user-1"
+    )
+    assert (
+        identity_boundary_broker.chatlog_db.list_chat_threads.call_args.kwargs[
+            "project_id"
+        ]
+        is None
+    )
+    assert _semantic_thread_ids(context) == [2, 3]
+    assert [item["metadata"]["project_id"] for item in context["semantic"]] == [
+        11,
+        22,
+    ]
+    assert all(
+        item["metadata"]["user_id"] == "user-1" for item in context["semantic"]
+    )
+    assert _document_titles(trace) == [
+        "project-sibling.md",
+        "cross-project.md",
+    ]
+    assert trace["source_mode"] == "personal_knowledge"
+    assert trace["widen_reason"] == "explicit_personal_knowledge"
 
 
+# Identity Boundary C - Excluded material does not participate
 @pytest.mark.asyncio
 async def test_identity_boundary_excludes_archived_and_other_user_threads(
-    identity_broker, mock_vector_store, identity_chatlog_db
-):
-    allowed_same_project_hit = _identity_hit(
-        hit_id="doc-allowed-2",
-        text="allowed same-project identity hit",
-        filename="allowed-2.md",
-        score=0.83,
-        thread_id=2,
-        project_id=ACTIVE_PROJECT_ID,
-        user_id=ACTIVE_USER_ID,
-    )
-    allowed_cross_project_hit = _identity_hit(
-        hit_id="doc-allowed-3",
-        text="allowed same-user cross-project identity hit",
-        filename="allowed-3.md",
-        score=0.81,
-        thread_id=3,
-        project_id=22,
-        user_id=ACTIVE_USER_ID,
-    )
-    archived_hit = _identity_hit(
-        hit_id="doc-archived-4",
-        text="archived thread should not participate",
-        filename="archived-4.md",
-        score=0.99,
-        thread_id=4,
-        project_id=ACTIVE_PROJECT_ID,
-        user_id=ACTIVE_USER_ID,
-    )
-    excluded_hit = _identity_hit(
-        hit_id="doc-excluded-5",
-        text="exclude_from_identity thread should not participate",
-        filename="excluded-5.md",
-        score=0.98,
-        thread_id=5,
-        project_id=ACTIVE_PROJECT_ID,
-        user_id=ACTIVE_USER_ID,
-    )
-    other_user_hit = _identity_hit(
-        hit_id="doc-other-user-6",
-        text="other-user thread should not participate",
-        filename="other-user-6.md",
-        score=0.97,
-        thread_id=6,
-        project_id=ACTIVE_PROJECT_ID,
-        user_id="user-2",
-    )
-    identity_chatlog_db.list_chat_threads.return_value = [
-        {
-            "id": 2,
-            "user_id": ACTIVE_USER_ID,
-            "project_id": ACTIVE_PROJECT_ID,
-            "archived_at": None,
-        },
-        {
-            "id": 3,
-            "user_id": ACTIVE_USER_ID,
-            "project_id": 22,
-            "archived_at": None,
-        },
-        {
-            "id": 4,
-            "user_id": ACTIVE_USER_ID,
-            "project_id": ACTIVE_PROJECT_ID,
-            "archived_at": "2026-03-31T10:00:00Z",
-        },
-        {
-            "id": 5,
-            "user_id": ACTIVE_USER_ID,
-            "project_id": ACTIVE_PROJECT_ID,
-            "archived_at": None,
-            "exclude_from_identity": True,
-        },
-        {
-            "id": 6,
-            "user_id": "user-2",
-            "project_id": ACTIVE_PROJECT_ID,
-            "archived_at": None,
-        },
-    ]
-    _install_search(
-        mock_vector_store,
+    identity_boundary_broker,
+) -> None:
+    identity_boundary_broker.search_results.update(
         {
             "thread:1": [],
-            "thread:2": [allowed_same_project_hit],
-            "thread:3": [allowed_cross_project_hit],
-            "thread:4": [archived_hit],
-            "thread:5": [excluded_hit],
-            "thread:6": [other_user_hit],
-        },
+            "thread:2": [
+                _identity_hit(
+                    hit_id="doc-project-sibling",
+                    text="project-local sibling evidence",
+                    filename="project-sibling.md",
+                    score=0.93,
+                    thread_id=2,
+                    project_id=11,
+                    user_id="user-1",
+                )
+            ],
+            "thread:3": [
+                _identity_hit(
+                    hit_id="doc-cross-project",
+                    text="cross-project evidence",
+                    filename="cross-project.md",
+                    score=0.98,
+                    thread_id=3,
+                    project_id=22,
+                    user_id="user-1",
+                )
+            ],
+            "thread:4": [
+                _identity_hit(
+                    hit_id="doc-archived",
+                    text="archived evidence",
+                    filename="archived.md",
+                    score=0.97,
+                    thread_id=4,
+                    project_id=11,
+                    user_id="user-1",
+                )
+            ],
+            "thread:5": [
+                _identity_hit(
+                    hit_id="doc-excluded",
+                    text="exclude_from_identity evidence",
+                    filename="excluded.md",
+                    score=0.96,
+                    thread_id=5,
+                    project_id=11,
+                    user_id="user-1",
+                )
+            ],
+            "thread:6": [
+                _identity_hit(
+                    hit_id="doc-modeling-excluded",
+                    text="modeling_excluded evidence",
+                    filename="modeling-excluded.md",
+                    score=0.95,
+                    thread_id=6,
+                    project_id=11,
+                    user_id="user-1",
+                )
+            ],
+            "thread:7": [
+                _identity_hit(
+                    hit_id="doc-other-user",
+                    text="other-user evidence",
+                    filename="other-user.md",
+                    score=0.94,
+                    thread_id=7,
+                    project_id=11,
+                    user_id="user-2",
+                )
+            ],
+        }
     )
 
-    context, trace = await identity_broker.assemble(
-        thread_id=ACTIVE_THREAD_ID,
-        query="identity exclusion check",
+    context, trace = await identity_boundary_broker.broker.assemble(
+        thread_id=1,
+        query="identity boundary",
         depth_mode="normal",
         k_semantic=4,
         source_mode="personal_knowledge",
     )
 
-    assert [item["text"] for item in context["semantic"]] == [
-        "allowed same-project identity hit",
-        "allowed same-user cross-project identity hit",
+    searched_namespaces = _searched_namespaces(
+        identity_boundary_broker.vector_store.search
+    )
+    assert searched_namespaces == ["thread:1", "thread:2", "thread:3"]
+    assert "thread:4" not in searched_namespaces
+    assert "thread:5" not in searched_namespaces
+    assert "thread:6" not in searched_namespaces
+    assert "thread:7" not in searched_namespaces
+    assert {item["metadata"]["thread_id"] for item in context["semantic"]} == {
+        2,
+        3,
+    }
+    assert {item["metadata"]["user_id"] for item in context["semantic"]} == {
+        "user-1"
+    }
+    assert _document_titles(trace) == [
+        "project-sibling.md",
+        "cross-project.md",
     ]
     assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
-    assert trace["documents"] == [
-        _trace_document(allowed_same_project_hit),
-        _trace_document(allowed_cross_project_hit),
-    ]
-    assert _namespaces(mock_vector_store) == [
-        "thread:1",
-        "thread:2",
-        "thread:3",
-    ]
-    assert "thread:4" not in _namespaces(mock_vector_store)
-    assert "thread:5" not in _namespaces(mock_vector_store)
-    assert "thread:6" not in _namespaces(mock_vector_store)
 
 
+# Identity Boundary D - Contract language stays honest
 @pytest.mark.asyncio
 async def test_identity_boundary_active_thread_first_contract(
-    identity_broker, mock_vector_store
-):
-    local_hit = _identity_hit(
-        hit_id="doc-fallback-2",
-        text="fallback stays narrow",
-        filename="fallback-2.md",
-        score=0.87,
-        thread_id=2,
-        project_id=ACTIVE_PROJECT_ID,
-        user_id=ACTIVE_USER_ID,
-    )
-    _install_search(
-        mock_vector_store,
+    identity_boundary_broker,
+) -> None:
+    identity_boundary_broker.search_results.update(
         {
-            "thread:1": [],
-            "thread:2": [local_hit],
-            "thread:3": [
+            "thread:1": [
                 _identity_hit(
-                    hit_id="doc-fallback-3",
-                    text="cross-project fallback candidate",
-                    filename="fallback-3.md",
-                    score=0.95,
-                    thread_id=3,
-                    project_id=22,
-                    user_id=ACTIVE_USER_ID,
+                    hit_id="doc-local",
+                    text="local thread evidence",
+                    filename="local-thread.md",
+                    score=0.99,
+                    thread_id=1,
+                    project_id=11,
+                    user_id="user-1",
                 )
             ],
-        },
+            "thread:2": [
+                _identity_hit(
+                    hit_id="doc-project-sibling",
+                    text="project-local sibling evidence",
+                    filename="project-sibling.md",
+                    score=0.93,
+                    thread_id=2,
+                    project_id=11,
+                    user_id="user-1",
+                )
+            ],
+            "thread:3": [
+                _identity_hit(
+                    hit_id="doc-cross-project",
+                    text="cross-project evidence",
+                    filename="cross-project.md",
+                    score=0.98,
+                    thread_id=3,
+                    project_id=22,
+                    user_id="user-1",
+                )
+            ],
+        }
     )
 
-    context, trace = await identity_broker.assemble(
-        thread_id=ACTIVE_THREAD_ID,
-        query="fallback check",
+    context, trace = await identity_boundary_broker.broker.assemble(
+        thread_id=1,
+        query="identity boundary",
         depth_mode="normal",
-        k_semantic=2,
-        source_mode="not-a-real-source-mode",
+        k_semantic=1,
+        source_mode="not-a-real-mode",
     )
 
-    assert [item["text"] for item in context["semantic"]] == [
-        "fallback stays narrow"
+    assert _searched_namespaces(
+        identity_boundary_broker.vector_store.search
+    ) == [
+        "thread:1",
     ]
+    assert identity_boundary_broker.chatlog_db.list_chat_threads.call_count == 0
+    assert _semantic_thread_ids(context) == [1]
+    assert context["semantic"][0]["metadata"]["project_id"] == 11
+    assert _document_titles(trace) == ["local-thread.md"]
     assert trace["source_mode"] == "project"
-    assert trace["widen_reason"] == "insufficient_thread_hits"
-    assert trace["documents"] == [_trace_document(local_hit)]
-    assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
+    assert trace["widen_reason"] == "none"
