@@ -22,4 +22,5 @@ test("settings frame card is content-fit and keeps inner scrolling", async () =>
 
   const scrollBody = screen.getByTestId("settings-scroll-body");
   expect(scrollBody.className).toContain("overflow-auto");
+  expect(scrollBody.className).toContain("p-0");
 });

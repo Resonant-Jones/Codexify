@@ -45,6 +45,7 @@ import { getMobileShellProfile } from "./mobileShellProfile";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   describeProviderState,
   PROVIDER_RUNTIME_STATES,
@@ -1445,6 +1446,7 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
     [mobileShellProfile]
@@ -1464,6 +1466,9 @@ export default function AppShell({
     "--radius-micro": "8px",                 // chips, inputs, pills
     "--radius-tile": "20px",                  // cards, tiles, panels
     "--card-radius": "20px",    // pointer used by components (explicit for clarity)
+    "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
+    "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
+    "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
     "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
     "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
     "--pill-pad-y": isPhoneShell ? shellViewportProfile.shellCardPad : "11px", // Vertical padding for the navigation pill dock (controls thickness)
@@ -1938,12 +1943,12 @@ export default function AppShell({
 
   // Responsive layout helper for Settings view
   const settingsLayout = useMemo(() => {
-    // On small (sm, md) breakpoints, let the settings card fill width
+    // Keep the settings card compact, but give it enough width to breathe.
     if (bp === "sm" || bp === "md") {
-      return { flex: "1 1 100%", maxWidth: "none" };
+      return { maxWidth: "none" };
     }
-    // On larger screens, enforce max width (18rem)
-    return { flex: "1 1 0%", maxWidth: "18rem" };
+    // On larger screens, let the shell expand modestly without becoming a takeover.
+    return { maxWidth: "min(46rem, calc(100vw - 2rem))" };
   }, [bp]);
 
   const galleryGridStyle = useMemo(
@@ -2236,7 +2241,10 @@ export default function AppShell({
       style={{
         /* baseline viewport guardrails */
         minWidth: shellViewportProfile.shellMinWidth,
-        minHeight: shellViewportProfile.shellMinHeight,
+        height: isPhoneShell ? "var(--shell-viewport-height, 100vh)" : undefined,
+        minHeight: isPhoneShell
+          ? "var(--shell-viewport-height, 100vh)"
+          : shellViewportProfile.shellMinHeight,
         padding: "var(--edge-chrome)",
         alignItems: "center",
         color: "var(--text)",
@@ -2305,11 +2313,11 @@ export default function AppShell({
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
       <div
-        className={`relative z-10 w-full ${isPhoneShell ? "flex items-center gap-[var(--shell-gap)]" : "flex items-center justify-between gap-3"}`}
+        className={`relative z-10 flex w-full items-start gap-3 ${isPhoneShell ? "flex-col" : "flex-row"}`}
       >
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 shrink-0">
           <div
-            className="glass-pill isolate relative min-w-0"
+            className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
             data-testid="app-shell-top-nav"
             data-shell-nav-mode={
               mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
@@ -2328,7 +2336,7 @@ export default function AppShell({
             </div>
 
             <div
-              className="flex min-w-0 flex-1 items-center"
+              className="inline-flex min-w-0 items-center"
               style={mobileTopNavRailStyle}
             >
               {/* brand badge — doubles as layout mode toggle */}
@@ -2402,7 +2410,7 @@ export default function AppShell({
           </div>
         </div>
         <div
-          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "justify-end gap-2"}`}
+          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
         >
           {isPhoneShell ? mobileHeaderUtilityActions : desktopHeaderUtilityActions}
         </div>
@@ -2711,10 +2719,11 @@ export default function AppShell({
             <FrameCard
               refractiveFallback
               shimmerMode="subtle"
-              className="mx-auto w-full max-w-[36rem] min-h-0 max-h-full flex flex-col overflow-hidden"
+              className="mx-auto w-full min-h-0 max-h-full flex flex-col overflow-hidden"
               data-testid="settings-framecard"
+              style={settingsLayout}
             >
-              <div className="w-full min-h-0 max-h-full overflow-auto p-[var(--card-pad)]" data-testid="settings-scroll-body">
+              <div className="w-full min-h-0 max-h-full overflow-auto p-0" data-testid="settings-scroll-body">
                 <ErrorBoundary>
                   <SettingsView
                     mode={mode}

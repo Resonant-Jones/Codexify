@@ -1,56 +1,41 @@
-import type { ReactNode } from "react";
+import type {
+  CSSProperties,
+  ComponentPropsWithoutRef,
+  PropsWithChildren,
+} from "react";
 
-type SettingsSectionCardProps = {
-  actions?: ReactNode;
-  as?: "div" | "section";
-  children?: ReactNode;
-  className?: string;
-  eyebrow?: ReactNode;
-  subtitle?: ReactNode;
-  testId?: string;
-  title: ReactNode;
-};
+import { cn } from "@/lib/utils";
+
+type SettingsSectionCardProps = PropsWithChildren<
+  Omit<ComponentPropsWithoutRef<"section">, "children" | "className" | "style"> & {
+    className?: string;
+    "data-testid"?: string;
+    style?: CSSProperties;
+  }
+>;
 
 export default function SettingsSectionCard({
-  actions,
-  as: Component = "section",
   children,
   className,
-  eyebrow,
-  subtitle,
-  testId,
-  title,
+  style,
+  "data-testid": dataTestId,
+  ...rest
 }: SettingsSectionCardProps) {
   return (
-    <Component
-      data-testid={testId}
-      className={[
-        "space-y-[var(--shell-gap)] rounded-[var(--card-radius)] border border-[var(--panel-border)] bg-[var(--panel-bg)] p-[var(--card-pad)]",
-        className ?? "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+    <section
+      data-testid={dataTestId}
+      className={cn("space-y-4 rounded-[var(--tile-radius)] border", className)}
+      style={{
+        borderColor: "color-mix(in srgb, var(--panel-border) 84%, transparent)",
+        background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
+        padding: "calc(var(--card-pad) + var(--board-edge))",
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.12)",
+        ...style,
+      }}
+      {...rest}
     >
-      <div className="flex flex-wrap items-start justify-between gap-[var(--shell-gap)]">
-        <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
-          {eyebrow ? (
-            <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">
-              {eyebrow}
-            </div>
-          ) : null}
-          <div className="text-sm font-semibold leading-6 text-[var(--text)]">
-            {title}
-          </div>
-          {subtitle ? (
-            <div className="text-xs leading-5 text-[var(--muted)]">
-              {subtitle}
-            </div>
-          ) : null}
-        </div>
-        {actions ? <div className="shrink-0">{actions}</div> : null}
-      </div>
-
-      <div className="space-y-[var(--shell-gap)]">{children}</div>
-    </Component>
+      {children}
+    </section>
   );
 }
