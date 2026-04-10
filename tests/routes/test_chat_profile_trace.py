@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import uuid
 
-from guardian.context.retrieval_posture_contract import (
-    build_retrieval_posture_snapshot,
-)
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -45,16 +42,7 @@ def test_rag_trace_includes_profile_debug_fields(monkeypatch):
 def test_rag_trace_exposes_payload_summary(monkeypatch):
     chat._thread_latest_task[77] = "task-77"
 
-    payload_summary = {
-        "payload_char_count": 10,
-        "message_count": 2,
-        "retrieval_posture": build_retrieval_posture_snapshot(
-            source_mode="project",
-            retrieval_override={"mode": "none"},
-            widen_reason="none",
-            conversation_only=False,
-        ),
-    }
+    payload_summary = {"payload_char_count": 10, "message_count": 2}
 
     monkeypatch.setattr(
         chat,
@@ -276,18 +264,6 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
         "mode": "personal_knowledge",
         "reason": "slash_personal_knowledge_hint",
     }
-    posture_one = build_retrieval_posture_snapshot(
-        source_mode="personal_knowledge",
-        retrieval_override=retrieval_override,
-        widen_reason="explicit_personal_knowledge",
-        conversation_only=False,
-    )
-    posture_two = build_retrieval_posture_snapshot(
-        source_mode="project",
-        retrieval_override={"mode": "none"},
-        widen_reason="none",
-        conversation_only=False,
-    )
     metadata_by_thread = {
         thread_one: {
             DEBUG_LATEST_RAG_TRACE_METADATA_KEY: {
@@ -324,9 +300,6 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
             else trace_two,
             "payload_summary": {
                 "message_count": 2,
-                "retrieval_posture": posture_one
-                if task_id == task_one_id
-                else posture_two,
                 **(
                     {
                         "slash_intent": slash_intent,
@@ -346,12 +319,10 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
     assert first["graph"] == trace_one["graph"]
     assert first["payload_summary"]["slash_intent"] == slash_intent
     assert first["payload_summary"]["retrieval_override"] == retrieval_override
-    assert first["payload_summary"]["retrieval_posture"] == posture_one
     assert second["documents"] == trace_two["documents"]
     assert second["graph"] == trace_two["graph"]
     assert "slash_intent" not in second["payload_summary"]
     assert "retrieval_override" not in second["payload_summary"]
-    assert second["payload_summary"]["retrieval_posture"] == posture_two
 
     chat._thread_latest_task.pop(thread_one, None)
     chat._thread_latest_task.pop(thread_two, None)
