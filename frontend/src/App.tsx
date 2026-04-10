@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 
 import BootstrapGate from "./components/bootstrap/BootstrapGate";
 import WebRuntimeStartupGate from "./components/bootstrap/WebRuntimeStartupGate";
@@ -6,6 +6,9 @@ import DocumentGenModal, {
   DocumentGenInput,
 } from "./components/DocumentGenModal";
 import AppShell from "./components/persona/layout/AppShell";
+import { useShellViewportClass } from "./components/persona/layout/shellBreakpointContract";
+import { useViewportInsets } from "./hooks/useViewportInsets";
+import { shouldSuppressMobileAmbientBottom } from "./components/persona/layout/mobileBottomEdgeContract";
 import { TopBar } from "./components/TopBar";
 import { Button } from "./components/ui/button";
 import CommandCenterPage from "./features/commandCenter/CommandCenterPage";
@@ -1045,6 +1048,15 @@ export default function App() {
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
   const webRuntimeGateEnabled = !bootstrapEnabled && import.meta.env.MODE !== "test";
 
+  // Mobile bottom-edge contract: suppress ambient bottom chrome when keyboard is open
+  // on phone-class widths to keep the keyboard flush against the active input surface.
+  const shellViewportClass = useShellViewportClass();
+  const viewportInsets = useViewportInsets();
+  const suppressAmbientBottom = useMemo(
+    () => shouldSuppressMobileAmbientBottom(shellViewportClass === "phone", viewportInsets.isKeyboardOpen),
+    [shellViewportClass, viewportInsets.isKeyboardOpen]
+  );
+
   if (tuneRoute) {
     return <DevTuneGate />;
   }
@@ -1091,18 +1103,20 @@ export default function App() {
     mainContent = (
       <>
         <AppShell />
-        <div className="fixed bottom-6 right-6 z-[1200]">
-          <Button
-            type="button"
-            variant="ghost"
-            className="rounded-full px-4 shadow"
-            onClick={() => setDocGenOpen(true)}
-            aria-haspopup="dialog"
-            aria-expanded={docGenOpen}
-          >
-            Generate Doc
-          </Button>
-        </div>
+        {!suppressAmbientBottom && (
+          <div className="fixed bottom-6 right-6 z-[1200]">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-full px-4 shadow"
+              onClick={() => setDocGenOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={docGenOpen}
+            >
+              Generate Doc
+            </Button>
+          </div>
+        )}
         <DocumentGenModal
           open={docGenOpen}
           onOpenChange={setDocGenOpen}
