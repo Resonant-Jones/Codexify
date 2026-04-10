@@ -235,7 +235,8 @@ MATRIX_CASES = [
                 OMEGA_HIT["text"],
             ],
             "expected_namespaces": ["thread:1", "thread:2"],
-            "expected_widen_reason": "insufficient_thread_hits",
+            # No candidate contributed, so the trace should stay truthful at "none".
+            "expected_widen_reason": "none",
         },
         id="truthful-empty-result",
     ),
@@ -247,7 +248,8 @@ MATRIX_CASES = [
             "expected_hits": [],
             "expected_excluded": [OMEGA_HIT["text"]],
             "expected_namespaces": ["thread:1", "thread:2", "thread:3"],
-            "expected_widen_reason": "insufficient_thread_hits",
+            # Cross-user material is excluded before widening can contribute.
+            "expected_widen_reason": "none",
         },
         id="no-cross-user-bleed",
     ),
