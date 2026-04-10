@@ -690,7 +690,9 @@ describe("AppShell workspace drawer shell", () => {
       expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
 
       fireEvent.click(toggle);
-      expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+      });
     }
   );
 
@@ -719,10 +721,28 @@ describe("AppShell workspace drawer shell", () => {
       "data-overlay-mode",
       "mobile"
     );
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-workspace-motion-state",
+      "peek"
+    );
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-workspace-motion-phase",
+      "open"
+    );
     expect(screen.getByTestId("workspace-drawer-pane")).toHaveAttribute(
       "data-overlay",
       "true"
     );
+
+    await user.click(screen.getByRole("button", { name: "Close Workspace" }));
+
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-workspace-motion-phase",
+      "closing"
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("workspace-drawer-overlay")).not.toBeInTheDocument();
+    });
   });
 
   it("tracks the phone shell height from the visual viewport instead of plain 100vh", () => {
