@@ -20,7 +20,7 @@
  */
 import api from "@/lib/api";
 import { Settings2 } from "lucide-react";
-import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -85,14 +85,6 @@ import {
   getMobileTopNavRailStyle,
   getMobileWorkspaceSummonCopy,
 } from "./mobileNavigationContract";
-import {
-  getMobileChromeMotionStyle,
-  getMobileTouchTargetStyle,
-  getMobileWorkspaceMotionState,
-  getMobileWorkspaceSheetStyle,
-  MOBILE_MOTION,
-} from "./mobileMotionContract";
-import { useMobileGestureState } from "@/hooks/useMobileGestureState";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -1455,18 +1447,13 @@ export default function AppShell({
   );
   const isPhoneShell = mobileShellProfile.active;
   const viewportInsets = useViewportInsets(isPhoneShell);
-  const mobileGestureState = useMobileGestureState(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
     [mobileShellProfile]
   );
   const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
-    () => getMobileTopNavRailStyle(mobileShellProfile, mobileGestureState),
-    [
-      mobileGestureState.allowMomentumScroll,
-      mobileGestureState.isPhoneShell,
-      mobileShellProfile,
-    ]
+    () => getMobileTopNavRailStyle(mobileShellProfile),
+    [mobileShellProfile]
   );
 
   /* ─────────────────────────────────────────────────────────────────────────────
@@ -1831,93 +1818,6 @@ export default function AppShell({
     }
     openWorkspaceDrawer();
   }, [closeWorkspaceDrawer, openWorkspaceDrawer, workspaceDrawerOpen]);
-  const [mobileWorkspaceSheetPresent, setMobileWorkspaceSheetPresent] = useState(false);
-  const mobileWorkspaceSheetExitTimerRef = useRef<number | null>(null);
-  const mobileWorkspaceVisualLayoutModeRef = useRef(workspaceLayoutMode);
-
-  useEffect(() => {
-    if (isPhoneShell && workspaceDrawerOpen) {
-      mobileWorkspaceVisualLayoutModeRef.current = workspaceLayoutMode;
-    }
-  }, [isPhoneShell, workspaceDrawerOpen, workspaceLayoutMode]);
-
-  useEffect(() => {
-    const exitTimer = mobileWorkspaceSheetExitTimerRef.current;
-    const clearExitTimer = () => {
-      if (mobileWorkspaceSheetExitTimerRef.current != null) {
-        window.clearTimeout(mobileWorkspaceSheetExitTimerRef.current);
-        mobileWorkspaceSheetExitTimerRef.current = null;
-      }
-    };
-
-    if (!isPhoneShell) {
-      clearExitTimer();
-      if (mobileWorkspaceSheetPresent) {
-        setMobileWorkspaceSheetPresent(false);
-      }
-      return;
-    }
-
-    if (workspaceDrawerOpen) {
-      clearExitTimer();
-      if (!mobileWorkspaceSheetPresent) {
-        setMobileWorkspaceSheetPresent(true);
-      }
-      return;
-    }
-
-    if (!mobileWorkspaceSheetPresent || exitTimer != null) {
-      return;
-    }
-
-    mobileWorkspaceSheetExitTimerRef.current = window.setTimeout(() => {
-      mobileWorkspaceSheetExitTimerRef.current = null;
-      setMobileWorkspaceSheetPresent(false);
-    }, mobileGestureState.prefersReducedMotion ? MOBILE_MOTION.reducedMs : MOBILE_MOTION.workspaceSheetExitMs);
-
-    return clearExitTimer;
-  }, [
-    isPhoneShell,
-    mobileGestureState.prefersReducedMotion,
-    mobileWorkspaceSheetPresent,
-    workspaceDrawerOpen,
-  ]);
-
-  const mobileWorkspacePresentationLayoutMode = isPhoneShell
-    ? mobileWorkspaceSheetPresent
-      ? mobileWorkspaceVisualLayoutModeRef.current
-      : workspaceLayoutMode
-    : workspaceLayoutMode;
-  const mobileWorkspaceMotionState = getMobileWorkspaceMotionState(
-    isPhoneShell,
-    workspaceDrawerOpen,
-    mobileWorkspacePresentationLayoutMode
-  );
-  const mobileWorkspaceSheetMotionStyle = useMemo<React.CSSProperties>(
-    () => getMobileWorkspaceSheetStyle(mobileGestureState, workspaceDrawerOpen),
-    [
-      mobileGestureState.isKeyboardOpen,
-      mobileGestureState.prefersReducedMotion,
-      mobileGestureState.isPhoneShell,
-      workspaceDrawerOpen,
-    ]
-  );
-  const mobileWorkspaceChromeMotionStyle = useMemo<React.CSSProperties>(
-    () => getMobileChromeMotionStyle(mobileGestureState),
-    [
-      mobileGestureState.isKeyboardOpen,
-      mobileGestureState.prefersReducedMotion,
-      mobileGestureState.isPhoneShell,
-    ]
-  );
-  const mobileTouchTargetStyle = useMemo<React.CSSProperties>(
-    () => getMobileTouchTargetStyle(mobileGestureState),
-    [mobileGestureState.isPhoneShell]
-  );
-  const mobileSquareTouchTargetStyle = useMemo<React.CSSProperties>(
-    () => getMobileTouchTargetStyle(mobileGestureState, { square: true }),
-    [mobileGestureState.isPhoneShell]
-  );
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
@@ -2074,13 +1974,8 @@ export default function AppShell({
       }) as React.CSSProperties,
     [bp],
   );
-  const workspaceDrawerVisible =
-    workspaceShellEnabled &&
-    (isPhoneShell
-      ? workspaceDrawerOpen || mobileWorkspaceSheetPresent
-      : workspaceDrawerOpen);
-  const showWorkspaceDrawer = workspaceDrawerVisible;
-  const workspacePrimaryPaneStyle: React.CSSProperties = workspaceDrawerVisible
+  const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
+  const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
     ? isPhoneShell
       ? {
           flex: "1 1 0%",
@@ -2111,7 +2006,7 @@ export default function AppShell({
         alignSelf: "stretch",
         borderRadius: "var(--card-radius)",
         boxShadow:
-          mobileWorkspacePresentationLayoutMode === "workspace_focus"
+          workspaceLayoutMode === "workspace_focus"
             ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
             : undefined,
       }
@@ -2125,14 +2020,14 @@ export default function AppShell({
         maxHeight: "100%",
         borderRadius: "var(--card-radius)",
         boxShadow:
-          mobileWorkspacePresentationLayoutMode === "workspace_focus"
+          workspaceLayoutMode === "workspace_focus"
             ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
             : undefined,
       };
   const workspaceSplitSurfaceProps = workspaceShellEnabled
     ? {
         "data-testid": "workspace-layout-surface",
-        "data-workspace-layout-mode": mobileWorkspacePresentationLayoutMode,
+        "data-workspace-layout-mode": workspaceLayoutMode,
         "data-workspace-ratio-bucket": workspaceRatioBucket,
         "data-workspace-dominant": isWorkspaceDominant ? "true" : "false",
         "data-workspace-pane-ratio": workspacePaneRatio.toFixed(2),
@@ -2142,22 +2037,12 @@ export default function AppShell({
         "data-shell-workspace-arrangement": shellViewportProfile.workspaceArrangement,
       }
     : {};
-  const sharedWorkspaceDrawer = workspaceDrawerVisible ? (
+  const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
     isPhoneShell ? (
       <div
         data-testid="workspace-drawer-overlay"
         data-overlay-mode="mobile"
-        data-workspace-motion-phase={
-          workspaceDrawerOpen
-            ? "open"
-            : mobileWorkspaceSheetPresent
-              ? "closing"
-              : "collapsed"
-        }
-        data-workspace-motion-state={mobileWorkspaceMotionState}
         className="absolute inset-0 z-20 flex items-stretch justify-end bg-black/35 backdrop-blur-sm"
-        style={mobileWorkspaceSheetMotionStyle}
-        aria-hidden={workspaceDrawerOpen ? undefined : true}
       >
         <button
           type="button"
@@ -2178,9 +2063,9 @@ export default function AppShell({
         >
           <WorkspaceDrawer
             routeContext={workspaceRouteContext}
-            isOpen={workspaceDrawerOpen || mobileWorkspaceSheetPresent}
+            isOpen={workspaceDrawerOpen}
             activeTab={workspaceDrawerTab}
-            layoutMode={mobileWorkspacePresentationLayoutMode}
+            layoutMode={workspaceLayoutMode}
             paneRatio={workspacePaneRatio}
             minPaneRatio={minWorkspacePaneRatio}
             maxPaneRatio={maxWorkspacePaneRatio}
@@ -2257,18 +2142,6 @@ export default function AppShell({
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
   const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
-  const mobileUtilityButtonStyle = isPhoneShell
-    ? {
-        ...mobileTouchTargetStyle,
-        ...mobileWorkspaceChromeMotionStyle,
-      }
-    : undefined;
-  const mobileIconButtonStyle = isPhoneShell
-    ? {
-        ...mobileSquareTouchTargetStyle,
-        ...mobileWorkspaceChromeMotionStyle,
-      }
-    : undefined;
   const workspaceDrawerToggle = workspaceShellEnabled ? (
     <button
       type="button"
@@ -2289,7 +2162,6 @@ export default function AppShell({
             : "Open workspace drawer"
       }
       onClick={toggleWorkspaceDrawer}
-      style={mobileUtilityButtonStyle}
     >
       {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
     </button>
@@ -2303,7 +2175,6 @@ export default function AppShell({
       aria-label="Settings"
       title="Settings"
       onClick={openSettings}
-      style={mobileIconButtonStyle}
     >
       <Settings2 className="h-4 w-4" aria-hidden="true" />
     </button>
@@ -2323,7 +2194,6 @@ export default function AppShell({
         fontWeight: 500,
         boxShadow:
           "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
-        ...(mobileUtilityButtonStyle ?? {}),
       }}
     />
   ) : null;
@@ -2619,10 +2489,6 @@ export default function AppShell({
           {!startupLocked && view === "documents" && (
             <div
               className="isolate"
-              data-active-view="documents"
-              data-active-view-contract="left-center-right"
-              data-thread-rail="present"
-              data-view-family="documents"
               style={{
                 "--radius": "var(--card-radius)",
                 "--frame": "1px",
@@ -2754,10 +2620,6 @@ export default function AppShell({
           {!startupLocked && view === "guardian" && (
             <div
               className="h-full w-full isolate"
-              data-active-view="guardian"
-              data-active-view-contract="left-center-right"
-              data-thread-rail="present"
-              data-view-family="guardian"
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
@@ -2817,10 +2679,6 @@ export default function AppShell({
           {!startupLocked && view === "dashboard" && (
             <div
               className="h-full w-full isolate"
-              data-active-view="dashboard"
-              data-active-view-contract="center-right"
-              data-thread-rail="absent"
-              data-view-family="dashboard"
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
@@ -2901,22 +2759,14 @@ export default function AppShell({
             </FrameCard>
           )}
           {!startupLocked && view === "personaStudio" && (
-            <div
-              className="h-full w-full isolate"
-              data-active-view="personaStudio"
-              data-active-view-contract="left-center-right"
-              data-thread-rail="absent"
-              data-view-family="personaStudio"
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+              data-testid="persona-studio-framecard"
             >
-              <FrameCard
-                refractiveFallback
-                shimmerMode="subtle"
-                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
-                data-testid="persona-studio-framecard"
-              >
-                <PersonaStudioPage />
-              </FrameCard>
-            </div>
+              <PersonaStudioPage />
+            </FrameCard>
           )}
         </div>
       </div>
