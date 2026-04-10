@@ -2313,9 +2313,28 @@ export default function AppShell({
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
       <div
-        className={`relative z-10 flex w-full items-start gap-3 ${isPhoneShell ? "flex-col" : "flex-row"}`}
+        data-testid="app-shell-top-chrome"
+        className={`relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
+        style={
+          isPhoneShell
+            ? undefined
+            : {
+                gridTemplateColumns: "auto minmax(var(--shell-gap), 1fr) auto",
+              }
+        }
       >
-        <div className="min-w-0 shrink-0">
+        <div
+          data-testid="app-shell-nav-anchor"
+          className="min-w-0 shrink-0"
+          style={
+            isPhoneShell
+              ? undefined
+              : {
+                  gridColumn: "1",
+                  justifySelf: "start",
+                }
+          }
+        >
           <div
             className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
             data-testid="app-shell-top-nav"
@@ -2410,7 +2429,16 @@ export default function AppShell({
           </div>
         </div>
         <div
+          data-testid="app-shell-utility-cluster"
           className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
+          style={
+            isPhoneShell
+              ? undefined
+              : {
+                  gridColumn: "3",
+                  justifySelf: "end",
+                }
+          }
         >
           {isPhoneShell ? mobileHeaderUtilityActions : desktopHeaderUtilityActions}
         </div>

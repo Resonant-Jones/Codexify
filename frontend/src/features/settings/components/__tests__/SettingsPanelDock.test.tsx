@@ -13,11 +13,14 @@ describe("SettingsPanelDock", () => {
         <button type="button" role="tab" aria-selected="false">
           Imprint
         </button>
+        <button type="button" role="tab" aria-selected="false">
+          Personal Facts
+        </button>
       </SettingsPanelDock>
     );
 
     const dock = screen.getByRole("tablist", { name: "Settings tabs" });
-    expect(dock).toHaveClass("shrink-0");
+    expect(dock).toHaveClass("sticky", "flex", "w-full", "justify-center");
     expect(dock).toHaveStyle({
       position: "sticky",
       top: "calc(var(--card-pad) + var(--board-edge))",
@@ -25,5 +28,6 @@ describe("SettingsPanelDock", () => {
     expect(dock).toHaveAttribute("aria-orientation", "horizontal");
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Imprint" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toBeInTheDocument();
   });
 });
