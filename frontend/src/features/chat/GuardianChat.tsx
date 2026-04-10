@@ -23,9 +23,7 @@ import {
 import {
   ChevronRight,
   MoreVertical,
-  SquareStack,
   Zap,
-  Volume2,
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
 import { Composer } from "./components";
@@ -2927,54 +2925,7 @@ export function GuardianChat({
           </div>
         ) : null}
       </div>
-      <button
-        type="button"
-        className="icon-inline"
-        aria-label={
-          voiceReadAloudEnabled
-            ? autoReadEnabled
-              ? "Disable auto read aloud"
-              : "Enable auto read aloud"
-            : "Auto read aloud unavailable"
-        }
-        title={
-          voiceReadAloudEnabled
-            ? autoReadEnabled
-              ? "Auto read aloud: On"
-              : "Auto read aloud: Off"
-            : "Read-aloud unavailable"
-        }
-        onClick={() => {
-          if (!voiceReadAloudEnabled) return;
-          setAutoReadEnabled((v) => !v);
-        }}
-        disabled={!voiceReadAloudEnabled}
-        style={{
-          borderRadius: "var(--radius-micro)",
-          opacity: voiceReadAloudEnabled ? (autoReadEnabled ? 1 : 0.65) : 0.45,
-          ...mobileHeaderIconTouchTargetStyle,
-        }}
-      >
-        <Volume2 className="h-5 w-5" />
-      </button>
-      <button
-        type="button"
-        className="icon-inline"
-        aria-label="Toggle workspace"
-        aria-pressed={workspaceOpen}
-        onClick={onWorkspaceToggle}
-        style={{
-          borderRadius: "var(--radius-micro)",
-          opacity: workspaceOpen ? 1 : 0.72,
-          background: workspaceOpen
-            ? "color-mix(in oklab, var(--panel-bg), var(--accent) 18%)"
-            : "transparent",
-          ...mobileHeaderIconTouchTargetStyle,
-        }}
-      >
-        <SquareStack className="h-5 w-5" />
-      </button>
-          <DropdownMenu>
+        <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
