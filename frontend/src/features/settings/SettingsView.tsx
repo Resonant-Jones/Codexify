@@ -1719,21 +1719,7 @@ export function SettingsView({
           </SettingsSectionCard>
         )}
       </SettingsPanelShell>
-
     </div>
-      {tab === "personalFacts" && (
-        <div
-          className="w-full min-w-0 space-y-[var(--shell-gap)]"
-          id="settings-panel-personalFacts"
-          role="tabpanel"
-          aria-labelledby="settings-tab-personalFacts"
-          data-testid="settings-panel-personal-facts"
-        >
-            <PersonalFactsPanel />
-        </div>
-      )}
-
-    </SettingsPanelShell>
   );
 }
 

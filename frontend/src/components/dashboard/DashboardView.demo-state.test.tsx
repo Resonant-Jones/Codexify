@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -93,7 +93,9 @@ function setViewportWidth(width: number) {
     writable: true,
     value: width,
   });
-  window.dispatchEvent(new Event("resize"));
+  act(() => {
+    window.dispatchEvent(new Event("resize"));
+  });
 }
 
 const EXT_COLORS = {
@@ -107,15 +109,6 @@ const EXT_COLORS = {
   jpeg: "#000",
   codex: "#000",
 } as const;
-
-function setViewportWidth(width: number) {
-  Object.defineProperty(window, "innerWidth", {
-    configurable: true,
-    writable: true,
-    value: width,
-  });
-  window.dispatchEvent(new Event("resize"));
-}
 
 describe("DashboardView demo content", () => {
   beforeEach(() => {
@@ -209,13 +202,6 @@ describe("DashboardView demo content", () => {
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });
 
-  it("uses the mobile stacked layout at phone widths", () => {
-    setViewportWidth(390);
-
-    const { container } = render(
-      <DashboardView
-        extColors={EXT_COLORS}
-        gallery={[]}
   it("switches Dashboard into a mobile stack and opens recent documents explicitly", async () => {
     setViewportWidth(390);
     authState.allowGate = true;
@@ -239,7 +225,7 @@ describe("DashboardView demo content", () => {
       return { data: {} };
     });
 
-    render(
+    const { container } = render(
       <DashboardView
         extColors={EXT_COLORS}
         gallery={[

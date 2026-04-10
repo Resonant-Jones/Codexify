@@ -7,10 +7,8 @@ import {
   act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-
-import AppShell from "../AppShell";
 import {
   personaStudioApiMock,
   resetPersonaStudioApiMock,
@@ -234,6 +232,12 @@ vi.mock("@/components/ShareButton", () => ({
 vi.mock("@/theme", () => ({
   injectCssVars: vi.fn(),
 }));
+
+let AppShell: typeof import("../AppShell").default;
+
+beforeAll(async () => {
+  AppShell = (await import("../AppShell")).default;
+});
 
 const mockApi = api as {
   get: ReturnType<typeof vi.fn>;
