@@ -2489,6 +2489,10 @@ export default function AppShell({
           {!startupLocked && view === "documents" && (
             <div
               className="isolate"
+              data-active-view="documents"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="present"
+              data-view-family="documents"
               style={{
                 "--radius": "var(--card-radius)",
                 "--frame": "1px",
@@ -2620,6 +2624,10 @@ export default function AppShell({
           {!startupLocked && view === "guardian" && (
             <div
               className="h-full w-full isolate"
+              data-active-view="guardian"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="present"
+              data-view-family="guardian"
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
@@ -2679,6 +2687,10 @@ export default function AppShell({
           {!startupLocked && view === "dashboard" && (
             <div
               className="h-full w-full isolate"
+              data-active-view="dashboard"
+              data-active-view-contract="center-right"
+              data-thread-rail="absent"
+              data-view-family="dashboard"
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
@@ -2759,14 +2771,22 @@ export default function AppShell({
             </FrameCard>
           )}
           {!startupLocked && view === "personaStudio" && (
-            <FrameCard
-              refractiveFallback
-              shimmerMode="subtle"
-              className="flex h-full w-full min-h-0 flex-col overflow-hidden"
-              data-testid="persona-studio-framecard"
+            <div
+              className="h-full w-full isolate"
+              data-active-view="personaStudio"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="absent"
+              data-view-family="personaStudio"
             >
-              <PersonaStudioPage />
-            </FrameCard>
+              <FrameCard
+                refractiveFallback
+                shimmerMode="subtle"
+                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+                data-testid="persona-studio-framecard"
+              >
+                <PersonaStudioPage />
+              </FrameCard>
+            </div>
           )}
         </div>
       </div>
