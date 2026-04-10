@@ -10,10 +10,15 @@ export type DocumentLike = {
   title: string;
   ext: string;
   type: "file" | "codex_entry";
+  content?: string;
+  parsed_text?: string;
+  parsedText?: string;
   src_url?: string;
   srcUrl?: string;
   src?: string;
   url?: string;
+  mime_type?: string;
+  mimeType?: string;
   projectId?: number;
   project_id?: number;
   threadId?: number | null;
@@ -25,3 +30,5 @@ export type DocumentLike = {
   embeddingCompletedAt?: string;
   mock?: boolean;
 };
+
+export type DocumentScope = "thread" | "project";

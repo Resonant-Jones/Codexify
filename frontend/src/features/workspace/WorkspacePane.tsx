@@ -2,7 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { DocumentLike } from "@/types/documents";
 import { Button } from "@/components/ui/button";
 import { getCodexEntry, getCodexExportUrl, CodexEntry } from "@/api/codex";
-import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { loadDocumentContentById } from "@/lib/documentContext";
+import {
+  isImageMediaUrl,
+  isPdfMediaUrl,
+  normalizeMediaUrl,
+} from "@/lib/mediaUrl";
 import WorkspaceViewer from "./WorkspaceViewer";
 import "./workspace.css";
 
@@ -60,6 +65,27 @@ function resolvePreviewText(doc: DocumentLike | null | undefined): string | null
   ]);
 }
 
+function resolveInlineDocumentText(doc: DocumentLike | null | undefined): string | null {
+  return readDocString(doc, [
+    "content",
+    "body",
+    "body_markdown",
+    "bodyMarkdown",
+    "text",
+    "text_content",
+    "textContent",
+    "plain_text",
+    "plainText",
+    "parsed_text",
+    "parsedText",
+    "markdown",
+    "rawText",
+    "raw_text",
+    "markdown_text",
+    "markdownText",
+  ]);
+}
+
 function resolvePreviewMimeType(doc: DocumentLike | null | undefined): string | null {
   return readDocString(doc, [
     "mime_type",
@@ -72,23 +98,20 @@ function resolvePreviewMimeType(doc: DocumentLike | null | undefined): string | 
 export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePaneProps) {
   const previewUrl = useMemo(() => resolvePreviewUrl(activeDoc), [activeDoc]);
   const previewText = useMemo(() => resolvePreviewText(activeDoc), [activeDoc]);
+  const inlineDocumentText = useMemo(
+    () => resolveInlineDocumentText(activeDoc),
+    [activeDoc]
+  );
   const previewMimeType = useMemo(
     () => resolvePreviewMimeType(activeDoc),
     [activeDoc]
   );
+  const [fetchedDocumentText, setFetchedDocumentText] = useState<string | null>(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
 
   const isImage = useMemo(() => {
-    if (!previewUrl) return false;
-    const u = previewUrl.toLowerCase();
-    return (
-      u.endsWith(".png") ||
-      u.endsWith(".jpg") ||
-      u.endsWith(".jpeg") ||
-      u.endsWith(".webp") ||
-      u.endsWith(".gif") ||
-      u.endsWith(".svg") ||
-      u.startsWith("data:image/")
-    );
+    return previewUrl ? isImageMediaUrl(previewUrl) : false;
   }, [previewUrl]);
 
   const isPdf = useMemo(() => {
@@ -132,12 +155,62 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
     };
   }, [activeDoc?.id, activeDoc?.type]);
 
+  useEffect(() => {
+    if (!activeDoc || activeDoc.type === "codex_entry") {
+      setFetchedDocumentText(null);
+      setDocumentError(null);
+      setDocumentLoading(false);
+      return;
+    }
+
+    if (previewUrl || inlineDocumentText) {
+      setFetchedDocumentText(null);
+      setDocumentError(null);
+      setDocumentLoading(false);
+      return;
+    }
+
+    if (!activeDoc.id) {
+      setFetchedDocumentText(null);
+      setDocumentError(null);
+      setDocumentLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setDocumentLoading(true);
+    setDocumentError(null);
+
+    loadDocumentContentById(activeDoc.id)
+      .then((record) => {
+        if (cancelled) return;
+        setFetchedDocumentText(record.content);
+        setDocumentError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setFetchedDocumentText(null);
+        setDocumentError(err?.message || "Failed to load document");
+      })
+      .finally(() => {
+        if (!cancelled) setDocumentLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDoc?.id, activeDoc?.type, inlineDocumentText, previewUrl]);
+
   const headerTitle = useMemo(() => {
     if (!activeDoc) return "Workspace";
     const title = activeDoc?.title || "Untitled";
     const ext = activeDoc?.ext ? `.${activeDoc.ext}` : "";
     return `Workspace · ${title}${ext}`;
   }, [activeDoc]);
+
+  const resolvedPreviewText = inlineDocumentText ?? fetchedDocumentText ?? previewText;
+  const resolvedLoading = loading || documentLoading;
+  const resolvedError = error ?? documentError;
 
   const exportHref = activeDoc?.type === "codex_entry" && activeDoc.id ? getCodexExportUrl(activeDoc.id) : null;
 
@@ -171,13 +244,13 @@ export default function WorkspacePane({ activeDoc, onOpenInThread }: WorkspacePa
       <WorkspaceViewer
         activeDoc={activeDoc}
         previewUrl={previewUrl}
-        previewText={previewText}
+        previewText={resolvedPreviewText}
         previewMimeType={previewMimeType}
         isImage={isImage}
         isPdf={isPdf}
         codexEntry={codexEntry}
-        loading={loading}
-        error={error}
+        loading={resolvedLoading}
+        error={resolvedError}
       />
     </div>
   );

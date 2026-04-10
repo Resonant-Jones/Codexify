@@ -1,8 +1,17 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DocumentsView from "@/components/documents/DocumentsView";
 import type { ExtColors } from "@/types/ui";
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
 
 vi.mock("@/hooks/useUploader", () => ({
   default: () => ({
@@ -29,6 +38,10 @@ const EXT_COLORS: ExtColors = {
 };
 
 describe("DocumentsView demo content", () => {
+  beforeEach(() => {
+    setViewportWidth(1280);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

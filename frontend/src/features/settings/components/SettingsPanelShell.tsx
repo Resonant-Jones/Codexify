@@ -1,21 +1,27 @@
-import type { PropsWithChildren } from "react";
+import type { PropsWithChildren, RefObject } from "react";
 
 import { cn } from "@/lib/utils";
 
 type SettingsPanelShellProps = PropsWithChildren<{
   className?: string;
   "data-testid"?: string;
+  scrollContainerRef?: RefObject<HTMLElement | null>;
 }>;
 
 export default function SettingsPanelShell({
   children,
   className,
   "data-testid": dataTestId = "settings-panel-shell",
+  scrollContainerRef,
 }: SettingsPanelShellProps) {
   return (
     <section
       data-testid={dataTestId}
-      className={cn("flex min-h-0 w-full flex-col gap-[var(--shell-gap)]", className)}
+      ref={scrollContainerRef}
+      className={cn(
+        "flex h-full min-h-0 w-full min-w-0 flex-col gap-[var(--shell-gap)] overflow-x-clip overflow-y-auto text-[var(--text)]",
+        className
+      )}
       style={{
         borderRadius: "calc(var(--card-radius) + var(--board-edge) / 2)",
         border: "1px solid color-mix(in srgb, var(--panel-bezel) 86%, transparent)",

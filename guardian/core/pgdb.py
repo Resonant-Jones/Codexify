@@ -25,11 +25,20 @@ from psycopg import errors as pg_errors
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
-from guardian.db.models import EventOutbox
+from guardian.db.models import (
+    EventOutbox,
+    PersonalFact,
+    PersonalFactEvidence,
+    PersonalFactRevision,
+)
 
 from .chat_db import ChatDB
+from .default_project import (
+    canonicalize_default_project,
+    resolve_project_id_or_default,
+)
 
 
 # ---- JSON helpers -------------------------------------------------------
@@ -86,6 +95,7 @@ class PgDB(ChatDB):
         # degrade to a schedule-less projection instead of failing queries.
         self._connector_has_schedule = False
         self._chat_messages_has_kind: bool | None = None
+        self._chat_threads_has_last_interaction_at: bool | None = None
 
     def _normalize_dsn(self, dsn: str) -> str:
         """Coerce any SQLAlchemy-style DSN to plain psycopg-compatible URL."""
@@ -144,6 +154,32 @@ class PgDB(ChatDB):
             )
             self._chat_messages_has_kind = False
         return self._chat_messages_has_kind
+
+    def _chat_threads_supports_last_interaction_at(self) -> bool:
+        if self._chat_threads_has_last_interaction_at is not None:
+            return self._chat_threads_has_last_interaction_at
+        try:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'chat_threads'
+                          AND column_name = 'last_interaction_at'
+                        """
+                    )
+                    self._chat_threads_has_last_interaction_at = (
+                        cur.fetchone() is not None
+                    )
+        except Exception as exc:
+            logging.warning(
+                "[chat] unable to inspect chat_threads.last_interaction_at column: %s",
+                exc,
+            )
+            self._chat_threads_has_last_interaction_at = False
+        return self._chat_threads_has_last_interaction_at
 
     # ---- internal helpers -------------------------------------------------
     def _ensure_sync_jobs_table(self, conn) -> None:
@@ -329,7 +365,12 @@ class PgDB(ChatDB):
 
     @staticmethod
     def _normalize_thread(row: dict[str, Any]) -> dict[str, Any]:
-        for key in ("created_at", "updated_at", "archived_at"):
+        for key in (
+            "created_at",
+            "updated_at",
+            "archived_at",
+            "last_interaction_at",
+        ):
             value = row.get(key)
             if isinstance(value, datetime):
                 row[key] = value.isoformat()
@@ -372,6 +413,11 @@ class PgDB(ChatDB):
             row["modeling_excluded"] = bool(row.get("exclude_from_identity"))
         if "exclude_from_identity" not in row and "modeling_excluded" in row:
             row["exclude_from_identity"] = bool(row.get("modeling_excluded"))
+        project_name = row.get("project_name")
+        if project_name is None:
+            row["project_name"] = None
+        elif not isinstance(project_name, str):
+            row["project_name"] = str(project_name)
         return row
 
     # ---- chat_threads --------------------------------------------------
@@ -400,6 +446,9 @@ class PgDB(ChatDB):
             exclude_from_identity
             if modeling_excluded is None
             else modeling_excluded
+        )
+        project_id = resolve_project_id_or_default(
+            self, project_id, logger=logging.getLogger(__name__)
         )
         with self._connect() as conn:
             try:
@@ -459,6 +508,12 @@ class PgDB(ChatDB):
                     row = cur.fetchone()
             if not row:
                 raise RuntimeError("Failed to create chat thread")
+            thread_id = int(row["id"]) if row.get("id") is not None else None
+            if thread_id is None:
+                raise RuntimeError("Failed to create chat thread")
+            refreshed = self.get_chat_thread(thread_id)
+            if refreshed is not None:
+                return refreshed
             return self._normalize_thread(dict(row))
 
     def ensure_chat_thread(
@@ -482,6 +537,10 @@ class PgDB(ChatDB):
             exclude_from_identity
             if modeling_excluded is None
             else modeling_excluded
+        )
+        raw_project_id = project_id
+        resolved_project_id = resolve_project_id_or_default(
+            self, raw_project_id, logger=logging.getLogger(__name__)
         )
         existing = self.get_chat_thread(thread_id)
         if existing:
@@ -508,7 +567,7 @@ class PgDB(ChatDB):
                             user_id,
                             title,
                             summary,
-                            project_id,
+                            resolved_project_id,
                             parent_id,
                             diary_flag,
                             diary_flag,
@@ -538,7 +597,7 @@ class PgDB(ChatDB):
                             user_id,
                             title,
                             summary,
-                            project_id,
+                            resolved_project_id,
                             diary_flag,
                             modeling_flag,
                         ),
@@ -547,6 +606,9 @@ class PgDB(ChatDB):
         if existing := self.get_chat_thread(thread_id):
             return existing
         if row:
+            refreshed = self.get_chat_thread(thread_id)
+            if refreshed is not None:
+                return refreshed
             return self._normalize_thread(dict(row))
         raise RuntimeError("Failed to ensure chat thread")
 
@@ -559,12 +621,17 @@ class PgDB(ChatDB):
                     cur.execute(
                         """
                         SELECT
-                            id, user_id, title, summary, project_id, parent_id, archived_at,
-                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, thread_config, created_at, updated_at
-                        FROM chat_threads
-                        WHERE user_id = %s
-                        ORDER BY created_at DESC
+                            ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
+                            p.name AS project_name, ct.last_interaction_at, ct.parent_id,
+                            ct.archived_at, ct.is_diary, ct.diary_mode,
+                            ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
+                            ct.active_profile_id, ct.thread_config, ct.created_at,
+                            ct.updated_at
+                        FROM chat_threads ct
+                        LEFT JOIN projects p ON p.id = ct.project_id
+                        WHERE ct.user_id = %s
+                        ORDER BY COALESCE(ct.last_interaction_at, ct.updated_at, ct.created_at) DESC,
+                                 ct.id DESC
                         LIMIT 1
                         """,
                         (user_id,),
@@ -575,10 +642,15 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, created_at, updated_at
-                        FROM chat_threads
-                        WHERE user_id = %s
-                        ORDER BY created_at DESC
+                        SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
+                               p.name AS project_name, ct.parent_id, ct.archived_at,
+                               ct.is_diary, ct.diary_mode, ct.exclude_from_identity,
+                               ct.modeling_excluded, ct.metadata, ct.active_profile_id,
+                               ct.thread_config, ct.created_at, ct.updated_at
+                        FROM chat_threads ct
+                        LEFT JOIN projects p ON p.id = ct.project_id
+                        WHERE ct.user_id = %s
+                        ORDER BY ct.updated_at DESC, ct.created_at DESC, ct.id DESC
                         LIMIT 1
                         """,
                         (user_id,),
@@ -608,11 +680,15 @@ class PgDB(ChatDB):
                     cur.execute(
                         """
                         SELECT
-                            id, user_id, title, summary, project_id, parent_id, archived_at,
-                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, thread_config, created_at, updated_at
-                        FROM chat_threads
-                        WHERE id = %s
+                            ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
+                            p.name AS project_name, ct.last_interaction_at, ct.parent_id,
+                            ct.archived_at, ct.is_diary, ct.diary_mode,
+                            ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
+                            ct.active_profile_id, ct.thread_config, ct.created_at,
+                            ct.updated_at
+                        FROM chat_threads ct
+                        LEFT JOIN projects p ON p.id = ct.project_id
+                        WHERE ct.id = %s
                         """,
                         (thread_id,),
                     )
@@ -622,9 +698,14 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, created_at, updated_at
-                        FROM chat_threads
-                        WHERE id = %s
+                        SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
+                               p.name AS project_name, ct.parent_id, ct.archived_at,
+                               ct.is_diary, ct.diary_mode, ct.exclude_from_identity,
+                               ct.modeling_excluded, ct.metadata, ct.active_profile_id,
+                               ct.thread_config, ct.created_at, ct.updated_at
+                        FROM chat_threads ct
+                        LEFT JOIN projects p ON p.id = ct.project_id
+                        WHERE ct.id = %s
                         """,
                         (thread_id,),
                     )
@@ -651,14 +732,23 @@ class PgDB(ChatDB):
 
         query = (
             "SELECT "
-            "id, user_id, title, summary, project_id, parent_id, archived_at, "
-            "is_diary, diary_mode, exclude_from_identity, modeling_excluded, "
-            "metadata, active_profile_id, thread_config, created_at, updated_at "
-            "FROM chat_threads"
+            "ct.id, ct.user_id, ct.title, ct.summary, ct.project_id, "
+            "p.name AS project_name, ct.last_interaction_at, ct.parent_id, ct.archived_at, "
+            "ct.is_diary, ct.diary_mode, ct.exclude_from_identity, ct.modeling_excluded, "
+            "ct.metadata, ct.active_profile_id, ct.thread_config, ct.created_at, ct.updated_at "
+            "FROM chat_threads ct LEFT JOIN projects p ON p.id = ct.project_id"
         )
         if clauses:
-            query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY updated_at DESC, id DESC LIMIT %s OFFSET %s"
+            query += " WHERE " + " AND ".join(
+                clause.replace("project_id", "ct.project_id").replace(
+                    "user_id", "ct.user_id"
+                )
+                for clause in clauses
+            )
+        query += (
+            " ORDER BY COALESCE(ct.last_interaction_at, ct.updated_at, ct.created_at) DESC, "
+            "ct.id DESC LIMIT %s OFFSET %s"
+        )
         params.extend([limit, offset])
 
         with self._connect() as conn:
@@ -669,12 +759,20 @@ class PgDB(ChatDB):
             except pg_errors.UndefinedColumn:
                 conn.rollback()
                 query = (
-                    "SELECT id, user_id, title, summary, project_id, created_at, updated_at "
-                    "FROM chat_threads"
+                    "SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id, "
+                    "p.name AS project_name, ct.parent_id, ct.archived_at, ct.is_diary, "
+                    "ct.diary_mode, ct.exclude_from_identity, ct.modeling_excluded, ct.metadata, "
+                    "ct.active_profile_id, ct.thread_config, ct.created_at, ct.updated_at "
+                    "FROM chat_threads ct LEFT JOIN projects p ON p.id = ct.project_id"
                 )
                 if clauses:
-                    query += " WHERE " + " AND ".join(clauses)
-                query += " ORDER BY updated_at DESC, id DESC LIMIT %s OFFSET %s"
+                    query += " WHERE " + " AND ".join(
+                        clause.replace("project_id", "ct.project_id").replace(
+                            "user_id", "ct.user_id"
+                        )
+                        for clause in clauses
+                    )
+                query += " ORDER BY ct.updated_at DESC, ct.id DESC LIMIT %s OFFSET %s"
                 with conn.cursor() as cur:
                     cur.execute(query, params)
                     rows = cur.fetchall()
@@ -715,6 +813,9 @@ class PgDB(ChatDB):
             fields.append("summary = %s")
             params.append(summary)
         if project_id_set:
+            project_id = resolve_project_id_or_default(
+                self, project_id, logger=logging.getLogger(__name__)
+            )
             fields.append("project_id = %s")
             params.append(project_id)
         if active_profile_id_set:
@@ -801,7 +902,7 @@ class PgDB(ChatDB):
                         SET archived_at = %s, updated_at = %s
                         WHERE id = %s
                         RETURNING
-                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            id, user_id, title, summary, project_id, last_interaction_at, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
                             metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
@@ -816,14 +917,17 @@ class PgDB(ChatDB):
                         UPDATE chat_threads
                         SET archived_at = %s, updated_at = %s
                         WHERE id = %s
-                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        RETURNING id, user_id, title, summary, project_id, last_interaction_at, created_at, updated_at
                         """,
                         (now, now, thread_id),
                     )
                     row = cur.fetchone()
         if not row:
             return None
-        return self._normalize_thread(dict(row))
+        thread = self.get_chat_thread(thread_id)
+        return (
+            thread if thread is not None else self._normalize_thread(dict(row))
+        )
 
     def unarchive_thread(self, thread_id: int) -> dict[str, Any] | None:
         """Clear `archived_at` and update `updated_at` for a chat thread.
@@ -840,7 +944,7 @@ class PgDB(ChatDB):
                         SET archived_at = NULL, updated_at = %s
                         WHERE id = %s
                         RETURNING
-                            id, user_id, title, summary, project_id, parent_id, archived_at,
+                            id, user_id, title, summary, project_id, last_interaction_at, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
                             metadata, active_profile_id, thread_config, created_at, updated_at
                         """,
@@ -855,14 +959,17 @@ class PgDB(ChatDB):
                         UPDATE chat_threads
                         SET archived_at = NULL, updated_at = %s
                         WHERE id = %s
-                        RETURNING id, user_id, title, summary, project_id, created_at, updated_at
+                        RETURNING id, user_id, title, summary, project_id, last_interaction_at, created_at, updated_at
                         """,
                         (now, thread_id),
                     )
                     row = cur.fetchone()
         if not row:
             return None
-        return self._normalize_thread(dict(row))
+        thread = self.get_chat_thread(thread_id)
+        return (
+            thread if thread is not None else self._normalize_thread(dict(row))
+        )
 
     def delete_thread(self, thread_id: int, force: bool = False) -> bool:
         """Irrevocably delete a chat thread, ignoring archived state.
@@ -891,6 +998,9 @@ class PgDB(ChatDB):
         project_id: str | None = None,
     ) -> int:
         created_at = datetime.now(timezone.utc)
+        project_id = resolve_project_id_or_default(
+            self, project_id, logger=logging.getLogger(__name__)
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -951,16 +1061,19 @@ class PgDB(ChatDB):
                 return [dict(row) for row in rows]
 
     def eject_threads_from_project(self, project_id: int):
-        """Liberate threads from their project consciousness—orphaning them before project deletion.
+        """Move threads out of a project before deleting it.
 
-        Sets project_id=NULL for all threads associated with a project, releasing them from
-        that organizational consciousness before the project itself dissolves. Called during
-        project termination rituals."""
+        Threads are reassigned to the canonical default project ("General") so
+        no content is left without a project boundary.
+        """
+        default_project_id = self.ensure_default_project()
+        if int(project_id) == int(default_project_id):
+            return
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE chat_threads SET project_id = NULL WHERE project_id = %s",
-                    (project_id,),
+                    "UPDATE chat_threads SET project_id = %s WHERE project_id = %s",
+                    (default_project_id, project_id),
                 )
 
     def create_project(self, name: str, description: str = "") -> int:
@@ -980,6 +1093,14 @@ class PgDB(ChatDB):
                 if not row:
                     raise RuntimeError("Failed to create project")
                 return int(row["id"])
+
+    def ensure_default_project(self) -> int:
+        project_id = canonicalize_default_project(
+            self, logger=logging.getLogger(__name__)
+        )
+        if project_id is None:
+            raise RuntimeError("Unable to resolve default project")
+        return project_id
 
     def ensure_project(self, name: str, description: str = "") -> int:
         with self._connect() as conn:
@@ -1064,11 +1185,15 @@ class PgDB(ChatDB):
                     cur.execute(
                         """
                         SELECT
-                            id, user_id, title, summary, project_id, parent_id, archived_at,
-                            is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, thread_config, created_at, updated_at
-                        FROM chat_threads
-                        WHERE parent_id = %s
+                            ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
+                            p.name AS project_name, ct.last_interaction_at, ct.parent_id,
+                            ct.archived_at, ct.is_diary, ct.diary_mode,
+                            ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
+                            ct.active_profile_id, ct.thread_config, ct.created_at,
+                            ct.updated_at
+                        FROM chat_threads ct
+                        LEFT JOIN projects p ON p.id = ct.project_id
+                        WHERE ct.parent_id = %s
                         """,
                         (parent_id,),
                     )
@@ -1078,9 +1203,14 @@ class PgDB(ChatDB):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, title, summary, project_id, created_at, updated_at
-                        FROM chat_threads
-                        WHERE parent_id = %s
+                        SELECT ct.id, ct.user_id, ct.title, ct.summary, ct.project_id,
+                               p.name AS project_name, ct.parent_id, ct.archived_at,
+                               ct.is_diary, ct.diary_mode, ct.exclude_from_identity,
+                               ct.modeling_excluded, ct.metadata, ct.active_profile_id,
+                               ct.thread_config, ct.created_at, ct.updated_at
+                        FROM chat_threads ct
+                        LEFT JOIN projects p ON p.id = ct.project_id
+                        WHERE ct.parent_id = %s
                         """,
                         (parent_id,),
                     )
@@ -1132,13 +1262,60 @@ class PgDB(ChatDB):
                     )
                 row = cur.fetchone()
                 message_id = int(row["id"]) if row else None
-                cur.execute(
-                    "UPDATE chat_threads SET updated_at = %s WHERE id = %s",
-                    (now, thread_id),
-                )
+                if self._chat_threads_supports_last_interaction_at():
+                    cur.execute(
+                        """
+                        UPDATE chat_threads
+                        SET updated_at = %s, last_interaction_at = %s
+                        WHERE id = %s
+                        """,
+                        (now, now, thread_id),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE chat_threads SET updated_at = %s WHERE id = %s",
+                        (now, thread_id),
+                    )
         if message_id is None:
             raise RuntimeError("Failed to insert chat message")
         return message_id
+
+    def record_thread_move(
+        self,
+        thread_id: int,
+        *,
+        from_project_id: int | None,
+        to_project_id: int,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Insert an explicit thread move audit row."""
+        timestamp = datetime.now(timezone.utc)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO thread_moves (
+                        thread_id, from_project_id, to_project_id, user_id, timestamp
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id, thread_id, from_project_id, to_project_id, user_id, timestamp
+                    """,
+                    (
+                        thread_id,
+                        from_project_id,
+                        to_project_id,
+                        user_id,
+                        timestamp,
+                    ),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise RuntimeError("Failed to insert thread move audit row")
+        result = dict(row)
+        ts = result.get("timestamp")
+        if isinstance(ts, datetime):
+            result["timestamp"] = ts.isoformat()
+        return result
 
     def list_messages(
         self,
@@ -1487,6 +1664,267 @@ class PgDB(ChatDB):
                 cur.execute(query, params)
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
+
+    # ---- personal facts --------------------------------------------------
+    def _fact_to_dict(self, fact: PersonalFact) -> dict[str, Any]:
+        return {
+            "id": fact.id,
+            "user_id": fact.user_id,
+            "key": fact.key,
+            "value": fact.value,
+            "status": fact.status,
+            "confidence": fact.confidence,
+            "is_active": fact.is_active,
+            "last_confirmed_at": (
+                fact.last_confirmed_at.isoformat()
+                if fact.last_confirmed_at
+                else None
+            ),
+            "created_at": (
+                fact.created_at.isoformat() if fact.created_at else None
+            ),
+            "updated_at": (
+                fact.updated_at.isoformat() if fact.updated_at else None
+            ),
+        }
+
+    def _evidence_to_dict(
+        self, evidence: PersonalFactEvidence
+    ) -> dict[str, Any]:
+        return {
+            "id": evidence.id,
+            "fact_id": evidence.fact_id,
+            "source_message_id": evidence.source_message_id,
+            "excerpt": evidence.excerpt,
+            "modality": evidence.modality,
+            "confidence": evidence.confidence,
+            "source_type": evidence.source_type,
+            "evidence_meta": evidence.evidence_meta,
+            "created_at": (
+                evidence.created_at.isoformat() if evidence.created_at else None
+            ),
+        }
+
+    def _revision_to_dict(
+        self, revision: PersonalFactRevision
+    ) -> dict[str, Any]:
+        return {
+            "id": revision.id,
+            "fact_id": revision.fact_id,
+            "actor": revision.actor,
+            "action": revision.action,
+            "field_changed": revision.field_changed,
+            "old_value": revision.old_value,
+            "new_value": revision.new_value,
+            "reason": revision.reason,
+            "created_at": (
+                revision.created_at.isoformat() if revision.created_at else None
+            ),
+        }
+
+    def list_facts(
+        self,
+        user_id: str,
+        status: str | None = None,
+        active_only: bool = True,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with self._sa_session() as session:
+            query = session.query(PersonalFact).filter_by(user_id=user_id)
+            if status:
+                query = query.filter_by(status=status)
+            if active_only:
+                query = query.filter_by(is_active=True)
+            facts = (
+                query.order_by(PersonalFact.updated_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [self._fact_to_dict(fact) for fact in facts]
+
+    def create_fact(
+        self,
+        user_id: str,
+        key: str,
+        value: str,
+        status: str = "candidate",
+        confidence: float = 0.5,
+    ) -> int:
+        with self._sa_session() as session:
+            fact = PersonalFact(
+                user_id=user_id,
+                key=key,
+                value=value,
+                status=status,
+                confidence=confidence,
+                is_active=True,
+            )
+            session.add(fact)
+            session.flush()
+            return int(fact.id)
+
+    def get_fact(self, fact_id: int) -> dict[str, Any] | None:
+        with self._sa_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                return None
+            return self._fact_to_dict(fact)
+
+    def _add_fact_revision(
+        self,
+        session: Session,
+        *,
+        fact_id: int,
+        actor: str,
+        action: str,
+        field_changed: str | None = None,
+        old_value: str | None = None,
+        new_value: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        revision = PersonalFactRevision(
+            fact_id=fact_id,
+            actor=actor,
+            action=action,
+            field_changed=field_changed,
+            old_value=old_value,
+            new_value=new_value,
+            reason=reason,
+        )
+        session.add(revision)
+
+    def update_fact(
+        self,
+        fact_id: int,
+        *,
+        value: str | None = None,
+        status: str | None = None,
+        confidence: float | None = None,
+        actor: str = "system",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        with self._sa_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                raise ValueError(f"Fact {fact_id} not found")
+
+            if value is not None and value != fact.value:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="value_updated",
+                    field_changed="value",
+                    old_value=fact.value,
+                    new_value=value,
+                    reason=reason,
+                )
+                fact.value = value
+
+            if status is not None and status != fact.status:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="status_updated",
+                    field_changed="status",
+                    old_value=fact.status,
+                    new_value=status,
+                    reason=reason,
+                )
+                fact.status = status
+                if status == "verified":
+                    fact.last_confirmed_at = datetime.now(timezone.utc)
+
+            if confidence is not None and confidence != fact.confidence:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="confidence_updated",
+                    field_changed="confidence",
+                    old_value=str(fact.confidence),
+                    new_value=str(confidence),
+                    reason=reason,
+                )
+                fact.confidence = confidence
+
+            fact.updated_at = datetime.now(timezone.utc)
+            session.add(fact)
+            return self._fact_to_dict(fact)
+
+    def confirm_fact(
+        self,
+        fact_id: int,
+        *,
+        actor: str = "system",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.update_fact(
+            fact_id,
+            status="verified",
+            actor=actor,
+            reason=reason,
+        )
+
+    def dispute_fact(
+        self,
+        fact_id: int,
+        *,
+        actor: str = "system",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.update_fact(
+            fact_id,
+            status="disputed",
+            actor=actor,
+            reason=reason,
+        )
+
+    def list_fact_evidence(self, fact_id: int) -> list[dict[str, Any]]:
+        with self._sa_session() as session:
+            evidence = (
+                session.query(PersonalFactEvidence)
+                .filter_by(fact_id=fact_id)
+                .order_by(PersonalFactEvidence.created_at.asc())
+                .all()
+            )
+            return [self._evidence_to_dict(row) for row in evidence]
+
+    def add_fact_evidence(
+        self,
+        fact_id: int,
+        source_message_id: int | None,
+        excerpt: str | None,
+        *,
+        modality: str = "text",
+        confidence: float = 0.5,
+        source_type: str = "runtime_extraction",
+        evidence_meta: dict[str, Any] | None = None,
+    ) -> int:
+        with self._sa_session() as session:
+            evidence = PersonalFactEvidence(
+                fact_id=fact_id,
+                source_message_id=source_message_id,
+                excerpt=excerpt,
+                modality=modality,
+                confidence=confidence,
+                source_type=source_type,
+                evidence_meta=evidence_meta or {},
+            )
+            session.add(evidence)
+            session.flush()
+            return int(evidence.id)
+
+    def get_fact_revisions(self, fact_id: int) -> list[dict[str, Any]]:
+        with self._sa_session() as session:
+            revisions = (
+                session.query(PersonalFactRevision)
+                .filter_by(fact_id=fact_id)
+                .order_by(PersonalFactRevision.created_at.desc())
+                .all()
+            )
+            return [self._revision_to_dict(row) for row in revisions]
 
     # ---- connector sync jobs ---------------------------------------------
     def ensure_sync_job_support(self) -> None:

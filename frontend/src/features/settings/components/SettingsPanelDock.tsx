@@ -18,7 +18,7 @@ export default function SettingsPanelDock({
       role="tablist"
       aria-label="Settings sections"
       aria-orientation="horizontal"
-      className={cn("sticky z-20 w-full", className)}
+      className={cn("sticky z-20 w-full shrink-0", className)}
       style={{
         position: "sticky",
         top: "calc(var(--card-pad) + var(--board-edge))",

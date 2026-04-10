@@ -191,6 +191,18 @@ class ChatDB(ABC):
         ...
 
     @abstractmethod
+    def record_thread_move(
+        self,
+        thread_id: int,
+        *,
+        from_project_id: int | None,
+        to_project_id: int,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Record an explicit thread move audit entry."""
+        ...
+
+    @abstractmethod
     def count_chat_threads(self) -> int:
         """Count the total number of chat threads.
 

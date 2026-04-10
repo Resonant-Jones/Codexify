@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { useShellViewportClass } from "@/components/persona/layout/shellBreakpointContract";
+
 export const WORKSPACE_UI_STORAGE_KEY = "cfy.workspace.ui";
 
 export type WorkspaceDrawerTab = "shelf" | "scratchpad" | "inspector";
@@ -58,6 +60,8 @@ function readPersistedWorkspaceUiState(): PersistedWorkspaceUiState {
 export function useWorkspaceUiState({
   routeContext,
 }: UseWorkspaceUiStateOptions) {
+  const shellViewportClass = useShellViewportClass();
+  const isPhoneShell = shellViewportClass === "phone";
   const [initialPersistedState] = useState<PersistedWorkspaceUiState>(() =>
     readPersistedWorkspaceUiState()
   );
@@ -65,7 +69,7 @@ export function useWorkspaceUiState({
     isWorkspaceDrawerTab(initialPersistedState.activeTab)
   );
   const [isOpen, setIsOpen] = useState<boolean>(
-    () => initialPersistedState.isOpen === true
+    () => initialPersistedState.isOpen === true && !isPhoneShell
   );
   const [activeTab, setActiveTabState] = useState<WorkspaceDrawerTab>(() =>
     isWorkspaceDrawerTab(initialPersistedState.activeTab)
@@ -87,6 +91,11 @@ export function useWorkspaceUiState({
     setActiveTabState(nextDefaultTab);
     setLastNonCollapsedTab(nextDefaultTab);
   }, [hasExplicitTab, routeContext]);
+
+  useEffect(() => {
+    if (!isPhoneShell) return;
+    setIsOpen(false);
+  }, [isPhoneShell]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

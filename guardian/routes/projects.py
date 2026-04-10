@@ -35,7 +35,7 @@ except ImportError:
 # Helper: ensure default project exists at startup
 def ensure_loose_threads_project():
     """
-    Ensure the default 'General' project exists for unassigned threads.
+    Ensure the default 'General' project exists for threads without a specified project.
     This function should be called during application startup, not at import time.
 
     Returns:

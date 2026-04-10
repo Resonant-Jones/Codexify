@@ -160,15 +160,16 @@ def _build_export_message_payload(message: dict[str, Any]) -> dict[str, Any]:
 
 def _build_project_folder(thread: dict[str, Any]) -> str:
     project_id = thread.get("project_id")
-    if project_id is None:
-        return "unassigned"
-
     project_name = str(thread.get("project_name") or "").strip()
+    if not project_name:
+        project_name = "General"
     if project_name.lower() == "imports":
-        return f"projects/imports__{project_id}"
+        suffix = project_id if project_id is not None else "general"
+        return f"projects/imports__{suffix}"
 
-    slug = _safe_slug(project_name or f"project-{project_id}")
-    return f"projects/{slug}__{project_id}"
+    slug = _safe_slug(project_name or "General")
+    suffix = project_id if project_id is not None else "general"
+    return f"projects/{slug}__{suffix}"
 
 
 def _build_thread_json_payload(

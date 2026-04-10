@@ -21,6 +21,23 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _drain_chat_import_queue():
+    from guardian.queue import redis_queue
+
+    redis_queue._CLIENT = redis_queue._InMemoryRedis()
+    redis_queue._QUEUE_CLIENT = redis_queue._InMemoryRedis()
+    from guardian.queue.redis_queue import dequeue_chat_import_embed
+
+    while dequeue_chat_import_embed(block=False):
+        pass
+    yield
+    redis_queue._CLIENT = redis_queue._InMemoryRedis()
+    redis_queue._QUEUE_CLIENT = redis_queue._InMemoryRedis()
+    while dequeue_chat_import_embed(block=False):
+        pass
+
+
 def pytest_collection_modifyitems(config, items):
     config.addinivalue_line(
         "markers", "skip(reason): mark test to be skipped with a reason"

@@ -2,6 +2,13 @@
 
 This document answers the planning question: "How should Guardian evolve into a safe semi-autonomous delegation interface for external coding agents, using the current Codexify runtime seams, without pretending that unfinished pieces already exist?"
 
+For current delegation runtime and operator procedure, use:
+
+- [delegation-runtime.md](./delegation-runtime.md)
+- [delegation-operator-manual.md](./delegation-operator-manual.md)
+
+Keep this file as planning provenance and design history.
+
 Evidence labels used here:
 - `Verified`: supported by the requested docs inspected for this task.
 - `Verified (code anchor)`: supported only by inspected code outside the requested docs; exact repo paths are cited inline.

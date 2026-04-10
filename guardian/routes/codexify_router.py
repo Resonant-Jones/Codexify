@@ -7,7 +7,11 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.core.dependencies import (
+    get_current_user,
+    get_vector_store,
+    require_api_key,
+)
 
 # Use the unified VectorStore
 from guardian.vector.store import VectorStore
@@ -70,7 +74,7 @@ def _get_vector_store() -> VectorStore:
 
     with _vector_store_lock:
         if vector_store is None:
-            vector_store = VectorStore()
+            vector_store = get_vector_store()
             logger.info("[codexify] vector store initialized on first use")
 
     return vector_store

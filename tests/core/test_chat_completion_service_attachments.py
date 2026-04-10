@@ -125,7 +125,11 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
 
     assert provider == "local"
     assert model == "local-model"
-    assert trace is None
+    assert trace is not None
+    assert trace["retrieval_target"] == "latest_turn"
+    assert trace["retrieval_query"] == (
+        "Attached document: Project Plan.pdf\n\nPlease summarize this."
+    )
     assert bundle["docs"]["thread"][0]["title"] == "Project Plan.pdf"
     assert captured["query"] == (
         "Attached document: Project Plan.pdf\n\nPlease summarize this."
@@ -133,11 +137,24 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
     assert bundle["_prompt_meta"]["docs"]["count"] == 1
     assert bundle["_prompt_meta"]["docs"]["injected"] is True
     assert messages_for_llm[0] == {"role": "system", "content": "BASE SYSTEM"}
-    assert messages_for_llm[1]["role"] == "system"
-    assert messages_for_llm[1]["content"].startswith(
-        "Linked document excerpts are available"
+    system_messages = [
+        msg for msg in messages_for_llm if msg["role"] == "system"
+    ]
+    assert any(
+        msg["content"].startswith("Completion targeting guidance")
+        for msg in system_messages
     )
-    assert "Project Plan.pdf" in messages_for_llm[1]["content"]
+    assert any(
+        msg["content"].startswith(
+            (
+                "Linked document excerpts are available",
+                "Thread-linked document excerpts are available",
+                "Project-linked document excerpts are available",
+            )
+        )
+        for msg in system_messages
+    )
+    assert any("Project Plan.pdf" in msg["content"] for msg in system_messages)
     assert messages_for_llm[-1] == {
         "role": "user",
         "content": (

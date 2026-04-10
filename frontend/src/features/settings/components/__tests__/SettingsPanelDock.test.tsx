@@ -17,6 +17,7 @@ describe("SettingsPanelDock", () => {
     );
 
     const dock = screen.getByRole("tablist", { name: "Settings sections" });
+    expect(dock).toHaveClass("shrink-0");
     expect(dock).toHaveStyle({
       position: "sticky",
       top: "calc(var(--card-pad) + var(--board-edge))",

@@ -9,7 +9,9 @@ import pytest
 
 from backend.rag import chatgpt_migration
 from guardian.core import dependencies
+from guardian.queue.redis_queue import dequeue_chat_import_embed
 from guardian.routes import migration as migration_routes
+from guardian.workers import chat_embedding_worker
 
 SERVER_USER_ID = "local_user"
 
@@ -30,6 +32,16 @@ class StubVectorStore:
         self.batch_sizes.append(len(items))
         self.items.extend(items)
         return len(items)
+
+
+def _drain_chat_import_queue() -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    while True:
+        payload = dequeue_chat_import_embed(block=False)
+        if not payload:
+            break
+        payloads.append(payload)
+    return payloads
 
 
 def _build_mainline_export(
@@ -119,7 +131,6 @@ def test_retry_route_recovers_previous_missing_embeddings(
     test_client,
     monkeypatch,
 ):
-    vector_store = StubVectorStore()
     retry_items = [
         {
             "message_id": 301,
@@ -133,36 +144,17 @@ def test_retry_route_recovers_previous_missing_embeddings(
         },
     ]
 
-    captured = {}
     dummy_db = object()
 
+    _drain_chat_import_queue()
     monkeypatch.setattr(dependencies, "chatlog_db", dummy_db)
     monkeypatch.setattr(dependencies, "init_database", lambda: dummy_db)
-    monkeypatch.setattr(dependencies, "_vector_store", vector_store)
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
     monkeypatch.setattr(
         chatgpt_migration,
         "_fetch_retryable_chatgpt_embedding_items",
         lambda _db, *, user_id, limit=5000: retry_items
         if user_id == SERVER_USER_ID
         else [],
-    )
-
-    def _capture_outcome(
-        _db,
-        *,
-        message_ids,
-        persisted_count,
-        failure_reason=None,
-    ):
-        captured["message_ids"] = list(message_ids)
-        captured["persisted_count"] = persisted_count
-        captured["failure_reason"] = failure_reason
-
-    monkeypatch.setattr(
-        chatgpt_migration,
-        "_persist_chatgpt_embedding_attempt_outcome",
-        _capture_outcome,
     )
 
     response = _post_retry(test_client, "/api/retry-chatgpt-import-embeddings")
@@ -172,13 +164,18 @@ def test_retry_route_recovers_previous_missing_embeddings(
     assert data["embeddings_persisted"] == 2
     assert data["embeddings_failed"] == 0
     assert data["embedding_coverage_degraded"] is False
-    assert len(vector_store.items) == 2
-    assert captured["message_ids"] == [301, 302]
-    assert captured["persisted_count"] == 2
-    assert captured["failure_reason"] is None
+    queued_payloads = _drain_chat_import_queue()
+    assert len(queued_payloads) == 2
+    assert [payload["message_id"] for payload in queued_payloads] == [
+        301,
+        302,
+    ]
+    assert all(
+        payload["type"] == "chat_import_embed" for payload in queued_payloads
+    )
 
 
-def test_retry_route_reports_degraded_success_on_subprocess_failure(
+def test_retry_route_reports_degraded_success_on_queue_failure(
     test_client,
     monkeypatch,
 ):
@@ -194,59 +191,22 @@ def test_retry_route_reports_degraded_success_on_subprocess_failure(
             "meta": {"message_id": 402, "thread_id": 31},
         },
     ]
-    captured = {}
     dummy_db = object()
 
-    class _FakeProcess:
-        def __init__(self, *_args, **_kwargs) -> None:
-            self.exitcode = 139
-            self._alive = False
-
-        def start(self) -> None:
-            return None
-
-        def join(self, timeout: float | None = None) -> None:
-            _ = timeout
-
-        def is_alive(self) -> bool:
-            return self._alive
-
-        def terminate(self) -> None:
-            self._alive = False
-
-    class _FakeContext:
-        def Process(self, *args, **kwargs):  # noqa: N802
-            _ = args, kwargs
-            return _FakeProcess()
-
+    _drain_chat_import_queue()
     monkeypatch.setattr(dependencies, "chatlog_db", dummy_db)
     monkeypatch.setattr(dependencies, "init_database", lambda: dummy_db)
-    monkeypatch.setattr(dependencies, "_vector_store", object())
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", True)
-    monkeypatch.setattr(
-        chatgpt_migration.mp, "get_context", lambda *_: _FakeContext()
-    )
     monkeypatch.setattr(
         chatgpt_migration,
         "_fetch_retryable_chatgpt_embedding_items",
         lambda *_args, **_kwargs: retry_items,
     )
-
-    def _capture_outcome(
-        _db,
-        *,
-        message_ids,
-        persisted_count,
-        failure_reason=None,
-    ):
-        captured["message_ids"] = list(message_ids)
-        captured["persisted_count"] = persisted_count
-        captured["failure_reason"] = failure_reason
-
     monkeypatch.setattr(
         chatgpt_migration,
-        "_persist_chatgpt_embedding_attempt_outcome",
-        _capture_outcome,
+        "enqueue_chat_import_embed",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("queue unavailable")
+        ),
     )
 
     response = _post_retry(test_client, "/api/retry-chatgpt-import-embeddings")
@@ -256,9 +216,7 @@ def test_retry_route_reports_degraded_success_on_subprocess_failure(
     assert data["embeddings_persisted"] == 0
     assert data["embeddings_failed"] == 2
     assert data["embedding_coverage_degraded"] is True
-    assert captured["message_ids"] == [401, 402]
-    assert captured["persisted_count"] == 0
-    assert captured["failure_reason"] == "embedding_retry_degraded"
+    assert _drain_chat_import_queue() == []
 
 
 def test_retry_route_returns_noop_when_nothing_retryable(
@@ -275,11 +233,11 @@ def test_retry_route_returns_noop_when_nothing_retryable(
     )
 
     def _unexpected_embed(*_args, **_kwargs):
-        raise AssertionError("embed path should not run for no-op retry")
+        raise AssertionError("queue handoff should not run for no-op retry")
 
     monkeypatch.setattr(
         chatgpt_migration,
-        "_embed_items_best_effort",
+        "_queue_chatgpt_embedding_batch",
         _unexpected_embed,
     )
 
@@ -322,7 +280,7 @@ def test_migration_accepts_valid_content_even_with_non_json_filename(
     assert mock_ingest.call_args.kwargs["user_id"] == SERVER_USER_ID
 
 
-def test_migration_route_executes_real_ingest_and_embeds(
+def test_migration_route_executes_real_ingest_and_catches_up_embeddings(
     test_client,
     mock_db,
     monkeypatch,
@@ -343,10 +301,9 @@ def test_migration_route_executes_real_ingest_and_embeds(
     mock_db.create_message.side_effect = fake_create_message
     mock_db.ensure_project.return_value = 1
 
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
-    monkeypatch.setattr(dependencies, "_vector_store", vector_store)
     monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
     monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    _drain_chat_import_queue()
 
     monkeypatch.setattr(
         chatgpt_migration,
@@ -386,6 +343,18 @@ def test_migration_route_executes_real_ingest_and_embeds(
     assert data["embeddings_persisted"] == 2
     assert data["embeddings_failed"] == 0
     assert data["embedding_coverage_degraded"] is False
+    queued_payloads = _drain_chat_import_queue()
+    assert len(queued_payloads) == 2
+    for payload in queued_payloads:
+        payload = dict(payload)
+        payload.pop("message_id", None)
+        assert (
+            chat_embedding_worker.process_chat_embed_task(
+                payload,
+                vector_store=vector_store,
+            )
+            is True
+        )
     assert len(vector_store.items) == 2
     assert "ORBIT-ROUTE-314" in str(vector_store.items[0].get("text", ""))
     assert mock_db.ensure_project.call_count == 1
@@ -431,11 +400,10 @@ def test_migration_route_batches_embedding_follow_up(
     mock_db.create_message.side_effect = fake_create_message
     mock_db.ensure_project.return_value = 1
 
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", False)
     monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_BATCH_SIZE", 2)
-    monkeypatch.setattr(dependencies, "_vector_store", vector_store)
     monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
     monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
+    _drain_chat_import_queue()
 
     monkeypatch.setattr(
         chatgpt_migration,
@@ -483,7 +451,18 @@ def test_migration_route_batches_embedding_follow_up(
     assert data["embeddings_persisted"] == 5
     assert data["embeddings_failed"] == 0
     assert data["embedding_coverage_degraded"] is False
-    assert vector_store.batch_sizes == [2, 2, 1]
+    queued_payloads = _drain_chat_import_queue()
+    assert len(queued_payloads) == 5
+    for payload in queued_payloads:
+        payload = dict(payload)
+        payload.pop("message_id", None)
+        assert (
+            chat_embedding_worker.process_chat_embed_task(
+                payload,
+                vector_store=vector_store,
+            )
+            is True
+        )
     assert len(vector_store.items) == 5
     assert mock_db.create_message.call_count == 5
 
@@ -530,7 +509,7 @@ def test_embed_items_best_effort_handles_subprocess_segfault(monkeypatch):
     vector_store.add_texts.assert_not_called()
 
 
-def test_migration_route_reports_embedding_degradation_on_exit_139(
+def test_migration_route_reports_embedding_degradation_on_queue_failure(
     test_client,
     mock_db,
     monkeypatch,
@@ -572,11 +551,14 @@ def test_migration_route_reports_embedding_degradation_on_exit_139(
     mock_db.create_message.side_effect = fake_create_message
     mock_db.ensure_project.return_value = 1
 
-    monkeypatch.setattr(chatgpt_migration, "_IMPORT_EMBED_ISOLATED", True)
+    _drain_chat_import_queue()
     monkeypatch.setattr(
-        chatgpt_migration.mp, "get_context", lambda *_: _FakeContext()
+        chatgpt_migration,
+        "enqueue_chat_import_embed",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("queue unavailable")
+        ),
     )
-    monkeypatch.setattr(dependencies, "_vector_store", object())
     monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
     monkeypatch.setattr(dependencies, "init_database", lambda: mock_db)
 
@@ -741,9 +723,11 @@ def test_migration_succeeds_without_vector_store(
     assert data["threads_imported"] == 1
     assert data["messages_imported"] == 2
     assert data["embedding_candidates"] == 2
-    assert data["embeddings_persisted"] == 0
-    assert data["embeddings_failed"] == 2
-    assert data["embedding_coverage_degraded"] is True
+    assert data["embeddings_persisted"] == 2
+    assert data["embeddings_failed"] == 0
+    assert data["embedding_coverage_degraded"] is False
+    queued_payloads = _drain_chat_import_queue()
+    assert len(queued_payloads) == 2
     # DB records were created
     assert mock_db.create_chat_thread.call_count == 1
     assert mock_db.create_message.call_count == 2

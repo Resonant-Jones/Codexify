@@ -7,7 +7,7 @@ No raw DDL creation in application code.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
@@ -29,7 +29,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from guardian.protocol_tokens import EmbeddingLifecycleStatus
+from guardian.protocol_tokens import (
+    DelegationJobStatus,
+    EmbeddingLifecycleStatus,
+)
 
 
 class Base(DeclarativeBase):
@@ -44,6 +47,11 @@ EMBEDDING_LIFECYCLE_VALUES_SQL = "','".join(
 UPLOADED_DOCUMENT_EMBEDDING_STATUS_CHECK = (
     f"embedding_status IN ('{EMBEDDING_LIFECYCLE_VALUES_SQL}')"
 )
+
+DELEGATION_STATUS_VALUES_SQL = "','".join(
+    status.value for status in DelegationJobStatus
+)
+DELEGATION_STATUS_CHECK = f"status IN ('{DELEGATION_STATUS_VALUES_SQL}')"
 
 
 # =========================
@@ -106,6 +114,9 @@ class ChatThread(Base):
     project_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("projects.id")
     )
+    last_interaction_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     active_profile_id: Mapped[str | None] = mapped_column(String(128))
     thread_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     parent_id: Mapped[int | None] = mapped_column(
@@ -137,6 +148,7 @@ class ChatThread(Base):
     )
 
     # Relationships
+    project: Mapped[Project | None] = relationship("Project")
     messages: Mapped[list[ChatMessage]] = relationship(
         "ChatMessage", back_populates="thread", cascade="all, delete-orphan"
     )
@@ -186,6 +198,188 @@ class ChatMessage(Base):
     # Relationship
     thread: Mapped[ChatThread] = relationship(
         "ChatThread", back_populates="messages"
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ThreadMove(Base):
+    """Explicit project move audit trail for chat threads."""
+
+    __tablename__ = "thread_moves"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_project_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="SET NULL")
+    )
+    to_project_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Delegations
+# =========================
+
+
+class DelegationPacket(Base):
+    """Draft packet captured before approval into a runnable job."""
+
+    __tablename__ = "delegation_packets"
+
+    packet_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    thread_id: Mapped[int | None] = mapped_column(Integer)
+    conversation_id: Mapped[str | None] = mapped_column(String(255))
+    project_id: Mapped[int | None] = mapped_column(Integer)
+    repo_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    executor: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="draft"
+    )
+    task_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    context_json: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            DELEGATION_STATUS_CHECK,
+            name="delegation_packets_status_check",
+        ),
+        Index("ix_delegation_packets_status", "status", unique=False),
+        Index(
+            "ix_delegation_packets_created_at",
+            "created_at",
+            unique=False,
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DelegationJob(Base):
+    """Durable queue row for an approved delegation."""
+
+    __tablename__ = "delegation_jobs"
+
+    delegation_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    packet_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("delegation_packets.packet_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True
+    )
+    thread_id: Mapped[int | None] = mapped_column(Integer)
+    conversation_id: Mapped[str | None] = mapped_column(String(255))
+    project_id: Mapped[int | None] = mapped_column(Integer)
+    repo_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    executor: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="approved"
+    )
+    task_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    queued_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            DELEGATION_STATUS_CHECK,
+            name="delegation_jobs_status_check",
+        ),
+        Index("ix_delegation_jobs_status", "status", unique=False),
+        Index("ix_delegation_jobs_created_at", "created_at", unique=False),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class DelegationSummary(Base):
+    """Terminal summary row for a completed delegation."""
+
+    __tablename__ = "delegation_summaries"
+
+    delegation_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("delegation_jobs.delegation_id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="completed"
+    )
+    summary_json: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            DELEGATION_STATUS_CHECK,
+            name="delegation_summaries_status_check",
+        ),
+        Index("ix_delegation_summaries_status", "status", unique=False),
+        Index(
+            "ix_delegation_summaries_created_at",
+            "created_at",
+            unique=False,
+        ),
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -1535,7 +1729,7 @@ class ImprintFoldState(Base):
 
 
 # =========================
-# Imprints, Personas, System Docs
+# Persona Profiles
 # =========================
 
 
@@ -1572,6 +1766,11 @@ class PersonaProfile(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Imprints, Personas, System Docs
+# =========================
 
 
 class Imprint(Base):
@@ -2148,8 +2347,13 @@ Index(
 )
 Index("ix_chat_threads_parent_id", ChatThread.parent_id)
 Index("ix_chat_threads_project_id", ChatThread.project_id)
+Index(
+    "ix_chat_threads_last_interaction_at", ChatThread.last_interaction_at.desc()
+)
 Index("ix_chat_threads_user_id", ChatThread.user_id)
 Index("ix_chat_threads_updated", ChatThread.updated_at.desc())
+Index("ix_thread_moves_thread_id", ThreadMove.thread_id)
+Index("ix_thread_moves_timestamp", ThreadMove.timestamp.desc())
 
 # Memory indexes
 Index("ix_memory_entries_silo", MemoryEntry.silo)

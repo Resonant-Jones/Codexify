@@ -1440,6 +1440,7 @@ def _run_chat_completion_task_compat(
             },
         )
     settings = get_settings()
+    turn_id = _extract_turn_id(task)
     attempted_provider = provider
     attempted_model = model
     selection_source = str(
@@ -1813,6 +1814,9 @@ def _run_chat_completion_task_compat(
                 "thread_id": task.thread_id,
                 "message_id": message_id,
                 "role": "assistant",
+                "content": assistant_text,
+                "task_id": task.task_id,
+                "turn_id": turn_id or None,
             },
         )
     except Exception:

@@ -11,6 +11,7 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message, type ThreadConfig } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import api from "@/lib/api";
+import { fetchChatThread, moveChatThread } from "@/lib/api";
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
@@ -48,6 +49,9 @@ import {
   requireAuthReady,
   useAuthState,
 } from "@/lib/authState";
+import type { DocumentContextTile } from "@/lib/documentContext";
+import { useShellViewportProfile } from "./shellBreakpointContract";
+import { getMobileShellProfile } from "./mobileShellProfile";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -98,6 +102,8 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && a.lastMessage === b.lastMessage
     && (a.unread ?? 0) === (b.unread ?? 0)
     && (a.projectId ?? null) === (b.projectId ?? null)
+    && (a.projectName ?? null) === (b.projectName ?? null)
+    && (a.lastInteractionAt ?? null) === (b.lastInteractionAt ?? null)
     && (a.parentId ?? null) === (b.parentId ?? null)
     && (a.archivedAt ?? null) === (b.archivedAt ?? null)
     && (a.activeProfileId ?? null) === (b.activeProfileId ?? null)
@@ -205,6 +211,8 @@ type GuardianChatWithSidebarProps = {
   userName: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
+  pendingDocumentTiles?: DocumentContextTile[];
+  onPendingDocumentTilesConsumed?: () => void;
   onWorkspaceToggle?: () => void;
   workspaceOpen?: boolean;
   activeWorkspaceDoc?: DocumentLike | null;
@@ -217,6 +225,8 @@ export default function GuardianChatWithSidebar({
   userName,
   prefill,
   onPrefillConsumed,
+  pendingDocumentTiles,
+  onPendingDocumentTilesConsumed,
   onWorkspaceToggle,
   workspaceOpen = false,
   activeWorkspaceDoc = null,
@@ -243,10 +253,13 @@ export default function GuardianChatWithSidebar({
       localStorage.setItem("cfy.sidebarVisible", String(isSidebarVisible));
     } catch { /* ignore */ }
   }, [isSidebarVisible]);
-  const [isDesktopLayout, setIsDesktopLayout] = React.useState(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
-    return window.matchMedia("(min-width: 1024px)").matches;
-  });
+  const shellViewportProfile = useShellViewportProfile();
+  const mobileShellProfile = useMemo(
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
+  );
+  const isPhoneShell = mobileShellProfile.active;
+  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
@@ -484,34 +497,13 @@ export default function GuardianChatWithSidebar({
     sessionSpine,
     threads,
   ]);
-  React.useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const handleChange = (event?: MediaQueryListEvent) => {
-      if (event && typeof event.matches === "boolean") {
-        setIsDesktopLayout(event.matches);
-        return;
-      }
-      setIsDesktopLayout(mq.matches);
-    };
-    handleChange();
-    if (typeof mq.addEventListener === "function") {
-      mq.addEventListener("change", handleChange);
-      return () => {
-        mq.removeEventListener("change", handleChange);
-      };
-    }
-    if (typeof mq.addListener === "function") {
-      mq.addListener(handleChange);
-      return () => {
-        mq.removeListener(handleChange);
-      };
-    }
-    return undefined;
-  }, []);
-
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
+  const guardianLayoutMode = mobileShellProfile.guardian.singleLane
+    ? "single_lane"
+    : isDesktopLayout
+      ? "split"
+      : "collapsed_drawer";
 
   // Portal target: mount inside the themed app shell so the overlay inherits
   // the same CSS variables and theme context as the rest of the UI.
@@ -582,6 +574,9 @@ export default function GuardianChatWithSidebar({
       const title = raw.title ?? raw.summary ?? "Untitled Chat";
       const last = raw.lastMessage ?? raw.last_message ?? "";
       const projectVal = raw.project_id ?? raw.projectId ?? null;
+      const projectNameVal = raw.project_name ?? raw.projectName ?? null;
+      const lastInteractionAtVal =
+        raw.last_interaction_at ?? raw.lastInteractionAt ?? null;
       const parentVal = raw.parent_id ?? raw.parentId ?? null;
       const archivedVal = raw.archived_at ?? raw.archivedAt ?? null;
       const activeProfileVal =
@@ -604,6 +599,9 @@ export default function GuardianChatWithSidebar({
         ],
         messages: [],
         projectId: projectVal != null ? String(projectVal) : null,
+        projectName: projectNameVal != null ? String(projectNameVal) : null,
+        lastInteractionAt:
+          lastInteractionAtVal != null ? String(lastInteractionAtVal) : null,
         parentId: parentVal != null ? String(parentVal) : null,
         archivedAt: archivedVal ? String(archivedVal) : null,
         activeProfileId:
@@ -1058,6 +1056,9 @@ export default function GuardianChatWithSidebar({
         { id: "bot", name: guardianName || "Guardian" },
       ],
       messages: [],
+      projectId: null,
+      projectName: null,
+      lastInteractionAt: null,
     };
   }, [threads, activeId, userName, guardianName]);
 
@@ -1065,11 +1066,19 @@ export default function GuardianChatWithSidebar({
     void handleNewChat();
   };
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (
+    text: string,
+    options?: { threadIdOverride?: number }
+  ) => {
     if (!activeId) return;
     const threadKey = activeId;
     const numericThreadId = Number(threadKey);
     const userMsgId = String(Math.random());
+    const contextProjectIdRaw =
+      selectedProjectId != null ? Number(selectedProjectId) : null;
+    const contextProjectId = Number.isFinite(contextProjectIdRaw)
+      ? contextProjectIdRaw
+      : null;
     const userMsg: Message = {
       id: userMsgId,
       authorId: "me",
@@ -1083,20 +1092,10 @@ export default function GuardianChatWithSidebar({
     setThreads((prev) =>
       prev.map((t) => {
         if (t.id !== threadKey) return t;
-        let newTitle = t.title;
-        if (
-          isDraftTitle(t.title) &&
-          (!t.messages || t.messages.length === 0)
-        ) {
-          const words = text.trim().split(/\s+/);
-          const head = words.slice(0, 6).join(" ");
-          newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : NEW_THREAD_TITLE;
-        }
         return {
           ...t,
           messages: [...t.messages, userMsg],
-          lastMessage: text,
-          title: newTitle,
+          lastInteractionAt: new Date().toISOString(),
         };
       })
     );
@@ -1104,23 +1103,12 @@ export default function GuardianChatWithSidebar({
     if (!Number.isFinite(numericThreadId)) return;
 
     try {
-      // Optionally update the thread title on the server if this is the first message
-      const thread = threads.find((t) => t.id === threadKey);
-      if (
-        thread &&
-        isDraftTitle(thread.title) &&
-        (!thread.messages || thread.messages.length === 0)
-      ) {
-        const words = text.trim().split(/\s+/);
-        const head = words.slice(0, 6).join(" ");
-        const newTitle = head.length > 0 ? head + (words.length > 6 ? "…" : "") : NEW_THREAD_TITLE;
-        await api.patch(`/chat/threads/${numericThreadId}`, { title: newTitle });
-      }
-
+      // Persist the message and then refresh the authoritative thread snapshot.
       await api.post(`/chat/${numericThreadId}/messages`, {
         role: "user",
         content: text,
         metadata: isLikelyPrompt(text) ? { type: "prompt" } : undefined,
+        project_id: contextProjectId ?? undefined,
       });
 
       if (isLikelyPrompt(text)) {
@@ -1158,6 +1146,24 @@ export default function GuardianChatWithSidebar({
             : t
         )
       );
+
+      const refreshed = await fetchChatThread(numericThreadId);
+      const authoritativeThread = refreshed?.thread;
+      if (authoritativeThread) {
+        const mapped = mapThreadRecord(authoritativeThread);
+        if (mapped) {
+          setThreads((prev) =>
+            prev.map((thread) =>
+              thread.id === mapped.id
+                ? {
+                    ...mapped,
+                    messages: thread.messages,
+                  }
+                : thread
+            )
+          );
+        }
+      }
     } catch (err) {
       console.warn("[guardian] failed to persist user message", err);
       const status = (err as any)?.response?.status;
@@ -1285,6 +1291,7 @@ export default function GuardianChatWithSidebar({
         const updated: Thread = {
           ...target,
           lastMessage: content || target.lastMessage,
+          lastInteractionAt: new Date().toISOString(),
           unread,
         };
         const shouldMove = idx > 0;
@@ -1314,12 +1321,45 @@ export default function GuardianChatWithSidebar({
             ...t,
             title: threadPayload?.title ?? t.title,
             projectId: threadPayload?.project_id ?? threadPayload?.projectId ?? t.projectId,
+            projectName:
+              threadPayload?.project_name ?? threadPayload?.projectName ?? t.projectName,
+            lastInteractionAt:
+              threadPayload?.last_interaction_at ?? threadPayload?.lastInteractionAt ?? t.lastInteractionAt,
             archivedAt: threadPayload?.archived_at ?? threadPayload?.archivedAt ?? t.archivedAt,
             threadConfig: normalizeThreadConfig(
               threadPayload?.thread_config ??
                 threadPayload?.threadConfig ??
                 t.threadConfig
             ),
+          };
+          if (!sameThreadSnapshot(t, updated)) {
+            touched = true;
+          }
+          return updated;
+        });
+        return touched ? next : prev;
+      });
+    });
+
+    const offThreadMoved = subscribe("thread.moved", (event) => {
+      const payload = (event.data as any)?.data ?? event.data;
+      console.info("[live] thread.moved", payload);
+      const threadPayload = payload?.thread ?? payload;
+      const tid = threadPayload?.id ?? threadPayload?.thread_id ?? payload?.thread_id;
+      if (!tid) return;
+      const idStr = String(tid);
+      setThreads((prev) => {
+        let touched = false;
+        const next = prev.map((t) => {
+          if (t.id !== idStr) return t;
+          const updated = {
+            ...t,
+            projectId:
+              threadPayload?.project_id ?? threadPayload?.projectId ?? t.projectId,
+            projectName:
+              threadPayload?.project_name ?? threadPayload?.projectName ?? t.projectName,
+            lastInteractionAt:
+              threadPayload?.last_interaction_at ?? threadPayload?.lastInteractionAt ?? t.lastInteractionAt,
           };
           if (!sameThreadSnapshot(t, updated)) {
             touched = true;
@@ -1404,6 +1444,7 @@ export default function GuardianChatWithSidebar({
     return () => {
       offMessage();
       offThreadUpdated();
+      offThreadMoved();
       offProfileSwitched();
       offThreadCreated();
       offThreadBranched();
@@ -1426,6 +1467,7 @@ export default function GuardianChatWithSidebar({
   );
 
   const chatDisabled = !isDesktopLayout && isSidebarOpen;
+  const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
   const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
@@ -1458,7 +1500,7 @@ export default function GuardianChatWithSidebar({
               top: 0,
               left: 0,
               height: "100%",
-              width: "min(360px, 90vw)",
+              width: mobileShellProfile.guardian.drawerWidth,
               zIndex: 10001,
             }}
             onPointerDown={stopDrawerEvent}
@@ -1505,15 +1547,24 @@ export default function GuardianChatWithSidebar({
     <>
       {mobileOverlay}
       <div
-        className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
+        className={clsx(
+          "relative h-full w-full min-h-0 overflow-hidden box-border items-stretch mx-auto",
+          isPhoneShell ? "flex flex-col" : "grid"
+        )}
+        data-guardian-layout={guardianLayoutMode}
+        data-shell-profile={mobileShellProfile.shellMode}
         style={{
-          gridTemplateColumns: isDesktopLayout && isSidebarOpen
-            ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
-            : "1fr",
-          gap: "8px",
+          maxWidth: mobileShellProfile.guardian.frameMaxWidth,
+          gridTemplateColumns:
+            !isPhoneShell && isDesktopLayout && isSidebarOpen
+              ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+              : "1fr",
+          gap: "var(--gutter)",
           padding: "0px",
           boxSizing: "border-box",
-          transition: "grid-template-columns 0.2s ease-out",
+          transition: isPhoneShell
+            ? undefined
+            : "grid-template-columns 0.2s ease-out",
         }}
       >
         {imprintZero.proposal && (
@@ -1586,7 +1637,7 @@ export default function GuardianChatWithSidebar({
                   Authentication required. Please sign in or set a dev key.
                 </div>
               )}
-              {workspaceOpen && (
+              {showWorkspacePreview && (
                 <div className="absolute inset-0 z-[110] pointer-events-auto">
                   <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
@@ -1607,15 +1658,18 @@ export default function GuardianChatWithSidebar({
                   </div>
                 </div>
               )}
-              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                <GuardianChat
-                  guardianName={guardianName}
-                  userName={userName}
-                  prefill={prefill}
-                  onPrefillConsumed={onPrefillConsumed}
-                  onWorkspaceToggle={onWorkspaceToggle}
-                  workspaceOpen={workspaceOpen}
-                  activeThread={activeThread}
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
+              <GuardianChat
+                guardianName={guardianName}
+                userName={userName}
+                prefill={prefill}
+                onPrefillConsumed={onPrefillConsumed}
+                pendingDocumentTiles={pendingDocumentTiles}
+                onPendingDocumentTilesConsumed={onPendingDocumentTilesConsumed}
+                onWorkspaceToggle={onWorkspaceToggle}
+                workspaceOpen={workspaceOpen}
+                activeThread={activeThread}
+                  workspaceProjectId={selectedProjectId}
                   onSendMessage={handleSendMessage}
                   onThreadPersisted={handleDraftThreadPersisted}
                   onNewChat={handleNewChatImmediate}

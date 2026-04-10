@@ -68,6 +68,7 @@ from guardian.core.dependencies import (
     ENABLE_OUTBOX,
     allowed_origins,
     get_single_user_id,
+    get_vector_store,
     init_database,
     init_services,
     require_api_key,
@@ -93,6 +94,7 @@ from guardian.core.supported_profile import (
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
+from guardian.services import builtin_help_ingest
 from guardian.tasks.types import WarmupTask
 from guardian.utils.embed_paths import (
     get_local_embed_model,
@@ -357,6 +359,39 @@ def _schedule_chatgpt_import_startup_sweep(app: FastAPI) -> asyncio.Task[Any]:
     return task
 
 
+def _run_builtin_help_startup_ingest(guardian_db: Any | None) -> None:
+    if guardian_db is None:
+        logger.info(
+            "[startup] Built-in help ingest skipped: GuardianDB unavailable"
+        )
+        return
+
+    try:
+        result = builtin_help_ingest.ingest_builtin_help_document(guardian_db)
+    except Exception as exc:
+        logger.warning(
+            "[startup] Built-in help ingest failed: %s", exc, exc_info=True
+        )
+        return
+
+    status = str(result.get("status") or "unknown").strip().lower()
+    doc_id = str(result.get("document_id") or "").strip()
+    source_path = str(result.get("source_path") or "").strip()
+    project_id = result.get("project_id")
+    vector_written = bool(result.get("vector_written"))
+    log_level = (
+        logger.warning if status in {"skipped", "unknown"} else logger.info
+    )
+    log_level(
+        "[startup] Built-in help ingest status=%s doc_id=%s path=%s project_id=%s vector_written=%s",
+        status,
+        doc_id,
+        source_path,
+        project_id,
+        vector_written,
+    )
+
+
 from guardian.realtime import collaboration
 
 
@@ -460,6 +495,7 @@ from guardian.routes import admin, agent, agent_orchestration, backfill
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
+    delegations,
     devtools,
     documents,
     embeddings,
@@ -545,6 +581,24 @@ async def app_lifespan(app: FastAPI):
     # Initialize shared services (vector store, sensors)
     init_services(db)
 
+    try:
+        from guardian.runtime.ingest.seed_pipeline import (
+            seed_global_system_docs,
+        )
+
+        seed_summary = seed_global_system_docs(get_vector_store())
+        logger.info(
+            "[startup] global system docs seeded count=%s candidates=%s namespace=%s",
+            seed_summary.get("seeded", 0),
+            seed_summary.get("candidate_count", 0),
+            seed_summary.get("namespace"),
+        )
+    except Exception as exc:
+        logger.warning(
+            "[startup] global system doc seeding failed: %s",
+            exc,
+        )
+
     # Initialize Prometheus metrics
     metrics.set_db_backend(dependencies.DB_BACKEND)
     logger.info(
@@ -569,12 +623,20 @@ async def app_lifespan(app: FastAPI):
         websocket_routes.configure_db(guardian_db)
         agent_orchestration.configure_db(guardian_db)
         command_bus_routes.configure_db(guardian_db)
+        delegations.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/command_bus routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/command_bus/delegations routes"
         )
         collaboration.configure_db(guardian_db)
         logger.info(
             "[startup] GuardianDB configured for cron/documents/share/collaboration/websocket routes"
+        )
+
+    try:
+        _run_builtin_help_startup_ingest(guardian_db)
+    except Exception as exc:
+        logger.warning(
+            "[startup] Built-in help ingest hook failed soft: %s", exc
         )
 
     # Configure durable outbox storage
@@ -1127,6 +1189,12 @@ _include_router(
     flag_name="CODEXIFY_ENABLE_COMMAND_BUS_ROUTES",
     include_fn=lambda: app.include_router(command_bus_routes.router),
 )
+_include_router(
+    label="delegations",
+    flag_name="CODEXIFY_ENABLE_DELEGATION_ROUTES",
+    include_fn=lambda: app.include_router(delegations.router),
+    core_surface=True,
+)
 
 logger.info(
     "[routers] Router registration complete (beta_core_only=%s)",
@@ -1329,10 +1397,11 @@ async def stream_task_events(
                     yield f"data: {data_str}\n\n"
                     last_id = ev_id
 
-                    if ev.get("type") in (
-                        "task.completed",
-                        "task.cancelled",
-                        "task.failed",
+                    if (
+                        task_events.classify_event_visibility(
+                            ev.get("type") or ""
+                        )
+                        == "terminal"
                     ):
                         return
 
@@ -1480,16 +1549,13 @@ def health_retrieval(
     ),
 ):
     """Expose backend retrieval runtime truth for supported-path proofs."""
-    from guardian.vector.store import VectorStore
-
     query = str(q or "").strip()
     normalized_namespace = _normalize_optional_namespace(namespace)
     worker_runtime = _vector_runtime_payload(resolve_vector_store_runtime())
 
-    vector_store = dependencies._vector_store
+    vector_store = dependencies._vector_store or get_vector_store()
     backend_store_source = "shared"
-    if vector_store is None:
-        vector_store = VectorStore()
+    if dependencies._vector_store is None:
         backend_store_source = "local"
     backend_runtime = _backend_vector_runtime_payload(vector_store)
 
