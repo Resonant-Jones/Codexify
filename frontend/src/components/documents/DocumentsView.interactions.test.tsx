@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DocumentsView from "@/components/documents/DocumentsView";
@@ -52,11 +52,15 @@ function setViewportWidth(width: number) {
 
 describe("DocumentsView interactions", () => {
   beforeEach(() => {
-    setViewportWidth(1280);
+    act(() => {
+      setViewportWidth(1280);
+    });
   });
 
   afterEach(() => {
-    setViewportWidth(1280);
+    act(() => {
+      setViewportWidth(1280);
+    });
     requestWorkspaceOpenMock.mockReset();
     vi.restoreAllMocks();
   });
@@ -142,14 +146,12 @@ describe("DocumentsView interactions", () => {
     });
   });
 
-  it("uses the mobile list layout at phone widths", () => {
-    setViewportWidth(390);
+  it("switches to a mobile list layout and keeps document taps explicit", async () => {
+    act(() => {
+      setViewportWidth(390);
+    });
 
     const { container } = render(
-  it("switches to a mobile list layout and keeps document taps explicit", () => {
-    setViewportWidth(390);
-
-    render(
       <DocumentsView
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
@@ -158,15 +160,19 @@ describe("DocumentsView interactions", () => {
       />
     );
 
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+        "data-documents-layout",
+        "mobile_list"
+      );
+      expect(
+        container.querySelector('[data-layout-mode="mobile-list"]')
+      ).toBeTruthy();
+    });
+
     expect(
-      container.querySelector('[data-layout-mode="mobile-list"]')
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Quarterly Plan" })).toHaveClass(
-      "!w-full"
-    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
-      "data-documents-layout",
-      "mobile_list"
-    );
+      screen.getByTestId("documents-mobile-row-button-doc-1")
+    ).toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Open Quarterly Plan in Workspace" })
