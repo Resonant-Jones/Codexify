@@ -1,71 +1,29 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, test } from "vitest";
 
 import SettingsPanelDock from "@/features/settings/components/SettingsPanelDock";
 
 describe("SettingsPanelDock", () => {
-  it("renders the dock language, hides connection on web, and keeps inactive tabs subdued", () => {
-    const onTabChange = vi.fn();
-
+  test("keeps the tab rail sticky and labeled as a control surface", () => {
     render(
-      <SettingsPanelDock
-        activeTab="appearance"
-        onTabChange={onTabChange}
-      />
+      <SettingsPanelDock>
+        <button type="button" role="tab" aria-selected="true">
+          Appearance
+        </button>
+        <button type="button" role="tab" aria-selected="false">
+          Imprint
+        </button>
+      </SettingsPanelDock>
     );
 
-    expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveClass(
-      "sticky",
-      "top-0",
-      "z-30",
-      "inline-flex",
-      "w-fit",
-      "max-w-full",
-      "items-stretch",
-      "overflow-x-auto",
-    );
-    expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    expect(screen.getByRole("tab", { name: "Appearance" })).toHaveClass(
-      "opacity-100",
-      "min-w-0",
-    );
-    expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveClass(
-      "opacity-25"
-    );
-    expect(screen.queryByRole("tab", { name: "Connection" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Diagnostics" })).not.toBeInTheDocument();
-
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Appearance" }), {
-      key: "ArrowRight",
+    const dock = screen.getByRole("tablist", { name: "Settings tabs" });
+    expect(dock).toHaveClass("shrink-0");
+    expect(dock).toHaveStyle({
+      position: "sticky",
+      top: "calc(var(--card-pad) + var(--board-edge))",
     });
-
-    expect(onTabChange).toHaveBeenCalledWith("system");
-  });
-
-  it("includes the desktop-only connection tab and roves to Personal Facts", () => {
-    const onTabChange = vi.fn();
-
-    render(
-      <SettingsPanelDock
-        activeTab="connection"
-        desktopMode
-        onTabChange={onTabChange}
-      />
-    );
-
-    expect(screen.getByRole("tab", { name: "Connection" })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
-    expect(screen.getByRole("tab", { name: "Personal Facts" })).toBeInTheDocument();
-
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Connection" }), {
-      key: "ArrowRight",
-    });
-
-    expect(onTabChange).toHaveBeenCalledWith("personalFacts");
+    expect(dock).toHaveAttribute("aria-orientation", "horizontal");
+    expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Imprint" })).toBeInTheDocument();
   });
 });
