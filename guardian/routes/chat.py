@@ -252,6 +252,43 @@ def _slash_intent_origin_segment(
     return f"|slash_intent={encoded}"
 
 
+def _retrieval_override_from_slash_intent(
+    slash_intent: Any | None,
+) -> dict[str, str] | None:
+    if slash_intent is None:
+        return None
+
+    retrieval_hint = getattr(slash_intent, "retrievalHint", None) or "none"
+    if retrieval_hint not in _RETRIEVAL_OVERRIDE_REASON_BY_MODE:
+        return None
+
+    mode = retrieval_hint
+    reason = _RETRIEVAL_OVERRIDE_REASON_BY_MODE[mode]
+    return {"mode": mode, "reason": reason}
+
+
+def _retrieval_override_origin_segment(
+    retrieval_override: dict[str, str] | None,
+) -> str:
+    if retrieval_override is None:
+        return ""
+
+    try:
+        encoded = quote(
+            json.dumps(
+                retrieval_override, ensure_ascii=False, separators=(",", ":")
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode retrieval override origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|retrieval_override={encoded}"
+
+
 def _request_id_from_request(request: Request | None) -> str | None:
     if request is None:
         return None
@@ -660,6 +697,27 @@ SlashCommandRetrievalHint = Literal[
     "project",
     "personal_knowledge",
 ]
+RetrievalOverrideMode = Literal[
+    "none",
+    "conversation",
+    "project",
+    "personal_knowledge",
+]
+RetrievalOverrideReason = Literal[
+    "no_override",
+    "slash_conversation_hint",
+    "slash_project_hint",
+    "slash_personal_knowledge_hint",
+]
+
+_RETRIEVAL_OVERRIDE_REASON_BY_MODE: dict[
+    RetrievalOverrideMode, RetrievalOverrideReason
+] = {
+    "none": "no_override",
+    "conversation": "slash_conversation_hint",
+    "project": "slash_project_hint",
+    "personal_knowledge": "slash_personal_knowledge_hint",
+}
 
 
 class SlashIntentRequest(BaseModel):
@@ -2530,6 +2588,10 @@ async def chat_complete(
             else doc_context_override
         )
 
+    retrieval_override = _retrieval_override_from_slash_intent(
+        body.slash_intent
+    )
+
     task = ChatCompletionTask(
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
@@ -2549,6 +2611,7 @@ async def chat_complete(
         origin=(
             f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
             f"{_slash_intent_origin_segment(body.slash_intent)}"
+            f"{_retrieval_override_origin_segment(retrieval_override)}"
         ),
     )
     task.turn_id = turn_id
