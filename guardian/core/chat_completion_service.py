@@ -21,13 +21,7 @@ from guardian.cognition.prompts import (
 )
 from guardian.cognition.prompts import build_context_system_message_with_meta
 from guardian.context.broker import ContextBroker
-from guardian.context.retrieval_posture_contract import (
-    build_retrieval_posture_snapshot,
-)
-from guardian.context.retrieval_router_policy import (
-    QueryIntent,
-    resolve_retrieval_plan,
-)
+from guardian.context.retrieval_router_policy import resolve_retrieval_plan
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
     build_openai_vision_content,
@@ -943,20 +937,6 @@ def build_sanitized_payload_summary(
         "obsidian_injected": obsidian_injected,
     }
 
-    if isinstance(bundle, dict):
-        raw_retrieval_posture = bundle.get("_retrieval_posture")
-        if isinstance(raw_retrieval_posture, dict):
-            summary["retrieval_posture"] = build_retrieval_posture_snapshot(
-                source_mode=raw_retrieval_posture.get("source_mode"),
-                retrieval_override=raw_retrieval_posture.get(
-                    "retrieval_override"
-                ),
-                widen_reason=raw_retrieval_posture.get("widen_reason"),
-                conversation_only=raw_retrieval_posture.get(
-                    "conversation_only"
-                ),
-            )
-
     summary["retrieval_injected"] = any(
         summary[key]
         for key in (
@@ -1082,20 +1062,6 @@ def _active_persona_context_from_prompt_meta(
         return None
     text = str(resolved_persona_id).strip()
     return text or None
-
-
-def _is_conversation_only_retrieval_plan(
-    trace: dict[str, Any] | None,
-) -> bool:
-    if not isinstance(trace, dict):
-        return False
-    plan = trace.get(RETRIEVAL_PLAN_TRACE_KEY)
-    if not isinstance(plan, dict):
-        return False
-    return (
-        str(plan.get("intent") or "").strip().lower()
-        == QueryIntent.CONVERSATION_ONLY.value
-    )
 
 
 def _serialize_retrieval_plan_trace(
@@ -1383,9 +1349,6 @@ async def build_messages_for_llm(
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
     source_mode = thread_execution.source_mode
-    retrieval_override = _retrieval_override_from_origin(
-        getattr(task, "origin", None)
-    )
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -1559,16 +1522,6 @@ async def build_messages_for_llm(
             depth,
             exc,
         )
-
-    if isinstance(bundle, dict):
-        bundle["_retrieval_posture"] = {
-            "source_mode": source_mode,
-            "retrieval_override": retrieval_override,
-            "widen_reason": (
-                trace.get("widen_reason") if isinstance(trace, dict) else None
-            ),
-            "conversation_only": _is_conversation_only_retrieval_plan(trace),
-        }
 
     _persist_thread_trace_candidate(task, trace)
 
