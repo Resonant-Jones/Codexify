@@ -1625,11 +1625,19 @@ def run_chat_completion_task(
     slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
     if slash_intent is not None:
         payload_summary["slash_intent"] = slash_intent
-    payload_summary["retrieval_override"] = retrieval_override
+    retrieval_override = _retrieval_override_from_origin(
+        getattr(task, "origin", None)
+    )
+    if retrieval_override is not None:
+        payload_summary["retrieval_override"] = retrieval_override
     payload_summary["source_mode"] = (
         trace.get("source_mode") if isinstance(trace, dict) else None
     )
-    payload_summary["effective_source_mode"] = payload_summary["source_mode"]
+    payload_summary[
+        "effective_source_mode"
+    ] = _effective_source_mode_for_broker_assembly(
+        payload_summary["source_mode"], retrieval_override
+    )
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {

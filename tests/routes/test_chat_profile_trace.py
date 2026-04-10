@@ -56,6 +56,7 @@ def test_rag_trace_exposes_payload_summary(monkeypatch):
     trace = chat.get_latest_rag_trace(77, api_key="test-key")
     assert trace["payload_summary"] == payload_summary
     assert "slash_intent" not in trace["payload_summary"]
+    assert "retrieval_override" not in trace["payload_summary"]
 
     chat._thread_latest_task.pop(77, None)
     chat._rag_traces.pop(77, None)
@@ -69,6 +70,7 @@ def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
         "intentKind": "workspace",
         "retrievalHint": "project",
     }
+    retrieval_override = {"mode": "project", "reason": "slash_project_hint"}
 
     monkeypatch.setattr(
         chat,
@@ -79,12 +81,14 @@ def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
                 "payload_char_count": 10,
                 "message_count": 2,
                 "slash_intent": slash_intent,
+                "retrieval_override": retrieval_override,
             },
         },
     )
 
     trace = chat.get_latest_rag_trace(78, api_key="test-key")
     assert trace["payload_summary"]["slash_intent"] == slash_intent
+    assert trace["payload_summary"]["retrieval_override"] == retrieval_override
 
     chat._thread_latest_task.pop(78, None)
     chat._rag_traces.pop(78, None)
