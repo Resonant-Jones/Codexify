@@ -56,6 +56,7 @@ describe("DocumentsView interactions", () => {
   });
 
   afterEach(() => {
+    setViewportWidth(1280);
     requestWorkspaceOpenMock.mockReset();
     vi.restoreAllMocks();
   });
@@ -140,6 +141,11 @@ describe("DocumentsView interactions", () => {
       );
     });
   });
+
+  it("uses the mobile list layout at phone widths", () => {
+    setViewportWidth(390);
+
+    const { container } = render(
   it("switches to a mobile list layout and keeps document taps explicit", () => {
     setViewportWidth(390);
 
@@ -152,6 +158,11 @@ describe("DocumentsView interactions", () => {
       />
     );
 
+    expect(
+      container.querySelector('[data-layout-mode="mobile-list"]')
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Quarterly Plan" })).toHaveClass(
+      "!w-full"
     expect(screen.getByTestId("documents-layout")).toHaveAttribute(
       "data-documents-layout",
       "mobile_list"

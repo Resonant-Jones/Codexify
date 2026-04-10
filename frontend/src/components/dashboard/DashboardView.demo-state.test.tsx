@@ -108,6 +108,15 @@ const EXT_COLORS = {
   codex: "#000",
 } as const;
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 describe("DashboardView demo content", () => {
   beforeEach(() => {
     setViewportWidth(1280);
@@ -118,6 +127,7 @@ describe("DashboardView demo content", () => {
   });
 
   afterEach(() => {
+    setViewportWidth(1280);
     runtimeState.tauriRuntime = false;
     runtimeState.invokeTauriCommandMock.mockReset();
     cleanup();
@@ -199,6 +209,13 @@ describe("DashboardView demo content", () => {
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });
 
+  it("uses the mobile stacked layout at phone widths", () => {
+    setViewportWidth(390);
+
+    const { container } = render(
+      <DashboardView
+        extColors={EXT_COLORS}
+        gallery={[]}
   it("switches Dashboard into a mobile stack and opens recent documents explicitly", async () => {
     setViewportWidth(390);
     authState.allowGate = true;
@@ -240,6 +257,9 @@ describe("DashboardView demo content", () => {
       />
     );
 
+    expect(
+      container.querySelector('[data-layout-mode="mobile-stack"]')
+    ).toBeTruthy();
     expect(await screen.findByText("User Plan.md")).toBeInTheDocument();
     expect(screen.getByTestId("dashboard-layout")).toHaveAttribute(
       "data-dashboard-layout",
