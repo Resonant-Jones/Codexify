@@ -7,6 +7,16 @@ from urllib.parse import quote
 
 import pytest
 
+from guardian.context.retrieval_router_policy import (
+    RETRIEVAL_OVERRIDE_CONVERSATION,
+    RETRIEVAL_OVERRIDE_NONE,
+    RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE,
+    RETRIEVAL_OVERRIDE_PROJECT,
+    SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    SOURCE_MODE_PROJECT,
+    WIDEN_REASON_NONE,
+)
 from guardian.core import chat_completion_service
 from guardian.tasks.types import ChatCompletionTask
 
@@ -36,7 +46,7 @@ def _seed_completion_service(
             depth_mode,
             user_id,
             project_id=None,
-            source_mode="project",
+            source_mode=SOURCE_MODE_PROJECT,
         ):
             captured["thread_id"] = thread_id
             captured["query"] = query
@@ -48,7 +58,7 @@ def _seed_completion_service(
                 "documents": [],
                 "graph": [],
                 "source_mode": source_mode,
-                "widen_reason": "none",
+                "widen_reason": WIDEN_REASON_NONE,
             }
 
     settings = SimpleNamespace(
@@ -168,35 +178,75 @@ async def test_build_messages_for_llm_defaults_to_project_for_missing_or_malform
 
     assert messages
     assert captured["project_id"] == 42
-    assert captured["source_mode"] == "project"
-    assert trace["source_mode"] == "project"
-    assert trace["widen_reason"] == "none"
+    assert captured["source_mode"] == SOURCE_MODE_PROJECT
+    assert trace["source_mode"] == SOURCE_MODE_PROJECT
+    assert trace["widen_reason"] == WIDEN_REASON_NONE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "requested_source_mode",
+    [
+        SOURCE_MODE_PROJECT,
+        SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        SOURCE_MODE_CONVERSATION,
+    ],
+)
+async def test_build_messages_for_llm_keeps_requested_source_mode_without_override(
+    monkeypatch: pytest.MonkeyPatch,
+    requested_source_mode: str,
+) -> None:
+    captured = _seed_completion_service(monkeypatch)
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model=None,
+        origin=_origin_with_source_mode_and_override(
+            source_mode=requested_source_mode,
+        ),
+    )
+    (
+        _messages,
+        _provider,
+        _model,
+        _bundle,
+        trace,
+    ) = await chat_completion_service.build_messages_for_llm(task)
+
+    assert captured["source_mode"] == requested_source_mode
+    assert trace["source_mode"] == requested_source_mode
+    assert trace["widen_reason"] == WIDEN_REASON_NONE
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "requested_source_mode,retrieval_override,expected_source_mode",
     [
-        ("project", {"mode": "project"}, "project"),
         (
-            "project",
-            {"mode": "personal_knowledge"},
-            "personal_knowledge",
+            SOURCE_MODE_PROJECT,
+            {"mode": RETRIEVAL_OVERRIDE_PROJECT},
+            SOURCE_MODE_PROJECT,
         ),
         (
-            "personal_knowledge",
-            {"mode": "none"},
-            "personal_knowledge",
+            SOURCE_MODE_PROJECT,
+            {"mode": RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE},
+            SOURCE_MODE_PERSONAL_KNOWLEDGE,
         ),
         (
-            "personal_knowledge",
-            {"mode": "conversation"},
-            "conversation",
+            SOURCE_MODE_PERSONAL_KNOWLEDGE,
+            {"mode": RETRIEVAL_OVERRIDE_NONE},
+            SOURCE_MODE_PERSONAL_KNOWLEDGE,
         ),
         (
-            "personal_knowledge",
+            SOURCE_MODE_PERSONAL_KNOWLEDGE,
+            {"mode": RETRIEVAL_OVERRIDE_CONVERSATION},
+            SOURCE_MODE_CONVERSATION,
+        ),
+        (
+            SOURCE_MODE_PERSONAL_KNOWLEDGE,
             {"mode": "bogus"},
-            "personal_knowledge",
+            SOURCE_MODE_PERSONAL_KNOWLEDGE,
         ),
     ],
 )
@@ -227,4 +277,4 @@ async def test_build_messages_for_llm_applies_explicit_retrieval_override_modes(
 
     assert captured["source_mode"] == expected_source_mode
     assert trace["source_mode"] == expected_source_mode
-    assert trace["widen_reason"] == "none"
+    assert trace["widen_reason"] == WIDEN_REASON_NONE

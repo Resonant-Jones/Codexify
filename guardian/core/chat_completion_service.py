@@ -21,7 +21,18 @@ from guardian.cognition.prompts import (
 )
 from guardian.cognition.prompts import build_context_system_message_with_meta
 from guardian.context.broker import ContextBroker
-from guardian.context.retrieval_router_policy import resolve_retrieval_plan
+from guardian.context.retrieval_router_policy import (
+    RETRIEVAL_OVERRIDE_CONVERSATION,
+    RETRIEVAL_OVERRIDE_NONE,
+    RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE,
+    RETRIEVAL_OVERRIDE_PROJECT,
+    SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    SOURCE_MODE_PROJECT,
+    normalize_retrieval_override_mode,
+    normalize_source_mode,
+    resolve_retrieval_plan,
+)
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
     build_openai_vision_content,
@@ -55,9 +66,6 @@ DEBUG_LATEST_RAG_TRACE_METADATA_KEY = "debug_latest_rag_trace"
 _LOCAL_IMAGE_CAPTIONER_MODEL_NAME = "Salesforce/blip-image-captioning-base"
 _LOCAL_IMAGE_CAPTIONER: tuple[Any, Any] | None = None
 _LOCAL_IMAGE_CAPTIONER_ATTEMPTED = False
-_SOURCE_MODE_CONVERSATION = "conversation"
-_SOURCE_MODE_PROJECT = "project"
-_SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
 
 try:  # pragma: no cover - prompts are optional in some deployments
     from guardian.cognition.system_prompt_builder import (
@@ -100,24 +108,15 @@ def _estimate_tokens(text: str | None) -> int:
     return max(1, length // 4)
 
 
-def _normalize_source_mode(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized == _SOURCE_MODE_CONVERSATION:
-        return _SOURCE_MODE_CONVERSATION
-    if normalized == _SOURCE_MODE_PERSONAL_KNOWLEDGE:
-        return _SOURCE_MODE_PERSONAL_KNOWLEDGE
-    return _SOURCE_MODE_PROJECT
-
-
 def _source_mode_from_origin(origin: Any) -> str:
     text = str(origin or "").strip()
     if not text:
-        return "project"
+        return SOURCE_MODE_PROJECT
     for segment in text.split("|")[1:]:
         key, _, value = segment.partition("=")
         if key.strip() == "source_mode":
-            return _normalize_source_mode(value.strip())
-    return "project"
+            return normalize_source_mode(value.strip())
+    return SOURCE_MODE_PROJECT
 
 
 def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
@@ -172,25 +171,27 @@ def _effective_source_mode_for_broker_assembly(
     source_mode: Any,
     retrieval_override: dict[str, Any] | None,
 ) -> str:
-    effective_source_mode = _normalize_source_mode(source_mode)
+    effective_source_mode = normalize_source_mode(source_mode)
     if not isinstance(retrieval_override, dict):
         return effective_source_mode
 
     raw_mode = retrieval_override.get("mode")
-    mode = str(raw_mode or "").strip().lower()
-    if mode == "project":
-        return _SOURCE_MODE_PROJECT
-    if mode == "personal_knowledge":
-        return _SOURCE_MODE_PERSONAL_KNOWLEDGE
-    if mode == "conversation":
-        return _SOURCE_MODE_CONVERSATION
-    if mode in {"", "none"}:
+    normalized_mode = str(raw_mode or "").strip().lower()
+    if not normalized_mode or normalized_mode == RETRIEVAL_OVERRIDE_NONE:
+        return effective_source_mode
+    if normalized_mode == RETRIEVAL_OVERRIDE_PROJECT:
+        return SOURCE_MODE_PROJECT
+    if normalized_mode == RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE:
+        return SOURCE_MODE_PERSONAL_KNOWLEDGE
+    if normalized_mode == RETRIEVAL_OVERRIDE_CONVERSATION:
+        return SOURCE_MODE_CONVERSATION
+    if normalize_retrieval_override_mode(raw_mode) is None:
+        logger.debug(
+            "[chat-completion] ignoring unsupported retrieval override mode=%s",
+            raw_mode,
+        )
         return effective_source_mode
 
-    logger.debug(
-        "[chat-completion] ignoring unsupported retrieval override mode=%s",
-        raw_mode,
-    )
     return effective_source_mode
 
 
@@ -331,11 +332,11 @@ def resolve_thread_completion_settings(
                 thread_config, _THREAD_CONFIG_INFERENCE_MODE_KEYS
             )
         )
-        source_mode = _normalize_source_mode(
+        source_mode = normalize_source_mode(
             _thread_config_value(
                 thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS
             )
-            or "project"
+            or SOURCE_MODE_PROJECT
         )
         persona_id = _thread_config_value(
             thread_config, _THREAD_CONFIG_PERSONA_KEYS
@@ -358,7 +359,7 @@ def resolve_thread_completion_settings(
         provider, settings
     )
     reasoning_mode = _normalize_reasoning_mode(requested_reasoning_mode)
-    source_mode = _normalize_source_mode(requested_source_mode)
+    source_mode = normalize_source_mode(requested_source_mode)
 
     return ThreadCompletionSettings(
         provider=provider,

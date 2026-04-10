@@ -7,6 +7,17 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from guardian.context.broker import ContextBroker
+from guardian.context.retrieval_router_policy import (
+    SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    SOURCE_MODE_PROJECT,
+    WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+    WIDEN_REASON_INSUFFICIENT_THREAD_HITS,
+    WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS,
+    WIDEN_REASON_NONE,
+    normalize_source_mode,
+    source_mode_boundary_label,
+)
 
 
 class _TemporalLike:
@@ -194,7 +205,7 @@ MATRIX_CASES = [
         {
             "test_case_id": "project-local-success",
             "query": "aurora-lattice-sentinel-alpha",
-            "source_mode": "project",
+            "source_mode": SOURCE_MODE_PROJECT,
             "expected_hits": [ALPHA_HIT],
             "expected_excluded": [
                 BETA_HIT["text"],
@@ -202,7 +213,7 @@ MATRIX_CASES = [
                 OMEGA_HIT["text"],
             ],
             "expected_namespaces": ["thread:1"],
-            "expected_widen_reason": "none",
+            "expected_widen_reason": WIDEN_REASON_NONE,
         },
         id="project-local-success",
     ),
@@ -210,7 +221,7 @@ MATRIX_CASES = [
         {
             "test_case_id": "personal-knowledge-widening-success",
             "query": "frontend-rim-bezel-sentinel-beta",
-            "source_mode": "personal_knowledge",
+            "source_mode": SOURCE_MODE_PERSONAL_KNOWLEDGE,
             "expected_hits": [BETA_HIT],
             "expected_excluded": [
                 ALPHA_HIT["text"],
@@ -218,7 +229,7 @@ MATRIX_CASES = [
                 OMEGA_HIT["text"],
             ],
             "expected_namespaces": ["thread:1", "thread:2", "thread:3"],
-            "expected_widen_reason": "explicit_personal_knowledge",
+            "expected_widen_reason": WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
         },
         id="personal-knowledge-widening-success",
     ),
@@ -226,7 +237,7 @@ MATRIX_CASES = [
         {
             "test_case_id": "truthful-empty-result",
             "query": "void-horizon-sentinel-zeta",
-            "source_mode": "project",
+            "source_mode": SOURCE_MODE_PROJECT,
             "expected_hits": [],
             "expected_excluded": [
                 ALPHA_HIT["text"],
@@ -236,7 +247,7 @@ MATRIX_CASES = [
             ],
             "expected_namespaces": ["thread:1", "thread:2"],
             # No candidate contributed, so the trace should stay truthful at "none".
-            "expected_widen_reason": "none",
+            "expected_widen_reason": WIDEN_REASON_NONE,
         },
         id="truthful-empty-result",
     ),
@@ -244,12 +255,12 @@ MATRIX_CASES = [
         {
             "test_case_id": "no-cross-user-bleed",
             "query": "cross-user-phantom-sentinel-omega",
-            "source_mode": "personal_knowledge",
+            "source_mode": SOURCE_MODE_PERSONAL_KNOWLEDGE,
             "expected_hits": [],
             "expected_excluded": [OMEGA_HIT["text"]],
             "expected_namespaces": ["thread:1", "thread:2", "thread:3"],
             # Cross-user material is excluded before widening can contribute.
-            "expected_widen_reason": "none",
+            "expected_widen_reason": WIDEN_REASON_NONE,
         },
         id="no-cross-user-bleed",
     ),
@@ -291,6 +302,15 @@ async def test_deterministic_retrieval_matrix_proves_boundary_model(
     assert trace["depth_mode"] == "normal"
     assert trace["source_mode"] == case["source_mode"]
     assert trace["widen_reason"] == case["expected_widen_reason"]
+    assert trace["graph_context"]["boundary"] == source_mode_boundary_label(
+        case["source_mode"]
+    )
+    assert trace["memory_context"]["boundary"] == source_mode_boundary_label(
+        case["source_mode"]
+    )
+    assert trace["personal_facts_context"][
+        "boundary"
+    ] == source_mode_boundary_label(case["source_mode"])
     assert _namespaces(mock_vector_store) == case["expected_namespaces"]
     assert actual_texts == [hit["text"] for hit in case["expected_hits"]]
     assert trace["documents"] == expected_docs
@@ -358,7 +378,7 @@ async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_wid
         k_semantic=1,
         k_memory=1,
         federated=True,
-        source_mode="conversation",
+        source_mode=SOURCE_MODE_CONVERSATION,
     )
 
     assert context["messages"] == [
@@ -371,25 +391,36 @@ async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_wid
     assert context["memory"] == []
     assert context["federated"] == []
     assert "personal_facts" not in context
-    assert trace["source_mode"] == "conversation"
-    assert trace["widen_reason"] == "none"
+    assert trace["source_mode"] == SOURCE_MODE_CONVERSATION
+    assert trace["widen_reason"] == WIDEN_REASON_NONE
     assert trace["graph_context"]["status"] == "skipped"
-    assert trace["graph_context"]["reason"] == "source_mode_conversation"
-    assert trace["graph_context"]["source_mode"] == "conversation"
-    assert trace["graph_context"]["boundary"] == "active_conversation_only"
+    assert trace["graph_context"]["reason"] == (
+        f"source_mode_{SOURCE_MODE_CONVERSATION}"
+    )
+    assert trace["graph_context"]["source_mode"] == SOURCE_MODE_CONVERSATION
+    assert trace["graph_context"]["boundary"] == source_mode_boundary_label(
+        SOURCE_MODE_CONVERSATION
+    )
     assert trace["memory_context"]["status"] == "skipped"
-    assert trace["memory_context"]["reason"] == "source_mode_conversation"
-    assert trace["memory_context"]["source_mode"] == "conversation"
-    assert trace["memory_context"]["boundary"] == "active_conversation_only"
+    assert trace["memory_context"]["reason"] == (
+        f"source_mode_{SOURCE_MODE_CONVERSATION}"
+    )
+    assert trace["memory_context"]["source_mode"] == SOURCE_MODE_CONVERSATION
+    assert trace["memory_context"]["boundary"] == source_mode_boundary_label(
+        SOURCE_MODE_CONVERSATION
+    )
     assert trace["personal_facts_context"]["status"] == "skipped"
     assert (
-        trace["personal_facts_context"]["reason"] == "source_mode_conversation"
+        trace["personal_facts_context"]["reason"]
+        == f"source_mode_{SOURCE_MODE_CONVERSATION}"
     )
-    assert trace["personal_facts_context"]["source_mode"] == "conversation"
     assert (
-        trace["personal_facts_context"]["boundary"]
-        == "active_conversation_only"
+        trace["personal_facts_context"]["source_mode"]
+        == SOURCE_MODE_CONVERSATION
     )
+    assert trace["personal_facts_context"][
+        "boundary"
+    ] == source_mode_boundary_label(SOURCE_MODE_CONVERSATION)
     assert _namespaces(mock_vector_store) == []
 
 
@@ -425,14 +456,14 @@ async def test_project_source_widens_only_within_same_project(
         query="status",
         depth_mode="normal",
         k_semantic=2,
-        source_mode="project",
+        source_mode=SOURCE_MODE_PROJECT,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
         "project sibling hit"
     ]
-    assert trace["source_mode"] == "project"
-    assert trace["widen_reason"] == "insufficient_thread_hits"
+    assert trace["source_mode"] == SOURCE_MODE_PROJECT
+    assert trace["widen_reason"] == WIDEN_REASON_INSUFFICIENT_THREAD_HITS
     assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
 
 
@@ -468,15 +499,15 @@ async def test_personal_knowledge_widens_same_user_across_projects(
         query="status",
         depth_mode="normal",
         k_semantic=2,
-        source_mode="personal_knowledge",
+        source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
         "same project sibling",
         "cross project sibling",
     ]
-    assert trace["source_mode"] == "personal_knowledge"
-    assert trace["widen_reason"] == "explicit_personal_knowledge"
+    assert trace["source_mode"] == SOURCE_MODE_PERSONAL_KNOWLEDGE
+    assert trace["widen_reason"] == WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
     assert _namespaces(mock_vector_store) == [
         "thread:1",
         "thread:2",
@@ -514,14 +545,14 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
         query="status",
         depth_mode="normal",
         k_semantic=1,
-        source_mode="project",
+        source_mode=SOURCE_MODE_PROJECT,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
         "project sibling hit"
     ]
-    assert trace["source_mode"] == "project"
-    assert trace["widen_reason"] == "low_confidence_thread_hits"
+    assert trace["source_mode"] == SOURCE_MODE_PROJECT
+    assert trace["widen_reason"] == WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS
     assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
 
 
@@ -557,14 +588,14 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
         query="status",
         depth_mode="normal",
         k_semantic=1,
-        source_mode="personal_knowledge",
+        source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
         "same project sibling"
     ]
-    assert trace["source_mode"] == "personal_knowledge"
-    assert trace["widen_reason"] == "explicit_personal_knowledge"
+    assert trace["source_mode"] == SOURCE_MODE_PERSONAL_KNOWLEDGE
+    assert trace["widen_reason"] == WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
     assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
 
 
@@ -598,14 +629,14 @@ async def test_strong_thread_hits_keep_trace_stable_without_widening(
         query="status",
         depth_mode="normal",
         k_semantic=1,
-        source_mode="project",
+        source_mode=SOURCE_MODE_PROJECT,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
         "strong local hit"
     ]
-    assert trace["source_mode"] == "project"
-    assert trace["widen_reason"] == "none"
+    assert trace["source_mode"] == SOURCE_MODE_PROJECT
+    assert trace["widen_reason"] == WIDEN_REASON_NONE
     assert _namespaces(mock_vector_store) == ["thread:1"]
 
 
@@ -672,7 +703,7 @@ async def test_personal_knowledge_memory_trace_skips_when_depth_disallows_it(
         thread_id=1,
         query="status",
         depth_mode="normal",
-        source_mode="personal_knowledge",
+        source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
     assert "memory" not in context
@@ -695,7 +726,7 @@ async def test_personal_knowledge_memory_trace_reports_no_eligible_candidates(
         query="status",
         depth_mode="deep",
         k_memory=2,
-        source_mode="personal_knowledge",
+        source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
     assert context["memory"] == []
@@ -717,7 +748,7 @@ async def test_personal_knowledge_memory_trace_reports_attempted_no_hits(
         query="status",
         depth_mode="deep",
         k_memory=2,
-        source_mode="personal_knowledge",
+        source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
     assert context["memory"] == []
@@ -749,12 +780,30 @@ async def test_personal_knowledge_memory_trace_reports_contributed_hits(
         query="status",
         depth_mode="deep",
         k_memory=1,
-        source_mode="personal_knowledge",
+        source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
     assert [item["text"] for item in context["memory"]] == [
         "same-user memory hit"
     ]
     assert trace["memory_context"]["status"] == "contributed"
-    assert trace["memory_context"]["boundary"] == "same_user_only"
+    assert trace["memory_context"]["boundary"] == source_mode_boundary_label(
+        SOURCE_MODE_PERSONAL_KNOWLEDGE
+    )
     assert "thread:6" not in _namespaces(mock_vector_store)
+
+
+def test_source_mode_registry_helpers_are_bounded() -> None:
+    assert normalize_source_mode(SOURCE_MODE_PROJECT) == SOURCE_MODE_PROJECT
+    assert (
+        normalize_source_mode(SOURCE_MODE_PERSONAL_KNOWLEDGE)
+        == SOURCE_MODE_PERSONAL_KNOWLEDGE
+    )
+    assert (
+        normalize_source_mode(SOURCE_MODE_CONVERSATION)
+        == SOURCE_MODE_CONVERSATION
+    )
+    assert normalize_source_mode("unsupported") == SOURCE_MODE_PROJECT
+    assert source_mode_boundary_label(
+        "unsupported"
+    ) == source_mode_boundary_label(SOURCE_MODE_PROJECT)
