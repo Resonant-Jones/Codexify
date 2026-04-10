@@ -1138,12 +1138,18 @@ export function SettingsView({
 
   return (
     <div className="w-full" style={{ color: "var(--text)" }}>
-      <SettingsPanelShell scrollContainerRef={settingsScrollContainerRef}>
-        <SettingsPanelDock>
-          {visibleTabs.map(renderTabButton)}
-        </SettingsPanelDock>
+      <SettingsPanelShell>
+        <div className="flex h-full min-h-0 flex-col gap-[var(--shell-gap)]">
+          <SettingsPanelDock>
+            {visibleTabs.map(renderTabButton)}
+          </SettingsPanelDock>
 
-        {tab === "system" && (
+          <div
+            ref={settingsScrollContainerRef}
+            data-testid="settings-panel-scroll-body"
+            className="flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)] overflow-x-visible overflow-y-auto"
+          >
+            {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"
             role="tabpanel"
@@ -1718,22 +1724,10 @@ export function SettingsView({
             <MemoryBrowser activeThreadId={activeThreadId} />
           </SettingsSectionCard>
         )}
-      </SettingsPanelShell>
-
-    </div>
-      {tab === "personalFacts" && (
-        <div
-          className="w-full min-w-0 space-y-[var(--shell-gap)]"
-          id="settings-panel-personalFacts"
-          role="tabpanel"
-          aria-labelledby="settings-tab-personalFacts"
-          data-testid="settings-panel-personal-facts"
-        >
-            <PersonalFactsPanel />
+          </div>
         </div>
-      )}
-
-    </SettingsPanelShell>
+      </SettingsPanelShell>
+    </div>
   );
 }
 
