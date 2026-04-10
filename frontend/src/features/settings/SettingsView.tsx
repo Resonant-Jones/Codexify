@@ -1113,7 +1113,6 @@ export function SettingsView({
 
     return () => {
       scrollContainer.removeEventListener("scroll", rememberScrollPosition);
-      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
     };
   }, [tab]);
 
