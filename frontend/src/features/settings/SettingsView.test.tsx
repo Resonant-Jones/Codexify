@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "./SettingsView";
 
+const SETTINGS_TAB_STORAGE_KEY = "cfy.settings.activeTab";
+
 const mockedApi = vi.hoisted(() => ({
   get: vi.fn(async () => ({ data: {} })),
   post: vi.fn(async () => ({ data: {} })),
@@ -161,6 +163,7 @@ describe("SettingsView save flow", () => {
       lastTimestamp: null,
     });
     window.localStorage.clear();
+    window.sessionStorage.clear();
     window.history.pushState({}, "", "/chat/42");
   });
 
@@ -252,5 +255,145 @@ describe("SettingsView save flow", () => {
           element?.textContent?.trim() === "Depth: normal • Thread: 84"
       )
     ).not.toHaveLength(0);
+  });
+
+  it("persists the selected tab and restores it on remount", async () => {
+    const { unmount } = renderSettingsView();
+
+    fireEvent.click(screen.getByRole("tab", { name: /^data$/i }));
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe(
+        "data"
+      );
+    });
+
+    expect(
+      screen.getByRole("button", { name: /import chatgpt history/i })
+    ).toBeInTheDocument();
+
+    unmount();
+    renderSettingsView();
+
+    expect(screen.getByRole("tab", { name: /^data$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(
+      screen.getByRole("button", { name: /import chatgpt history/i })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /^appearance$/i }));
+
+    expect(
+      screen.queryByRole("button", { name: /import chatgpt history/i })
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe(
+        "appearance"
+      );
+    });
+  });
+
+  it("falls back safely when persisted tab state is invalid", async () => {
+    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, "connection");
+
+    renderSettingsView();
+
+    expect(screen.getByRole("tab", { name: /^appearance$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(
+      screen.queryByRole("button", { name: /import chatgpt history/i })
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)).toBe(
+        "appearance"
+      );
+    });
+  });
+
+  it("keeps per-tab scroll memory intact while switching between tabs", async () => {
+    const originalAddEventListener = HTMLElement.prototype.addEventListener;
+    const scrollListeners: EventListener[] = [];
+    const addEventListenerSpy = vi
+      .spyOn(HTMLElement.prototype, "addEventListener")
+      .mockImplementation(function (
+        this: HTMLElement,
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        options?: boolean | AddEventListenerOptions
+      ) {
+        if (
+          this.getAttribute("data-testid") === "settings-panel-shell" &&
+          type === "scroll"
+        ) {
+          scrollListeners.push(listener as EventListener);
+        }
+        return originalAddEventListener.call(
+          this,
+          type,
+          listener as any,
+          options as any
+        );
+      });
+
+    try {
+      renderSettingsView();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("tab", { name: /^data$/i }));
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /import chatgpt history/i })
+        ).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(scrollListeners.length).toBeGreaterThanOrEqual(2);
+      });
+
+      const shell = screen.getByTestId("settings-panel-shell");
+      let scrollTop = 0;
+      Object.defineProperty(shell, "scrollTop", {
+        get: () => scrollTop,
+        set: (value) => {
+          scrollTop = Number(value);
+        },
+        configurable: true,
+      });
+
+      scrollTop = 180;
+      await act(async () => {
+        scrollListeners.at(-1)?.(new Event("scroll"));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("tab", { name: /^appearance$/i }));
+      });
+      await waitFor(() => {
+        expect(screen.getByRole("tab", { name: /^appearance$/i })).toHaveAttribute(
+          "aria-selected",
+          "true"
+        );
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("tab", { name: /^data$/i }));
+      });
+
+      await waitFor(() => {
+        expect(scrollTop).toBe(180);
+        expect(
+          screen.getByRole("button", { name: /import chatgpt history/i })
+        ).toBeInTheDocument();
+      });
+    } finally {
+      addEventListenerSpy.mockRestore();
+    }
   });
 });

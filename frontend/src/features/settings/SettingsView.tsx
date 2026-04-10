@@ -97,7 +97,44 @@ function getSettingsTabPanelId(tab: SettingsTab): string {
   return `settings-panel-${tab}`;
 }
 
+const DEFAULT_SETTINGS_TAB: SettingsTab = "appearance";
+const SETTINGS_TAB_STORAGE_KEY = "cfy.settings.activeTab";
 const CHATGPT_IMPORT_TASK_STORAGE_KEY = "codexify.chatgpt_import_task";
+
+function isSettingsTab(value: string): value is SettingsTab {
+  return SETTINGS_TAB_DEFINITIONS.some(
+    (definition) => definition.value === value
+  );
+}
+
+function readPersistedSettingsTab(desktopMode: boolean): SettingsTab {
+  if (typeof window === "undefined") return DEFAULT_SETTINGS_TAB;
+
+  try {
+    const raw = window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY);
+    if (!raw) return DEFAULT_SETTINGS_TAB;
+
+    const candidate = raw.trim();
+    if (!isSettingsTab(candidate)) return DEFAULT_SETTINGS_TAB;
+    if (candidate === "connection" && !desktopMode) return DEFAULT_SETTINGS_TAB;
+    return candidate;
+  } catch {
+    return DEFAULT_SETTINGS_TAB;
+  }
+}
+
+function persistSettingsTab(tab: SettingsTab, desktopMode: boolean): void {
+  if (typeof window === "undefined") return;
+
+  const nextTab =
+    tab === "connection" && !desktopMode ? DEFAULT_SETTINGS_TAB : tab;
+
+  try {
+    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, nextTab);
+  } catch {
+    // Ignore storage failures for session-scoped UI state.
+  }
+}
 
 function isChatGPTImportPath(rawUrl: unknown): boolean {
   if (typeof rawUrl !== "string") return false;
@@ -339,7 +376,9 @@ export function SettingsView({
   setDashboardThreadRows: (n: number) => void;
 }) {
   const desktopMode = isTauriRuntime();
-  const [tab, setTab] = useState<SettingsTab>("appearance");
+  const [tab, setTab] = useState<SettingsTab>(() =>
+    readPersistedSettingsTab(desktopMode)
+  );
   const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
     appearance: null,
     system: null,
@@ -785,8 +824,12 @@ export function SettingsView({
 
   useEffect(() => {
     if (tab === "connection" && !desktopMode) {
-      setTab("appearance");
+      setTab(DEFAULT_SETTINGS_TAB);
     }
+  }, [desktopMode, tab]);
+
+  useEffect(() => {
+    persistSettingsTab(tab, desktopMode);
   }, [desktopMode, tab]);
 
   async function handleSave() {
@@ -1065,7 +1108,6 @@ export function SettingsView({
 
     return () => {
       scrollContainer.removeEventListener("scroll", rememberScrollPosition);
-      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
     };
   }, [tab]);
 
