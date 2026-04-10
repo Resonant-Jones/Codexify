@@ -185,10 +185,6 @@ describe("DocumentsView interactions", () => {
     });
   });
 
-  it("switches to the mobile list layout and keeps the summon handle discoverable", () => {
-    setViewportWidth(390);
-
-    render(
   it("switches to a mobile list layout and keeps document taps explicit", async () => {
     act(() => {
       setViewportWidth(390);
@@ -214,8 +210,6 @@ describe("DocumentsView interactions", () => {
     expect(
       screen.getByRole("button", { name: "Show thread rail" })
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Open Quarterly Plan in Workspace" })
     await waitFor(() => {
       expect(screen.getByTestId("documents-layout")).toHaveAttribute(
         "data-documents-layout",

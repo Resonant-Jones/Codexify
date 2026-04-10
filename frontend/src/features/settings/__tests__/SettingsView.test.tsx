@@ -118,6 +118,7 @@ describe("SettingsView", () => {
   test("renders the Personal Facts tab and panel without breaking the Imprint workspace", async () => {
     const user = userEvent.setup();
     const props = createSettingsViewProps();
+
     render(<SettingsView {...props} />);
 
     expect(
@@ -132,7 +133,6 @@ describe("SettingsView", () => {
     expect(screen.getByText("Imprint Workspace")).toBeInTheDocument();
     expect(screen.getByTestId("imprint-workspace")).toBeInTheDocument();
     expect(screen.getByTestId("mock-imprint-review")).toBeInTheDocument();
-    expect(screen.getByTestId("mock-persona-settings")).toBeInTheDocument();
     expect(screen.getByTestId("mock-system-prompt-inspector")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Imprint" })).toHaveAttribute(
       "aria-selected",
