@@ -303,6 +303,97 @@ async def test_deterministic_retrieval_matrix_proves_boundary_model(
 
 
 @pytest.mark.asyncio
+async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_widening(
+    context_broker, mock_chatlog_db, mock_vector_store, monkeypatch
+):
+    mock_chatlog_db.get_connector_config = MagicMock(
+        return_value={
+            "settings": {
+                "vault_root": "/vault",
+                "enabled": True,
+            }
+        }
+    )
+    mock_vector_store.search = MagicMock(
+        side_effect=AssertionError("vector search should not run")
+    )
+    context_broker.settings = SimpleNamespace(
+        GUARDIAN_ENABLE_GRAPH_CONTEXT=True
+    )
+    monkeypatch.setattr(
+        context_broker,
+        "get_scoped_documents",
+        AsyncMock(
+            side_effect=AssertionError("document widening should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        context_broker,
+        "_get_graph_context",
+        AsyncMock(
+            side_effect=AssertionError("graph enrichment should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        context_broker,
+        "_fetch_verified_personal_facts",
+        AsyncMock(
+            side_effect=AssertionError(
+                "personal-knowledge widening should not run"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        context_broker,
+        "_search_federated",
+        AsyncMock(
+            side_effect=AssertionError("federated widening should not run")
+        ),
+    )
+
+    context, trace = await context_broker.assemble(
+        thread_id=1,
+        query="status",
+        depth_mode="diagnostic",
+        k_semantic=1,
+        k_memory=1,
+        federated=True,
+        source_mode="conversation",
+    )
+
+    assert context["messages"] == [
+        {"id": 1, "role": "user", "content": "hello"}
+    ]
+    assert context["semantic"] == []
+    assert context["obsidian"] == []
+    assert context["docs"] == {"project": [], "thread": [], "global": []}
+    assert context["graph"] == []
+    assert context["memory"] == []
+    assert context["federated"] == []
+    assert "personal_facts" not in context
+    assert trace["source_mode"] == "conversation"
+    assert trace["widen_reason"] == "none"
+    assert trace["graph_context"]["status"] == "skipped"
+    assert trace["graph_context"]["reason"] == "source_mode_conversation"
+    assert trace["graph_context"]["source_mode"] == "conversation"
+    assert trace["graph_context"]["boundary"] == "active_conversation_only"
+    assert trace["memory_context"]["status"] == "skipped"
+    assert trace["memory_context"]["reason"] == "source_mode_conversation"
+    assert trace["memory_context"]["source_mode"] == "conversation"
+    assert trace["memory_context"]["boundary"] == "active_conversation_only"
+    assert trace["personal_facts_context"]["status"] == "skipped"
+    assert (
+        trace["personal_facts_context"]["reason"] == "source_mode_conversation"
+    )
+    assert trace["personal_facts_context"]["source_mode"] == "conversation"
+    assert (
+        trace["personal_facts_context"]["boundary"]
+        == "active_conversation_only"
+    )
+    assert _namespaces(mock_vector_store) == []
+
+
+@pytest.mark.asyncio
 async def test_project_source_widens_only_within_same_project(
     context_broker, mock_vector_store
 ):
