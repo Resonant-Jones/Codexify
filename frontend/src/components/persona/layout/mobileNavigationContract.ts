@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { MobileShellProfile } from "./mobileShellProfile";
+import type { MobileGestureState } from "./mobileMotionContract";
 
 export type MobileWorkspaceSummonCopy = {
   label: string;
@@ -25,7 +26,8 @@ export function getMobileTopNavDockStyle(
 }
 
 export function getMobileTopNavRailStyle(
-  mobileShellProfile: Pick<MobileShellProfile, "topNav">
+  mobileShellProfile: Pick<MobileShellProfile, "topNav">,
+  gestureState?: Pick<MobileGestureState, "isPhoneShell" | "allowMomentumScroll">
 ): CSSProperties {
   return {
     flex: "1 1 auto",
@@ -40,12 +42,18 @@ export function getMobileTopNavRailStyle(
     overscrollBehaviorX: mobileShellProfile.topNav.scrollable
       ? "contain"
       : undefined,
+    touchAction:
+      mobileShellProfile.topNav.scrollable && gestureState?.isPhoneShell
+        ? "pan-x"
+        : undefined,
     scrollPaddingInline: mobileShellProfile.topNav.scrollable
       ? mobileShellProfile.topNav.railEdgePadding
       : undefined,
     scrollbarWidth: mobileShellProfile.topNav.scrollable ? "none" : undefined,
     WebkitOverflowScrolling: mobileShellProfile.topNav.scrollable
-      ? "touch"
+      ? gestureState?.allowMomentumScroll === false
+        ? undefined
+        : "touch"
       : undefined,
     whiteSpace: "nowrap",
     boxSizing: "border-box",
