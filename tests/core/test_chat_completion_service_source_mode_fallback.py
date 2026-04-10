@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from urllib.parse import quote
 
 import pytest
 
@@ -114,6 +116,25 @@ def _seed_completion_service(
     return captured
 
 
+def _origin_with_source_mode_and_override(
+    *,
+    source_mode: str | None = None,
+    retrieval_override: dict[str, object] | str | None = None,
+) -> str:
+    segments = ["api:chat.complete", "turn_id=abc"]
+    if source_mode is not None:
+        segments.append(f"source_mode={source_mode}")
+    if retrieval_override is not None:
+        if isinstance(retrieval_override, str):
+            encoded_override = retrieval_override
+        else:
+            encoded_override = quote(
+                json.dumps(retrieval_override, separators=(",", ":"))
+            )
+        segments.append(f"retrieval_override={encoded_override}")
+    return "|".join(segments)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "origin",
@@ -122,6 +143,7 @@ def _seed_completion_service(
         "",
         "api:chat.complete|turn_id=abc",
         "api:chat.complete|turn_id=abc|source_mode=invalid",
+        "api:chat.complete|turn_id=abc|retrieval_override=not-json",
         "malformed-origin-payload",
     ],
 )
@@ -152,8 +174,37 @@ async def test_build_messages_for_llm_defaults_to_project_for_missing_or_malform
 
 
 @pytest.mark.asyncio
-async def test_build_messages_for_llm_respects_personal_knowledge_origin_bridge(
+@pytest.mark.parametrize(
+    "requested_source_mode,retrieval_override,expected_source_mode",
+    [
+        ("project", {"mode": "project"}, "project"),
+        (
+            "project",
+            {"mode": "personal_knowledge"},
+            "personal_knowledge",
+        ),
+        (
+            "personal_knowledge",
+            {"mode": "none"},
+            "personal_knowledge",
+        ),
+        (
+            "personal_knowledge",
+            {"mode": "conversation"},
+            "personal_knowledge",
+        ),
+        (
+            "personal_knowledge",
+            {"mode": "bogus"},
+            "personal_knowledge",
+        ),
+    ],
+)
+async def test_build_messages_for_llm_applies_explicit_retrieval_override_modes(
     monkeypatch: pytest.MonkeyPatch,
+    requested_source_mode: str,
+    retrieval_override: dict[str, object],
+    expected_source_mode: str,
 ) -> None:
     captured = _seed_completion_service(monkeypatch)
 
@@ -161,7 +212,10 @@ async def test_build_messages_for_llm_respects_personal_knowledge_origin_bridge(
         thread_id=1,
         provider="local",
         model=None,
-        origin="api:chat.complete|turn_id=abc|source_mode=personal_knowledge",
+        origin=_origin_with_source_mode_and_override(
+            source_mode=requested_source_mode,
+            retrieval_override=retrieval_override,
+        ),
     )
     (
         _messages,
@@ -171,6 +225,6 @@ async def test_build_messages_for_llm_respects_personal_knowledge_origin_bridge(
         trace,
     ) = await chat_completion_service.build_messages_for_llm(task)
 
-    assert captured["source_mode"] == "personal_knowledge"
-    assert trace["source_mode"] == "personal_knowledge"
+    assert captured["source_mode"] == expected_source_mode
+    assert trace["source_mode"] == expected_source_mode
     assert trace["widen_reason"] == "none"

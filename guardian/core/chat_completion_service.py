@@ -136,6 +136,54 @@ def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
     return None
 
 
+def _retrieval_override_from_origin(origin: Any) -> dict[str, Any] | None:
+    text = str(origin or "").strip()
+    if not text:
+        return None
+
+    for segment in text.split("|")[1:]:
+        key, _, value = segment.partition("=")
+        if key.strip() != "retrieval_override":
+            continue
+        raw_value = unquote(value.strip())
+        if not raw_value:
+            return None
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:
+            logger.debug(
+                "[chat-completion] failed to decode retrieval override origin segment",
+                exc_info=True,
+            )
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _effective_source_mode_for_broker_assembly(
+    source_mode: Any,
+    retrieval_override: dict[str, Any] | None,
+) -> str:
+    effective_source_mode = _normalize_source_mode(source_mode)
+    if not isinstance(retrieval_override, dict):
+        return effective_source_mode
+
+    raw_mode = retrieval_override.get("mode")
+    mode = str(raw_mode or "").strip().lower()
+    if mode == "project":
+        return "project"
+    if mode == "personal_knowledge":
+        return "personal_knowledge"
+    if mode in {"", "none", "conversation"}:
+        return effective_source_mode
+
+    logger.debug(
+        "[chat-completion] ignoring unsupported retrieval override mode=%s",
+        raw_mode,
+    )
+    return effective_source_mode
+
+
 @dataclass(frozen=True)
 class ThreadCompletionSettings:
     provider: str
@@ -1193,6 +1241,9 @@ async def build_messages_for_llm(
         settings=settings,
     )
     provider = thread_execution.provider
+    retrieval_override = _retrieval_override_from_origin(
+        getattr(task, "origin", None)
+    )
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -1324,7 +1375,10 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
-    source_mode = thread_execution.source_mode
+    source_mode = _effective_source_mode_for_broker_assembly(
+        thread_execution.source_mode,
+        retrieval_override,
+    )
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -1571,6 +1625,11 @@ def run_chat_completion_task(
     slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
     if slash_intent is not None:
         payload_summary["slash_intent"] = slash_intent
+    payload_summary["retrieval_override"] = retrieval_override
+    payload_summary["source_mode"] = (
+        trace.get("source_mode") if isinstance(trace, dict) else None
+    )
+    payload_summary["effective_source_mode"] = payload_summary["source_mode"]
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {
