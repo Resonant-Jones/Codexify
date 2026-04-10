@@ -21,7 +21,18 @@ from guardian.cognition.prompts import (
 )
 from guardian.cognition.prompts import build_context_system_message_with_meta
 from guardian.context.broker import ContextBroker
-from guardian.context.retrieval_router_policy import resolve_retrieval_plan
+from guardian.context.retrieval_router_policy import (
+    RETRIEVAL_OVERRIDE_CONVERSATION,
+    RETRIEVAL_OVERRIDE_NONE,
+    RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE,
+    RETRIEVAL_OVERRIDE_PROJECT,
+    SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    SOURCE_MODE_PROJECT,
+    normalize_retrieval_override_mode,
+    normalize_source_mode,
+    resolve_retrieval_plan,
+)
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
     build_openai_vision_content,
@@ -97,19 +108,15 @@ def _estimate_tokens(text: str | None) -> int:
     return max(1, length // 4)
 
 
-def _normalize_source_mode(value: Any) -> str:
-    return "personal_knowledge" if value == "personal_knowledge" else "project"
-
-
 def _source_mode_from_origin(origin: Any) -> str:
     text = str(origin or "").strip()
     if not text:
-        return "project"
+        return SOURCE_MODE_PROJECT
     for segment in text.split("|")[1:]:
         key, _, value = segment.partition("=")
         if key.strip() == "source_mode":
-            return _normalize_source_mode(value.strip())
-    return "project"
+            return normalize_source_mode(value.strip())
+    return SOURCE_MODE_PROJECT
 
 
 def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
@@ -158,6 +165,41 @@ def _retrieval_override_from_origin(origin: Any) -> dict[str, Any] | None:
             return None
         return parsed if isinstance(parsed, dict) else None
     return None
+
+
+def _retrieval_override_from_task(task: Any) -> dict[str, Any] | None:
+    raw_override = getattr(task, "retrieval_override", None)
+    if isinstance(raw_override, dict):
+        return raw_override
+    return _retrieval_override_from_origin(getattr(task, "origin", None))
+
+
+def _effective_source_mode_for_broker_assembly(
+    source_mode: Any,
+    retrieval_override: dict[str, Any] | None,
+) -> str:
+    effective_source_mode = normalize_source_mode(source_mode)
+    if not isinstance(retrieval_override, dict):
+        return effective_source_mode
+
+    raw_mode = retrieval_override.get("mode")
+    normalized_mode = str(raw_mode or "").strip().lower()
+    if not normalized_mode or normalized_mode == RETRIEVAL_OVERRIDE_NONE:
+        return effective_source_mode
+    if normalized_mode == RETRIEVAL_OVERRIDE_PROJECT:
+        return SOURCE_MODE_PROJECT
+    if normalized_mode == RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE:
+        return SOURCE_MODE_PERSONAL_KNOWLEDGE
+    if normalized_mode == RETRIEVAL_OVERRIDE_CONVERSATION:
+        return SOURCE_MODE_CONVERSATION
+    if normalize_retrieval_override_mode(raw_mode) is None:
+        logger.debug(
+            "[chat-completion] ignoring unsupported retrieval override mode=%s",
+            raw_mode,
+        )
+        return effective_source_mode
+
+    return effective_source_mode
 
 
 @dataclass(frozen=True)
@@ -297,11 +339,11 @@ def resolve_thread_completion_settings(
                 thread_config, _THREAD_CONFIG_INFERENCE_MODE_KEYS
             )
         )
-        source_mode = _normalize_source_mode(
+        source_mode = normalize_source_mode(
             _thread_config_value(
                 thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS
             )
-            or "project"
+            or SOURCE_MODE_PROJECT
         )
         persona_id = _thread_config_value(
             thread_config, _THREAD_CONFIG_PERSONA_KEYS
@@ -324,7 +366,7 @@ def resolve_thread_completion_settings(
         provider, settings
     )
     reasoning_mode = _normalize_reasoning_mode(requested_reasoning_mode)
-    source_mode = _normalize_source_mode(requested_source_mode)
+    source_mode = normalize_source_mode(requested_source_mode)
 
     return ThreadCompletionSettings(
         provider=provider,
@@ -1217,6 +1259,7 @@ async def build_messages_for_llm(
         settings=settings,
     )
     provider = thread_execution.provider
+    retrieval_override = _retrieval_override_from_task(task)
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -1348,7 +1391,10 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
-    source_mode = thread_execution.source_mode
+    source_mode = _effective_source_mode_for_broker_assembly(
+        thread_execution.source_mode,
+        retrieval_override,
+    )
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -1595,11 +1641,17 @@ def run_chat_completion_task(
     slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
     if slash_intent is not None:
         payload_summary["slash_intent"] = slash_intent
-    retrieval_override = _retrieval_override_from_origin(
-        getattr(task, "origin", None)
-    )
+    retrieval_override = _retrieval_override_from_task(task)
     if retrieval_override is not None:
         payload_summary["retrieval_override"] = retrieval_override
+    payload_summary["source_mode"] = (
+        trace.get("source_mode") if isinstance(trace, dict) else None
+    )
+    payload_summary[
+        "effective_source_mode"
+    ] = _effective_source_mode_for_broker_assembly(
+        payload_summary["source_mode"], retrieval_override
+    )
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {

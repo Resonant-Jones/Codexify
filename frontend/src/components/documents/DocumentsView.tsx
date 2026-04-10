@@ -220,6 +220,16 @@ export default function DocumentsView({
 
   const documentsGridStyle = useMemo<React.CSSProperties>(() => {
     if (mobileShellProfile.documents.layout === "list") {
+
+  const contentAreaClassName = isPhoneShell
+    ? "flex-1 min-h-0 overflow-auto py-[var(--card-pad)]"
+    : "flex-1 min-h-0 overflow-auto py-4";
+  const footerClassName = isPhoneShell
+    ? "flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-[var(--card-pad)] text-xs"
+    : "flex-shrink-0 flex items-center gap-2 border-t border-[var(--panel-border)] py-4 text-xs";
+
+  const documentsGridStyle = useMemo<React.CSSProperties>(() => {
+    if (isPhoneShell) {
       return {
         display: "flex",
         width: "100%",
@@ -395,6 +405,17 @@ export default function DocumentsView({
               </div>
               <div className="text-[11px]" style={{ color: "var(--muted)" }}>
                 {docItems.length} items
+        <div
+          className={contentAreaClassName}
+          style={{ overflowX: "hidden" }}
+          data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
+          onDrop={uploader.onDrop}
+          onDragOver={uploader.onDragOver}
+        >
+          {docItems.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-sm opacity-70" style={{ color: "var(--muted)" }}>
+                No documents yet. Drag files here or use the button below to get started.
               </div>
             </div>
 
@@ -416,6 +437,48 @@ export default function DocumentsView({
                     style={{ color: "var(--muted)" }}
                   >
                     No documents yet. Drag files here or use the button below to get started.
+                return (
+                  <div key={key} className="relative">
+                    {isPhoneShell ? (
+                      <MobileDocumentRow
+                        doc={d}
+                        extColors={extColors}
+                        onClick={() => handleDocumentClick(d)}
+                      />
+                    ) : (
+                      <DocumentTile
+                        file={{
+                          name: d.title,
+                          ext: d.ext,
+                          embeddingStatus: d.embeddingStatus,
+                          embeddingError: d.embeddingError,
+                        }}
+                        onClick={() => handleDocumentClick(d)}
+                        onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
+                        contextMenuItems={
+                          d.type === "codex_entry" || !onOpenInThread
+                            ? []
+                            : [
+                                {
+                                  label: "Open in Thread",
+                                  onSelect: () => onOpenInThread(d),
+                                },
+                              ]
+                        }
+                      />
+                    )}
+                    {d.mock ? (
+                      <span
+                        className="absolute left-2 top-2 z-10 rounded-full px-2 py-1 text-[10px] border"
+                        style={{
+                          background: "rgba(255,255,255,0.2)",
+                          color: "#111",
+                          borderColor: "rgba(255,255,255,0.5)",
+                        }}
+                      >
+                        Mock
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               ) : (
@@ -478,6 +541,13 @@ export default function DocumentsView({
             <div
               className="flex-shrink-0 border-t border-[var(--panel-border)] px-[var(--card-pad)] py-[var(--card-pad)] text-xs"
               style={{ color: "var(--muted)" }}
+        <div className={footerClassName} style={{ color: "var(--muted)" }}>
+          <div className={`flex items-center gap-2 ${isPhoneShell ? "flex-wrap" : ""}`}>
+            <span>Drag & drop files here, or</span>
+            <button
+              type="button"
+              className="underline hover:opacity-80"
+              onClick={uploader.pick}
             >
               <div className={`flex items-center gap-2 ${isPhoneShell ? "flex-wrap" : ""}`}>
                 <span>Drag & drop files here, or</span>

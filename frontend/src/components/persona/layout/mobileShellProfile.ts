@@ -49,6 +49,9 @@ export type MobileShellProfile = {
       bottomSafeArea: string;
     };
   };
+  bottomEdge: {
+    suppressOnKeyboard: boolean;
+  };
 };
 
 const DESKTOP_SHELL_PROFILE = {
@@ -92,6 +95,9 @@ const DESKTOP_SHELL_PROFILE = {
       bottomSafeArea: "0px",
     },
   },
+  bottomEdge: {
+    suppressOnKeyboard: false,
+  },
 } as const satisfies Omit<MobileShellProfile, "active" | "viewportClass">;
 
 const PHONE_SHELL_PROFILE = {
@@ -134,6 +140,9 @@ const PHONE_SHELL_PROFILE = {
       shellMaxHeight: "calc(var(--shell-viewport-height, 100vh) * 0.6)",
       bottomSafeArea: "env(safe-area-inset-bottom, 0px)",
     },
+  },
+  bottomEdge: {
+    suppressOnKeyboard: true,
   },
 } as const satisfies Omit<MobileShellProfile, "active" | "viewportClass">;
 

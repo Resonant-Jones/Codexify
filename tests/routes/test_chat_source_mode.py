@@ -5,6 +5,8 @@ from urllib.parse import unquote
 
 import pytest
 
+from guardian.tasks.types import task_from_dict
+
 
 @pytest.mark.parametrize(
     ("raw_source_mode", "expected_source_mode"),
@@ -59,6 +61,7 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     assert f"|source_mode={expected_source_mode}" in getattr(task, "origin")
     assert "|slash_intent=" not in getattr(task, "origin")
     assert "|retrieval_override=" not in getattr(task, "origin")
+    assert getattr(task, "retrieval_override", None) is None
     assert captured["queue_name"] == "codexify:queue:chat"
 
 
@@ -131,6 +134,12 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
     assert "|source_mode=personal_knowledge" in origin
     assert "|slash_intent=" in origin
     assert "|retrieval_override=" in origin
+    assert getattr(task, "retrieval_override") == expected_retrieval_override
+    round_tripped = task_from_dict(task.to_dict())
+    assert (
+        getattr(round_tripped, "retrieval_override")
+        == expected_retrieval_override
+    )
 
     slash_intent_raw = origin.split("|slash_intent=", 1)[1]
     slash_intent_payload = json.loads(
