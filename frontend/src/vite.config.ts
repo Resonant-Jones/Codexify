@@ -18,6 +18,19 @@ const PROXY_TARGET =
   process.env.VITE_BACKEND_URL ||
   'http://localhost:8888';
 
+const ADDITIONAL_ALLOWED_HOSTS = (
+  process.env.__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS ?? ''
+)
+  .split(',')
+  .map((host) => host.trim())
+  .filter(Boolean);
+const DEV_ALLOWED_HOSTS = Array.from(
+  new Set([
+    'axisnode',
+    ...ADDITIONAL_ALLOWED_HOSTS,
+  ])
+);
+
 export default defineConfig({
   root: resolve(__dirname),
 
@@ -85,6 +98,7 @@ export default defineConfig({
   server: {
     port: Number(process.env.VITE_DEV_SERVER_PORT ?? 5173),
     host: true,
+    allowedHosts: DEV_ALLOWED_HOSTS,
     strictPort: false,
     proxy: {
       // SSE: proxy to backend without rewriting path; backend supports /api/events

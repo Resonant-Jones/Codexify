@@ -124,6 +124,40 @@ def _system_docs_block(text: Optional[str]) -> str:
     return "Attached system documents:\n" + text.strip() + "\n"
 
 
+def _compact_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).strip()
+
+
+def _format_personal_fact_row(item: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    if str(item.get("status") or "").strip().lower() != "verified":
+        return ""
+    if item.get("is_active") is False:
+        return ""
+
+    key = _compact_text(item.get("key"))
+    value = _compact_text(item.get("value"))
+    if not key or not value:
+        return ""
+    return f"- {key}: {value}"
+
+
+def _personal_facts_lines(bundle: Optional[Dict[str, Any]]) -> list[str]:
+    if not isinstance(bundle, dict):
+        return []
+    raw = bundle.get("personal_facts")
+    if not isinstance(raw, list):
+        return []
+    return [
+        line
+        for line in (_format_personal_fact_row(item) for item in raw)
+        if line
+    ]
+
+
 def _depth_block(depth: str) -> str:
     if depth == "shallow":
         return "Prioritize speed over exhaustive analysis.\n"
@@ -146,8 +180,14 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
     has_semantic = bool(bundle.get("semantic"))
     has_memory = bool(bundle.get("memory"))
     has_graph = bool(bundle.get("graph"))
+    has_personal_facts = bool(_personal_facts_lines(bundle))
 
-    if not has_semantic and not has_memory and not has_graph:
+    if (
+        not has_semantic
+        and not has_memory
+        and not has_graph
+        and not has_personal_facts
+    ):
         return ""
 
     hints = []
@@ -167,6 +207,13 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
         hints.append("Graph context is available.")
     else:
         hints.append("Graph context was unavailable for this turn.")
+
+    if has_personal_facts:
+        hints.append("Verified personal facts are available.")
+    else:
+        hints.append(
+            "Verified personal facts were not retrieved for this turn."
+        )
 
     return "Context hints:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
 
@@ -244,6 +291,7 @@ def build_context_system_message_with_meta(
             "memory": {"count": 0, "injected": False},
             "graph": {"count": 0, "injected": False},
             "federated": {"count": 0, "injected": False},
+            "personal_facts": {"count": 0, "injected": False},
         }
 
     context_parts = []
@@ -262,6 +310,10 @@ def build_context_system_message_with_meta(
         },
         "federated": {
             "count": len(bundle.get("federated", []) or []),
+            "injected": False,
+        },
+        "personal_facts": {
+            "count": len(_personal_facts_lines(bundle)),
             "injected": False,
         },
     }
@@ -304,6 +356,11 @@ def build_context_system_message_with_meta(
                 "**Graph Context:**\n" + "\n".join(graph_parts)
             )
             meta["graph"]["injected"] = True
+
+    personal_facts = _personal_facts_lines(bundle)
+    if personal_facts:
+        context_parts.append("Personal Facts:\n" + "\n".join(personal_facts))
+        meta["personal_facts"]["injected"] = True
 
     if bundle.get("federated"):
         federated_parts = []

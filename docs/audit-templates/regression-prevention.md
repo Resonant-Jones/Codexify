@@ -111,9 +111,9 @@ Use:
 ### Risk Bands
 
 * **1-20** = Low
-* **21-60** = Moderate
-* **61-120** = High
-* **121-250** = Critical
+* **21-120** = Moderate
+* **121-180** = High
+* **181-625** = Critical
 
 ---
 
@@ -121,21 +121,21 @@ Use:
 
 | Risk Area              | Failure Mode                                                   | Impact | Likelihood | Detectability | Recoverability | Score | Band     | Owner        | Current Controls      | Required Mitigation                                                   |
 | ---------------------- | -------------------------------------------------------------- | -----: | ---------: | ------------: | -------------: | ----: | -------- | ------------ | --------------------- | --------------------------------------------------------------------- |
-| Model Routing          | Provider change breaks response shape or tool behavior         |      4 |          4 |             3 |              2 |    96 | High     | Platform     | adapter abstraction   | add contract tests per provider and fallback snapshots                |
+| Model Routing          | Provider change breaks response shape or tool behavior         |      4 |          4 |             3 |              2 |    96 | Moderate | Platform     | adapter abstraction   | add contract tests per provider and fallback snapshots                |
 | Retrieval              | Relevant memory is not returned or irrelevant memory dominates |      4 |          4 |             4 |              3 |   192 | Critical | Memory       | manual inspection     | add retrieval eval set, drift alerts, relevance thresholds            |
-| Memory Ownership       | Context becomes coupled to one vendor or opaque store          |      5 |          2 |             4 |              4 |   160 | Critical | Platform     | local-first posture   | maintain export path, canonical internal schema, migration test       |
+| Memory Ownership       | Context becomes coupled to one vendor or opaque store          |      5 |          2 |             4 |              4 |   160 | High     | Platform     | local-first posture   | maintain export path, canonical internal schema, migration test       |
 | Persona Boundaries     | Cross-persona leakage or identity contamination                |      5 |          3 |             4 |              4 |   240 | Critical | Identity     | conceptual separation | add boundary tests, isolation assertions, trace tagging               |
-| Tool Integrations      | Tool API changes silently break execution                      |      4 |          4 |             4 |              2 |   128 | Critical | Integrations | wrapper layer         | add tool contract versioning and synthetic health checks              |
-| Queue / Worker         | Jobs stall, duplicate, or execute out of order                 |      5 |          3 |             3 |              3 |   135 | Critical | Runtime      | idempotency in places | add job state invariants, poison queue policy, replay tests           |
+| Tool Integrations      | Tool API changes silently break execution                      |      4 |          4 |             4 |              2 |   128 | High     | Integrations | wrapper layer         | add tool contract versioning and synthetic health checks              |
+| Queue / Worker         | Jobs stall, duplicate, or execute out of order                 |      5 |          3 |             3 |              3 |   135 | High     | Runtime      | idempotency in places | add job state invariants, poison queue policy, replay tests           |
 | Orchestration          | Multi-step agent flow fails without recovery path              |      5 |          4 |             4 |              3 |   240 | Critical | Runtime      | ad hoc retry logic    | formalize step state machine, retry taxonomy, human escalation        |
-| Cost Control           | Agent loops or retrieval inflation increase spend unexpectedly |      4 |          4 |             3 |              2 |    96 | High     | Ops          | manual observation    | add per-run budget guardrails and cost anomaly detection              |
-| Eval Coverage          | System changes ship without proving behavior quality           |      4 |          4 |             5 |              2 |   160 | Critical | QA           | spot checks           | define golden tasks, scenario packs, pre-release score floor          |
+| Cost Control           | Agent loops or retrieval inflation increase spend unexpectedly |      4 |          4 |             3 |              2 |    96 | Moderate | Ops          | manual observation    | add per-run budget guardrails and cost anomaly detection              |
+| Eval Coverage          | System changes ship without proving behavior quality           |      4 |          4 |             5 |              2 |   160 | High     | QA           | spot checks           | define golden tasks, scenario packs, pre-release score floor          |
 | Schema Drift           | Internal objects evolve without migration discipline           |      4 |          3 |             4 |              4 |   192 | Critical | Platform     | implicit adaptation   | add schema versions, migrators, forward/backward compatibility checks |
-| Prompt Coupling        | Logic lives inside prompts and becomes brittle                 |      3 |          4 |             4 |              3 |   144 | Critical | Runtime      | prompt iteration      | move logic to typed config or code wherever possible                  |
+| Prompt Coupling        | Logic lives inside prompts and becomes brittle                 |      3 |          4 |             4 |              3 |   144 | High     | Runtime      | prompt iteration      | move logic to typed config or code wherever possible                  |
 | Behavioral Coupling    | System quality depends on one model’s temperament              |      4 |          4 |             5 |              3 |   240 | Critical | Platform     | multi-model intent    | add cross-model eval parity and degraded-mode acceptance tests        |
 | Observability          | Failures occur but cannot be explained after the fact          |      5 |          3 |             5 |              4 |   300 | Critical | Ops          | scattered logs        | add end-to-end traces, correlation ids, reason codes                  |
 | Security / Permissions | Tools exceed intended authority or access wrong data           |      5 |          2 |             4 |              5 |   200 | Critical | Security     | boundary awareness    | enforce scoped permissions, audit logs, deny-by-default tool policy   |
-| UX Trust               | User sees inconsistent identity, memory, or action intent      |      4 |          3 |             4 |              3 |   144 | Critical | Product      | manual review         | add trust-focused UX acceptance checks                                |
+| UX Trust               | User sees inconsistent identity, memory, or action intent      |      4 |          3 |             4 |              3 |   144 | High     | Product      | manual review         | add trust-focused UX acceptance checks                                |
 | Migration Debt         | Swapping a backend or provider becomes too painful             |      4 |          3 |             4 |              4 |   192 | Critical | Platform     | modularity intent     | run quarterly swap drills against one subsystem                       |
 | Complexity Creep       | Too many moving parts slow delivery and hide defects           |      4 |          5 |             4 |              3 |   240 | Critical | Architecture | intuition             | require simplification review for every net-new subsystem             |
 | Data Integrity         | Stored memory, event logs, or documents become inconsistent    |      5 |          3 |             4 |              4 |   240 | Critical | Data         | partial safeguards    | add checksum/invariant checks and repair scripts                      |
