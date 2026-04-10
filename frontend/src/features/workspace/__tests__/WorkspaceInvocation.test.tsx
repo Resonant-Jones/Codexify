@@ -131,6 +131,7 @@ vi.mock("@/pages/SharePage", () => ({
 import DocumentsView from "@/components/documents/DocumentsView";
 import {
   forwardLegacyDocumentOpenToWorkspace,
+  requestWorkspaceOpen,
   useWorkspaceState,
 } from "@/features/workspace/state/useWorkspaceState";
 
@@ -145,6 +146,19 @@ function WorkspaceProbe() {
     </div>
   );
 }
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
+beforeEach(() => {
+  setViewportWidth(1280);
+});
 
 describe("workspace invocation contract", () => {
   beforeEach(() => {
@@ -225,6 +239,75 @@ describe("workspace invocation contract", () => {
       );
       expect(screen.getByTestId("workspace-probe")).toHaveTextContent(
         "Thread Attachment"
+      );
+    });
+  });
+
+  it("treats an unsupported dashboard target as the shared documents workspace", async () => {
+    render(<WorkspaceProbe />);
+
+    let didOpen = false;
+    await act(async () => {
+      didOpen = requestWorkspaceOpen({
+        doc: {
+          id: "dashboard-rail",
+          title: "Dashboard Notes",
+          name: "Dashboard Notes",
+          ext: "md",
+          type: "file",
+          src_url: "/media/documents/dashboard-notes.md",
+        },
+        source: "documents",
+        targetView: "dashboard" as any,
+      });
+    });
+
+    expect(didOpen).toBe(true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-probe")).toHaveAttribute(
+        "data-open",
+        "true"
+      );
+      expect(screen.getByTestId("workspace-probe")).toHaveTextContent(
+        "Dashboard Notes"
+      );
+    });
+  });
+
+  it("keeps Workspace collapsed by default on phone widths after a document open request", async () => {
+    setViewportWidth(390);
+    render(<WorkspaceProbe />);
+
+    let didOpen = false;
+    await act(async () => {
+      didOpen = forwardLegacyDocumentOpenToWorkspace(
+        {
+          doc: {
+            id: "phone-1",
+            title: "Phone Notes",
+            name: "Phone Notes",
+            ext: "md",
+            type: "file",
+            src_url: "/media/documents/phone-notes.md",
+          },
+        },
+        {
+          source: "documents",
+          targetView: "documents",
+        }
+      );
+    });
+
+    expect(didOpen).toBe(true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-probe")).toHaveAttribute(
+        "data-open",
+        "false"
+      );
+      expect(screen.getByTestId("workspace-probe")).toHaveTextContent(
+        "Phone Notes"
       );
     });
   });

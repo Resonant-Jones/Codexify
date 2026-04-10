@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { DocumentLike } from "@/types/documents";
+import {
+  isPhoneShellViewportClass,
+  useShellViewportClass,
+} from "@/components/persona/layout/shellBreakpointContract";
 
 export const WORKSPACE_OPEN_EVENT = "cfy:workspace:open";
 export const LEGACY_DOCUMENT_OPEN_EVENT = "cfy:documents:open";
@@ -36,6 +40,19 @@ function normalizeString(value: unknown): string | undefined {
 function normalizeNumericId(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeWorkspaceTargetView(
+  value: unknown,
+  fallback: WorkspaceTargetView
+): WorkspaceTargetView {
+  if (value === "guardian") {
+    return "guardian";
+  }
+  if (value === "documents") {
+    return "documents";
+  }
+  return fallback;
 }
 
 function inferExtension(candidate: Record<string, unknown>): string {
@@ -179,12 +196,10 @@ export function normalizeWorkspaceOpenRequest(
       ? sourceCandidate
       : "documents";
 
-  const targetView: WorkspaceTargetView =
-    targetViewCandidate === "guardian"
-      ? "guardian"
-      : defaults.targetView === "guardian"
-        ? "guardian"
-        : "documents";
+  const targetView = normalizeWorkspaceTargetView(
+    targetViewCandidate,
+    defaults.targetView ?? "documents"
+  );
 
   return {
     doc,
@@ -243,8 +258,15 @@ export function useWorkspaceState({
   normalizeDocument,
   onOpenRequest,
 }: UseWorkspaceStateOptions = {}) {
+  const shellViewportClass = useShellViewportClass();
+  const isPhoneShell = isPhoneShellViewportClass(shellViewportClass);
   const [activeDoc, setActiveDoc] = useState<DocumentLike | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isPhoneShell) return;
+    setWorkspaceOpen(false);
+  }, [isPhoneShell]);
 
   const openWorkspaceDocument = useCallback(
     (raw: unknown, defaults: WorkspaceOpenRequestDefaults = {}) => {
@@ -263,11 +285,17 @@ export function useWorkspaceState({
       const nextRequest = { ...request, doc: nextDoc };
 
       setActiveDoc(nextDoc);
-      setWorkspaceOpen(true);
+      // Phone shells keep Workspace collapsed until the user explicitly summons it.
+      setWorkspaceOpen((previous) => {
+        if (isPhoneShell) {
+          return previous;
+        }
+        return true;
+      });
       onOpenRequest?.(nextRequest);
       return true;
     },
-    [normalizeDocument, onOpenRequest]
+    [isPhoneShell, normalizeDocument, onOpenRequest]
   );
 
   const closeWorkspace = useCallback(() => {

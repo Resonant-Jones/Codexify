@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatView from "@/features/chat/ChatView";
 import { CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
@@ -23,6 +23,7 @@ let pollFnRef: (() => Promise<void>) | null = null;
 const audioPlayMock = vi.fn();
 const audioPauseMock = vi.fn();
 const createdAudioSources: string[] = [];
+const originalInnerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
 
 const liveSubscribersByType = new Map<string, Set<Subscriber>>();
 let unsubscribeCount = 0;
@@ -169,6 +170,12 @@ describe("ChatView loop guards", () => {
     });
   });
 
+  afterEach(() => {
+    if (originalInnerWidth) {
+      Object.defineProperty(window, "innerWidth", originalInnerWidth);
+    }
+  });
+
   it("renders audio state controls from props without owning fetch loops", () => {
     render(
       <ChatView
@@ -197,6 +204,31 @@ describe("ChatView loop guards", () => {
     expect(screen.getByRole("button", { name: "Generating audio" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Audio unavailable" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Read Aloud" })).toBeEnabled();
+  });
+
+  it("adds safe-area bottom padding for phone shells", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[buildMessage(1, "user"), buildMessage(2, "assistant")]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    const container = screen.getByTestId("chat-container");
+    expect(container.style.getPropertyValue("--chat-safe-area-bottom")).toBe(
+      "env(safe-area-inset-bottom, 0px)"
+    );
   });
 
   it("loads older messages through the provided callback when scrolled to the top", async () => {
@@ -233,6 +265,102 @@ describe("ChatView loop guards", () => {
     await waitFor(() => {
       expect(onLoadOlderMessages).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("shows a jump-to-latest control only after the viewport is more than one page from the bottom and returns there on click", async () => {
+    const originalClientHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientHeight"
+    );
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight"
+    );
+    const originalScrollTop = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollTop"
+    );
+
+    let clientHeight = 500;
+    let scrollHeight = 2000;
+    let scrollTop = 1000;
+
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get: () => clientHeight,
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight,
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = Number(value);
+      },
+    });
+
+    try {
+      render(
+        <ChatView
+          threadId={7}
+          guardianName="Guardian"
+          messages={[buildMessage(1, "user"), buildMessage(2, "assistant")]}
+          loading={false}
+          error={null}
+          hasMore={false}
+          completionState={baseCompletion}
+          endCompletion={vi.fn()}
+        />
+      );
+
+      const container = screen.getByTestId("chat-container");
+
+      fireEvent.scroll(container);
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: /jump to latest turn/i })
+        ).not.toBeInTheDocument();
+      });
+
+      container.scrollTop = 999;
+      fireEvent.scroll(container);
+
+      const jumpToLatest = await screen.findByRole("button", {
+        name: /jump to latest turn/i,
+      });
+      expect(jumpToLatest).toBeInTheDocument();
+
+      fireEvent.click(jumpToLatest);
+
+      await waitFor(() => {
+        expect(container.scrollTop).toBe(1500);
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: /jump to latest turn/i })
+        ).not.toBeInTheDocument();
+      });
+    } finally {
+      if (originalClientHeight) {
+        Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+      } else {
+        delete (HTMLElement.prototype as any).clientHeight;
+      }
+      if (originalScrollHeight) {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", originalScrollHeight);
+      } else {
+        delete (HTMLElement.prototype as any).scrollHeight;
+      }
+      if (originalScrollTop) {
+        Object.defineProperty(HTMLElement.prototype, "scrollTop", originalScrollTop);
+      } else {
+        delete (HTMLElement.prototype as any).scrollTop;
+      }
+    }
   });
 
   it("shows the shared inference banner for an active completion on the current thread", () => {

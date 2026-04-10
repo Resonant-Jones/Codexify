@@ -4,6 +4,18 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from guardian.context.retrieval_router_policy import (
+    SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    SOURCE_MODE_PROJECT,
+    WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+    WIDEN_REASON_INSUFFICIENT_THREAD_HITS,
+    WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS,
+    WIDEN_REASON_NONE,
+    normalize_source_mode,
+    normalize_widen_reason,
+    source_mode_boundary_label,
+)
 from guardian.context.tool_intents import (
     ToolIntentParseError,
     ToolRisk,
@@ -17,10 +29,9 @@ from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 
 logger = logging.getLogger(__name__)
 _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
-_SOURCE_MODE_PROJECT = "project"
-_SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
 _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
 _THREAD_CANDIDATE_LIMIT = 500
+_PERSONAL_FACT_LIMIT = 100
 
 
 def _thread_namespace(thread_id: int) -> str:
@@ -35,12 +46,17 @@ def _coerce_int(value: Any) -> Optional[int]:
     return num if num > 0 else None
 
 
-def _normalize_source_mode(value: Any) -> str:
-    return (
-        _SOURCE_MODE_PERSONAL_KNOWLEDGE
-        if value == _SOURCE_MODE_PERSONAL_KNOWLEDGE
-        else _SOURCE_MODE_PROJECT
-    )
+def _is_verified_active_personal_fact(fact: Any) -> bool:
+    if not isinstance(fact, dict):
+        return False
+    if str(fact.get("status") or "").strip().lower() != "verified":
+        return False
+    if fact.get("is_active") is False:
+        return False
+
+    key = str(fact.get("key") or "").strip()
+    value = str(fact.get("value") or "").strip()
+    return bool(key and value)
 
 
 def _coerce_graph_value(value: Any) -> Any:
@@ -219,7 +235,7 @@ class ContextBroker:
         doc_excerpt_chars: int = 420,
         federated: bool = False,
         user_id: Optional[str] = None,
-        source_mode: str = _SOURCE_MODE_PROJECT,
+        source_mode: str = SOURCE_MODE_PROJECT,
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Assemble a context bundle for the given thread and query.
 
@@ -255,7 +271,11 @@ class ContextBroker:
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
-        normalized_source_mode = _normalize_source_mode(source_mode)
+        normalized_source_mode = normalize_source_mode(source_mode)
+        conversation_only = normalized_source_mode == SOURCE_MODE_CONVERSATION
+        source_mode_boundary = source_mode_boundary_label(
+            normalized_source_mode
+        )
         resolved_project_id = await self._resolve_project_id(
             thread_id=thread_id, project_id=project_id
         )
@@ -279,8 +299,8 @@ class ContextBroker:
 
         # Always include semantic search (for all depths except "shallow")
         context["obsidian"] = []
-        semantic_widen_reason = "none"
-        if normalized_depth != "shallow":
+        semantic_widen_reason = WIDEN_REASON_NONE
+        if normalized_depth != "shallow" and not conversation_only:
             try:
                 (
                     semantic_thread,
@@ -319,7 +339,11 @@ class ContextBroker:
             context["obsidian"] = []
 
         context["docs"] = {"project": [], "thread": [], "global": []}
-        if normalized_depth in ("normal", "deep", "diagnostic"):
+        if not conversation_only and normalized_depth in (
+            "normal",
+            "deep",
+            "diagnostic",
+        ):
             try:
                 scoped_docs = await self.get_scoped_documents(
                     thread_id=thread_id,
@@ -334,44 +358,114 @@ class ContextBroker:
                     "[ContextBroker] Failed to fetch scoped documents: %s", e
                 )
 
+        personal_facts_trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": (
+                f"source_mode_{SOURCE_MODE_CONVERSATION}"
+                if conversation_only
+                else "depth_not_allowed"
+            ),
+            "count": 0,
+            "retrieved_count": 0,
+            "user_id": resolved_user_id or "default",
+            "source_mode": normalized_source_mode,
+            "boundary": source_mode_boundary,
+        }
+        if not conversation_only and normalized_depth in ("deep", "diagnostic"):
+            try:
+                (
+                    personal_facts,
+                    personal_facts_trace,
+                ) = await self._fetch_verified_personal_facts(
+                    user_id=resolved_user_id,
+                    limit=_PERSONAL_FACT_LIMIT,
+                )
+                if personal_facts:
+                    context["personal_facts"] = personal_facts
+                personal_facts_trace = {
+                    **personal_facts_trace,
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                }
+            except Exception as e:
+                logger.warning(
+                    "[ContextBroker] Personal facts unavailable; continuing without them: %s",
+                    e,
+                )
+                personal_facts_trace = {
+                    "attempted": True,
+                    "status": "failed",
+                    "reason": "retrieval_error",
+                    "error": str(e),
+                    "count": 0,
+                    "retrieved_count": 0,
+                    "user_id": resolved_user_id or "default",
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                }
+
         # Optional graph-derived context (explicit flag; deferred for CORE LOOP by default)
         context["graph"] = []
         graph_trace: Dict[str, Any] = {
             "attempted": False,
             "status": "skipped",
-            "reason": "disabled",
+            "reason": (
+                f"source_mode_{SOURCE_MODE_CONVERSATION}"
+                if conversation_only
+                else "disabled"
+            ),
             "count": 0,
+            "source_mode": normalized_source_mode,
+            "boundary": source_mode_boundary,
         }
-        if getattr(self.settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
+        if not conversation_only and getattr(
+            self.settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False
+        ):
             try:
                 graph_chunks, graph_trace = await self._get_graph_context(
                     user_id=resolved_user_id or "default",
                     thread_id=str(thread_id),
                 )
                 context["graph"] = graph_chunks
+                graph_trace = {
+                    **graph_trace,
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                }
             except Exception as e:
                 logger.warning(
                     "[ContextBroker] Graph context unavailable; continuing without it: %s",
                     e,
                 )
+                graph_trace = {
+                    **graph_trace,
+                    "status": "failed",
+                    "reason": "retrieval_error",
+                    "error": str(e),
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                }
 
         # Include memory search for deep and diagnostic modes
-        memory_widen_reason = "none"
+        memory_widen_reason = WIDEN_REASON_NONE
         memory_trace: Dict[str, Any] = {
             "attempted": False,
             "status": "skipped",
-            "reason": "depth_not_allowed",
-            "count": 0,
-            "boundary": (
-                "same_user_only"
-                if normalized_source_mode == _SOURCE_MODE_PERSONAL_KNOWLEDGE
-                else "same_user_same_project"
+            "reason": (
+                f"source_mode_{SOURCE_MODE_CONVERSATION}"
+                if conversation_only
+                else "depth_not_allowed"
             ),
+            "count": 0,
+            "boundary": source_mode_boundary,
             "source_mode": normalized_source_mode,
         }
         if normalized_depth in ("deep", "diagnostic"):
             try:
-                if self.memory:
+                if conversation_only:
+                    context["memory"] = []
+                elif self.memory:
                     (
                         memory,
                         memory_widen_reason,
@@ -393,12 +487,7 @@ class ContextBroker:
                         "status": "skipped",
                         "reason": "no_memory_store",
                         "count": 0,
-                        "boundary": (
-                            "same_user_only"
-                            if normalized_source_mode
-                            == _SOURCE_MODE_PERSONAL_KNOWLEDGE
-                            else "same_user_same_project"
-                        ),
+                        "boundary": source_mode_boundary,
                         "source_mode": normalized_source_mode,
                     }
             except Exception as e:
@@ -410,12 +499,7 @@ class ContextBroker:
                     "reason": "retrieval_error",
                     "error": str(e),
                     "count": 0,
-                    "boundary": (
-                        "same_user_only"
-                        if normalized_source_mode
-                        == _SOURCE_MODE_PERSONAL_KNOWLEDGE
-                        else "same_user_same_project"
-                    ),
+                    "boundary": source_mode_boundary,
                     "source_mode": normalized_source_mode,
                 }
 
@@ -434,10 +518,13 @@ class ContextBroker:
         # Include federated context if requested
         if federated:
             try:
-                federated_results = await self._search_federated(
-                    query, k_semantic
-                )
-                context["federated"] = federated_results
+                if conversation_only:
+                    context["federated"] = []
+                else:
+                    federated_results = await self._search_federated(
+                        query, k_semantic
+                    )
+                    context["federated"] = federated_results
             except Exception as e:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
@@ -473,6 +560,7 @@ class ContextBroker:
             ),
             "graph_context": graph_trace,
             "memory_context": memory_trace,
+            "personal_facts_context": personal_facts_trace,
         }
 
         try:
@@ -494,6 +582,74 @@ class ContextBroker:
             pass
 
         return context, rag_trace
+
+    async def _fetch_verified_personal_facts(
+        self,
+        *,
+        user_id: Optional[str],
+        limit: int,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Fetch verified, active personal facts from the chatlog adapter."""
+        effective_user_id = str(user_id or "default").strip() or "default"
+        trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "no_fact_adapter",
+            "count": 0,
+            "retrieved_count": 0,
+            "user_id": effective_user_id,
+        }
+
+        getter = getattr(self.chatlog, "list_facts", None)
+        if not callable(getter):
+            return [], trace
+
+        try:
+            try:
+                result = getter(
+                    effective_user_id,
+                    status="verified",
+                    active_only=True,
+                    limit=limit,
+                )
+            except TypeError:
+                result = getter(
+                    effective_user_id,
+                    status="verified",
+                    active_only=True,
+                )
+            if hasattr(result, "__await__"):
+                result = await result
+            raw_facts = result if isinstance(result, list) else []
+            eligible_facts = [
+                fact
+                for fact in raw_facts
+                if _is_verified_active_personal_fact(fact)
+            ]
+            trace.update(
+                attempted=True,
+                retrieved_count=len(raw_facts),
+                count=len(eligible_facts),
+                status=(
+                    "contributed" if eligible_facts else "attempted_no_hits"
+                ),
+                reason=(
+                    "verified_active_facts"
+                    if eligible_facts
+                    else "no_verified_facts"
+                ),
+            )
+            return eligible_facts, trace
+        except Exception as exc:
+            trace.update(
+                attempted=True,
+                status="failed",
+                reason="retrieval_error",
+                error=str(exc),
+                count=0,
+                retrieved_count=0,
+            )
+            return [], trace
 
     def _obsidian_retrieval_enabled(self) -> bool:
         getter = getattr(self.chatlog, "get_connector_config", None)
@@ -725,17 +881,13 @@ class ContextBroker:
         source_mode: str,
         search_fn: Any,
     ) -> tuple[List[Dict[str, Any]], str, Dict[str, Any]]:
-        normalized_source_mode = _normalize_source_mode(source_mode)
+        normalized_source_mode = normalize_source_mode(source_mode)
         diagnostics: Dict[str, Any] = {
             "attempted": False,
             "status": "skipped",
             "reason": "not_attempted",
             "source_mode": normalized_source_mode,
-            "boundary": (
-                "same_user_only"
-                if normalized_source_mode == _SOURCE_MODE_PERSONAL_KNOWLEDGE
-                else "same_user_same_project"
-            ),
+            "boundary": source_mode_boundary_label(normalized_source_mode),
             "primary_hit_count": 0,
             "candidate_thread_count": 0,
             "candidate_hit_count": 0,
@@ -744,7 +896,10 @@ class ContextBroker:
         }
         if k <= 0:
             diagnostics["reason"] = "invalid_limit"
-            return [], "none", diagnostics
+            return [], WIDEN_REASON_NONE, diagnostics
+        if normalized_source_mode == SOURCE_MODE_CONVERSATION:
+            diagnostics.update(reason=f"source_mode_{SOURCE_MODE_CONVERSATION}")
+            return [], WIDEN_REASON_NONE, diagnostics
 
         try:
             primary_output = await search_fn(
@@ -759,7 +914,7 @@ class ContextBroker:
                 reason="primary_search_error",
                 error=str(exc),
             )
-            return [], "none", diagnostics
+            return [], WIDEN_REASON_NONE, diagnostics
 
         primary_hits, search_trace = self._unpack_search_output(primary_output)
         diagnostics.update(
@@ -774,10 +929,10 @@ class ContextBroker:
                 error=search_trace.get("error"),
                 result_count=0,
             )
-            return [], "none", diagnostics
+            return [], WIDEN_REASON_NONE, diagnostics
 
         widen_reason = self._determine_widen_reason(primary_hits, k)
-        if widen_reason == "none":
+        if widen_reason == WIDEN_REASON_NONE:
             diagnostics.update(
                 status="contributed" if primary_hits else "attempted_no_hits",
                 reason=(
@@ -789,7 +944,7 @@ class ContextBroker:
                 candidate_thread_count=0,
                 widened=False,
             )
-            return primary_hits[:k], "none", diagnostics
+            return primary_hits[:k], WIDEN_REASON_NONE, diagnostics
 
         candidate_threads = await self._list_widening_threads(
             thread_id=thread_id,
@@ -812,7 +967,7 @@ class ContextBroker:
                         "skipped"
                         if not user_id
                         or (
-                            normalized_source_mode == _SOURCE_MODE_PROJECT
+                            normalized_source_mode == SOURCE_MODE_PROJECT
                             and project_id is None
                         )
                         else "no_eligible_candidates"
@@ -821,13 +976,13 @@ class ContextBroker:
                         "boundary_blocked"
                         if not user_id
                         or (
-                            normalized_source_mode == _SOURCE_MODE_PROJECT
+                            normalized_source_mode == SOURCE_MODE_PROJECT
                             and project_id is None
                         )
                         else "no_eligible_candidates"
                     ),
                 )
-            return primary_hits[:k], "none", diagnostics
+            return primary_hits[:k], WIDEN_REASON_NONE, diagnostics
 
         merged_hits = self._seed_thread_hits_for_widening(
             primary_hits,
@@ -844,7 +999,7 @@ class ContextBroker:
             remaining_slots = max(k - len(merged_hits), 0)
             if (
                 remaining_slots <= 0
-                and widen_reason != "low_confidence_thread_hits"
+                and widen_reason != WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS
             ):
                 break
             request_k = remaining_slots if remaining_slots > 0 else 1
@@ -874,10 +1029,10 @@ class ContextBroker:
 
         final_hits = merged_hits[:k] if widened_executed else primary_hits[:k]
         effective_widen_reason = (
-            "explicit_personal_knowledge"
+            WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
             if widened_executed
-            and normalized_source_mode == _SOURCE_MODE_PERSONAL_KNOWLEDGE
-            else (widen_reason if widened_executed else "none")
+            and normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE
+            else (widen_reason if widened_executed else WIDEN_REASON_NONE)
         )
         if diagnostics.get("status") == "failed":
             diagnostics.update(
@@ -907,13 +1062,12 @@ class ContextBroker:
         project_id: Optional[int],
         source_mode: str,
     ) -> List[Dict[str, Any]]:
-        normalized_source_mode = _normalize_source_mode(source_mode)
+        normalized_source_mode = normalize_source_mode(source_mode)
         if not user_id:
             return []
-        if (
-            normalized_source_mode == _SOURCE_MODE_PROJECT
-            and project_id is None
-        ):
+        if normalized_source_mode == SOURCE_MODE_CONVERSATION:
+            return []
+        if normalized_source_mode == SOURCE_MODE_PROJECT and project_id is None:
             return []
 
         list_threads = getattr(self.chatlog, "list_chat_threads", None)
@@ -922,7 +1076,7 @@ class ContextBroker:
 
         scoped_project_id = (
             project_id
-            if normalized_source_mode == _SOURCE_MODE_PROJECT
+            if normalized_source_mode == SOURCE_MODE_PROJECT
             else None
         )
         try:
@@ -959,7 +1113,7 @@ class ContextBroker:
             else:
                 cross_project_threads.append(thread)
 
-        if normalized_source_mode == _SOURCE_MODE_PROJECT:
+        if normalized_source_mode == SOURCE_MODE_PROJECT:
             return same_project_threads
         return same_project_threads + cross_project_threads
 
@@ -974,6 +1128,8 @@ class ContextBroker:
     ) -> bool:
         if not isinstance(thread, dict):
             return False
+        if normalize_source_mode(source_mode) == SOURCE_MODE_CONVERSATION:
+            return False
         candidate_id = _coerce_int(thread.get("id"))
         if candidate_id is None or candidate_id == thread_id:
             return False
@@ -986,7 +1142,7 @@ class ContextBroker:
             return False
         if bool(thread.get("modeling_excluded")):
             return False
-        if _normalize_source_mode(source_mode) == _SOURCE_MODE_PROJECT:
+        if normalize_source_mode(source_mode) == SOURCE_MODE_PROJECT:
             return _coerce_int(thread.get("project_id")) == project_id
         return True
 
@@ -994,17 +1150,17 @@ class ContextBroker:
         self, hits: List[Dict[str, Any]], target_count: int
     ) -> str:
         if target_count <= 0:
-            return "none"
+            return WIDEN_REASON_NONE
         limited_hits = list(hits[:target_count])
         if len(limited_hits) < target_count:
-            return "insufficient_thread_hits"
+            return WIDEN_REASON_INSUFFICIENT_THREAD_HITS
         best_score = self._best_numeric_score(limited_hits)
         if (
             best_score is not None
             and best_score < _LOW_CONFIDENCE_SCORE_THRESHOLD
         ):
-            return "low_confidence_thread_hits"
-        return "none"
+            return WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS
+        return WIDEN_REASON_NONE
 
     def _seed_thread_hits_for_widening(
         self,
@@ -1015,7 +1171,7 @@ class ContextBroker:
     ) -> List[Dict[str, Any]]:
         limited_hits = self._dedupe_retrieval_items(hits[:target_count])
         if (
-            widen_reason == "low_confidence_thread_hits"
+            widen_reason == WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS
             and target_count > 0
             and len(limited_hits) >= target_count
         ):
@@ -1073,14 +1229,14 @@ class ContextBroker:
 
     def _merge_widen_reason(self, *reasons: str) -> str:
         priority = {
-            "none": 0,
-            "insufficient_thread_hits": 1,
-            "low_confidence_thread_hits": 2,
-            "explicit_personal_knowledge": 3,
+            WIDEN_REASON_NONE: 0,
+            WIDEN_REASON_INSUFFICIENT_THREAD_HITS: 1,
+            WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS: 2,
+            WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE: 3,
         }
-        selected = "none"
+        selected = WIDEN_REASON_NONE
         for reason in reasons:
-            normalized_reason = str(reason or "none")
+            normalized_reason = normalize_widen_reason(reason)
             if priority.get(normalized_reason, -1) > priority[selected]:
                 selected = normalized_reason
         return selected

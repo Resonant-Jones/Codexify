@@ -19,7 +19,8 @@ import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
+from urllib.parse import quote, unquote
 
 from fastapi import (
     APIRouter,
@@ -34,9 +35,11 @@ from fastapi.responses import JSONResponse
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     StrictStr,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from starlette.responses import StreamingResponse
 
@@ -219,6 +222,71 @@ def _turn_lock_payload(
             source="api:chat.complete",
         )
     )
+
+
+def _slash_intent_origin_segment(
+    slash_intent: Any | None,
+) -> str:
+    if slash_intent is None:
+        return ""
+
+    payload = slash_intent.model_dump(exclude_none=True)
+    bounded_payload = {
+        key: payload[key]
+        for key in ("commandId", "intentKind", "retrievalHint")
+        if key in payload
+    }
+    try:
+        encoded = quote(
+            json.dumps(
+                bounded_payload, ensure_ascii=False, separators=(",", ":")
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode slash intent origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|slash_intent={encoded}"
+
+
+def _retrieval_override_from_slash_intent(
+    slash_intent: Any | None,
+) -> dict[str, str] | None:
+    if slash_intent is None:
+        return None
+
+    retrieval_hint = getattr(slash_intent, "retrievalHint", None) or "none"
+    if retrieval_hint not in _RETRIEVAL_OVERRIDE_REASON_BY_MODE:
+        return None
+
+    mode = retrieval_hint
+    reason = _RETRIEVAL_OVERRIDE_REASON_BY_MODE[mode]
+    return {"mode": mode, "reason": reason}
+
+
+def _retrieval_override_origin_segment(
+    retrieval_override: dict[str, str] | None,
+) -> str:
+    if retrieval_override is None:
+        return ""
+
+    try:
+        encoded = quote(
+            json.dumps(
+                retrieval_override, ensure_ascii=False, separators=(",", ":")
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode retrieval override origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|retrieval_override={encoded}"
 
 
 def _request_id_from_request(request: Request | None) -> str | None:
@@ -586,6 +654,8 @@ class ThreadMoveRequest(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     model: Optional[str] = None
     max_context: Optional[int] = 50
     provider: Optional[str] = None
@@ -593,9 +663,81 @@ class ChatCompletionRequest(BaseModel):
     system_override: Optional[str] = None
     turn_id: Optional[str] = None
     source_mode: Optional[str] = "project"
+    slash_intent: Optional["SlashIntentRequest"] = Field(
+        default=None, alias="slashIntent"
+    )
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
+
+
+SlashCommandId = Literal[
+    "thread",
+    "doc",
+    "project",
+    "workspace",
+    "profile",
+    "flow",
+    "secure",
+    "connect",
+    "help",
+]
+SlashCommandIntentKind = Literal[
+    "conversation",
+    "knowledge",
+    "workspace",
+    "automation",
+    "security",
+    "integration",
+    "help",
+]
+SlashCommandRetrievalHint = Literal[
+    "none",
+    "conversation",
+    "project",
+    "personal_knowledge",
+]
+RetrievalOverrideMode = Literal[
+    "none",
+    "conversation",
+    "project",
+    "personal_knowledge",
+]
+RetrievalOverrideReason = Literal[
+    "no_override",
+    "slash_conversation_hint",
+    "slash_project_hint",
+    "slash_personal_knowledge_hint",
+]
+
+_RETRIEVAL_OVERRIDE_REASON_BY_MODE: dict[
+    RetrievalOverrideMode, RetrievalOverrideReason
+] = {
+    "none": "no_override",
+    "conversation": "slash_conversation_hint",
+    "project": "slash_project_hint",
+    "personal_knowledge": "slash_personal_knowledge_hint",
+}
+
+
+class SlashIntentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commandId: SlashCommandId
+    rawToken: Optional[StrictStr] = None
+    queryText: Optional[StrictStr] = None
+    intentKind: SlashCommandIntentKind
+    retrievalHint: Optional[SlashCommandRetrievalHint] = None
+    rawInput: Optional[StrictStr] = None
+
+    @model_validator(mode="after")
+    def _require_raw_input_or_token(self):
+        if not (self.rawInput or self.rawToken):
+            raise ValueError("slash intent requires rawInput or rawToken")
+        return self
+
+
+ChatCompletionRequest.model_rebuild()
 
 
 # Helper functions
@@ -2446,6 +2588,10 @@ async def chat_complete(
             else doc_context_override
         )
 
+    retrieval_override = _retrieval_override_from_slash_intent(
+        body.slash_intent
+    )
+
     task = ChatCompletionTask(
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
@@ -2459,9 +2605,15 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        # Temporary transport bridge: carry turn_id and source_mode via origin
-        # until ChatCompletionTask gains typed fields for both values.
-        origin=f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}",
+        retrieval_override=retrieval_override,
+        # Temporary transport bridge: carry turn_id, source_mode, and
+        # bounded slash intent metadata via origin until ChatCompletionTask
+        # gains typed fields for those values.
+        origin=(
+            f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
+            f"{_slash_intent_origin_segment(body.slash_intent)}"
+            f"{_retrieval_override_origin_segment(retrieval_override)}"
+        ),
     )
     task.turn_id = turn_id
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))

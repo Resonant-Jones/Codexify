@@ -6,12 +6,10 @@ snapshot reports with optional delta from previous snapshots.
 
 Exit codes:
   0 - Success (report-only mode)
-  1 - Enforce mode failure (not implemented in Pass 1)
 
 Usage:
   python scripts/audit/risk_matrix.py
   python scripts/audit/risk_matrix.py --delta
-  python scripts/audit/risk_matrix.py --stale-days 30
 """
 
 from __future__ import annotations
@@ -27,12 +25,11 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.audit.lib.config import DEFAULT_BASELINE_PATH, DEFAULT_CONFIG_PATH
+from scripts.audit.lib.config import DEFAULT_BASELINE_PATH
 from scripts.audit.lib.scoring import (
     RiskEntry,
     calculate_delta,
     calculate_risk_summary,
-    score_to_band,
 )
 
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "docs" / "audits" / "regression"
@@ -47,7 +44,6 @@ def parse_args() -> argparse.Namespace:
 Examples:
   %(prog)s                           # Generate current snapshot
   %(prog)s --delta                   # Include delta from previous
-  %(prog)s --stale-days 30           # Flag entries older than 30 days
   %(prog)s --format md               # Output markdown to stdout only
         """,
     )
@@ -69,20 +65,9 @@ Examples:
         help="Include delta from previous snapshot",
     )
     parser.add_argument(
-        "--stale-days",
-        type=int,
-        default=30,
-        help="Flag entries not reviewed in N days (default: %(default)s)",
-    )
-    parser.add_argument(
         "--format",
         choices=["json", "md"],
         help="Output format to stdout (default: write both files)",
-    )
-    parser.add_argument(
-        "--enforce",
-        action="store_true",
-        help="Fail on deterministic issues (not implemented in Pass 1)",
     )
     return parser.parse_args()
 
@@ -306,7 +291,7 @@ def write_output(
     """Write JSON and Markdown output files."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S_%f")
     json_path = output_dir / f"risk-matrix-{timestamp}.json"
     md_path = output_dir / f"risk-matrix-{timestamp}.md"
 
@@ -389,7 +374,6 @@ def main() -> int:
             print(f"  Stale entries: {len(summary['stale_entries'])}")
 
     # Report-only mode always exits 0
-    # Enforce mode would check for deterministic failures (not implemented in Pass 1)
     return 0
 
 

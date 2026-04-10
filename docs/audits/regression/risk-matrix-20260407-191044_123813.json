@@ -1,0 +1,476 @@
+{
+  "baseline_source": "scripts/audit/data/risk_matrix_baseline.json",
+  "delta": null,
+  "generated_at": "2026-04-07T19:10:44.123093",
+  "risks": [
+    {
+      "area": "Model Routing",
+      "band": "High",
+      "current_controls": [
+        "adapter abstraction"
+      ],
+      "days_since_review": 0,
+      "detectability": 3,
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md"
+      ],
+      "failure_mode": "Provider change breaks response shape or tool behavior",
+      "id": "model-routing",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "add contract tests per provider and fallback snapshots",
+      "owner": "Platform",
+      "recoverability": 2,
+      "review_interval_days": 30,
+      "score": 96,
+      "status": "active"
+    },
+    {
+      "area": "Retrieval",
+      "band": "High",
+      "current_controls": [
+        "manual inspection"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md"
+      ],
+      "failure_mode": "Relevant memory is not returned or irrelevant memory dominates",
+      "id": "retrieval",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "add retrieval eval set, drift alerts, relevance thresholds",
+      "owner": "Memory",
+      "recoverability": 3,
+      "review_interval_days": 30,
+      "score": 192,
+      "status": "active"
+    },
+    {
+      "area": "Memory Ownership",
+      "band": "High",
+      "current_controls": [
+        "local-first posture"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/architecture/data-and-storage.md"
+      ],
+      "failure_mode": "Context becomes coupled to one vendor or opaque store",
+      "id": "memory-ownership",
+      "impact": 5,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 2,
+      "next_control": "maintain export path, canonical internal schema, migration test",
+      "owner": "Platform",
+      "recoverability": 4,
+      "review_interval_days": 60,
+      "score": 160,
+      "status": "active"
+    },
+    {
+      "area": "Persona Boundaries",
+      "band": "Critical",
+      "current_controls": [
+        "conceptual separation"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md"
+      ],
+      "failure_mode": "Cross-persona leakage or identity contamination",
+      "id": "persona-boundaries",
+      "impact": 5,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 3,
+      "next_control": "add boundary tests, isolation assertions, trace tagging",
+      "owner": "Identity",
+      "recoverability": 4,
+      "review_interval_days": 30,
+      "score": 240,
+      "status": "active"
+    },
+    {
+      "area": "Tool Integrations",
+      "band": "High",
+      "current_controls": [
+        "wrapper layer"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md"
+      ],
+      "failure_mode": "Tool API changes silently break execution",
+      "id": "tool-integrations",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "add tool contract versioning and synthetic health checks",
+      "owner": "Integrations",
+      "recoverability": 2,
+      "review_interval_days": 30,
+      "score": 128,
+      "status": "active"
+    },
+    {
+      "area": "Queue / Worker",
+      "band": "High",
+      "current_controls": [
+        "idempotency in places"
+      ],
+      "days_since_review": 0,
+      "detectability": 3,
+      "evidence": [
+        "guardian/queue/redis_queue.py",
+        "guardian/workers/"
+      ],
+      "failure_mode": "Jobs stall, duplicate, or execute out of order",
+      "id": "queue-worker",
+      "impact": 5,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 3,
+      "next_control": "add job state invariants, poison queue policy, replay tests",
+      "owner": "Runtime",
+      "recoverability": 3,
+      "review_interval_days": 30,
+      "score": 135,
+      "status": "active"
+    },
+    {
+      "area": "Orchestration",
+      "band": "Critical",
+      "current_controls": [
+        "ad hoc retry logic"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "guardian/agents/"
+      ],
+      "failure_mode": "Multi-step agent flow fails without recovery path",
+      "id": "orchestration",
+      "impact": 5,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "formalize step state machine, retry taxonomy, human escalation",
+      "owner": "Runtime",
+      "recoverability": 3,
+      "review_interval_days": 30,
+      "score": 240,
+      "status": "active"
+    },
+    {
+      "area": "Cost Control",
+      "band": "High",
+      "current_controls": [
+        "manual observation"
+      ],
+      "days_since_review": 0,
+      "detectability": 3,
+      "evidence": [
+        "docs/architecture/config-and-ops.md"
+      ],
+      "failure_mode": "Agent loops or retrieval inflation increase spend unexpectedly",
+      "id": "cost-control",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "add per-run budget guardrails and cost anomaly detection",
+      "owner": "Ops",
+      "recoverability": 2,
+      "review_interval_days": 60,
+      "score": 96,
+      "status": "active"
+    },
+    {
+      "area": "Eval Coverage",
+      "band": "High",
+      "current_controls": [
+        "spot checks"
+      ],
+      "days_since_review": 0,
+      "detectability": 5,
+      "evidence": [
+        "tests/"
+      ],
+      "failure_mode": "System changes ship without proving behavior quality",
+      "id": "eval-coverage",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "define golden tasks, scenario packs, pre-release score floor",
+      "owner": "QA",
+      "recoverability": 2,
+      "review_interval_days": 30,
+      "score": 160,
+      "status": "active"
+    },
+    {
+      "area": "Schema Drift",
+      "band": "High",
+      "current_controls": [
+        "implicit adaptation"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "guardian/db/migrations/",
+        "guardian/db/models.py"
+      ],
+      "failure_mode": "Internal objects evolve without migration discipline",
+      "id": "schema-drift",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 3,
+      "next_control": "add schema versions, migrators, forward/backward compatibility checks",
+      "owner": "Platform",
+      "recoverability": 4,
+      "review_interval_days": 30,
+      "score": 192,
+      "status": "active"
+    },
+    {
+      "area": "Prompt Coupling",
+      "band": "High",
+      "current_controls": [
+        "prompt iteration"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md"
+      ],
+      "failure_mode": "Logic lives inside prompts and becomes brittle",
+      "id": "prompt-coupling",
+      "impact": 3,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "move logic to typed config or code wherever possible",
+      "owner": "Runtime",
+      "recoverability": 3,
+      "review_interval_days": 60,
+      "score": 144,
+      "status": "active"
+    },
+    {
+      "area": "Behavioral Coupling",
+      "band": "Critical",
+      "current_controls": [
+        "multi-model intent"
+      ],
+      "days_since_review": 0,
+      "detectability": 5,
+      "evidence": [
+        "guardian/core/ai_router.py"
+      ],
+      "failure_mode": "System quality depends on one model's temperament",
+      "id": "behavioral-coupling",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 4,
+      "next_control": "add cross-model eval parity and degraded-mode acceptance tests",
+      "owner": "Platform",
+      "recoverability": 3,
+      "review_interval_days": 30,
+      "score": 240,
+      "status": "active"
+    },
+    {
+      "area": "Observability",
+      "band": "Critical",
+      "current_controls": [
+        "scattered logs"
+      ],
+      "days_since_review": 0,
+      "detectability": 5,
+      "evidence": [
+        "guardian/routes/health.py"
+      ],
+      "failure_mode": "Failures occur but cannot be explained after the fact",
+      "id": "observability",
+      "impact": 5,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 3,
+      "next_control": "add end-to-end traces, correlation ids, reason codes",
+      "owner": "Ops",
+      "recoverability": 4,
+      "review_interval_days": 30,
+      "score": 300,
+      "status": "active"
+    },
+    {
+      "area": "Security / Permissions",
+      "band": "High",
+      "current_controls": [
+        "boundary awareness"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/Codexify/SECURITY.md",
+        "docs/Plugins/SECURITY.md"
+      ],
+      "failure_mode": "Tools exceed intended authority or access wrong data",
+      "id": "security-permissions",
+      "impact": 5,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 2,
+      "next_control": "enforce scoped permissions, audit logs, deny-by-default tool policy",
+      "owner": "Security",
+      "recoverability": 5,
+      "review_interval_days": 30,
+      "score": 200,
+      "status": "active"
+    },
+    {
+      "area": "UX Trust",
+      "band": "High",
+      "current_controls": [
+        "manual review"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/chat/production_grade_chat_plan.md"
+      ],
+      "failure_mode": "User sees inconsistent identity, memory, or action intent",
+      "id": "ux-trust",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 3,
+      "next_control": "add trust-focused UX acceptance checks",
+      "owner": "Product",
+      "recoverability": 3,
+      "review_interval_days": 60,
+      "score": 144,
+      "status": "active"
+    },
+    {
+      "area": "Migration Debt",
+      "band": "High",
+      "current_controls": [
+        "modularity intent"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/architecture/modules-and-ownership.md"
+      ],
+      "failure_mode": "Swapping a backend or provider becomes too painful",
+      "id": "migration-debt",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 3,
+      "next_control": "run quarterly swap drills against one subsystem",
+      "owner": "Platform",
+      "recoverability": 4,
+      "review_interval_days": 90,
+      "score": 192,
+      "status": "active"
+    },
+    {
+      "area": "Complexity Creep",
+      "band": "Critical",
+      "current_controls": [
+        "intuition"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "docs/architecture/tech-debt-and-risks.md"
+      ],
+      "failure_mode": "Too many moving parts slow delivery and hide defects",
+      "id": "complexity-creep",
+      "impact": 4,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 5,
+      "next_control": "require simplification review for every net-new subsystem",
+      "owner": "Architecture",
+      "recoverability": 3,
+      "review_interval_days": 60,
+      "score": 240,
+      "status": "active"
+    },
+    {
+      "area": "Data Integrity",
+      "band": "Critical",
+      "current_controls": [
+        "partial safeguards"
+      ],
+      "days_since_review": 0,
+      "detectability": 4,
+      "evidence": [
+        "guardian/db/models.py",
+        "docs/architecture/data-and-storage.md"
+      ],
+      "failure_mode": "Stored memory, event logs, or documents become inconsistent",
+      "id": "data-integrity",
+      "impact": 5,
+      "is_stale": false,
+      "last_reviewed": "2026-04-07",
+      "likelihood": 3,
+      "next_control": "add checksum/invariant checks and repair scripts",
+      "owner": "Data",
+      "recoverability": 4,
+      "review_interval_days": 30,
+      "score": 240,
+      "status": "active"
+    }
+  ],
+  "summary": {
+    "by_band": {
+      "Critical": 6,
+      "High": 12,
+      "Low": 0,
+      "Moderate": 0
+    },
+    "by_owner": {
+      "Architecture": 1,
+      "Data": 1,
+      "Identity": 1,
+      "Integrations": 1,
+      "Memory": 1,
+      "Ops": 2,
+      "Platform": 5,
+      "Product": 1,
+      "QA": 1,
+      "Runtime": 3,
+      "Security": 1
+    },
+    "highest_risks": [
+      "observability",
+      "persona-boundaries",
+      "orchestration",
+      "behavioral-coupling",
+      "complexity-creep"
+    ],
+    "missing_owners": [],
+    "newly_worsened": [],
+    "stale_entries": [],
+    "total": 18
+  },
+  "version": "1.0"
+}

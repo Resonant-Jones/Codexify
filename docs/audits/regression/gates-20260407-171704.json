@@ -1,0 +1,168 @@
+{
+  "base": "68996b5f7c5e788363607234421d63271d39f90e",
+  "exit_recommendation": {
+    "deterministic_failures": 0,
+    "enforce_mode": "would_pass",
+    "report_only": "proceed_with_review"
+  },
+  "files_changed": 19,
+  "gates": {
+    "post_release": {
+      "automated_checks": [],
+      "recommended_manual_attestations": [
+        {
+          "description": "Check retrieval relevance signals",
+          "id": "retrieval_relevance",
+          "rationale": "Requires eval suite results"
+        },
+        {
+          "description": "Monitor fallback frequency",
+          "id": "fallback_frequency",
+          "rationale": "Indicates provider/model instability"
+        }
+      ],
+      "required_manual_attestations": [
+        {
+          "description": "Monitor error rates for 24-48 hours",
+          "id": "error_rates",
+          "rationale": "Post-release observation required"
+        },
+        {
+          "description": "Verify no cost spikes",
+          "id": "cost_anomaly",
+          "rationale": "Requires cost dashboard access"
+        }
+      ]
+    },
+    "pre_merge": {
+      "automated_checks": [
+        {
+          "check": "tests_touched",
+          "evidence": [
+            "guardian/tests/agents/test_cli_adapter_timeouts.py",
+            "guardian/tests/routes/test_agent_orchestration_events.py",
+            "guardian/tests/workers/test_agent_worker_commit_boundaries.py"
+          ],
+          "files_without_tests": [],
+          "level": "info",
+          "message": "Tests touched: 3 files",
+          "status": "pass"
+        },
+        {
+          "check": "migration_present",
+          "deterministic": true,
+          "evidence": [
+            "guardian/db/migrations/versions/9f3d2b1a7c4e_add_agent_orchestration_tables.py"
+          ],
+          "level": "info",
+          "message": "Migration files present: 1",
+          "status": "pass"
+        },
+        {
+          "check": "risk_docs_updated",
+          "deterministic": false,
+          "evidence": [
+            "guardian/db/models.py"
+          ],
+          "level": "warning",
+          "message": "High-blast-radius files changed (1) without risk matrix update",
+          "status": "warn"
+        }
+      ],
+      "recommended_manual_attestations": [
+        {
+          "description": "Verify identity boundaries are respected",
+          "id": "identity_isolation",
+          "rationale": "Best-effort automated check only; human verification recommended"
+        }
+      ],
+      "required_manual_attestations": [
+        {
+          "description": "Assess actual blast radius of changes",
+          "id": "blast_radius",
+          "rationale": "Automated checks cannot determine true impact scope"
+        },
+        {
+          "description": "Verify rollback can be executed safely",
+          "id": "rollback_path",
+          "rationale": "Requires human judgment of deployment state"
+        }
+      ]
+    },
+    "pre_release": {
+      "automated_checks": [
+        {
+          "check": "migration_test_exists",
+          "deterministic": true,
+          "evidence": [
+            "tests/test_migrations.py"
+          ],
+          "level": "info",
+          "message": "Migration tests found",
+          "status": "pass"
+        },
+        {
+          "check": "tool_contract_files",
+          "deterministic": false,
+          "evidence": [
+            "docs/Future-Features/Tool_Call_Spec.md"
+          ],
+          "level": "info",
+          "message": "Tool contract docs present: 1/1",
+          "note": "Best-effort check based on config",
+          "status": "pass"
+        },
+        {
+          "check": "identity_markers",
+          "deterministic": false,
+          "evidence": [
+            "3 files with markers"
+          ],
+          "level": "info",
+          "message": "Identity markers found in 3/55 files",
+          "note": "Best-effort pattern matching; manual verification recommended",
+          "status": "pass"
+        },
+        {
+          "check": "queue_health_routes",
+          "deterministic": false,
+          "evidence": [
+            "/health",
+            "/api/health"
+          ],
+          "level": "info",
+          "message": "Queue/worker health routes found: 2/4",
+          "note": "Best-effort check based on file content matching",
+          "status": "pass"
+        }
+      ],
+      "recommended_manual_attestations": [
+        {
+          "description": "Schema migration tested forward and backward",
+          "id": "schema_migration_tested",
+          "rationale": "Automated check found migration tests but cannot verify coverage"
+        },
+        {
+          "description": "Retrieval eval suite passes",
+          "id": "retrieval_eval_passes",
+          "rationale": "Requires eval infrastructure not yet in place"
+        }
+      ],
+      "required_manual_attestations": [
+        {
+          "description": "Golden task suite passes",
+          "id": "golden_tasks",
+          "rationale": "No automated eval suite detected"
+        },
+        {
+          "description": "Cross-provider sanity checks pass",
+          "id": "cross_provider_checks",
+          "rationale": "Requires live provider testing"
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-04-07T17:17:04.672866",
+  "head": "884cc213b8100a0b4d30129c89840636fe8b0487",
+  "mode": "report-only"
+}

@@ -1,16 +1,18 @@
 import * as React from "react";
+import { BookOpen, ChevronRight, FileText, ImagePlus } from "lucide-react";
 import DocumentTile from "@/components/documents/DocumentTile";
 import FrameCard from "@/components/surface/FrameCard";
 import { Button } from "@/components/ui/button";
 import { ExtColors, GalleryItem } from "@/types/ui";
 import api from "@/lib/api";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
-import { ImagePlus } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import ImagePreviewModal from "@/components/modals/ImagePreviewModal";
 import DashboardGallery from "@/features/dashboard/components/DashboardGallery";
+import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import type { DocumentFile } from "@/components/documents/DocumentTile";
 
 // Debug signature: helps confirm which DashboardView module the browser is actually running.
@@ -26,6 +28,87 @@ const DEMO_RECENT_DOCS: string[] = [
 function inferDocumentExtension(filename: string): string {
   const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/i);
   return match?.[1] || "";
+}
+
+function getDocumentAccentColor(extColors: ExtColors, ext?: string): string {
+  const normalizedExt = String(ext ?? "").trim().toLowerCase();
+  return extColors[normalizedExt] ?? extColors.md ?? "#6B7280";
+}
+
+function MobileRecentDocumentRow({
+  doc,
+  extColors,
+  onClick,
+}: {
+  doc: DocumentFile;
+  extColors: ExtColors;
+  onClick: () => void;
+}) {
+  const Icon = String(doc.ext ?? "").trim().toLowerCase() === "codex" ? BookOpen : FileText;
+  const accentColor = getDocumentAccentColor(extColors, doc.ext);
+  const rowTestId = String(doc.id ?? doc.name).trim().replace(/\s+/g, "-");
+  const subtitleParts = [
+    doc.ext ? `.${String(doc.ext).replace(/^\./, "").toUpperCase()}` : null,
+    doc.embeddingStatus ? String(doc.embeddingStatus).trim() : null,
+  ].filter(Boolean);
+
+  return (
+    <TileShell
+      as="button"
+      type="button"
+      className="w-full text-left cursor-pointer transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
+      style={{ padding: 0 }}
+      onClick={onClick}
+      aria-label={`Open ${doc.name} in Workspace`}
+      title={`Open ${doc.name} in Workspace`}
+      data-testid={`dashboard-mobile-doc-row-button-${rowTestId}`}
+    >
+      <div
+        className="flex w-full min-w-0 items-center gap-[var(--shell-gap)] p-[var(--card-pad)]"
+        data-testid={`dashboard-mobile-doc-row-${rowTestId}`}
+      >
+        <div
+          className="flex h-[var(--doc-chip-height)] w-[var(--doc-chip-height)] shrink-0 items-center justify-center border"
+          style={{
+            borderRadius: "calc(var(--tile-radius) - 6px)",
+            background:
+              "color-mix(in oklab, var(--panel-bg, #111827) 82%, white 18%)",
+            borderColor:
+              "color-mix(in oklab, var(--panel-border, rgba(255,255,255,0.12)) 76%, transparent)",
+          }}
+        >
+          <Icon className="h-5 w-5 shrink-0" style={{ color: accentColor }} />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div
+            className="truncate text-sm font-semibold leading-tight"
+            style={{ color: "var(--text)" }}
+            title={doc.name}
+          >
+            {doc.name}
+          </div>
+          <div
+            className="mt-1 flex flex-wrap items-center gap-2 text-[11px]"
+            style={{ color: "var(--muted)" }}
+          >
+            <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
+              Open in Workspace
+            </span>
+            {subtitleParts.length > 0 ? (
+              <span className="truncate">{subtitleParts.join(" • ")}</span>
+            ) : null}
+          </div>
+        </div>
+
+        <ChevronRight
+          className="h-4 w-4 shrink-0"
+          style={{ color: "var(--icon-muted)" }}
+          aria-hidden="true"
+        />
+      </div>
+    </TileShell>
+  );
 }
 
 const DEMO_GALLERY_ITEMS: GalleryItem[] = [
@@ -59,7 +142,7 @@ type DashboardViewProps = {
 };
 
 export default function DashboardView({
-  extColors: _extColors,
+  extColors,
   gallery,
   onImagePrompt: _onImagePrompt,
   onRequestNewProject,
@@ -69,6 +152,8 @@ export default function DashboardView({
   threadGridRows,
 }: DashboardViewProps) {
   const auth = useAuthState();
+  const mobileShellProfile = useMobileShellProfile();
+  const isPhoneShell = mobileShellProfile.active;
   const [pinnedThreads, setPinnedThreads] = React.useState<
     { id: string; title: string; lastMessage?: string; archivedAt?: string | null }[]
   >([]);
@@ -78,6 +163,13 @@ export default function DashboardView({
     src: string;
     alt: string;
   } | null>(null);
+
+  const openRecentDocument = React.useCallback((doc: DocumentFile) => {
+    requestWorkspaceOpen(
+      { doc, source: "documents", targetView: "documents" },
+      { source: "documents", targetView: "documents" }
+    );
+  }, []);
 
   React.useEffect(() => {
     try {
@@ -213,7 +305,7 @@ export default function DashboardView({
   };
 
   const rows = Math.max(1, Number.isFinite(threadGridRows) ? threadGridRows : 2);
-  const threadColumns = 2;
+  const threadColumns = isPhoneShell ? 1 : 2;
   const threadLimit = threadColumns * rows;
   const threadList = pinnedThreads.slice(0, threadLimit);
 
@@ -241,24 +333,57 @@ export default function DashboardView({
         : DEMO_GALLERY_ITEMS,
     [gallery, hasRealGallery, realGallery]
   );
+  const dashboardLayoutMode = isPhoneShell ? "mobile_stack" : "desktop_split";
+  const dashboardGalleryOuterClassName = isPhoneShell
+    ? "flex-1 min-h-0 overflow-visible"
+    : "flex-1 min-h-0 overflow-auto pr-1";
 
   return (
-    <section className="flex h-full w-full min-h-0 flex-col">
+    <section
+      className="flex h-full w-full min-h-0 flex-col"
+      data-dashboard-layout={dashboardLayoutMode}
+      data-testid="dashboard-layout"
+    >
       <div className="flex-1 min-h-0 p-[var(--board-edge)]">
-        <div className="flex h-full min-h-0 gap-[var(--gutter)]">
-          <div className="flex min-h-0 flex-1 flex-col gap-[var(--gutter)]">
+        <div
+          className={`flex h-full min-h-0 ${
+            isPhoneShell ? "flex-col gap-[var(--gutter)] overflow-auto" : "gap-[var(--gutter)]"
+          }`}
+          data-layout-mode={isPhoneShell ? "mobile-stack" : "desktop-split"}
+        >
+          <div
+            className={`flex min-h-0 flex-col gap-[var(--gutter)] ${
+              isPhoneShell ? "w-full" : "flex-1"
+            }`}
+          >
             <FrameCard
               refractiveFallback
               shimmerMode="subtle"
-              className="flex-1 min-h-[260px]"
+              className={isPhoneShell ? "w-full min-h-0" : "flex-1 min-h-[260px]"}
             >
-              <div className="flex h-full min-h-0 flex-col p-5 gap-4">
-                <div className="flex items-center justify-between gap-3">
+              <div
+                className={`flex h-full min-h-0 flex-col ${
+                  isPhoneShell ? "p-[var(--card-pad)] gap-[var(--shell-gap)]" : "p-5 gap-4"
+                }`}
+              >
+                <div
+                  className={`gap-3 ${
+                    isPhoneShell
+                      ? "flex flex-col items-start"
+                      : "flex items-center justify-between"
+                  }`}
+                >
                   <div>
                     <h2 className="text-lg font-semibold tracking-tight">Recent Threads</h2>
-                    <p className="text-xs opacity-70">Jump back into a conversation or spin up something new.</p>
+                    <p className="text-xs opacity-70">
+                      Jump back into a conversation or spin up something new.
+                    </p>
                   </div>
-                  <div className="glass-pill h-auto py-[3px] px-[6px]">
+                  <div
+                    className={`glass-pill h-auto py-[3px] px-[6px] ${
+                      isPhoneShell ? "w-full justify-between" : ""
+                    }`}
+                  >
                     <button
                       type="button"
                       className="pill-tab text-xs"
@@ -284,7 +409,11 @@ export default function DashboardView({
                       No threads yet. Start one above.
                     </div>
                   ) : (
-                    <div className="grid h-full grid-cols-2 gap-[var(--gutter)]">
+                    <div
+                      className={`grid h-full gap-[var(--gutter)] ${
+                        isPhoneShell ? "grid-cols-1" : "grid-cols-2"
+                      }`}
+                    >
                       {threadList.map((t) => (
                         <TileShell
                           key={t.id}
@@ -322,10 +451,20 @@ export default function DashboardView({
             <FrameCard
               refractiveFallback
               shimmerMode="subtle"
-              className="flex-1 min-h-[240px]"
+              className={isPhoneShell ? "w-full min-h-0" : "flex-1 min-h-[240px]"}
             >
-              <div className="flex h-full min-h-0 flex-col p-5 gap-4">
-                <div className="flex items-center justify-between gap-3">
+              <div
+                className={`flex h-full min-h-0 flex-col ${
+                  isPhoneShell ? "p-[var(--card-pad)] gap-[var(--shell-gap)]" : "p-5 gap-4"
+                }`}
+              >
+                <div
+                  className={`gap-3 ${
+                    isPhoneShell
+                      ? "flex flex-col items-start"
+                      : "flex items-center justify-between"
+                  }`}
+                >
                   <h2 className="text-lg font-semibold tracking-tight">Recent Documents</h2>
                   <Button type="button" variant="ghost" size="sm" onClick={onNavigateDocuments}>
                     See All
@@ -333,7 +472,9 @@ export default function DashboardView({
                 </div>
                 {!hasRealDocs && (
                   <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
-                    <p className="text-xs opacity-75">Demo documents. Create or upload to replace.</p>
+                    <p className="text-xs opacity-75">
+                      Demo documents. Create or upload to replace.
+                    </p>
                   </div>
                 )}
                 <div className="flex-1 min-h-0 overflow-hidden">
@@ -343,22 +484,38 @@ export default function DashboardView({
                     </div>
                   ) : (
                     <div
-                      className="grid h-full content-start justify-start gap-[var(--gutter)]"
-                      style={{ gridTemplateColumns: "repeat(auto-fit, 127px)" }}
+                      className={`h-full content-start justify-start gap-[var(--gutter)] ${
+                        isPhoneShell ? "flex flex-col overflow-visible" : "grid"
+                      }`}
+                      style={
+                        isPhoneShell
+                          ? undefined
+                          : { gridTemplateColumns: "repeat(auto-fit, 127px)" }
+                      }
                     >
-                      {docsToRender.map((d) => (
-                        <DocumentTile
-                          key={d.id ?? d.name}
-                          file={d}
-                          onDeleted={(deletedDoc) => {
-                            if (!deletedDoc.id) return;
-                            setRecentDocs((prev) =>
-                              prev.filter((doc) => doc.id !== deletedDoc.id)
-                            );
-                          }}
-                          className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
-                        />
-                      ))}
+                      {docsToRender.map((d) =>
+                        isPhoneShell ? (
+                          <MobileRecentDocumentRow
+                            key={d.id ?? d.name}
+                            doc={d}
+                            extColors={extColors}
+                            onClick={() => openRecentDocument(d)}
+                          />
+                        ) : (
+                          <DocumentTile
+                            key={d.id ?? d.name}
+                            file={d}
+                            onClick={() => openRecentDocument(d)}
+                            onDeleted={(deletedDoc) => {
+                              if (!deletedDoc.id) return;
+                              setRecentDocs((prev) =>
+                                prev.filter((doc) => doc.id !== deletedDoc.id)
+                              );
+                            }}
+                            className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
+                          />
+                        )
+                      )}
                     </div>
                   )}
                 </div>
@@ -369,12 +526,22 @@ export default function DashboardView({
           <FrameCard
             refractiveFallback
             shimmerMode="subtle"
-            className="flex-[1.15] min-h-0"
+            className={isPhoneShell ? "w-full min-h-0" : "flex-[1.15] min-h-0"}
           >
-            <div className="flex h-full min-h-0 flex-col p-5 gap-4">
-              <div className="flex items-center justify-between gap-3">
+            <div
+              className={`flex h-full min-h-0 flex-col ${
+                isPhoneShell ? "p-[var(--card-pad)] gap-[var(--shell-gap)]" : "p-5 gap-4"
+              }`}
+            >
+              <div
+                className={`gap-3 ${
+                  isPhoneShell
+                    ? "flex flex-col items-start"
+                    : "flex items-center justify-between"
+                }`}
+              >
                 <h2 className="text-lg font-semibold tracking-tight">Gallery</h2>
-                <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 ${isPhoneShell ? "flex-wrap" : ""}`}>
                   <Button type="button" variant="ghost" size="sm" onClick={() => setShowImgGen(true)}>
                     <ImagePlus className="h-4 w-4 mr-1" />
                     Generate
@@ -386,10 +553,12 @@ export default function DashboardView({
               </div>
               {!hasRealGallery && (
                 <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
-                  <p className="text-xs opacity-75">Demo gallery images. They'll disappear once you add your own.</p>
+                  <p className="text-xs opacity-75">
+                    Demo gallery images. They'll disappear once you add your own.
+                  </p>
                 </div>
               )}
-              <div className="flex-1 min-h-0 overflow-auto pr-1">
+              <div className={dashboardGalleryOuterClassName}>
                 {galleryToRender.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm opacity-70">
                     No gallery images yet. Generate or upload to get started.

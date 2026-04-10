@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 
+import SettingsSectionCard from "@/features/settings/components/SettingsSectionCard";
 import useImprintReview from "@/features/settings/hooks/useImprintReview";
 
 function countList(
@@ -57,18 +58,14 @@ export default function ImprintReviewPanel({
   } = useImprintReview({ projectId, threadId });
 
   return (
-    <section
+    <SettingsSectionCard
+      data-testid="imprint-review-panel"
       className={[
-        "space-y-4 rounded-2xl border p-4 sm:p-5",
+        "space-y-4",
         className ?? "",
       ]
         .filter(Boolean)
         .join(" ")}
-      style={{
-        background: "color-mix(in srgb, var(--panel-bg) 88%, transparent)",
-        borderColor: "var(--panel-border)",
-      }}
-      data-testid="imprint-review-panel"
     >
       <div className="space-y-1">
         <h2 className="text-base font-semibold" style={{ color: "var(--text)" }}>
@@ -354,6 +351,6 @@ export default function ImprintReviewPanel({
           {error}
         </div>
       ) : null}
-    </section>
+    </SettingsSectionCard>
   );
 }

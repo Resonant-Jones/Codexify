@@ -55,9 +55,10 @@ export default function SystemPromptInspector({
           System Prompt Inspector
         </h2>
         <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-          Read-only visibility into the current prompt stack. Presence and
-          metadata are shown when exposed by existing backend status surfaces;
-          edit controls stay outside this inspector.
+          Read-only visibility into persisted active identity records and the
+          resolved prompt preview. Request-time selection is only visible when
+          exposed by existing backend status surfaces; edit controls stay
+          outside this inspector.
         </p>
       </div>
 

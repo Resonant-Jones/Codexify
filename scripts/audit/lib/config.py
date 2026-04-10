@@ -26,6 +26,7 @@ class AuditConfig:
     risky_path_patterns: list[str]
     test_path_patterns: list[str]
     migration_path_patterns: list[str]
+    schema_path_patterns: list[str]
     high_blast_radius_paths: list[str]
     subsystems: dict[str, dict[str, Any]]
     tool_contract_patterns: dict[str, Any]
@@ -46,6 +47,7 @@ class AuditConfig:
             risky_path_patterns=data["risky_path_patterns"],
             test_path_patterns=data["test_path_patterns"],
             migration_path_patterns=data["migration_path_patterns"],
+            schema_path_patterns=data["schema_path_patterns"],
             high_blast_radius_paths=data["high_blast_radius_paths"],
             subsystems=data["subsystems"],
             tool_contract_patterns=data["tool_contract_patterns"],
@@ -79,6 +81,15 @@ class AuditConfig:
         import fnmatch
 
         for pattern in self.migration_path_patterns:
+            if fnmatch.fnmatch(path, pattern):
+                return True
+        return False
+
+    def is_schema_file(self, path: str) -> bool:
+        """Check if path matches schema-related patterns."""
+        import fnmatch
+
+        for pattern in self.schema_path_patterns:
             if fnmatch.fnmatch(path, pattern):
                 return True
         return False

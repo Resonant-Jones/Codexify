@@ -25,9 +25,14 @@ from psycopg import errors as pg_errors
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
-from guardian.db.models import EventOutbox
+from guardian.db.models import (
+    EventOutbox,
+    PersonalFact,
+    PersonalFactEvidence,
+    PersonalFactRevision,
+)
 
 from .chat_db import ChatDB
 from .default_project import (
@@ -1659,6 +1664,267 @@ class PgDB(ChatDB):
                 cur.execute(query, params)
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
+
+    # ---- personal facts --------------------------------------------------
+    def _fact_to_dict(self, fact: PersonalFact) -> dict[str, Any]:
+        return {
+            "id": fact.id,
+            "user_id": fact.user_id,
+            "key": fact.key,
+            "value": fact.value,
+            "status": fact.status,
+            "confidence": fact.confidence,
+            "is_active": fact.is_active,
+            "last_confirmed_at": (
+                fact.last_confirmed_at.isoformat()
+                if fact.last_confirmed_at
+                else None
+            ),
+            "created_at": (
+                fact.created_at.isoformat() if fact.created_at else None
+            ),
+            "updated_at": (
+                fact.updated_at.isoformat() if fact.updated_at else None
+            ),
+        }
+
+    def _evidence_to_dict(
+        self, evidence: PersonalFactEvidence
+    ) -> dict[str, Any]:
+        return {
+            "id": evidence.id,
+            "fact_id": evidence.fact_id,
+            "source_message_id": evidence.source_message_id,
+            "excerpt": evidence.excerpt,
+            "modality": evidence.modality,
+            "confidence": evidence.confidence,
+            "source_type": evidence.source_type,
+            "evidence_meta": evidence.evidence_meta,
+            "created_at": (
+                evidence.created_at.isoformat() if evidence.created_at else None
+            ),
+        }
+
+    def _revision_to_dict(
+        self, revision: PersonalFactRevision
+    ) -> dict[str, Any]:
+        return {
+            "id": revision.id,
+            "fact_id": revision.fact_id,
+            "actor": revision.actor,
+            "action": revision.action,
+            "field_changed": revision.field_changed,
+            "old_value": revision.old_value,
+            "new_value": revision.new_value,
+            "reason": revision.reason,
+            "created_at": (
+                revision.created_at.isoformat() if revision.created_at else None
+            ),
+        }
+
+    def list_facts(
+        self,
+        user_id: str,
+        status: str | None = None,
+        active_only: bool = True,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with self._sa_session() as session:
+            query = session.query(PersonalFact).filter_by(user_id=user_id)
+            if status:
+                query = query.filter_by(status=status)
+            if active_only:
+                query = query.filter_by(is_active=True)
+            facts = (
+                query.order_by(PersonalFact.updated_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [self._fact_to_dict(fact) for fact in facts]
+
+    def create_fact(
+        self,
+        user_id: str,
+        key: str,
+        value: str,
+        status: str = "candidate",
+        confidence: float = 0.5,
+    ) -> int:
+        with self._sa_session() as session:
+            fact = PersonalFact(
+                user_id=user_id,
+                key=key,
+                value=value,
+                status=status,
+                confidence=confidence,
+                is_active=True,
+            )
+            session.add(fact)
+            session.flush()
+            return int(fact.id)
+
+    def get_fact(self, fact_id: int) -> dict[str, Any] | None:
+        with self._sa_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                return None
+            return self._fact_to_dict(fact)
+
+    def _add_fact_revision(
+        self,
+        session: Session,
+        *,
+        fact_id: int,
+        actor: str,
+        action: str,
+        field_changed: str | None = None,
+        old_value: str | None = None,
+        new_value: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        revision = PersonalFactRevision(
+            fact_id=fact_id,
+            actor=actor,
+            action=action,
+            field_changed=field_changed,
+            old_value=old_value,
+            new_value=new_value,
+            reason=reason,
+        )
+        session.add(revision)
+
+    def update_fact(
+        self,
+        fact_id: int,
+        *,
+        value: str | None = None,
+        status: str | None = None,
+        confidence: float | None = None,
+        actor: str = "system",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        with self._sa_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                raise ValueError(f"Fact {fact_id} not found")
+
+            if value is not None and value != fact.value:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="value_updated",
+                    field_changed="value",
+                    old_value=fact.value,
+                    new_value=value,
+                    reason=reason,
+                )
+                fact.value = value
+
+            if status is not None and status != fact.status:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="status_updated",
+                    field_changed="status",
+                    old_value=fact.status,
+                    new_value=status,
+                    reason=reason,
+                )
+                fact.status = status
+                if status == "verified":
+                    fact.last_confirmed_at = datetime.now(timezone.utc)
+
+            if confidence is not None and confidence != fact.confidence:
+                self._add_fact_revision(
+                    session,
+                    fact_id=fact.id,
+                    actor=actor,
+                    action="confidence_updated",
+                    field_changed="confidence",
+                    old_value=str(fact.confidence),
+                    new_value=str(confidence),
+                    reason=reason,
+                )
+                fact.confidence = confidence
+
+            fact.updated_at = datetime.now(timezone.utc)
+            session.add(fact)
+            return self._fact_to_dict(fact)
+
+    def confirm_fact(
+        self,
+        fact_id: int,
+        *,
+        actor: str = "system",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.update_fact(
+            fact_id,
+            status="verified",
+            actor=actor,
+            reason=reason,
+        )
+
+    def dispute_fact(
+        self,
+        fact_id: int,
+        *,
+        actor: str = "system",
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.update_fact(
+            fact_id,
+            status="disputed",
+            actor=actor,
+            reason=reason,
+        )
+
+    def list_fact_evidence(self, fact_id: int) -> list[dict[str, Any]]:
+        with self._sa_session() as session:
+            evidence = (
+                session.query(PersonalFactEvidence)
+                .filter_by(fact_id=fact_id)
+                .order_by(PersonalFactEvidence.created_at.asc())
+                .all()
+            )
+            return [self._evidence_to_dict(row) for row in evidence]
+
+    def add_fact_evidence(
+        self,
+        fact_id: int,
+        source_message_id: int | None,
+        excerpt: str | None,
+        *,
+        modality: str = "text",
+        confidence: float = 0.5,
+        source_type: str = "runtime_extraction",
+        evidence_meta: dict[str, Any] | None = None,
+    ) -> int:
+        with self._sa_session() as session:
+            evidence = PersonalFactEvidence(
+                fact_id=fact_id,
+                source_message_id=source_message_id,
+                excerpt=excerpt,
+                modality=modality,
+                confidence=confidence,
+                source_type=source_type,
+                evidence_meta=evidence_meta or {},
+            )
+            session.add(evidence)
+            session.flush()
+            return int(evidence.id)
+
+    def get_fact_revisions(self, fact_id: int) -> list[dict[str, Any]]:
+        with self._sa_session() as session:
+            revisions = (
+                session.query(PersonalFactRevision)
+                .filter_by(fact_id=fact_id)
+                .order_by(PersonalFactRevision.created_at.desc())
+                .all()
+            )
+            return [self._revision_to_dict(row) for row in revisions]
 
     # ---- connector sync jobs ---------------------------------------------
     def ensure_sync_job_support(self) -> None:

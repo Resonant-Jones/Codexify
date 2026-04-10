@@ -7,12 +7,18 @@ import {
   getRuntimeConfigSync,
   resolveApiUrl,
 } from "@/lib/runtimeConfig";
+import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
 import {
   clearRuntimeApiKey as clearRuntimeApiKeyState,
   getRuntimeApiKey,
   setRuntimeApiKey as setRuntimeApiKeyState,
 } from "@/lib/runtimeAuth";
+import type {
+  SlashCommandIntentPayload,
+} from "@/contracts/slashCommands";
+
+export type { SlashCommandIntentPayload };
 
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
@@ -238,6 +244,19 @@ export function buildLlmCatalogPath(): string {
 export function buildChatCompletePath(threadId: string | number): string {
   return `/chat/${normalizePathSegment(threadId)}/complete`;
 }
+
+export interface ChatCompletionRequest {
+  depth_mode: string;
+  provider?: string;
+  model?: string;
+  reasoning_mode?: string;
+  source_mode?: string;
+  slashIntent?: SlashCommandIntentPayload | null;
+  slash_intent?: SlashCommandIntentPayload | null;
+  [key: string]: unknown;
+}
+
+export type ChatCompletionRequestBody = ChatCompletionRequest;
 
 export function buildLatestRagTracePath(threadId: string | number): string {
   return `/api/chat/debug/rag-trace/${normalizePathSegment(threadId)}/latest`;
@@ -881,6 +900,186 @@ export async function fetchLatestRagTrace(
     buildLatestRagTracePath(threadId)
   );
   return response.data;
+}
+
+export type PersonalFactRecord = {
+  id: number;
+  user_id: string;
+  key: string;
+  value: string;
+  status: string;
+  confidence: number;
+  is_active: boolean;
+  last_confirmed_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type PersonalFactEvidenceRecord = {
+  id: number;
+  fact_id: number;
+  source_message_id: number | null;
+  excerpt: string | null;
+  modality: string;
+  confidence: number;
+  source_type: string;
+  evidence_meta: Record<string, unknown> | null;
+  created_at: string | null;
+};
+
+export type PersonalFactRevisionRecord = {
+  id: number;
+  fact_id: number;
+  actor: string;
+  action: string;
+  field_changed: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  reason: string | null;
+  created_at: string | null;
+};
+
+type PersonalFactsListResponse = {
+  ok?: boolean;
+  facts?: PersonalFactRecord[];
+};
+
+type PersonalFactDetailResponse = {
+  ok?: boolean;
+  fact?: PersonalFactRecord | null;
+  evidence?: PersonalFactEvidenceRecord[];
+};
+
+type PersonalFactEvidenceResponse = {
+  ok?: boolean;
+  evidence?: PersonalFactEvidenceRecord[];
+};
+
+type PersonalFactRevisionsResponse = {
+  ok?: boolean;
+  revisions?: PersonalFactRevisionRecord[];
+};
+
+type PersonalFactUpdateResponse = {
+  ok?: boolean;
+  fact?: PersonalFactRecord | null;
+};
+
+type PersonalFactUpdateBody = {
+  confidence?: number;
+  reason?: string;
+  status?: string;
+  value?: string;
+};
+
+const PERSONAL_FACTS_BASE_PATH = "/api/personal-facts";
+
+function personalFactPath(factId: number | string): string {
+  return `${PERSONAL_FACTS_BASE_PATH}/${normalizePathSegment(factId)}`;
+}
+
+function buildPersonalFactUpdateBody(
+  body: PersonalFactUpdateBody
+): PersonalFactUpdateBody {
+  return {
+    ...(body.value !== undefined ? { value: body.value } : {}),
+    ...(body.status !== undefined ? { status: body.status } : {}),
+    ...(body.confidence !== undefined ? { confidence: body.confidence } : {}),
+    ...(body.reason !== undefined ? { reason: body.reason } : {}),
+  };
+}
+
+export async function fetchPersonalFacts(params: {
+  activeOnly?: boolean;
+  limit?: number;
+  status?: string | null;
+} = {}): Promise<PersonalFactRecord[]> {
+  const response = await api.get<PersonalFactsListResponse>(
+    PERSONAL_FACTS_BASE_PATH,
+    {
+      params: {
+        ...(params.status ? { status: params.status } : {}),
+        active_only: params.activeOnly ?? true,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      },
+    }
+  );
+  return Array.isArray(response.data?.facts) ? response.data.facts : [];
+}
+
+export async function fetchPersonalFact(
+  factId: number
+): Promise<{ evidence: PersonalFactEvidenceRecord[]; fact: PersonalFactRecord | null }> {
+  const response = await api.get<PersonalFactDetailResponse>(
+    personalFactPath(factId)
+  );
+  return {
+    fact: response.data?.fact ?? null,
+    evidence: Array.isArray(response.data?.evidence)
+      ? response.data.evidence
+      : [],
+  };
+}
+
+export async function updatePersonalFact(
+  factId: number,
+  body: PersonalFactUpdateBody
+): Promise<PersonalFactRecord | null> {
+  const response = await api.patch<PersonalFactUpdateResponse>(
+    personalFactPath(factId),
+    buildPersonalFactUpdateBody(body)
+  );
+  return response.data?.fact ?? null;
+}
+
+export async function archivePersonalFact(
+  factId: number,
+  reason?: string
+): Promise<PersonalFactRecord | null> {
+  return updatePersonalFact(factId, {
+    reason,
+    status: "archived",
+  });
+}
+
+export async function confirmPersonalFact(
+  factId: number,
+  reason?: string
+): Promise<PersonalFactRecord | null> {
+  const response = await api.post<PersonalFactUpdateResponse>(
+    `${personalFactPath(factId)}/confirm`,
+    reason !== undefined ? { reason } : {}
+  );
+  return response.data?.fact ?? null;
+}
+
+export async function disputePersonalFact(
+  factId: number,
+  reason?: string
+): Promise<PersonalFactRecord | null> {
+  const response = await api.post<PersonalFactUpdateResponse>(
+    `${personalFactPath(factId)}/dispute`,
+    reason !== undefined ? { reason } : {}
+  );
+  return response.data?.fact ?? null;
+}
+
+export async function fetchPersonalFactEvidence(
+  factId: number
+): Promise<PersonalFactEvidenceRecord[]> {
+  const response = await api.get<PersonalFactEvidenceResponse>(
+    `${personalFactPath(factId)}/evidence`
+  );
+  return Array.isArray(response.data?.evidence) ? response.data.evidence : [];
+}
+
+export async function fetchPersonalFactRevisions(
+  factId: number
+): Promise<PersonalFactRevisionRecord[]> {
+  const response = await api.get<PersonalFactRevisionsResponse>(
+    `${personalFactPath(factId)}/revisions`
+  );
+  return Array.isArray(response.data?.revisions) ? response.data.revisions : [];
 }
 
 export default api;

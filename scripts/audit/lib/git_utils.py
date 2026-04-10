@@ -10,7 +10,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def run_git(args: list[str], cwd: Path | None = None) -> str:
-    """Run a git command and return stdout."""
+    """Run a git command and return stdout.
+
+    Raises RuntimeError on git failure so callers do not fabricate fallback
+    results from invalid refs or broken repositories.
+    """
     try:
         result = subprocess.run(
             ["git", *args],
@@ -23,23 +27,19 @@ def run_git(args: list[str], cwd: Path | None = None) -> str:
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
-        return ""
+        stderr = (e.stderr or e.stdout or "").strip()
+        command = "git " + " ".join(args)
+        message = f"{command} failed with exit code {e.returncode}"
+        if stderr:
+            message = f"{message}: {stderr}"
+        raise RuntimeError(message) from e
     except FileNotFoundError:
-        return ""
+        raise RuntimeError("git executable not found")
 
 
 def get_changed_files(base: str = "main", head: str = "HEAD") -> list[str]:
     """Get list of files changed between base and head."""
     output = run_git(["diff", "--name-only", f"{base}...{head}"])
-    if not output:
-        # Try to get changed files from working tree
-        output = run_git(["diff", "--name-only", "HEAD"])
-    if not output:
-        # Try to get last commit files
-        output = run_git(
-            ["diff-tree", "--no-commit-id", "--name-only", "-r", head]
-        )
-
     files = [f.strip() for f in output.split("\n") if f.strip()]
     return files
 

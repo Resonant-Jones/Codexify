@@ -3,9 +3,13 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 
 import ThreadList from "../ThreadList";
+import {
+  collectSidebarProvenanceOptions,
+  type SidebarProvenanceOption,
+} from "../sidebarPresentation";
 import type { Thread } from "@/types/ui";
 
-const SOURCE_OPTIONS = [
+const SOURCE_OPTIONS: SidebarProvenanceOption[] = [
   { value: "chatgpt", label: "ChatGPT" },
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
@@ -33,7 +37,7 @@ function renderThreadList({
   threadOverrides?: Partial<Thread>;
   activeId?: string | null;
   provenanceFilter?: string | null;
-  provenanceOptions?: Array<{ value: string; label: string }>;
+  provenanceOptions?: SidebarProvenanceOption[];
   onProvenanceFilterChange?: (sourceKey: string | null) => void;
 } = {}) {
   const handleProvenanceFilterChange = onProvenanceFilterChange ?? vi.fn();
@@ -58,9 +62,11 @@ function renderThreadList({
 function SourceDockHarness({
   initialFilter = null,
   onChange,
+  provenanceOptions = SOURCE_OPTIONS,
 }: {
   initialFilter?: string | null;
   onChange?: (sourceKey: string | null) => void;
+  provenanceOptions?: SidebarProvenanceOption[];
 }) {
   const [provenanceFilter, setProvenanceFilter] = useState<string | null>(initialFilter);
 
@@ -75,7 +81,7 @@ function SourceDockHarness({
       activeId={null}
       scopeLabel="General"
       provenanceFilter={provenanceFilter}
-      provenanceOptions={SOURCE_OPTIONS}
+      provenanceOptions={provenanceOptions}
       onProvenanceFilterChange={handleChange}
       onSelect={vi.fn()}
       onNewChat={vi.fn()}
@@ -86,36 +92,12 @@ function SourceDockHarness({
   );
 }
 
-function SourceDockHarness({
-  initialFilter = null,
-  onChange,
-}: {
-  initialFilter?: string | null;
-  onChange?: (sourceKey: string | null) => void;
-}) {
-  const [provenanceFilter, setProvenanceFilter] = useState<string | null>(initialFilter);
-
-  const handleChange = (sourceKey: string | null) => {
-    onChange?.(sourceKey);
-    setProvenanceFilter(sourceKey);
-  };
-
-  return (
-    <ThreadList
-      threads={[createThread()]}
-      activeId={null}
-      scopeLabel="General"
-      provenanceFilter={provenanceFilter}
-      provenanceOptions={SOURCE_OPTIONS}
-      onProvenanceFilterChange={handleChange}
-      onSelect={vi.fn()}
-      onNewChat={vi.fn()}
-      onRename={vi.fn().mockResolvedValue(undefined)}
-      onArchiveToggle={vi.fn().mockResolvedValue(undefined)}
-      onDelete={vi.fn().mockResolvedValue(undefined)}
-    />
-  );
-}
+const ICON_SOURCE_OPTIONS = collectSidebarProvenanceOptions([
+  createThread({ id: "thread-chatgpt", metadata: { import_source: "chatgpt" } }),
+  createThread({ id: "thread-openai", metadata: { source: "openai" } }),
+  createThread({ id: "thread-gemini", metadata: { provider: "gemini" } }),
+  createThread({ id: "thread-codexify", metadata: { source: "codexify" } }),
+]);
 
 describe("ThreadList dark mode surface contract", () => {
   afterEach(() => {
@@ -151,7 +133,7 @@ describe("ThreadList dark mode surface contract", () => {
   });
 
   it("labels the active project context as project instead of scope", () => {
-    renderThreadList({ title: "Project thread" });
+    renderThreadList({ threadOverrides: { title: "Project thread" } });
 
     expect(screen.getByText("Project:")).toBeInTheDocument();
     expect(screen.getByText("General")).toBeInTheDocument();
@@ -160,9 +142,11 @@ describe("ThreadList dark mode surface contract", () => {
 
   it("does not render provider badges in the main thread list", () => {
     const { container } = renderThreadList({
-      profileMode: "cloud",
-      providerOverride: "openai",
-      modelOverride: "gpt-4",
+      threadOverrides: {
+        profileMode: "cloud",
+        providerOverride: "openai",
+        modelOverride: "gpt-4",
+      },
     });
 
     expect(container.querySelector("svg[data-lucide='bolt'], svg.lucide-bolt")).toBeNull();
@@ -170,14 +154,14 @@ describe("ThreadList dark mode surface contract", () => {
   });
 
   it("does not render inline provider badges in the thread title", () => {
-    const { container } = renderThreadList(
-      {
+    const { container } = renderThreadList({
+      threadOverrides: {
         profileMode: "cloud",
         providerOverride: "anthropic",
         modelOverride: "claude-3.5-sonnet",
       },
-      "thread-1"
-    );
+      activeId: "thread-1",
+    });
 
     expect(container.querySelector(".thread-title svg")).toBeNull();
   });
@@ -236,60 +220,38 @@ describe("ThreadList source dock", () => {
     expect(chatgptButton).toHaveAttribute("aria-pressed", "false");
     expect(openaiButton).toHaveAttribute("aria-pressed", "false");
   });
-});
 
-describe("ThreadList source dock", () => {
-  it("keeps the source dock lane-matched, contained, and scrollable inside the card", () => {
-    render(
-      <ThreadList
-        threads={[createThread()]}
-        activeId={null}
-        scopeLabel="General"
-        provenanceFilter={null}
-        provenanceOptions={SOURCE_OPTIONS}
-        onProvenanceFilterChange={vi.fn()}
-        onSelect={vi.fn()}
-        onNewChat={vi.fn()}
-        onRename={vi.fn().mockResolvedValue(undefined)}
-        onArchiveToggle={vi.fn().mockResolvedValue(undefined)}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-    />
-  );
-
-    const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
-    expect(toolbar.parentElement).toHaveClass("pb-2", "px-3", "min-w-0");
-    expect(toolbar).toHaveClass("glass-pill", "flex", "w-full", "min-w-0", "overflow-hidden");
-
-    const scrollRail = toolbar.querySelector(".overflow-x-auto");
-    expect(scrollRail).not.toBeNull();
-    expect(scrollRail).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
-  });
-
-  it("keeps All mutually exclusive with the canonical source pills", () => {
+  it("renders compact source logos inside the provenance buttons", () => {
     const onChange = vi.fn();
-    render(<SourceDockHarness onChange={onChange} />);
+    render(<SourceDockHarness onChange={onChange} provenanceOptions={ICON_SOURCE_OPTIONS} />);
 
     const toolbar = screen.getByRole("toolbar", { name: "Imported source filter" });
-    const allButton = within(toolbar).getByRole("button", { name: "All" });
-    const chatgptButton = within(toolbar).getByRole("button", { name: "ChatGPT" });
-    const openaiButton = within(toolbar).getByRole("button", { name: "OpenAI" });
+    const labels = ["ChatGPT", "OpenAI", "Gemini", "Codexify"] as const;
 
-    expect(allButton).toHaveAttribute("aria-pressed", "true");
-    expect(chatgptButton).toHaveAttribute("aria-pressed", "false");
-    expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+    for (const label of labels) {
+      const button = within(toolbar).getByRole("button", { name: label });
+      expect(button).toHaveAttribute("aria-pressed", "false");
 
-    fireEvent.click(chatgptButton);
+      const icon = button.querySelector("img");
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(icon).toHaveClass(
+        "block",
+        "h-4",
+        "w-4",
+        "aspect-square",
+        "max-h-4",
+        "max-w-4",
+        "shrink-0",
+        "select-none",
+        "object-contain"
+      );
+    }
 
-    expect(onChange).toHaveBeenCalledWith("chatgpt");
-    expect(allButton).toHaveAttribute("aria-pressed", "false");
-    expect(chatgptButton).toHaveAttribute("aria-pressed", "true");
-    expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+    const geminiButton = within(toolbar).getByRole("button", { name: "Gemini" });
+    fireEvent.click(geminiButton);
 
-    fireEvent.click(allButton);
-
-    expect(onChange).toHaveBeenLastCalledWith(null);
-    expect(allButton).toHaveAttribute("aria-pressed", "true");
-    expect(chatgptButton).toHaveAttribute("aria-pressed", "false");
-    expect(openaiButton).toHaveAttribute("aria-pressed", "false");
+    expect(onChange).toHaveBeenCalledWith("gemini");
+    expect(geminiButton).toHaveAttribute("aria-pressed", "true");
   });
 });
