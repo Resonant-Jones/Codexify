@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DocumentsView from "@/components/documents/DocumentsView";
@@ -54,10 +54,15 @@ describe("DocumentsView interactions", () => {
   beforeEach(() => {
     localStorage.clear();
     setViewportWidth(1280);
+    act(() => {
+      setViewportWidth(1280);
+    });
   });
 
   afterEach(() => {
-    setViewportWidth(1280);
+    act(() => {
+      setViewportWidth(1280);
+    });
     requestWorkspaceOpenMock.mockReset();
     vi.restoreAllMocks();
   });
@@ -184,6 +189,12 @@ describe("DocumentsView interactions", () => {
     setViewportWidth(390);
 
     render(
+  it("switches to a mobile list layout and keeps document taps explicit", async () => {
+    act(() => {
+      setViewportWidth(390);
+    });
+
+    const { container } = render(
       <DocumentsView
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
@@ -205,6 +216,18 @@ describe("DocumentsView interactions", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Open Quarterly Plan in Workspace" })
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+        "data-documents-layout",
+        "mobile_list"
+      );
+      expect(
+        container.querySelector('[data-layout-mode="mobile-list"]')
+      ).toBeTruthy();
+    });
+
+    expect(
+      screen.getByTestId("documents-mobile-row-button-doc-1")
     ).toBeInTheDocument();
 
     fireEvent.click(

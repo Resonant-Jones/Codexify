@@ -370,7 +370,6 @@ export default function DashboardView({
         >
           <div className={primaryColumnClassName}>
             <FrameCard
-              fill={!isPhoneShell}
               refractiveFallback
               shimmerMode="subtle"
               className={cardFrameClassName}
@@ -445,7 +444,6 @@ export default function DashboardView({
             </FrameCard>
 
             <FrameCard
-              fill={!isPhoneShell}
               refractiveFallback
               shimmerMode="subtle"
               className={isPhoneShell ? "w-full min-h-[240px]" : "flex-1 min-h-[240px]"}
@@ -507,7 +505,6 @@ export default function DashboardView({
           </div>
 
           <FrameCard
-            fill={!isPhoneShell}
             refractiveFallback
             shimmerMode="subtle"
             className={isPhoneShell ? "w-full min-h-[336px]" : "flex-[1.15] min-h-0"}
