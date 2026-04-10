@@ -13,6 +13,9 @@ describe("SettingsPanelDock", () => {
         <button type="button" role="tab" aria-selected="false">
           Imprint
         </button>
+        <button type="button" role="tab" aria-selected="false">
+          Personal Facts
+        </button>
       </SettingsPanelDock>
     );
 
@@ -25,5 +28,6 @@ describe("SettingsPanelDock", () => {
     expect(dock).toHaveAttribute("aria-orientation", "horizontal");
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Imprint" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toBeInTheDocument();
   });
 });
