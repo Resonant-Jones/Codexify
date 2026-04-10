@@ -489,7 +489,6 @@ export function ChatView({
   // Mobile bottom-edge contract: when keyboard is open on phone, the composer
   // anchors the bottom and the message lane should not add extra padding.
   const isPhoneClass = mobileShellProfile.active;
-  const viewportInsets = useViewportInsets();
   const effectiveBottomPad = resolveMessageLaneBottomPad(
     isPhoneClass,
     viewportInsets.isKeyboardOpen,
