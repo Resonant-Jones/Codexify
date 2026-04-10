@@ -18,7 +18,7 @@ from guardian.context.retrieval_router_policy import (
     WIDEN_REASON_NONE,
 )
 from guardian.core import chat_completion_service
-from guardian.tasks.types import ChatCompletionTask
+from guardian.tasks.types import ChatCompletionTask, task_from_dict
 
 
 def _seed_completion_service(
@@ -250,7 +250,7 @@ async def test_build_messages_for_llm_keeps_requested_source_mode_without_overri
         ),
     ],
 )
-async def test_build_messages_for_llm_applies_explicit_retrieval_override_modes(
+async def test_build_messages_for_llm_applies_explicit_retrieval_override_modes_on_queued_task(
     monkeypatch: pytest.MonkeyPatch,
     requested_source_mode: str,
     retrieval_override: dict[str, object],
@@ -264,16 +264,19 @@ async def test_build_messages_for_llm_applies_explicit_retrieval_override_modes(
         model=None,
         origin=_origin_with_source_mode_and_override(
             source_mode=requested_source_mode,
-            retrieval_override=retrieval_override,
         ),
+        retrieval_override=retrieval_override,
     )
+    queued_task = task_from_dict(task.to_dict())
+    assert isinstance(queued_task, ChatCompletionTask)
+    assert queued_task.retrieval_override == retrieval_override
     (
         _messages,
         _provider,
         _model,
         _bundle,
         trace,
-    ) = await chat_completion_service.build_messages_for_llm(task)
+    ) = await chat_completion_service.build_messages_for_llm(queued_task)
 
     assert captured["source_mode"] == expected_source_mode
     assert trace["source_mode"] == expected_source_mode

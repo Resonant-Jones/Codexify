@@ -460,6 +460,7 @@ class ChatCompletionTask(BaseTask):
     max_context: int | None = 50
     depth_mode: str | None = "normal"
     system_override: str | None = None
+    retrieval_override: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> ChatCompletionTask:
@@ -490,6 +491,10 @@ class ChatCompletionTask(BaseTask):
             max_context=payload.get("max_context"),
             depth_mode=payload.get("depth_mode"),
             system_override=payload.get("system_override"),
+            retrieval_override=_coerce_mapping(
+                payload.get("retrieval_override")
+            )
+            or None,
             **base,
         )
 

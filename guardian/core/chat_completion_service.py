@@ -167,6 +167,13 @@ def _retrieval_override_from_origin(origin: Any) -> dict[str, Any] | None:
     return None
 
 
+def _retrieval_override_from_task(task: Any) -> dict[str, Any] | None:
+    raw_override = getattr(task, "retrieval_override", None)
+    if isinstance(raw_override, dict):
+        return raw_override
+    return _retrieval_override_from_origin(getattr(task, "origin", None))
+
+
 def _effective_source_mode_for_broker_assembly(
     source_mode: Any,
     retrieval_override: dict[str, Any] | None,
@@ -1252,9 +1259,7 @@ async def build_messages_for_llm(
         settings=settings,
     )
     provider = thread_execution.provider
-    retrieval_override = _retrieval_override_from_origin(
-        getattr(task, "origin", None)
-    )
+    retrieval_override = _retrieval_override_from_task(task)
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -1636,9 +1641,7 @@ def run_chat_completion_task(
     slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
     if slash_intent is not None:
         payload_summary["slash_intent"] = slash_intent
-    retrieval_override = _retrieval_override_from_origin(
-        getattr(task, "origin", None)
-    )
+    retrieval_override = _retrieval_override_from_task(task)
     if retrieval_override is not None:
         payload_summary["retrieval_override"] = retrieval_override
     payload_summary["source_mode"] = (
