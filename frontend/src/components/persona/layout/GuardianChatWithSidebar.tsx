@@ -5,6 +5,7 @@
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
@@ -1468,8 +1469,28 @@ export default function GuardianChatWithSidebar({
 
   const chatDisabled = !isDesktopLayout && isSidebarOpen;
   const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
-
-  const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
+  const sidebarChrome = (
+    <div className="flex items-center justify-between gap-2 border-b border-[var(--panel-border)] px-[var(--card-pad)] py-[var(--card-pad)]">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold leading-tight" style={{ color: "var(--text)" }}>
+          Threads
+        </div>
+        <div className="text-[11px] leading-tight" style={{ color: "var(--muted)" }}>
+          Selection / navigation
+        </div>
+      </div>
+      <button
+        type="button"
+        className="icon-inline shrink-0"
+        aria-label="Hide thread rail"
+        aria-expanded={isSidebarOpen}
+        onClick={toggleSidebar}
+        title="Hide thread rail"
+      >
+        <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
   const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
@@ -1521,19 +1542,24 @@ export default function GuardianChatWithSidebar({
                 className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
               >
                 <PanelShell surfaceStyle={sidebarSurfaceStyle}>
-                  <SidebarRoot
-                    threads={threads}
-                    activeId={activeId}
-                    onSelect={handleSelectThread}
-                    onNewChat={handleNewChatImmediate}
-                    projectId={selectedProjectId}
-                    onProjectChange={setSelectedProjectId}
-                    hasMoreThreads={threadsHasMore}
-                    loadingMoreThreads={threadsLoadingMore}
-                    onLoadMoreThreads={loadMoreThreads}
-                    onBeforeDeleteThread={handleBeforeDeleteThread}
-                    onDeleteThread={handleDeleteThread}
-                  />
+                  <div className="flex h-full min-h-0 flex-col">
+                    {sidebarChrome}
+                    <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                      <SidebarRoot
+                        threads={threads}
+                        activeId={activeId}
+                        onSelect={handleSelectThread}
+                        onNewChat={handleNewChatImmediate}
+                        projectId={selectedProjectId}
+                        onProjectChange={setSelectedProjectId}
+                        hasMoreThreads={threadsHasMore}
+                        loadingMoreThreads={threadsLoadingMore}
+                        onLoadMoreThreads={loadMoreThreads}
+                        onBeforeDeleteThread={handleBeforeDeleteThread}
+                        onDeleteThread={handleDeleteThread}
+                      />
+                    </div>
+                  </div>
                 </PanelShell>
               </div>
             </div>
@@ -1551,13 +1577,20 @@ export default function GuardianChatWithSidebar({
           "relative h-full w-full min-h-0 overflow-hidden box-border items-stretch mx-auto",
           isPhoneShell ? "flex flex-col" : "grid"
         )}
+        data-active-view="guardian"
+        data-active-view-contract="left-center-right"
+        data-thread-rail="present"
+        data-thread-rail-state={isSidebarOpen ? "open" : "collapsed"}
         data-guardian-layout={guardianLayoutMode}
+        data-view-family="guardian"
         data-shell-profile={mobileShellProfile.shellMode}
         style={{
           maxWidth: mobileShellProfile.guardian.frameMaxWidth,
           gridTemplateColumns:
-            !isPhoneShell && isDesktopLayout && isSidebarOpen
-              ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+            !isPhoneShell && isDesktopLayout
+              ? isSidebarOpen
+                ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+                : "auto minmax(0, 1fr)"
               : "1fr",
           gap: "var(--gutter)",
           padding: "0px",
@@ -1577,9 +1610,9 @@ export default function GuardianChatWithSidebar({
         )}
 
         {/* Sidebar */}
-        {isSidebarOpen && isDesktopLayout && (
+        {isDesktopLayout && isSidebarOpen && (
           <div
-            className={clsx("h-full w-full min-h-0 overflow-hidden box-border", sidebarWrapperClass)}
+            className="relative h-full w-full min-h-0 overflow-hidden box-border"
             style={{ gridColumn: "1", gridRow: "1" }}
           >
             <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
@@ -1596,19 +1629,73 @@ export default function GuardianChatWithSidebar({
               className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
             >
               <PanelShell surfaceStyle={sidebarSurfaceStyle}>
-                <SidebarRoot
-                  threads={threads}
-                  activeId={activeId}
-                  onSelect={handleSelectThread}
-                  onNewChat={handleNewChatImmediate}
-                  projectId={selectedProjectId}
-                  onProjectChange={setSelectedProjectId}
-                  hasMoreThreads={threadsHasMore}
-                  loadingMoreThreads={threadsLoadingMore}
-                  onLoadMoreThreads={loadMoreThreads}
-                  onBeforeDeleteThread={handleBeforeDeleteThread}
-                  onDeleteThread={handleDeleteThread}
-                />
+                <div className="flex h-full min-h-0 flex-col">
+                  {sidebarChrome}
+                  <div
+                    className="flex-1 min-h-0 min-w-0 overflow-hidden"
+                    data-testid="guardian-thread-rail"
+                    data-rail-state="open"
+                  >
+                    <SidebarRoot
+                      threads={threads}
+                      activeId={activeId}
+                      onSelect={handleSelectThread}
+                      onNewChat={handleNewChatImmediate}
+                      projectId={selectedProjectId}
+                      onProjectChange={setSelectedProjectId}
+                      hasMoreThreads={threadsHasMore}
+                      loadingMoreThreads={threadsLoadingMore}
+                      onLoadMoreThreads={loadMoreThreads}
+                      onBeforeDeleteThread={handleBeforeDeleteThread}
+                      onDeleteThread={handleDeleteThread}
+                    />
+                  </div>
+                </div>
+              </PanelShell>
+            </div>
+          </div>
+        )}
+        {isDesktopLayout && !isSidebarOpen && (
+          <div
+            className="relative h-full w-full min-h-0 overflow-hidden box-border"
+            style={{ gridColumn: "1", gridRow: "1" }}
+          >
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-[var(--card-radius)] pointer-events-none">
+              <RefractiveGlassCard
+                wallpaperUrl={wallpaperUrl}
+                className="h-full w-full rounded-[var(--card-radius)]"
+                style={{ background: "transparent", border: "none" }}
+                intensity={0.006}
+                aberration={0}
+              />
+            </div>
+            <div
+              data-layer="panel-shell"
+              className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
+            >
+              <PanelShell
+                surfaceStyle={{ ...sidebarSurfaceStyle, width: "auto" }}
+                className="h-full w-auto min-h-0 overflow-hidden box-border"
+              >
+                <div className="flex h-full min-h-0 flex-col">
+                  <div
+                    className="flex min-h-0 flex-1 items-start justify-start p-[var(--card-pad)]"
+                    data-testid="guardian-thread-rail"
+                    data-rail-state="collapsed"
+                  >
+                    <button
+                      type="button"
+                      className="glass-pill inline-flex items-center gap-2 px-3 py-2 text-xs font-medium"
+                      aria-label="Show thread rail"
+                      aria-expanded={isSidebarOpen}
+                      onClick={toggleSidebar}
+                      title="Show thread rail"
+                    >
+                      <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>Thread rail</span>
+                    </button>
+                  </div>
+                </div>
               </PanelShell>
             </div>
           </div>
@@ -1616,6 +1703,7 @@ export default function GuardianChatWithSidebar({
         {/* Chat Panel */}
         <div
           className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"
+          data-testid="guardian-center-lane"
           style={{
             gridColumn: isDesktopLayout && isSidebarOpen ? "2" : "1",
             gridRow: "1",

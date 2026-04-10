@@ -286,7 +286,12 @@ export function useWorkspaceState({
 
       setActiveDoc(nextDoc);
       // Phone shells keep Workspace collapsed until the user explicitly summons it.
-      setWorkspaceOpen((previous) => (isPhoneShell ? previous : true));
+      setWorkspaceOpen((previous) => {
+        if (isPhoneShell) {
+          return previous;
+        }
+        return true;
+      });
       onOpenRequest?.(nextRequest);
       return true;
     },

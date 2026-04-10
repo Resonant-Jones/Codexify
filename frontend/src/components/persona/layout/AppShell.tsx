@@ -38,6 +38,10 @@ import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
+import {
+  MOBILE_MOTION,
+  getMobileWorkspaceMotionState,
+} from "@/components/persona/layout/mobileMotionContract";
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useShellViewportProfile } from "./shellBreakpointContract";
@@ -1818,6 +1822,32 @@ export default function AppShell({
     }
     openWorkspaceDrawer();
   }, [closeWorkspaceDrawer, openWorkspaceDrawer, workspaceDrawerOpen]);
+  const [workspaceDrawerMotionPhase, setWorkspaceDrawerMotionPhase] = useState<
+    "closed" | "open" | "closing"
+  >(workspaceDrawerOpen ? "open" : "closed");
+  useEffect(() => {
+    if (!isPhoneShell) {
+      setWorkspaceDrawerMotionPhase(workspaceDrawerOpen ? "open" : "closed");
+      return;
+    }
+
+    if (workspaceDrawerOpen) {
+      setWorkspaceDrawerMotionPhase("open");
+      return;
+    }
+
+    setWorkspaceDrawerMotionPhase((current) =>
+      current === "open" ? "closing" : current
+    );
+
+    const timer = window.setTimeout(() => {
+      setWorkspaceDrawerMotionPhase("closed");
+    }, MOBILE_MOTION.workspaceSheetExitMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isPhoneShell, workspaceDrawerOpen]);
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
@@ -1974,7 +2004,18 @@ export default function AppShell({
       }) as React.CSSProperties,
     [bp],
   );
-  const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
+  const showWorkspaceDrawer =
+    workspaceShellEnabled &&
+    (workspaceDrawerOpen || (isPhoneShell && workspaceDrawerMotionPhase === "closing"));
+  const workspaceDrawerMotionState = isPhoneShell
+    ? getMobileWorkspaceMotionState(
+        isPhoneShell,
+        workspaceDrawerOpen || workspaceDrawerMotionPhase === "closing",
+        workspaceLayoutMode
+      )
+    : workspaceDrawerOpen
+      ? "open"
+      : "collapsed";
   const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
     ? isPhoneShell
       ? {
@@ -2042,6 +2083,8 @@ export default function AppShell({
       <div
         data-testid="workspace-drawer-overlay"
         data-overlay-mode="mobile"
+        data-workspace-motion-state={workspaceDrawerMotionState}
+        data-workspace-motion-phase={workspaceDrawerMotionPhase}
         className="absolute inset-0 z-20 flex items-stretch justify-end bg-black/35 backdrop-blur-sm"
       >
         <button
@@ -2489,6 +2532,10 @@ export default function AppShell({
           {!startupLocked && view === "documents" && (
             <div
               className="isolate"
+              data-active-view="documents"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="present"
+              data-view-family="documents"
               style={{
                 "--radius": "var(--card-radius)",
                 "--frame": "1px",
@@ -2620,6 +2667,10 @@ export default function AppShell({
           {!startupLocked && view === "guardian" && (
             <div
               className="h-full w-full isolate"
+              data-active-view="guardian"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="present"
+              data-view-family="guardian"
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
@@ -2679,6 +2730,10 @@ export default function AppShell({
           {!startupLocked && view === "dashboard" && (
             <div
               className="h-full w-full isolate"
+              data-active-view="dashboard"
+              data-active-view-contract="center-right"
+              data-thread-rail="absent"
+              data-view-family="dashboard"
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
@@ -2759,14 +2814,22 @@ export default function AppShell({
             </FrameCard>
           )}
           {!startupLocked && view === "personaStudio" && (
-            <FrameCard
-              refractiveFallback
-              shimmerMode="subtle"
-              className="flex h-full w-full min-h-0 flex-col overflow-hidden"
-              data-testid="persona-studio-framecard"
+            <div
+              className="h-full w-full isolate"
+              data-active-view="personaStudio"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="absent"
+              data-view-family="personaStudio"
             >
-              <PersonaStudioPage />
-            </FrameCard>
+              <FrameCard
+                refractiveFallback
+                shimmerMode="subtle"
+                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+                data-testid="persona-studio-framecard"
+              >
+                <PersonaStudioPage />
+              </FrameCard>
+            </div>
           )}
         </div>
       </div>
