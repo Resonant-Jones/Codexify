@@ -5,6 +5,8 @@ from urllib.parse import unquote
 
 import pytest
 
+from guardian.tasks.types import task_from_dict
+
 
 @pytest.mark.parametrize(
     ("raw_source_mode", "expected_source_mode"),
@@ -58,11 +60,36 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     assert getattr(task, "origin").startswith("api:chat.complete|turn_id=")
     assert f"|source_mode={expected_source_mode}" in getattr(task, "origin")
     assert "|slash_intent=" not in getattr(task, "origin")
+    assert "|retrieval_override=" not in getattr(task, "origin")
+    assert getattr(task, "retrieval_override", None) is None
     assert captured["queue_name"] == "codexify:queue:chat"
 
 
-def test_chat_complete_accepts_slash_intent_without_changing_source_mode(
-    test_client, mock_db, monkeypatch
+@pytest.mark.parametrize(
+    ("slash_intent", "expected_retrieval_override"),
+    [
+        (
+            {
+                "commandId": "project",
+                "rawInput": "/project search",
+                "intentKind": "workspace",
+                "retrievalHint": "project",
+            },
+            {"mode": "project", "reason": "slash_project_hint"},
+        ),
+        (
+            {
+                "commandId": "thread",
+                "rawInput": "/thread recap",
+                "intentKind": "conversation",
+                "retrievalHint": "none",
+            },
+            {"mode": "none", "reason": "no_override"},
+        ),
+    ],
+)
+def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
+    test_client, mock_db, monkeypatch, slash_intent, expected_retrieval_override
 ):
     mock_db.get_chat_thread.return_value = {
         "id": 1,
@@ -94,12 +121,7 @@ def test_chat_complete_accepts_slash_intent_without_changing_source_mode(
     payload = {
         "depth_mode": "normal",
         "source_mode": "personal_knowledge",
-        "slashIntent": {
-            "commandId": "project",
-            "rawInput": "/project search",
-            "intentKind": "workspace",
-            "retrievalHint": "project",
-        },
+        "slashIntent": slash_intent,
     }
 
     response = test_client.post("/chat/1/complete", json=payload)
@@ -111,19 +133,50 @@ def test_chat_complete_accepts_slash_intent_without_changing_source_mode(
     origin = getattr(task, "origin")
     assert "|source_mode=personal_knowledge" in origin
     assert "|slash_intent=" in origin
+    assert "|retrieval_override=" in origin
+    assert getattr(task, "retrieval_override") == expected_retrieval_override
+    round_tripped = task_from_dict(task.to_dict())
+    assert (
+        getattr(round_tripped, "retrieval_override")
+        == expected_retrieval_override
+    )
+
     slash_intent_raw = origin.split("|slash_intent=", 1)[1]
-    slash_intent = json.loads(unquote(slash_intent_raw))
-    assert slash_intent == {
-        "commandId": "project",
-        "intentKind": "workspace",
-        "retrievalHint": "project",
+    slash_intent_payload = json.loads(
+        unquote(slash_intent_raw.split("|retrieval_override=", 1)[0])
+    )
+    assert slash_intent_payload == {
+        "commandId": slash_intent["commandId"],
+        "intentKind": slash_intent["intentKind"],
+        "retrievalHint": slash_intent["retrievalHint"],
     }
-    assert "rawInput" not in slash_intent
+    assert "rawInput" not in slash_intent_payload
+
+    retrieval_override_raw = origin.split("|retrieval_override=", 1)[1]
+    retrieval_override = json.loads(unquote(retrieval_override_raw))
+    assert retrieval_override == expected_retrieval_override
     assert captured["queue_name"] == "codexify:queue:chat"
 
 
+@pytest.mark.parametrize(
+    "invalid_slash_intent",
+    [
+        {
+            "commandId": "bogus",
+            "rawInput": "/bogus",
+            "intentKind": "workspace",
+            "retrievalHint": "project",
+        },
+        {
+            "commandId": "project",
+            "rawInput": "/project",
+            "intentKind": "workspace",
+            "retrievalHint": "team",
+        },
+    ],
+)
 def test_chat_complete_rejects_invalid_slash_intent_values(
-    test_client, mock_db
+    test_client, mock_db, invalid_slash_intent
 ):
     mock_db.get_chat_thread.return_value = {
         "id": 1,
@@ -135,15 +188,7 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
 
     response = test_client.post(
         "/chat/1/complete",
-        json={
-            "depth_mode": "normal",
-            "slashIntent": {
-                "commandId": "bogus",
-                "rawInput": "/bogus",
-                "intentKind": "workspace",
-                "retrievalHint": "project",
-            },
-        },
+        json={"depth_mode": "normal", "slashIntent": invalid_slash_intent},
     )
 
     assert response.status_code == 422

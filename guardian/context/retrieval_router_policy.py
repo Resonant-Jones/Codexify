@@ -90,6 +90,51 @@ class RetrievalPlan:
     active_persona: str | None = None
 
 
+SOURCE_MODE_PROJECT = "project"
+SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
+SOURCE_MODE_CONVERSATION = "conversation"
+
+SOURCE_MODES: tuple[str, ...] = (
+    SOURCE_MODE_PROJECT,
+    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    SOURCE_MODE_CONVERSATION,
+)
+
+RETRIEVAL_OVERRIDE_NONE = "none"
+RETRIEVAL_OVERRIDE_PROJECT = SOURCE_MODE_PROJECT
+RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE = SOURCE_MODE_PERSONAL_KNOWLEDGE
+RETRIEVAL_OVERRIDE_CONVERSATION = SOURCE_MODE_CONVERSATION
+
+RETRIEVAL_OVERRIDE_MODES: tuple[str, ...] = (
+    RETRIEVAL_OVERRIDE_NONE,
+    RETRIEVAL_OVERRIDE_PROJECT,
+    RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE,
+    RETRIEVAL_OVERRIDE_CONVERSATION,
+)
+
+WIDEN_REASON_NONE = "none"
+WIDEN_REASON_INSUFFICIENT_THREAD_HITS = "insufficient_thread_hits"
+WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS = "low_confidence_thread_hits"
+WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE = "explicit_personal_knowledge"
+
+WIDEN_REASONS: tuple[str, ...] = (
+    WIDEN_REASON_NONE,
+    WIDEN_REASON_INSUFFICIENT_THREAD_HITS,
+    WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS,
+    WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+)
+
+SOURCE_MODE_BOUNDARY_ACTIVE_CONVERSATION_ONLY = "active_conversation_only"
+SOURCE_MODE_BOUNDARY_SAME_USER_ONLY = "same_user_only"
+SOURCE_MODE_BOUNDARY_SAME_USER_SAME_PROJECT = "same_user_same_project"
+
+SOURCE_MODE_BOUNDARY_LABELS: dict[str, str] = {
+    SOURCE_MODE_PROJECT: SOURCE_MODE_BOUNDARY_SAME_USER_SAME_PROJECT,
+    SOURCE_MODE_PERSONAL_KNOWLEDGE: SOURCE_MODE_BOUNDARY_SAME_USER_ONLY,
+    SOURCE_MODE_CONVERSATION: SOURCE_MODE_BOUNDARY_ACTIVE_CONVERSATION_ONLY,
+}
+
+
 QUERY_INTENTS: frozenset[str] = frozenset(
     intent.value for intent in QueryIntent
 )
@@ -106,6 +151,44 @@ ESCALATION_STEPS: frozenset[str] = frozenset(
 )
 
 _EMPTY_ESCALATION: tuple[EscalationStep, ...] = ()
+
+
+def normalize_source_mode(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in SOURCE_MODES:
+        return normalized
+    return SOURCE_MODE_PROJECT
+
+
+def is_supported_source_mode(value: object) -> bool:
+    return str(value or "").strip().lower() in SOURCE_MODES
+
+
+def normalize_retrieval_override_mode(value: object) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if normalized in RETRIEVAL_OVERRIDE_MODES:
+        return normalized
+    return None
+
+
+def is_supported_retrieval_override_mode(value: object) -> bool:
+    return str(value or "").strip().lower() in RETRIEVAL_OVERRIDE_MODES
+
+
+def normalize_widen_reason(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in WIDEN_REASONS:
+        return normalized
+    return WIDEN_REASON_NONE
+
+
+def is_supported_widen_reason(value: object) -> bool:
+    return str(value or "").strip().lower() in WIDEN_REASONS
+
+
+def source_mode_boundary_label(value: object) -> str:
+    return SOURCE_MODE_BOUNDARY_LABELS[normalize_source_mode(value)]
+
 
 ROUTER_POLICY: dict[QueryIntent, PolicyRule] = {
     QueryIntent.CONVERSATION_ONLY: PolicyRule(
@@ -492,10 +575,28 @@ def resolve_retrieval_plan(
 __all__ = [
     "ESCALATION_STEPS",
     "GRAPH_ALLOWANCES",
+    "RETRIEVAL_OVERRIDE_CONVERSATION",
+    "RETRIEVAL_OVERRIDE_MODES",
+    "RETRIEVAL_OVERRIDE_NONE",
+    "RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE",
+    "RETRIEVAL_OVERRIDE_PROJECT",
     "QUERY_INTENTS",
     "RETRIEVAL_DEPTHS",
+    "SOURCE_MODE_BOUNDARY_ACTIVE_CONVERSATION_ONLY",
+    "SOURCE_MODE_BOUNDARY_LABELS",
+    "SOURCE_MODE_BOUNDARY_SAME_USER_ONLY",
+    "SOURCE_MODE_BOUNDARY_SAME_USER_SAME_PROJECT",
+    "SOURCE_MODE_CONVERSATION",
+    "SOURCE_MODE_PERSONAL_KNOWLEDGE",
+    "SOURCE_MODE_PROJECT",
+    "SOURCE_MODES",
     "SCOPE_MODES",
     "TIME_MODES",
+    "WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE",
+    "WIDEN_REASON_INSUFFICIENT_THREAD_HITS",
+    "WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS",
+    "WIDEN_REASON_NONE",
+    "WIDEN_REASONS",
     "EscalationStep",
     "GraphAllowance",
     "PolicyRule",
@@ -506,5 +607,12 @@ __all__ = [
     "ScopeMode",
     "TimeMode",
     "classify_query_intent",
+    "is_supported_retrieval_override_mode",
+    "is_supported_source_mode",
+    "is_supported_widen_reason",
+    "normalize_retrieval_override_mode",
+    "normalize_source_mode",
+    "normalize_widen_reason",
     "resolve_retrieval_plan",
+    "source_mode_boundary_label",
 ]

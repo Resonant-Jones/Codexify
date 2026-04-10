@@ -507,6 +507,38 @@ describe("GuardianChat inference rail", () => {
     expect(screen.queryByText("Reply failed")).not.toBeInTheDocument();
   });
 
+  it("keeps the sidebar summon and dismissal affordance explicit", () => {
+    const onSidebarToggle = vi.fn();
+    const commonProps = {
+      guardianName: "Guardian",
+      userName: "tester",
+      activeThread: buildThread("1"),
+      onSendMessage: vi.fn().mockResolvedValue(undefined),
+      onNewChat: vi.fn(),
+      sessionTabs: buildSessionTabs("1"),
+      activeSessionTabId: "tab-1" as any,
+      activeProviderId: "local",
+      activeModelId: "local-model",
+      onSidebarToggle,
+      isSidebarVisible: true,
+    };
+
+    const { rerender } = render(<GuardianChat {...commonProps} />);
+
+    expect(
+      screen.getByRole("button", { name: "Hide sidebar" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+    expect(onSidebarToggle).toHaveBeenCalled();
+
+    rerender(<GuardianChat {...commonProps} isSidebarVisible={false} />);
+
+    expect(
+      screen.getByRole("button", { name: "Show sidebar" })
+    ).toBeInTheDocument();
+  });
+
   it("attaches slashIntent to the completion request payload", async () => {
     composerState.slashIntent = {
       commandId: "project",
