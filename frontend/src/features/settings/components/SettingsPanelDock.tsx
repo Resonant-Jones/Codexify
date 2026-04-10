@@ -23,6 +23,15 @@ export default function SettingsPanelDock({
         position: "sticky",
         top: "calc(var(--card-pad) + var(--board-edge))",
       }}
+      data-testid="settings-panel-dock"
+      className="glass-pill sticky top-0 z-30 inline-flex w-fit max-w-full min-w-0 shrink-0 items-stretch overflow-x-auto"
+      style={
+        {
+          "--pill-active-text": "var(--text-on-accent)",
+          "--pill-gap": "var(--radius-micro)",
+          "--pill-font": "0.84rem",
+        } as React.CSSProperties
+      }
     >
       <div
         className="flex w-full flex-wrap gap-2 rounded-[var(--tile-radius)] border p-2"

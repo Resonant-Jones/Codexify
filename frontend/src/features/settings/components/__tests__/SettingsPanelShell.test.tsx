@@ -13,6 +13,7 @@ describe("SettingsPanelShell", () => {
 
     const shell = screen.getByTestId("settings-panel-shell");
     expect(shell).toHaveClass(
+    expect(screen.getByTestId("settings-panel-shell")).toHaveClass(
       "flex",
       "h-full",
       "min-h-0",
