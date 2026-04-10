@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-08
+2026-04-10
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,15 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
+Codexify is in local-beta hardening on `main`. The supported path is the local Docker Compose stack under the v1 local-only profile. Recent mainline work improved identity boundaries, retrieval proofing, and the operator-facing frontend, but the release promise is still narrow and quarantined surfaces remain out of scope.
 
 ## What changed recently
-- Built-in help is now bundled and re-seeded into documents and RAG at backend startup.
-- API and worker retrieval now share one runtime vector store instead of drifting by path.
-- Personal-facts routes were wired into the Postgres chatlog adapter and covered by runtime route tests, but the supported profile still quarantines that surface.
-- Live import catch-up was re-proven on `main`: the embed backlog drained while chat stayed healthy.
-- Frontend-only chat/sidebar polish landed, but it does not change the release contract.
+- Built-in help is seeded at backend startup and is now part of the supported retrieval proof pack.
+- Live import catch-up was re-proven on `main`; the backlog drained while chat stayed healthy.
+- An executable identity-boundary suite landed for project scope, explicit widening, and exclusion filters.
+- Identity precedence is now documented as `actor_plus_role`; Guardian remains the stable first-person actor.
+- Personal-facts route/runtime proof landed, but the live Postgres chatlog adapter still cannot satisfy the route and the surface remains quarantined.
+- Frontend polish landed: split command-center observability, settings dock/data-tab fixes, mobile viewport stabilization, and Documents/Dashboard parity.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -29,31 +30,31 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Upload -> parse -> embed -> retrieve remains supported, with one shared runtime vector store.
 - Built-in system docs/help are seeded at startup and available to retrieval.
 - The import embed worker can drain a live backlog without breaking chat or health surfaces.
+- The supported profile still treats `command_bus` as internal-only and quarantines `personal_facts` plus other non-beta surfaces.
 - `/health`, `/health/chat`, `/api/health/llm`, `/api/health/retrieval`, and `/api/llm/catalog?include=all` remain the primary runtime evidence surfaces.
 
 ## Not yet true / do not assume
-- Do not assume the current tip has been re-proven end-to-end after the latest runtime-adjacent merges.
-- Do not assume `personal_facts` is part of the supported beta surface; the supported profile quarantines it.
-- Do not assume delegation or autonomous coding-agent execution is shipped; the current release promise still excludes that loop.
-- Do not assume internal operator surfaces or quarantined routes represent the supported beta contract.
-- Do not assume older proof docs alone describe the current tip if a newer merge changed runtime wiring.
+- Do not assume `personal_facts` is part of the supported beta surface; the supported profile quarantines it and the live route proof exposed a missing adapter method.
+- Do not assume delegation or autonomous coding-agent execution is shipped in the release promise.
+- Do not assume internal operator surfaces such as the Command Center / Observability Deck are the released beta operator surface.
+- Do not assume catalog presence alone means runtime support; the supported profile and provider registry still gate the beta promise.
+- Do not assume the latest `main` tip is fully re-proven end to end unless the current audit window has fresh live evidence.
 
 ## Active blockers
-- Fresh live release evidence on the exact current `main` tip is stale and needs to be rerun.
-- Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
+- Fresh live proof on the exact current `main` tip is stale and must be rerun before signoff.
+- Release signoff still depends on the supported-profile, provider-registry, catalog, and health surfaces agreeing in the live runtime.
 
 ## This week’s priorities
-1. Re-run the supported local Compose beta proof on the current `main` tip.
-2. Keep the supported-profile contract, catalog, and health surfaces aligned with the local-only provider posture.
-3. Leave `personal_facts` out of the beta claim unless the supported profile is explicitly changed.
-4. Keep delegation excluded from the shipped promise unless the executor/result-return path is made explicit and proven.
+1. Re-run the supported Compose beta proof on the current `main` tip.
+2. Keep the supported-profile contract, provider registry, and health surfaces aligned.
+3. Keep `personal_facts`, delegation, and internal operator surfaces out of the release promise unless they are freshly proven and explicitly promoted.
+4. Preserve the current chat and retrieval path while validating any further UI polish on the same release gate.
 
 ## Release definition right now
-- [ ] Supported-profile flags and mounted routes still match the beta contract.
-- [ ] Fresh live evidence exists on the current `main` tip for clean start, assistant completion, upload -> embed -> retrieve, and health surfaces.
-- [ ] The release promise does not include `personal_facts` unless the supported profile is updated.
-- [ ] Delegation is either explicitly excluded or implemented with a real executor plus source-thread result return.
-- [ ] No internal-only or quarantined surface is part of the release claim.
+- [ ] Current `main` has fresh live evidence for chat completion, upload -> embed -> retrieve, and the health surfaces.
+- [ ] The supported profile still matches the mounted route and provider posture.
+- [ ] Quarantined and internal-only surfaces remain outside the release promise.
+- [ ] Any promoted surface such as `personal_facts` is fully wired and proven before inclusion.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
