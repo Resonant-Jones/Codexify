@@ -55,6 +55,9 @@ DEBUG_LATEST_RAG_TRACE_METADATA_KEY = "debug_latest_rag_trace"
 _LOCAL_IMAGE_CAPTIONER_MODEL_NAME = "Salesforce/blip-image-captioning-base"
 _LOCAL_IMAGE_CAPTIONER: tuple[Any, Any] | None = None
 _LOCAL_IMAGE_CAPTIONER_ATTEMPTED = False
+_SOURCE_MODE_CONVERSATION = "conversation"
+_SOURCE_MODE_PROJECT = "project"
+_SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
 
 try:  # pragma: no cover - prompts are optional in some deployments
     from guardian.cognition.system_prompt_builder import (
@@ -98,7 +101,12 @@ def _estimate_tokens(text: str | None) -> int:
 
 
 def _normalize_source_mode(value: Any) -> str:
-    return "personal_knowledge" if value == "personal_knowledge" else "project"
+    normalized = str(value or "").strip().lower()
+    if normalized == _SOURCE_MODE_CONVERSATION:
+        return _SOURCE_MODE_CONVERSATION
+    if normalized == _SOURCE_MODE_PERSONAL_KNOWLEDGE:
+        return _SOURCE_MODE_PERSONAL_KNOWLEDGE
+    return _SOURCE_MODE_PROJECT
 
 
 def _source_mode_from_origin(origin: Any) -> str:
@@ -171,10 +179,12 @@ def _effective_source_mode_for_broker_assembly(
     raw_mode = retrieval_override.get("mode")
     mode = str(raw_mode or "").strip().lower()
     if mode == "project":
-        return "project"
+        return _SOURCE_MODE_PROJECT
     if mode == "personal_knowledge":
-        return "personal_knowledge"
-    if mode in {"", "none", "conversation"}:
+        return _SOURCE_MODE_PERSONAL_KNOWLEDGE
+    if mode == "conversation":
+        return _SOURCE_MODE_CONVERSATION
+    if mode in {"", "none"}:
         return effective_source_mode
 
     logger.debug(

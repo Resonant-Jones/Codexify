@@ -191,7 +191,7 @@ async def test_build_messages_for_llm_defaults_to_project_for_missing_or_malform
         (
             "personal_knowledge",
             {"mode": "conversation"},
-            "personal_knowledge",
+            "conversation",
         ),
         (
             "personal_knowledge",

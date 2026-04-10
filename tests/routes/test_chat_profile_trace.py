@@ -145,6 +145,55 @@ def test_rag_trace_preserves_retrieval_override_and_effective_source_mode(
     chat._rag_traces.pop(79, None)
 
 
+def test_rag_trace_preserves_conversation_override_and_effective_source_mode(
+    monkeypatch,
+):
+    chat._thread_latest_task[80] = "task-80"
+
+    slash_intent = {
+        "commandId": "thread",
+        "intentKind": "conversation",
+        "retrievalHint": "conversation",
+    }
+    retrieval_override = {
+        "mode": "conversation",
+        "reason": "slash_conversation_hint",
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "source_mode": "conversation",
+                "widen_reason": "none",
+            },
+            "payload_summary": {
+                "payload_char_count": 12,
+                "message_count": 2,
+                "slash_intent": slash_intent,
+                "retrieval_override": retrieval_override,
+                "source_mode": "conversation",
+                "effective_source_mode": "conversation",
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(80, api_key="test-key")
+
+    assert trace["payload_summary"]["slash_intent"] == slash_intent
+    assert trace["payload_summary"]["retrieval_override"] == retrieval_override
+    assert trace["payload_summary"]["source_mode"] == "conversation"
+    assert trace["payload_summary"]["effective_source_mode"] == "conversation"
+    assert trace["source_mode"] == "conversation"
+    assert trace["widen_reason"] == "none"
+
+    chat._thread_latest_task.pop(80, None)
+    chat._rag_traces.pop(80, None)
+
+
 def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
     chat._thread_latest_task[91] = "task-91"
 
