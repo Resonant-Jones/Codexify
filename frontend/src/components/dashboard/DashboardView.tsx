@@ -14,7 +14,6 @@ import DashboardGallery from "@/features/dashboard/components/DashboardGallery";
 import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import type { DocumentFile } from "@/components/documents/DocumentTile";
-import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 
 // Debug signature: helps confirm which DashboardView module the browser is actually running.
 const DASHBOARDVIEW_SIGNATURE = "DashboardView.tsx (components/dashboard) signature: 2026-02-01";
@@ -306,7 +305,6 @@ export default function DashboardView({
   };
 
   const rows = Math.max(1, Number.isFinite(threadGridRows) ? threadGridRows : 2);
-  const threadColumns = mobileShellProfile.dashboard.threadColumns;
   const threadColumns = isPhoneShell ? 1 : 2;
   const threadLimit = threadColumns * rows;
   const threadList = pinnedThreads.slice(0, threadLimit);
@@ -336,52 +334,11 @@ export default function DashboardView({
     [gallery, hasRealGallery, realGallery]
   );
   const dashboardLayoutMode = isPhoneShell ? "mobile_stack" : "desktop_split";
-
-  const dashboardSurfaceClassName = isPhoneShell
-    ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
-    : "flex h-full min-h-0 gap-[var(--gutter)]";
-
-  const dashboardOuterClassName = isPhoneShell
-    ? "flex-1 min-h-0 overflow-auto p-[var(--board-edge)]"
-    : "flex-1 min-h-0 p-[var(--board-edge)]";
-
-  const primaryColumnClassName = isPhoneShell
-    ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
-    : "flex min-h-0 flex-1 flex-col gap-[var(--gutter)]";
-  const cardFrameClassName = isPhoneShell ? "w-full min-h-[248px]" : "flex-1 min-h-[260px]";
-  const cardContentClassName = isPhoneShell
-    ? "flex h-full min-h-0 flex-col gap-[var(--shell-gap)] p-[var(--card-pad)]"
-    : "flex h-full min-h-0 flex-col gap-4 p-5";
-  const cardHeaderClassName = isPhoneShell
-    ? "flex flex-col items-start gap-2"
-    : "flex items-center justify-between gap-3";
-  const compactButtonRowClassName = isPhoneShell
-    ? "glass-pill h-auto flex-wrap justify-start py-[3px] px-[6px]"
-    : "glass-pill h-auto py-[3px] px-[6px]";
-  const threadGridStyle = React.useMemo<React.CSSProperties>(
-    () => ({
-      gridTemplateColumns: `repeat(${threadColumns}, minmax(0, 1fr))`,
-    }),
-    [threadColumns]
-  );
-  const recentDocumentsGridStyle = React.useMemo<React.CSSProperties>(
-    () => ({
-      gridTemplateColumns:
-        mobileShellProfile.dashboard.documentColumns === 1
-          ? "minmax(0, 1fr)"
-          : "repeat(auto-fit, 127px)",
-    }),
-    [mobileShellProfile.dashboard.documentColumns]
-  );
   const dashboardGalleryOuterClassName = isPhoneShell
     ? "flex-1 min-h-0 overflow-visible"
     : "flex-1 min-h-0 overflow-auto pr-1";
 
   return (
-    <section className="flex h-full w-full min-h-0 flex-col">
-      <div className={dashboardOuterClassName}>
-        <div className={dashboardSurfaceClassName} data-layout-mode={isPhoneShell ? "mobile-stack" : "desktop-split"}>
-          <div className={primaryColumnClassName}>
     <section
       className="flex h-full w-full min-h-0 flex-col"
       data-dashboard-layout={dashboardLayoutMode}
@@ -392,6 +349,7 @@ export default function DashboardView({
           className={`flex h-full min-h-0 ${
             isPhoneShell ? "flex-col gap-[var(--gutter)] overflow-auto" : "gap-[var(--gutter)]"
           }`}
+          data-layout-mode={isPhoneShell ? "mobile-stack" : "desktop-split"}
         >
           <div
             className={`flex min-h-0 flex-col gap-[var(--gutter)] ${
@@ -399,13 +357,8 @@ export default function DashboardView({
             }`}
           >
             <FrameCard
-              fill={!isPhoneShell}
               refractiveFallback
               shimmerMode="subtle"
-              className={cardFrameClassName}
-            >
-              <div className={cardContentClassName}>
-                <div className={cardHeaderClassName}>
               className={isPhoneShell ? "w-full min-h-0" : "flex-1 min-h-[260px]"}
             >
               <div
@@ -422,9 +375,10 @@ export default function DashboardView({
                 >
                   <div>
                     <h2 className="text-lg font-semibold tracking-tight">Recent Threads</h2>
-                    <p className="text-xs opacity-70">Jump back into a conversation or spin up something new.</p>
+                    <p className="text-xs opacity-70">
+                      Jump back into a conversation or spin up something new.
+                    </p>
                   </div>
-                  <div className={compactButtonRowClassName}>
                   <div
                     className={`glass-pill h-auto py-[3px] px-[6px] ${
                       isPhoneShell ? "w-full justify-between" : ""
@@ -455,7 +409,6 @@ export default function DashboardView({
                       No threads yet. Start one above.
                     </div>
                   ) : (
-                    <div className="grid h-full gap-[var(--gutter)]" style={threadGridStyle}>
                     <div
                       className={`grid h-full gap-[var(--gutter)] ${
                         isPhoneShell ? "grid-cols-1" : "grid-cols-2"
@@ -496,13 +449,8 @@ export default function DashboardView({
             </FrameCard>
 
             <FrameCard
-              fill={!isPhoneShell}
               refractiveFallback
               shimmerMode="subtle"
-              className={isPhoneShell ? "w-full min-h-[240px]" : "flex-1 min-h-[240px]"}
-            >
-              <div className={cardContentClassName}>
-                <div className={cardHeaderClassName}>
               className={isPhoneShell ? "w-full min-h-0" : "flex-1 min-h-[240px]"}
             >
               <div
@@ -518,18 +466,15 @@ export default function DashboardView({
                   }`}
                 >
                   <h2 className="text-lg font-semibold tracking-tight">Recent Documents</h2>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={onNavigateDocuments}
-                  >
+                  <Button type="button" variant="ghost" size="sm" onClick={onNavigateDocuments}>
                     See All
                   </Button>
                 </div>
                 {!hasRealDocs && (
                   <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
-                    <p className="text-xs opacity-75">Demo documents. Create or upload to replace.</p>
+                    <p className="text-xs opacity-75">
+                      Demo documents. Create or upload to replace.
+                    </p>
                   </div>
                 )}
                 <div className="flex-1 min-h-0 overflow-hidden">
@@ -539,26 +484,8 @@ export default function DashboardView({
                     </div>
                   ) : (
                     <div
-                      className="grid h-full content-start justify-start gap-[var(--gutter)]"
-                      style={recentDocumentsGridStyle}
-                    >
-                      {docsToRender.map((d) => (
-                        <DocumentTile
-                          key={d.id ?? d.name}
-                          file={d}
-                          onDeleted={(deletedDoc) => {
-                            if (!deletedDoc.id) return;
-                            setRecentDocs((prev) =>
-                              prev.filter((doc) => doc.id !== deletedDoc.id)
-                            );
-                          }}
-                          className="dashboard-doc-tile !w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
-                        />
-                      ))}
                       className={`h-full content-start justify-start gap-[var(--gutter)] ${
-                        isPhoneShell
-                          ? "flex flex-col overflow-visible"
-                          : "grid"
+                        isPhoneShell ? "flex flex-col overflow-visible" : "grid"
                       }`}
                       style={
                         isPhoneShell
@@ -597,15 +524,8 @@ export default function DashboardView({
           </div>
 
           <FrameCard
-            fill={!isPhoneShell}
             refractiveFallback
             shimmerMode="subtle"
-            className={isPhoneShell ? "w-full min-h-[336px]" : "flex-[1.15] min-h-0"}
-          >
-            <div className={cardContentClassName}>
-              <div className={cardHeaderClassName}>
-                <h2 className="text-lg font-semibold tracking-tight">Gallery</h2>
-                <div className={`flex items-center gap-2 ${isPhoneShell ? "flex-wrap justify-start" : ""}`}>
             className={isPhoneShell ? "w-full min-h-0" : "flex-[1.15] min-h-0"}
           >
             <div
@@ -633,7 +553,9 @@ export default function DashboardView({
               </div>
               {!hasRealGallery && (
                 <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
-                  <p className="text-xs opacity-75">Demo gallery images. They'll disappear once you add your own.</p>
+                  <p className="text-xs opacity-75">
+                    Demo gallery images. They'll disappear once you add your own.
+                  </p>
                 </div>
               )}
               <div className={dashboardGalleryOuterClassName}>

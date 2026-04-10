@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -108,18 +108,11 @@ const EXT_COLORS = {
   codex: "#000",
 } as const;
 
-function setViewportWidth(width: number) {
-  Object.defineProperty(window, "innerWidth", {
-    configurable: true,
-    writable: true,
-    value: width,
-  });
-  window.dispatchEvent(new Event("resize"));
-}
-
 describe("DashboardView demo content", () => {
   beforeEach(() => {
-    setViewportWidth(1280);
+    act(() => {
+      setViewportWidth(1280);
+    });
     authState.allowGate = false;
     authState.value = { token: null };
     apiState.get.mockReset();
@@ -127,7 +120,9 @@ describe("DashboardView demo content", () => {
   });
 
   afterEach(() => {
-    setViewportWidth(1280);
+    act(() => {
+      setViewportWidth(1280);
+    });
     runtimeState.tauriRuntime = false;
     runtimeState.invokeTauriCommandMock.mockReset();
     cleanup();
@@ -209,15 +204,11 @@ describe("DashboardView demo content", () => {
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });
 
-  it("uses the mobile stacked layout at phone widths", () => {
-    setViewportWidth(390);
+  it("uses the mobile stacked layout at phone widths and opens recent documents explicitly", async () => {
+    act(() => {
+      setViewportWidth(390);
+    });
 
-    const { container } = render(
-      <DashboardView
-        extColors={EXT_COLORS}
-        gallery={[]}
-  it("switches Dashboard into a mobile stack and opens recent documents explicitly", async () => {
-    setViewportWidth(390);
     authState.allowGate = true;
     apiState.get.mockImplementation(async (url: string) => {
       if (url === "/chat/threads") {
@@ -239,7 +230,7 @@ describe("DashboardView demo content", () => {
       return { data: {} };
     });
 
-    render(
+    const { container } = render(
       <DashboardView
         extColors={EXT_COLORS}
         gallery={[
@@ -257,18 +248,18 @@ describe("DashboardView demo content", () => {
       />
     );
 
-    expect(
-      container.querySelector('[data-layout-mode="mobile-stack"]')
-    ).toBeTruthy();
-    expect(await screen.findByText("User Plan.md")).toBeInTheDocument();
-    expect(screen.getByTestId("dashboard-layout")).toHaveAttribute(
-      "data-dashboard-layout",
-      "mobile_stack"
-    );
+    await waitFor(() => {
+      expect(container.querySelector('[data-layout-mode="mobile-stack"]')).toBeTruthy();
+      expect(screen.getByTestId("dashboard-layout")).toHaveAttribute(
+        "data-dashboard-layout",
+        "mobile_stack"
+      );
+    });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Open User Plan.md in Workspace" })
-    );
+    const openRecentDocumentButton = await screen.findByRole("button", {
+      name: "Open User Plan.md in Workspace",
+    });
+    fireEvent.click(openRecentDocumentButton);
 
     expect(workspaceState.requestWorkspaceOpenMock).toHaveBeenCalledWith(
       expect.objectContaining({
