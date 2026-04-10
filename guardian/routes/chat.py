@@ -19,7 +19,8 @@ import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
+from urllib.parse import quote, unquote
 
 from fastapi import (
     APIRouter,
@@ -34,9 +35,11 @@ from fastapi.responses import JSONResponse
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     StrictStr,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from starlette.responses import StreamingResponse
 
@@ -49,6 +52,7 @@ from guardian.core.chat_completion_service import (
     resolve_thread_completion_settings,
     split_history_and_latest_turn,
 )
+from guardian.core.dependencies import get_request_user_id
 from guardian.core.event_graph import get_event_writer
 from guardian.depth import (
     DepthDowngradeReason,
@@ -218,6 +222,34 @@ def _turn_lock_payload(
             source="api:chat.complete",
         )
     )
+
+
+def _slash_intent_origin_segment(
+    slash_intent: Any | None,
+) -> str:
+    if slash_intent is None:
+        return ""
+
+    payload = slash_intent.model_dump(exclude_none=True)
+    bounded_payload = {
+        key: payload[key]
+        for key in ("commandId", "intentKind", "retrievalHint")
+        if key in payload
+    }
+    try:
+        encoded = quote(
+            json.dumps(
+                bounded_payload, ensure_ascii=False, separators=(",", ":")
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode slash intent origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|slash_intent={encoded}"
 
 
 def _request_id_from_request(request: Request | None) -> str | None:
@@ -496,6 +528,8 @@ class ThreadDTO(BaseModel):
     title: str
     summary: str = ""
     project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    last_interaction_at: Optional[str] = None
     parent_id: Optional[int] = None
     archived_at: Optional[str] = None
     created_at: Optional[str] = None
@@ -562,10 +596,29 @@ class ChatMessageCreateRequest(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     project_id: Optional[int] = None
+    contextSource: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
+class ThreadMoveRequest(BaseModel):
+    toProjectId: StrictStr | int
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("toProjectId", mode="before")
+    @classmethod
+    def _normalize_project_id(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                raise ValueError("value cannot be blank")
+            return cleaned
+        return value
+
+
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     model: Optional[str] = None
     max_context: Optional[int] = 50
     provider: Optional[str] = None
@@ -573,9 +626,60 @@ class ChatCompletionRequest(BaseModel):
     system_override: Optional[str] = None
     turn_id: Optional[str] = None
     source_mode: Optional[str] = "project"
+    slash_intent: Optional["SlashIntentRequest"] = Field(
+        default=None, alias="slashIntent"
+    )
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
+
+
+SlashCommandId = Literal[
+    "thread",
+    "doc",
+    "project",
+    "workspace",
+    "profile",
+    "flow",
+    "secure",
+    "connect",
+    "help",
+]
+SlashCommandIntentKind = Literal[
+    "conversation",
+    "knowledge",
+    "workspace",
+    "automation",
+    "security",
+    "integration",
+    "help",
+]
+SlashCommandRetrievalHint = Literal[
+    "none",
+    "conversation",
+    "project",
+    "personal_knowledge",
+]
+
+
+class SlashIntentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commandId: SlashCommandId
+    rawToken: Optional[StrictStr] = None
+    queryText: Optional[StrictStr] = None
+    intentKind: SlashCommandIntentKind
+    retrievalHint: Optional[SlashCommandRetrievalHint] = None
+    rawInput: Optional[StrictStr] = None
+
+    @model_validator(mode="after")
+    def _require_raw_input_or_token(self):
+        if not (self.rawInput or self.rawToken):
+            raise ValueError("slash intent requires rawInput or rawToken")
+        return self
+
+
+ChatCompletionRequest.model_rebuild()
 
 
 # Helper functions
@@ -855,9 +959,7 @@ def _persist_message_to_thread(
     role: str,
     content: str,
     owner: str,
-    requested_project_id: Any = None,
 ) -> Dict[str, Any]:
-    default_project_id = _coerce_project_id(requested_project_id)
     lock_probe_owner = "api:chat.messages:user_probe"
     lock_probe_acquired = False
     try:
@@ -905,7 +1007,6 @@ def _persist_message_to_thread(
             user_id=str(owner),
             title="New Chat",
             summary="",
-            project_id=default_project_id,
         )
     except Exception as exc:
         logger.exception(
@@ -929,17 +1030,10 @@ def _persist_message_to_thread(
         "create", "chat_message", str(mid), user_id=str(owner)
     )
 
-    project_for_event = default_project_id
     try:
         refreshed_thread = chatlog_db.get_chat_thread(thread_id)
-        thread_project = (
-            refreshed_thread.get("project_id")
-            if isinstance(refreshed_thread, dict)
-            else None
-        )
-        project_for_event = _coerce_project_id(thread_project)
     except Exception:
-        project_for_event = default_project_id
+        refreshed_thread = None
 
     event_bus.emit_event(
         "message.created",
@@ -953,7 +1047,11 @@ def _persist_message_to_thread(
     _emit_thread_update_event(
         thread_id=thread_id,
         actor_user_id=str(owner),
-        project_id=project_for_event,
+        project_id=_coerce_project_id(
+            refreshed_thread.get("project_id")
+            if isinstance(refreshed_thread, dict)
+            else None
+        ),
         idempotency_suffix=f"message:{mid}",
         payload={
             "thread_id": thread_id,
@@ -1015,12 +1113,49 @@ def _persist_message_to_thread(
         except Exception as e:
             logger.warning("[Neo4j Sync Error] %s", e, exc_info=True)
 
+    refreshed = chatlog_db.get_chat_thread(thread_id)
     return {
-        "id": mid,
-        "thread_id": thread_id,
-        "role": role,
-        "content": content,
+        "message": {
+            "id": mid,
+            "thread_id": thread_id,
+            "role": role,
+            "content": content,
+        },
+        "thread": refreshed,
     }
+
+
+def _get_thread_or_404(thread_id: int) -> Dict[str, Any]:
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return thread
+
+
+def _project_id_from_record(record: Any) -> int | None:
+    if not isinstance(record, dict):
+        return None
+    return _coerce_project_id(
+        record.get("project_id") if record is not None else None
+    )
+
+
+def _find_project_record(project_id: int) -> Dict[str, Any] | None:
+    try:
+        projects = chatlog_db.list_projects()
+    except Exception:
+        return None
+    for project in projects or []:
+        if not isinstance(project, dict):
+            continue
+        candidate = (
+            project.get("id")
+            if project.get("id") is not None
+            else project.get("project_id")
+        )
+        if _coerce_project_id(candidate) == project_id:
+            return project
+    return None
 
 
 def _apply_thread_update(
@@ -1049,7 +1184,11 @@ def _apply_thread_update(
         else None
     )
     project_present = "project_id" in payload
-    project_value = payload.get("project_id") if project_present else None
+    project_value = (
+        _coerce_project_id(payload.get("project_id"))
+        if project_present
+        else None
+    )
     archived_present = "archived" in payload
     archived_requested = payload.get("archived") if archived_present else None
 
@@ -1184,12 +1323,95 @@ def _apply_thread_update(
 # Legacy /chat routes; canonical base is /api/chat.
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
+
+@router.post("/threads/{thread_id}/move")
+def chat_move_thread(
+    thread_id: int,
+    body: ThreadMoveRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+    user_id: str = Depends(get_request_user_id),
+):
+    """Explicitly move a thread to a new project."""
+    thread = _get_thread_or_404(thread_id)
+    current_owner = str(thread.get("user_id") or "").strip()
+    if current_owner and current_owner != user_id:
+        raise HTTPException(
+            status_code=403, detail="Not allowed to move this thread"
+        )
+
+    target_project_id = _coerce_project_id(body.toProjectId)
+    if target_project_id is None:
+        raise HTTPException(status_code=400, detail="Invalid target project id")
+
+    target_project = _find_project_record(target_project_id)
+    if target_project is None:
+        raise HTTPException(status_code=404, detail="Target project not found")
+
+    from_project_id = _coerce_project_id(thread.get("project_id"))
+    if from_project_id == target_project_id:
+        move_entry = chatlog_db.record_thread_move(
+            thread_id,
+            from_project_id=from_project_id,
+            to_project_id=target_project_id,
+            user_id=user_id,
+        )
+        return {"ok": True, "thread": thread, "move": move_entry}
+
+    updated = chatlog_db.update_thread(
+        thread_id,
+        project_id=target_project_id,
+        project_id_set=True,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    refreshed = _get_thread_or_404(thread_id)
+    move_entry = chatlog_db.record_thread_move(
+        thread_id,
+        from_project_id=from_project_id,
+        to_project_id=target_project_id,
+        user_id=user_id,
+    )
+    try:
+        event_bus.emit_event(
+            "thread.moved",
+            {
+                "thread_id": thread_id,
+                "thread": refreshed,
+                "project_id": refreshed.get("project_id"),
+                "from_project_id": from_project_id,
+                "to_project_id": target_project_id,
+                "move": move_entry,
+            },
+        )
+        event_bus.emit_event(
+            "thread.updated",
+            {
+                "thread_id": thread_id,
+                "thread": refreshed,
+                "project_id": refreshed.get("project_id"),
+                "from_project_id": from_project_id,
+                "to_project_id": target_project_id,
+                "move": move_entry,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "[threads] move event publish failed thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+    return {"ok": True, "thread": refreshed, "move": move_entry}
+
+
 DOC_SCOPE_K_PROJECT = 4
 DOC_SCOPE_K_THREAD = 4
 DOC_EXCERPT_CHARS = 320
 DOC_OVERRIDE_MAX_CHARS = 2600
 DEFAULT_PROJECT_NAME = "General"
-DEFAULT_PROJECT_DESCRIPTION = "Default bucket for unassigned threads"
+DEFAULT_PROJECT_DESCRIPTION = (
+    "Default project for content without a specified project"
+)
 
 
 def _ensure_default_project_id() -> Optional[int]:
@@ -1887,6 +2109,18 @@ def chat_list_threads(
         }
 
 
+@router.get("/threads/{thread_id}")
+def chat_get_thread(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+):
+    """Return the authoritative thread snapshot."""
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return {"ok": True, "thread": thread}
+
+
 # =========================
 # Chat Messages API
 # =========================
@@ -1895,7 +2129,7 @@ def chat_list_threads(
 @router.post("/{thread_id}/messages")
 def chat_post_message(
     thread_id: int,
-    body: Dict[str, str] = Body(...),
+    body: Dict[str, Any] = Body(...),
     api_key: str = Depends(require_api_key),
 ):
     """Post a new message to a chat thread."""
@@ -1908,18 +2142,21 @@ def chat_post_message(
         )
     owner = body.get("user_id") or "default"
     try:
-        message = _persist_message_to_thread(
+        result = _persist_message_to_thread(
             thread_id=thread_id,
             role=role,
             content=content,
             owner=str(owner),
-            requested_project_id=body.get("project_id"),
         )
     except HTTPException as exc:
         if exc.status_code == 429 and isinstance(exc.detail, dict):
             return JSONResponse(status_code=429, content=exc.detail)
         raise
-    return {"ok": True, "message": message}
+    return {
+        "ok": True,
+        "message": result["message"],
+        "thread": result["thread"],
+    }
 
 
 @router.post("/messages")
@@ -1992,12 +2229,11 @@ def chat_post_message_create_on_send(
 
     assert requested_thread_id is not None
     try:
-        message = _persist_message_to_thread(
+        result = _persist_message_to_thread(
             thread_id=requested_thread_id,
             role=role,
             content=content,
             owner=owner,
-            requested_project_id=body.project_id,
         )
     except HTTPException as exc:
         if exc.status_code == 429 and isinstance(exc.detail, dict):
@@ -2025,13 +2261,15 @@ def chat_post_message_create_on_send(
         raise
 
     if thread_record is None:
-        thread_record = chatlog_db.get_chat_thread(requested_thread_id)
+        thread_record = result.get("thread") or chatlog_db.get_chat_thread(
+            requested_thread_id
+        )
     return {
         "ok": True,
         "created_thread": created_thread,
         "thread_id": requested_thread_id,
         "thread": thread_record,
-        "message": message,
+        "message": result["message"],
         "draft_tab_id": body.draft_tab_id,
     }
 
@@ -2305,9 +2543,13 @@ async def chat_complete(
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
-        # Temporary transport bridge: carry turn_id and source_mode via origin
-        # until ChatCompletionTask gains typed fields for both values.
-        origin=f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}",
+        # Temporary transport bridge: carry turn_id, source_mode, and
+        # bounded slash intent metadata via origin until ChatCompletionTask
+        # gains typed fields for those values.
+        origin=(
+            f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
+            f"{_slash_intent_origin_segment(body.slash_intent)}"
+        ),
     )
     task.turn_id = turn_id
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
@@ -2598,13 +2840,9 @@ def branch_thread(
 
     project_id: Optional[int]
     if payload.project_id is not None:
-        project_id = payload.project_id
+        project_id = _coerce_project_id(payload.project_id)
     else:
-        project_id = parent.get("project_id")
-        try:
-            project_id = int(project_id) if project_id is not None else None
-        except (TypeError, ValueError):
-            project_id = None
+        project_id = _coerce_project_id(parent.get("project_id"))
 
     child = chatlog_db.create_chat_thread(
         user_id=parent.get("user_id", "default"),
@@ -3135,11 +3373,20 @@ def api_chat_list_threads(
 @api_chat_router.post("/{thread_id}/messages")
 def api_chat_post_message(
     thread_id: int,
-    body: Dict[str, str] = Body(...),
+    body: Dict[str, Any] = Body(...),
     api_key: str = Depends(require_api_key),
 ):
     """Compat alias for POST /chat/{thread_id}/messages used in tests."""
     return chat_post_message(thread_id, body, api_key=api_key)
+
+
+@api_chat_router.get("/threads/{thread_id}")
+def api_chat_get_thread(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+):
+    """Compat alias for GET /chat/threads/{thread_id}."""
+    return chat_get_thread(thread_id, api_key=api_key)
 
 
 @api_chat_router.post("/messages")
@@ -3250,6 +3497,16 @@ def api_patch_thread_config(
 ):
     """Compat alias for PATCH /chat/threads/{thread_id}/config."""
     return patch_thread_config(thread_id, body, api_key=api_key)
+
+
+@api_chat_router.post("/threads/{thread_id}/move")
+def api_chat_move_thread(
+    thread_id: int,
+    body: ThreadMoveRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Compat alias for POST /chat/threads/{thread_id}/move."""
+    return chat_move_thread(thread_id, body, api_key=api_key)
 
 
 @api_chat_router.delete("/threads/{thread_id}")

@@ -360,13 +360,86 @@ def _last_qwen_reasoning_instruction(
     return latest_instruction
 
 
-def _append_reasoning_instruction(content: Any, instruction: str) -> str:
+def _clone_content_block(block: dict[str, Any]) -> dict[str, Any]:
+    cloned = dict(block)
+    image_url = cloned.get("image_url")
+    if isinstance(image_url, dict):
+        cloned["image_url"] = dict(image_url)
+    source = cloned.get("source")
+    if isinstance(source, dict):
+        cloned["source"] = dict(source)
+    return cloned
+
+
+def _content_block_contains_image(block: dict[str, Any]) -> bool:
+    block_type = str(block.get("type") or "").strip().lower()
+    if block_type in {"image", "image_url"}:
+        return True
+
+    image_url = block.get("image_url")
+    if isinstance(image_url, dict):
+        url = str(image_url.get("url") or "").strip()
+        if url:
+            return True
+
+    source = block.get("source")
+    if isinstance(source, dict):
+        source_type = str(source.get("type") or "").strip().lower()
+        if block_type == "image" and source_type in {"base64", "url"}:
+            return True
+
+    return False
+
+
+def _content_has_image_payload(content: Any) -> bool:
+    if isinstance(content, list):
+        return any(
+            isinstance(item, dict) and _content_block_contains_image(item)
+            for item in content
+        )
+    if isinstance(content, dict):
+        return _content_block_contains_image(content)
+    return False
+
+
+def _append_reasoning_instruction(content: Any, instruction: str) -> Any:
+    instruction_text = str(instruction or "").strip()
+    if not instruction_text:
+        return content
+
+    if isinstance(content, list):
+        cloned_blocks: list[dict[str, Any]] = []
+        for item in content:
+            if not isinstance(item, dict):
+                text = str(item or "").strip()
+                if text:
+                    cloned_blocks.append({"type": "text", "text": text})
+                continue
+
+            block = _clone_content_block(item)
+            if str(block.get("type") or "").strip().lower() == "text":
+                text = str(block.get("text") or "").strip()
+                if instruction_text in text:
+                    return content
+                block["text"] = text
+            cloned_blocks.append(block)
+
+        if any(
+            str(block.get("type") or "").strip().lower() == "text"
+            and instruction_text in str(block.get("text") or "")
+            for block in cloned_blocks
+        ):
+            return content
+
+        cloned_blocks.append({"type": "text", "text": instruction_text})
+        return cloned_blocks
+
     text = str(content or "").strip()
     if not text:
-        return instruction
-    if instruction in text:
+        return instruction_text
+    if instruction_text in text:
         return text
-    return f"{text}\n\n{instruction}"
+    return f"{text}\n\n{instruction_text}"
 
 
 def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
@@ -420,6 +493,18 @@ def apply_local_reasoning_directive(
             }
         )
     return adapted, directive
+
+
+def _messages_contain_image_payload(messages: list[dict[str, Any]]) -> bool:
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        if _content_has_image_payload(message.get("content")):
+            return True
+        images = message.get("images")
+        if isinstance(images, list) and images:
+            return True
+    return False
 
 
 def resolve_local_runtime_policy(
@@ -1344,6 +1429,8 @@ def call_local(
     compat_first = compat_first or bool(
         getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
     )
+    if _messages_contain_image_payload(adapted_messages):
+        compat_first = True
 
     # Optional last-resort fallback to /api/generate (disabled by default).
     enable_generate_fallback = bool(
@@ -1538,6 +1625,8 @@ def stream_local(
     compat_first = compat_first or bool(
         getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
     )
+    if _messages_contain_image_payload(adapted_messages):
+        compat_first = True
 
     response: Optional[requests.Response] = None
     current_url = ""
@@ -2082,12 +2171,54 @@ def _anthropic_text_block(
     return block
 
 
+def _anthropic_image_block(source: dict[str, Any]) -> dict[str, Any] | None:
+    source_type = str(source.get("type") or "").strip().lower()
+    if source_type == "base64":
+        data = str(source.get("data") or "").strip()
+        media_type = str(source.get("media_type") or "").strip()
+        if not data or not media_type:
+            return None
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": data,
+            },
+        }
+
+    url = str(source.get("url") or "").strip()
+    if source_type == "url" or url:
+        if not url:
+            return None
+        return {
+            "type": "image",
+            "source": {
+                "type": "url",
+                "url": url,
+            },
+        }
+
+    data = str(source.get("data") or "").strip()
+    media_type = str(source.get("media_type") or "").strip()
+    if data and media_type:
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": data,
+            },
+        }
+    return None
+
+
 def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
     if isinstance(content, list):
         blocks: list[dict[str, Any]] = []
         for item in content:
             if isinstance(item, dict):
-                block = dict(item)
+                block = _clone_content_block(item)
                 block_type = str(block.get("type") or "").strip().lower()
                 if block_type:
                     if block_type == "text":
@@ -2097,6 +2228,28 @@ def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
                         block["text"] = text
                         blocks.append(block)
                         continue
+                    if block_type == "image_url":
+                        image_url = block.get("image_url")
+                        if isinstance(image_url, dict):
+                            image_block = _anthropic_image_block(image_url)
+                            if image_block is not None:
+                                blocks.append(image_block)
+                        continue
+                    if block_type == "image":
+                        source = block.get("source")
+                        if isinstance(source, dict):
+                            image_block = _anthropic_image_block(source)
+                            if image_block is not None:
+                                blocks.append(image_block)
+                                continue
+                            if str(
+                                source.get("type") or ""
+                            ).strip().lower() in {
+                                "base64",
+                                "url",
+                            }:
+                                blocks.append(block)
+                                continue
                     if block_type in {"thinking", "tool_use", "tool_result"}:
                         blocks.append(block)
                         continue
@@ -2110,7 +2263,7 @@ def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
         return blocks
 
     if isinstance(content, dict):
-        block = dict(content)
+        block = _clone_content_block(content)
         block_type = str(block.get("type") or "").strip().lower()
         if block_type:
             if block_type == "text":
@@ -2118,6 +2271,25 @@ def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
                 if text:
                     block["text"] = text
                     return [block]
+                return []
+            if block_type == "image_url":
+                image_url = block.get("image_url")
+                if isinstance(image_url, dict):
+                    image_block = _anthropic_image_block(image_url)
+                    if image_block is not None:
+                        return [image_block]
+                return []
+            if block_type == "image":
+                source = block.get("source")
+                if isinstance(source, dict):
+                    image_block = _anthropic_image_block(source)
+                    if image_block is not None:
+                        return [image_block]
+                    if str(source.get("type") or "").strip().lower() in {
+                        "base64",
+                        "url",
+                    }:
+                        return [block]
                 return []
             if block_type in {"thinking", "tool_use", "tool_result"}:
                 return [block]

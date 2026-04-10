@@ -10,9 +10,13 @@ import { Volume2 } from "lucide-react";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { Message, MessageAttachment } from "@/types/ui";
 import { resolveMediaSrc } from "@/lib/mediaUrl";
+import {
+  parseDocumentContextContent,
+} from "@/lib/documentContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import DocumentContextTileView from "@/features/chat/components/DocumentContextTile";
 
 type Attachment = {
   kind: "image" | "document";
@@ -150,7 +154,7 @@ const CodeBlock = ({ code, label }: CodeBlockProps) => {
   }, []);
 
   return (
-    <div className="codexifyCodeBlock">
+    <div className="codexifyCodeBlock max-w-full min-w-0">
       <div className="codexifyCodeBlockHeader">
         <div className="codexifyCodeBlockLabel">
           <span className="codexifyCodeBlockAccent" aria-hidden="true" />
@@ -227,6 +231,61 @@ const normalizeLanguageLabel = (className?: string) => {
   return raw.toUpperCase();
 };
 
+type MarkdownNode = {
+  type?: string;
+  value?: unknown;
+  children?: MarkdownNode[];
+};
+
+const normalizeAssistantProse = (value: string) => {
+  return value
+    .replace(/\$\s*\\rightarrow\s*\$/g, "→")
+    .replace(/\$\s*\\leftarrow\s*\$/g, "←")
+    .replace(/\$\s*\\leftrightarrow\s*\$/g, "↔")
+    .replace(/\$\s*\\to\s*\$/g, "→")
+    .replace(/\\rightarrow/g, "→")
+    .replace(/\\leftarrow/g, "←")
+    .replace(/\\leftrightarrow/g, "↔")
+    .replace(/\\to/g, "→");
+};
+
+const remarkNormalizeAssistantProse = () => (tree: MarkdownNode) => {
+  const walk = (node: MarkdownNode) => {
+    if (node.type === "text" && typeof node.value === "string") {
+      node.value = normalizeAssistantProse(node.value);
+    }
+    node.children?.forEach(walk);
+  };
+
+  walk(tree);
+};
+
+const OVERSIZED_USER_MESSAGE_CHAR_LIMIT = 1200;
+const OVERSIZED_USER_MESSAGE_LINE_LIMIT = 18;
+const COLLAPSED_USER_MESSAGE_MAX_HEIGHT = 224;
+const EXPANDED_USER_MESSAGE_MAX_HEIGHT = 360;
+
+function isOversizedUserMessage(content: string): boolean {
+  const normalized = content.trim();
+  if (!normalized) return false;
+  const lineCount = normalized.split(/\r?\n/).length;
+  return (
+    normalized.length > OVERSIZED_USER_MESSAGE_CHAR_LIMIT ||
+    lineCount > OVERSIZED_USER_MESSAGE_LINE_LIMIT
+  );
+}
+
+function looksLikeCodeContent(content: string): boolean {
+  const normalized = content.trim();
+  if (!normalized) return false;
+  return (
+    /```|^\s{4,}/m.test(normalized) ||
+    /(?:\bfunction\b|\bclass\b|\bconst\b|\blet\b|\bvar\b|\bimport\b|\bexport\b|\breturn\b|=>|;\s*$)/m.test(
+      normalized
+    )
+  );
+}
+
 const AttachmentTiles = ({
   attachments,
   align,
@@ -274,7 +333,7 @@ const AttachmentTiles = ({
   };
 
   return (
-    <div className={`flex flex-col gap-2 ${alignClass}`}>
+    <div className={cn("flex min-w-0 flex-col gap-2", alignClass)}>
       {attachments.map((att, idx) => {
         const key = `${att.kind}-${att.id ?? idx}`;
         const resolvedSrc = att.src ? resolveMediaSrc(att.src) : att.src;
@@ -383,6 +442,7 @@ export function ChatBubble({
   playing = false,
   playState,
   onPlay,
+  isPhoneShell = false,
 }: {
   message: Message;
   isGuardian: boolean;
@@ -390,6 +450,7 @@ export function ChatBubble({
   playing?: boolean;
   playState?: "idle" | "playing" | "pending" | "unavailable" | "disabled";
   onPlay?: () => void;
+  isPhoneShell?: boolean;
 }) {
   const fmtTime = (ts: number | null | undefined) => {
     if (!Number.isFinite(ts)) return null;
@@ -398,12 +459,17 @@ export function ChatBubble({
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  const { attachments: contentAttachments, text } = parseAttachments(message.content || "");
+  const { tiles: documentTiles, text: documentCleanText } = parseDocumentContextContent(
+    message.content || ""
+  );
+  const { attachments: contentAttachments, text } = parseAttachments(documentCleanText);
   const attachments = mergeAttachments(message.attachments, contentAttachments);
   const cleanedContent = text;
   const assistantContent = cleanedContent.trim();
+  const hasDocumentTiles = documentTiles.length > 0;
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(assistantContent);
+  const hasVisibleContent = hasText || hasAttachments || hasDocumentTiles;
   const formattedTime = fmtTime(message.createdAt);
   const execution = message.execution;
   const executionBadgeLabel =
@@ -432,13 +498,42 @@ export function ChatBubble({
     resolvedPlayState === "pending" ||
     resolvedPlayState === "unavailable" ||
     resolvedPlayState === "disabled";
+  const boundedUserMessage = !isGuardian && isOversizedUserMessage(cleanedContent);
+  const [expandedUserMessage, setExpandedUserMessage] = React.useState(false);
+
+  React.useEffect(() => {
+    setExpandedUserMessage(false);
+  }, [cleanedContent, isGuardian, message.id]);
+
+  const userMessageLooksLikeCode =
+    boundedUserMessage && looksLikeCodeContent(cleanedContent);
+  const userMessagePreviewStyle: React.CSSProperties | undefined = boundedUserMessage
+    ? {
+        maxHeight: expandedUserMessage
+          ? EXPANDED_USER_MESSAGE_MAX_HEIGHT
+          : COLLAPSED_USER_MESSAGE_MAX_HEIGHT,
+        overflowY: expandedUserMessage ? "auto" : "hidden",
+        overscrollBehavior: "contain",
+      }
+    : undefined;
+  const userMessageTextClass = cn(
+    "min-w-0 text-sm leading-relaxed whitespace-pre-wrap break-words",
+    userMessageLooksLikeCode ? "font-mono text-[13px] leading-5" : null
+  );
 
   const markdownComponents = {
     code({ node, inline, className, children, ...props }: any) {
       if (inline) {
         return (
           <code
-            className="rounded bg-black/10 dark:bg-black/30 px-1 py-0.5"
+            className={cn(
+              "rounded bg-black/10 dark:bg-black/30 px-1 py-0.5",
+              isPhoneShell ? "break-all" : "break-words"
+            )}
+            style={{
+              overflowWrap: "anywhere",
+              wordBreak: isPhoneShell ? "break-all" : "break-word",
+            }}
             {...props}
           >
             {children}
@@ -458,7 +553,7 @@ export function ChatBubble({
       const extracted = extractPreCode(node, children);
       if (!extracted) {
         return (
-          <pre className="overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2 my-2">
+          <pre className="my-2 max-w-full min-w-0 overflow-x-auto rounded bg-black/10 dark:bg-black/30 p-2">
             {children}
           </pre>
         );
@@ -466,15 +561,17 @@ export function ChatBubble({
       const label = normalizeLanguageLabel(extracted.className);
       return <CodeBlock code={extracted.code} label={label} />;
     },
-    p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
-    ul: ({ children }: any) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
-    ol: ({ children }: any) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+    p: ({ children }: any) => <p className="mb-2 last:mb-0 break-words">{children}</p>,
+    ul: ({ children }: any) => <ul className="mb-2 list-disc pl-4 break-words">{children}</ul>,
+    ol: ({ children }: any) => <ol className="mb-2 list-decimal pl-4 break-words">{children}</ol>,
+    li: ({ children }: any) => <li className="break-words">{children}</li>,
     a: ({ href, children }: any) => (
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-blue-500 hover:underline"
+        className="break-words text-blue-500 hover:underline"
+        style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
       >
         {children}
       </a>
@@ -492,25 +589,30 @@ export function ChatBubble({
   const renderedContent = hasText ? (
     isGuardian ? (
       <div
-        className="text-sm leading-relaxed prose prose-sm max-w-none break-words dark:prose-invert"
+        className="text-sm leading-relaxed prose prose-sm max-w-none min-w-0 break-words dark:prose-invert"
         style={{
           color: "var(--text)",
-          overflowWrap: "break-word",
-          wordWrap: "break-word",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
         }}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkNormalizeAssistantProse]}
+          components={markdownComponents}
+        >
           {assistantContent}
         </ReactMarkdown>
       </div>
     ) : (
-      // User messages stay as plaintext so pasted code keeps raw line breaks and spacing.
       <div
-        className="text-sm leading-relaxed whitespace-pre-wrap break-words"
+        data-testid={boundedUserMessage ? "guardian-user-message-content" : undefined}
+        id={boundedUserMessage ? `guardian-user-message-${message.id}` : undefined}
+        className={userMessageTextClass}
         style={{
           color: "var(--pill-active-text)",
-          overflowWrap: "break-word",
-          wordWrap: "break-word",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
+          ...userMessagePreviewStyle,
         }}
       >
         {cleanedContent}
@@ -524,7 +626,10 @@ export function ChatBubble({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
-        className="mr-auto max-w-[85%] space-y-1"
+        className={cn(
+          "mr-auto min-w-0 space-y-1",
+          isPhoneShell ? "w-full max-w-full" : "max-w-[85%]"
+        )}
       >
         <div
           className="flex items-center gap-2 text-xs font-medium opacity-70"
@@ -532,50 +637,63 @@ export function ChatBubble({
         >
           {message.authorName}
         </div>
+        {hasDocumentTiles ? (
+          <div className="flex flex-col gap-2">
+            {documentTiles.map((tile) => (
+              <DocumentContextTileView
+                key={tile.id}
+                tile={tile}
+                className="max-w-[min(34rem,100%)]"
+              />
+            ))}
+          </div>
+        ) : null}
         {hasAttachments ? (
           <AttachmentTiles attachments={attachments} align="left" />
         ) : null}
         {renderedContent}
-        <div className="mt-1.5 flex items-center gap-2">
-          {executionBadgeLabel ? (
-            <span
-              className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium"
-              style={{
-                borderColor: "color-mix(in srgb, var(--panel-border) 70%, transparent)",
-                color: "var(--muted)",
-                background:
-                  "color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 90%, transparent)",
-              }}
-            >
-              {executionBadgeLabel}
-            </span>
-          ) : null}
-          {formattedTime ? (
-            <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
-              {formattedTime}
-            </div>
-          ) : null}
-          {showPlay && (
-            <button
-              type="button"
-              className={cn(
-                "inline-flex h-6 w-6 items-center justify-center rounded border",
-                playDisabled ? "opacity-55 cursor-not-allowed" : "opacity-80 hover:opacity-100"
-              )}
-              style={{
-                borderColor: "var(--panel-border)",
-                color: "var(--text)",
-                background: "transparent",
-              }}
-              onClick={playDisabled ? undefined : onPlay}
-              disabled={playDisabled}
-              aria-label={playButtonAriaLabel}
-              title={playButtonTitle}
-            >
-              <Volume2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
+        {hasVisibleContent ? (
+          <div className="mt-1.5 flex items-center gap-2">
+            {executionBadgeLabel ? (
+              <span
+                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                style={{
+                  borderColor: "color-mix(in srgb, var(--panel-border) 70%, transparent)",
+                  color: "var(--muted)",
+                  background:
+                    "color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 90%, transparent)",
+                }}
+              >
+                {executionBadgeLabel}
+              </span>
+            ) : null}
+            {formattedTime ? (
+              <div className="text-[10px] opacity-50" style={{ color: "var(--muted)" }}>
+                {formattedTime}
+              </div>
+            ) : null}
+            {showPlay && (
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded border",
+                  playDisabled ? "opacity-55 cursor-not-allowed" : "opacity-80 hover:opacity-100"
+                )}
+                style={{
+                  borderColor: "var(--panel-border)",
+                  color: "var(--text)",
+                  background: "transparent",
+                }}
+                onClick={playDisabled ? undefined : onPlay}
+                disabled={playDisabled}
+                aria-label={playButtonAriaLabel}
+                title={playButtonTitle}
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        ) : null}
       </motion.div>
     );
   }
@@ -585,26 +703,64 @@ export function ChatBubble({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      className="ml-auto max-w-[78%] flex flex-col items-end gap-2"
+      className={cn(
+        "ml-auto flex min-w-0 flex-col items-end gap-2",
+        isPhoneShell ? "w-full max-w-full" : "max-w-[78%]"
+      )}
     >
-      {hasAttachments ? (
-        <AttachmentTiles attachments={attachments} align="right" />
-      ) : null}
-      {hasText ? (
+      {hasVisibleContent ? (
         <div
-          className="max-w-full rounded-[var(--tile-radius)] p-3 shadow-sm"
+          className="max-w-full min-w-0 rounded-[var(--tile-radius)] p-3 shadow-sm"
           style={{ background: "var(--accent)", color: "var(--pill-active-text)" }}
         >
-          {renderedContent}
-          {formattedTime ? (
-            <div className="mt-1.5 flex items-center justify-end gap-2">
-              <span className="text-[10px] opacity-70">{formattedTime}</span>
-            </div>
-          ) : null}
+          <div className="flex flex-col gap-2">
+            {hasDocumentTiles ? (
+              <div className="flex w-full flex-col items-end gap-2">
+                {documentTiles.map((tile) => (
+                  <DocumentContextTileView
+                    key={tile.id}
+                    tile={tile}
+                    className="max-w-[min(34rem,100%)]"
+                  />
+                ))}
+              </div>
+            ) : null}
+            {hasAttachments ? (
+              <AttachmentTiles attachments={attachments} align="right" />
+            ) : null}
+            {renderedContent}
+            {boundedUserMessage ? (
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border px-2 py-1 text-[11px] font-medium transition-opacity hover:opacity-90"
+                  style={{
+                    borderColor:
+                      "color-mix(in srgb, var(--panel-border) 72%, transparent)",
+                    background:
+                      "color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 88%, transparent)",
+                    color: "var(--text)",
+                  }}
+                  onClick={() => setExpandedUserMessage((previous) => !previous)}
+                  aria-expanded={expandedUserMessage}
+                  aria-controls={
+                    boundedUserMessage ? `guardian-user-message-${message.id}` : undefined
+                  }
+                >
+                  {expandedUserMessage ? "Show less" : "See more"}
+                </button>
+                {formattedTime ? (
+                  <span className="text-[10px] opacity-70">{formattedTime}</span>
+                ) : null}
+              </div>
+            ) : formattedTime ? (
+              <div className="mt-1.5 flex items-center justify-end gap-2">
+                <span className="text-[10px] opacity-70">{formattedTime}</span>
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : (
-        formattedTime ? <div className="text-[10px] opacity-70">{formattedTime}</div> : null
-      )}
+      ) : null}
     </motion.div>
   );
 }

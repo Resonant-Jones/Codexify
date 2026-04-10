@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { serializeDocumentContextMessage } from "@/lib/documentContext";
+
 const runtimeState = vi.hoisted(() => ({
   invokeTauriCommandMock: vi.fn(),
   tauriRuntime: false,
@@ -198,6 +200,81 @@ describe("ChatBubble", () => {
     expect(screen.getByText("const total = 1;")).toBeInTheDocument();
   });
 
+  it("keeps long assistant content and code blocks bounded on phone shells", () => {
+    const longToken = "a".repeat(160);
+
+    const { container } = render(
+      <ChatBubble
+        isGuardian
+        isPhoneShell
+        message={{
+          id: "msg-phone-wrap",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: `Phone-safe wrap token: ${longToken}\n\n\`\`\`ts\nconst payload = "${longToken}";\n\`\`\``,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    const prose = container.querySelector(".prose");
+    expect(prose).toHaveStyle({
+      overflowWrap: "anywhere",
+      wordBreak: "break-word",
+    });
+    expect(container.querySelector(".codexifyCodeBlock")).toHaveClass(
+      "max-w-full",
+      "min-w-0"
+    );
+    expect(container.querySelector(".codexifyCodeBlockPre")).toBeInTheDocument();
+  });
+
+  it("normalizes TeX-style arrows in assistant prose without breaking markdown", () => {
+    render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "msg-6b",
+          authorId: "bot",
+          authorName: "Guardian",
+          content:
+            "**Bold intro**\n\n- First item\n- Second item\n\nUser engages with Persona $\\rightarrow$ User transforms $\\rightarrow$ Project advances",
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    expect(screen.getByText("Bold intro")).toBeInTheDocument();
+    expect(screen.getByText("First item")).toBeInTheDocument();
+    expect(screen.getByText("Second item")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "User engages with Persona → User transforms → Project advances"
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\\rightarrow/)).not.toBeInTheDocument();
+  });
+
+  it("leaves inline and fenced code untouched while normalizing prose arrows", () => {
+    render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "msg-6c",
+          authorId: "bot",
+          authorName: "Guardian",
+          content:
+            "Normal prose: $\\rightarrow$\n\nInline code: `$\\rightarrow$`\n\n```txt\nconst arrow = \"$\\rightarrow$\";\n```",
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    expect(screen.getByText("Normal prose: →")).toBeInTheDocument();
+    expect(screen.getByText("$\\rightarrow$", { selector: "code" })).toBeInTheDocument();
+    expect(screen.getByText('const arrow = "$\\rightarrow$";')).toBeInTheDocument();
+  });
+
   it("renders user multiline code as plaintext without copy affordances", () => {
     const pastedCode = "function demo() {\n  const total = 1;\n  return total;\n}";
 
@@ -219,5 +296,36 @@ describe("ChatBubble", () => {
     expect(plainText?.textContent).toBe(pastedCode);
     expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
     expect(container.querySelector(".codexifyCodeBlock")).not.toBeInTheDocument();
+  });
+
+  it("renders document tiles inline without exposing the full document body", () => {
+    const content = serializeDocumentContextMessage("Please review", [
+      {
+        tile: {
+          id: "doc-1",
+          title: "Project Brief",
+          preview: "Short excerpt",
+          type: "document",
+        },
+        content: "Full document body",
+      },
+    ]);
+
+    render(
+      <ChatBubble
+        isGuardian={false}
+        message={{
+          id: "msg-doc-tile",
+          authorId: "me",
+          authorName: "You",
+          content,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("document-context-tile")).toBeInTheDocument();
+    expect(screen.getByText("Please review")).toBeInTheDocument();
+    expect(screen.queryByText("Full document body")).not.toBeInTheDocument();
   });
 });

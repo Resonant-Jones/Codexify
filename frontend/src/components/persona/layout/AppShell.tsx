@@ -19,6 +19,7 @@
  *   - Migration should be trivial if naming consistency is preserved.
  */
 import api from "@/lib/api";
+import { Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
 
 // Global font injection for Apple system font
@@ -39,9 +40,12 @@ import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
+import { useShellViewportProfile } from "./shellBreakpointContract";
+import { getMobileShellProfile } from "./mobileShellProfile";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   describeProviderState,
   PROVIDER_RUNTIME_STATES,
@@ -51,7 +55,7 @@ import {
 } from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
-import { DocumentLike } from "@/types/documents";
+import { DocumentLike, type DocumentScope } from "@/types/documents";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
@@ -72,6 +76,15 @@ import {
   type WorkspaceDrawerTab,
 } from "@/features/workspace/state/useWorkspaceUiState";
 import { useWorkspaceLayoutMode } from "@/features/workspace/state/useWorkspaceLayoutMode";
+import {
+  createDocumentContextTile,
+  type DocumentContextTile,
+} from "@/lib/documentContext";
+import {
+  getMobileTopNavDockStyle,
+  getMobileTopNavRailStyle,
+  getMobileWorkspaceSummonCopy,
+} from "./mobileNavigationContract";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -229,6 +242,46 @@ function normalizeDoc(raw: any, idx = 0): DocItem {
       "md"
     ) as keyof ExtColors,
     type: raw?.type === "codex_entry" ? "codex_entry" : "file",
+    content:
+      typeof raw?.content === "string"
+        ? raw.content
+        : typeof raw?.parsed_text === "string"
+          ? raw.parsed_text
+          : typeof raw?.parsedText === "string"
+            ? raw.parsedText
+            : undefined,
+    parsed_text:
+      typeof raw?.parsed_text === "string"
+        ? raw.parsed_text
+        : typeof raw?.parsedText === "string"
+          ? raw.parsedText
+          : typeof raw?.content === "string"
+            ? raw.content
+            : undefined,
+    parsedText:
+      typeof raw?.parsedText === "string"
+        ? raw.parsedText
+        : typeof raw?.parsed_text === "string"
+          ? raw.parsed_text
+          : typeof raw?.content === "string"
+            ? raw.content
+            : undefined,
+    mime_type:
+      typeof raw?.mime_type === "string"
+        ? raw.mime_type
+        : typeof raw?.mimeType === "string"
+          ? raw.mimeType
+          : typeof raw?.content_type === "string"
+            ? raw.content_type
+            : undefined,
+    mimeType:
+      typeof raw?.mimeType === "string"
+        ? raw.mimeType
+        : typeof raw?.mime_type === "string"
+          ? raw.mime_type
+          : typeof raw?.content_type === "string"
+            ? raw.content_type
+            : undefined,
     mock: Boolean(raw?.mock),
     createdAt: raw?.createdAt || raw?.created_at,
     src_url: srcUrl,
@@ -982,7 +1035,7 @@ export default function AppShell({
   });
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
-  const [projectScopeMode, setProjectScopeMode] = useState<"thread" | "project">(
+  const [documentScope, setDocumentScope] = useState<DocumentScope>(
     () => (readRouteThreadId() != null ? "thread" : "project")
   );
   useEffect(() => {
@@ -1002,7 +1055,7 @@ export default function AppShell({
     };
   }, []);
   useEffect(() => {
-    setProjectScopeMode(activeRouteThreadId != null ? "thread" : "project");
+    setDocumentScope(activeRouteThreadId != null ? "thread" : "project");
   }, [activeRouteThreadId]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
@@ -1017,6 +1070,7 @@ export default function AppShell({
     },
     [activeRouteThreadId]
   );
+  const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
     return readCachedDocuments() ? "cache" : "default";
@@ -1212,7 +1266,7 @@ export default function AppShell({
     }));
   }, [codexEntries]);
   const scopedProjectDocuments = useMemo<DocItem[]>(() => {
-    if (projectScopeMode !== "thread" || activeRouteThreadId == null) {
+    if (documentScope !== "thread" || activeRouteThreadId == null) {
       return documents;
     }
     return documents.filter((doc) => {
@@ -1220,7 +1274,7 @@ export default function AppShell({
       const threadValue = Number(threadRaw);
       return Number.isFinite(threadValue) && threadValue === activeRouteThreadId;
     });
-  }, [activeRouteThreadId, documents, projectScopeMode]);
+  }, [activeRouteThreadId, documents, documentScope]);
   const allDocuments = useMemo<DocItem[]>(
     () => dedupeDocItems([...codexDocs, ...scopedProjectDocuments]),
     [codexDocs, scopedProjectDocuments]
@@ -1386,6 +1440,21 @@ export default function AppShell({
   // Local-only: translucent bezel for Dashboard cards
   const panelBezel = resolved === "dark" ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.12)";
   const panelBorderStrong = resolved === "dark" ? "rgba(255,255,255,0.22)" : "rgba(17,24,39,0.16)";
+  const shellViewportProfile = useShellViewportProfile();
+  const mobileShellProfile = useMemo(
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
+  );
+  const isPhoneShell = mobileShellProfile.active;
+  const viewportInsets = useViewportInsets(isPhoneShell);
+  const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
+    () => getMobileTopNavDockStyle(mobileShellProfile),
+    [mobileShellProfile]
+  );
+  const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
+    () => getMobileTopNavRailStyle(mobileShellProfile),
+    [mobileShellProfile]
+  );
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🏗️ SECTION: Modular Design Token Setup
@@ -1397,15 +1466,18 @@ export default function AppShell({
     "--radius-micro": "8px",                 // chips, inputs, pills
     "--radius-tile": "20px",                  // cards, tiles, panels
     "--card-radius": "20px",    // pointer used by components (explicit for clarity)
-    "--edge-chrome": "6px",                     // Outer padding (PWA safe zone)
-    "--shell-gap": "16px",                      // Gap between cards or columns
-    "--pill-pad-y": "11px", // Vertical padding for the navigation pill dock (controls thickness)
-    "--viewport-radius": "20px",                // Rounding for main window
+    "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
+    "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
+    "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
+    "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
+    "--shell-gap": shellViewportProfile.shellGap,                      // Gap between cards or columns
+    "--pill-pad-y": isPhoneShell ? shellViewportProfile.shellCardPad : "11px", // Vertical padding for the navigation pill dock (controls thickness)
+    "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
-    "--page-gutter-top": "24px",                // Fixed gutter under the pill dock
-    "--page-pad": layoutMode === "zen" ? "48px" : "0px",  // Layout mode: zen (12px) or focus (0px)
+    "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
+    "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
-    "--card-pad": "12px",                       // Internal card padding
+    "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
     "--frame": "3px",                         // Outer frame thickness
     // --bezel: Visual margin between the refractive glass and the opaque content surface.
     // Changing this variable tunes the glass thickness everywhere.
@@ -1422,8 +1494,8 @@ export default function AppShell({
     "--image-grid-cols": "auto-fit",            // Can be set to fixed or responsive
 
     /* === DIMENSION CONSTRAINTS === */
-    "--min-h": "clamp(520px, 70vh, 1000px)",    // Viewport vertical floor
-    "--card-height": "clamp(480px, 70vh, 800px)", // Centralized card height
+    "--min-h": shellViewportProfile.contentMinHeight,    // Viewport vertical floor
+    "--card-height": shellViewportProfile.viewportClass === "desktop" ? "clamp(480px, 70vh, 800px)" : "auto", // Centralized card height
 
     /* === COLORS & SURFACE === */
     "--panel-bg": panelBg,
@@ -1645,6 +1717,7 @@ export default function AppShell({
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
+    projectId: generalProjectId ?? undefined,
     onImages: (items) =>
       setGallery((prev) => {
         const normalizedItems = items
@@ -1670,6 +1743,9 @@ export default function AppShell({
     onAnyUpload: () => {},
   });
   const [prefill, setPrefill] = useState<string | undefined>(undefined);
+  const [pendingComposerDocumentTiles, setPendingComposerDocumentTiles] = useState<
+    DocumentContextTile[]
+  >([]);
   const {
     isOpen: workspaceDrawerOpen,
     activeTab: workspaceDrawerTab,
@@ -1708,14 +1784,26 @@ export default function AppShell({
       setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
       setDocuments((prev) => dedupeDocItems([doc, ...prev]));
       navigateToView(request.targetView === "guardian" ? "guardian" : "documents");
-      openWorkspaceDrawer("inspector");
+      if (
+        mobileShellProfile.workspace.autoOpenOnDocumentRequest ||
+        workspaceDrawerOpen
+      ) {
+        openWorkspaceDrawer("inspector");
+        return;
+      }
+      setWorkspaceDrawerTab("inspector");
+      closeWorkspaceDrawerUi();
     },
-    [navigateToView, openWorkspaceDrawer]
+    [
+      closeWorkspaceDrawerUi,
+      mobileShellProfile.workspace.autoOpenOnDocumentRequest,
+      navigateToView,
+      openWorkspaceDrawer,
+      setWorkspaceDrawerTab,
+      workspaceDrawerOpen,
+    ]
   );
-  const {
-    openWorkspaceDocument,
-    closeWorkspace: closeLegacyWorkspace,
-  } = useWorkspaceState({
+  const { closeWorkspace: closeLegacyWorkspace } = useWorkspaceState({
     normalizeDocument: (doc) => normalizeDoc(doc),
     onOpenRequest: handleWorkspaceOpenRequest,
   });
@@ -1813,16 +1901,17 @@ export default function AppShell({
   }
   const openDocInThread = useCallback((doc: DocumentLike) => {
     const normalizedDoc = normalizeDoc(doc);
-    const didOpen = openWorkspaceDocument(normalizedDoc, {
-      source: "documents",
-      targetView: "guardian",
+    const tile = createDocumentContextTile(normalizedDoc, normalizedDoc.content || normalizedDoc.parsed_text || normalizedDoc.parsedText);
+    if (!tile) return;
+    setPendingComposerDocumentTiles((previous) => {
+      const next = [...previous];
+      if (!next.some((item) => item.id === tile.id)) {
+        next.push(tile);
+      }
+      return next;
     });
-    if (!didOpen) return;
-    const displayName = normalizedDoc.ext
-      ? `${normalizedDoc.title}.${normalizedDoc.ext}`
-      : normalizedDoc.title;
-    setPrefill(`Let's review "${displayName}".`);
-  }, [openWorkspaceDocument]);
+    navigateToView("guardian");
+  }, [navigateToView]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
       return;
@@ -1887,32 +1976,54 @@ export default function AppShell({
   );
   const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
   const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
-    ? {
-        flexBasis: primaryPaneBasis,
-        flexGrow: primaryPaneRatio,
-        flexShrink: 1,
-        minWidth: primaryPaneMinWidth,
-        minHeight: 0,
-      }
+    ? isPhoneShell
+      ? {
+          flex: "1 1 0%",
+          minWidth: 0,
+          minHeight: 0,
+        }
+      : {
+          flexBasis: primaryPaneBasis,
+          flexGrow: primaryPaneRatio,
+          flexShrink: 1,
+          minWidth: primaryPaneMinWidth,
+          minHeight: 0,
+        }
     : {
         flex: "1 1 0%",
         minWidth: 0,
         minHeight: 0,
       };
-  const workspaceDrawerPaneStyle: React.CSSProperties = {
-    padding: "var(--board-edge)",
-    flexBasis: workspacePaneBasis,
-    flexGrow: workspacePaneRatio,
-    flexShrink: 1,
-    minWidth: workspacePaneMinWidth,
-    minHeight: "0",
-    maxHeight: "100%",
-    borderRadius: "var(--card-radius)",
-    boxShadow:
-      workspaceLayoutMode === "workspace_focus"
-        ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
-        : undefined,
-  };
+  const workspaceDrawerPaneStyle: React.CSSProperties = isPhoneShell
+    ? {
+        padding: "var(--board-edge)",
+        flex: "0 0 auto",
+        width: mobileShellProfile.workspace.drawerWidth,
+        minWidth: mobileShellProfile.workspace.drawerWidth,
+        height: "100%",
+        minHeight: "100%",
+        maxHeight: "100%",
+        alignSelf: "stretch",
+        borderRadius: "var(--card-radius)",
+        boxShadow:
+          workspaceLayoutMode === "workspace_focus"
+            ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
+            : undefined,
+      }
+    : {
+        padding: "var(--board-edge)",
+        flexBasis: workspacePaneBasis,
+        flexGrow: workspacePaneRatio,
+        flexShrink: 1,
+        minWidth: workspacePaneMinWidth,
+        minHeight: "0",
+        maxHeight: "100%",
+        borderRadius: "var(--card-radius)",
+        boxShadow:
+          workspaceLayoutMode === "workspace_focus"
+            ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
+            : undefined,
+      };
   const workspaceSplitSurfaceProps = workspaceShellEnabled
     ? {
         "data-testid": "workspace-layout-surface",
@@ -1922,36 +2033,89 @@ export default function AppShell({
         "data-workspace-pane-ratio": workspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-min": minWorkspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-max": maxWorkspacePaneRatio.toFixed(2),
+        "data-shell-viewport-class": shellViewportProfile.viewportClass,
+        "data-shell-workspace-arrangement": shellViewportProfile.workspaceArrangement,
       }
     : {};
   const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
-    <div
-      data-testid="workspace-drawer-pane"
-      data-pane-basis={workspacePaneBasis}
-      data-pane-min-width={workspacePaneMinWidth}
-      className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
-      style={workspaceDrawerPaneStyle}
-    >
-      <WorkspaceDrawer
-        routeContext={workspaceRouteContext}
-        isOpen={workspaceDrawerOpen}
-        activeTab={workspaceDrawerTab}
-        layoutMode={workspaceLayoutMode}
-        paneRatio={workspacePaneRatio}
-        minPaneRatio={minWorkspacePaneRatio}
-        maxPaneRatio={maxWorkspacePaneRatio}
-        onOpenChange={(nextOpen) => {
-          if (nextOpen) {
-            openWorkspaceDrawer();
-            return;
-          }
-          closeWorkspaceDrawer();
-        }}
-        onActiveTabChange={handleWorkspaceDrawerTabChange}
-        onLayoutModeChange={setWorkspaceLayoutMode}
-      />
-    </div>
+    isPhoneShell ? (
+      <div
+        data-testid="workspace-drawer-overlay"
+        data-overlay-mode="mobile"
+        className="absolute inset-0 z-20 flex items-stretch justify-end bg-black/35 backdrop-blur-sm"
+      >
+        <button
+          type="button"
+          aria-label="Close workspace drawer"
+          className="absolute inset-0 border-0 bg-transparent p-0"
+          onClick={closeWorkspaceDrawer}
+        />
+        <div
+          data-testid="workspace-drawer-pane"
+          data-overlay="true"
+          data-pane-basis={mobileShellProfile.workspace.drawerWidth}
+          data-pane-min-width="0px"
+          data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
+          className="relative z-10 h-full min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
+          style={workspaceDrawerPaneStyle}
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <WorkspaceDrawer
+            routeContext={workspaceRouteContext}
+            isOpen={workspaceDrawerOpen}
+            activeTab={workspaceDrawerTab}
+            layoutMode={workspaceLayoutMode}
+            paneRatio={workspacePaneRatio}
+            minPaneRatio={minWorkspacePaneRatio}
+            maxPaneRatio={maxWorkspacePaneRatio}
+            onOpenChange={(nextOpen) => {
+              if (nextOpen) {
+                openWorkspaceDrawer();
+                return;
+              }
+              closeWorkspaceDrawer();
+            }}
+            onActiveTabChange={handleWorkspaceDrawerTabChange}
+            onLayoutModeChange={setWorkspaceLayoutMode}
+            projectId={effectiveDocumentsProjectId}
+          />
+        </div>
+      </div>
+    ) : (
+      <div
+        data-testid="workspace-drawer-pane"
+        data-pane-basis={workspacePaneBasis}
+        data-pane-min-width={workspacePaneMinWidth}
+        data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
+        className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
+        style={workspaceDrawerPaneStyle}
+      >
+        <WorkspaceDrawer
+          routeContext={workspaceRouteContext}
+          isOpen={workspaceDrawerOpen}
+          activeTab={workspaceDrawerTab}
+          layoutMode={workspaceLayoutMode}
+          paneRatio={workspacePaneRatio}
+          minPaneRatio={minWorkspacePaneRatio}
+          maxPaneRatio={maxWorkspacePaneRatio}
+          onOpenChange={(nextOpen) => {
+            if (nextOpen) {
+              openWorkspaceDrawer();
+              return;
+            }
+            closeWorkspaceDrawer();
+          }}
+          onActiveTabChange={handleWorkspaceDrawerTabChange}
+          onLayoutModeChange={setWorkspaceLayoutMode}
+          projectId={effectiveDocumentsProjectId}
+        />
+      </div>
+    )
   ) : null;
+  const workspaceShellLaneClassName = isPhoneShell
+    ? "flex h-full min-h-0 w-full flex-col gap-[var(--gutter)]"
+    : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
   const runtimeDegraded =
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
@@ -1977,6 +2141,76 @@ export default function AppShell({
   const runtimeLastHealthy = runtimeHealth.lastSuccessAt
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
+  const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
+  const workspaceDrawerToggle = workspaceShellEnabled ? (
+    <button
+      type="button"
+      className="pill-tab shrink-0 whitespace-nowrap"
+      data-state={workspaceDrawerOpen ? "active" : "inactive"}
+      data-testid="workspace-drawer-toggle"
+      aria-pressed={workspaceDrawerOpen}
+      aria-label={
+        isPhoneShell
+          ? workspaceSummonCopy.ariaLabel
+          : "Toggle workspace drawer"
+      }
+      title={
+        isPhoneShell
+          ? workspaceSummonCopy.title
+          : workspaceDrawerOpen
+            ? "Close workspace drawer"
+            : "Open workspace drawer"
+      }
+      onClick={toggleWorkspaceDrawer}
+    >
+      {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
+    </button>
+  ) : null;
+  const settingsUtilityAction = (
+    <button
+      type="button"
+      className="pill-tab h-9 w-9 shrink-0 p-0"
+      data-state={view === "settings" ? "active" : "inactive"}
+      data-testid="settings-utility-toggle"
+      aria-label="Settings"
+      title="Settings"
+      onClick={openSettings}
+    >
+      <Settings2 className="h-4 w-4" aria-hidden="true" />
+    </button>
+  );
+  const shareUtilityAction = activeRouteThreadId != null ? (
+    <ShareButton
+      targetType="thread"
+      targetId={activeRouteThreadId}
+      className="pill-tab shrink-0 whitespace-nowrap"
+      dataState="inactive"
+      style={{
+        borderRadius: 999,
+        border: "1px solid var(--chip-border)",
+        background: "var(--chip-bg)",
+        color: "var(--text)",
+        fontSize: "0.78rem",
+        fontWeight: 500,
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
+      }}
+    />
+  ) : null;
+  const desktopHeaderUtilityActions = (
+    <>
+      {settingsUtilityAction}
+      {workspaceDrawerToggle}
+      {shareUtilityAction}
+    </>
+  );
+  const mobileHeaderUtilityActions = (
+    <>
+      {workspaceDrawerToggle}
+      {settingsUtilityAction}
+      {shareUtilityAction}
+    </>
+  );
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
@@ -2006,9 +2240,12 @@ export default function AppShell({
       className="flex h-screen w-screen flex-col min-h-0 bg-transparent box-border overflow-hidden"
       style={{
         /* baseline viewport guardrails */
-        minWidth: "608px",
-        minHeight: "548px",
-        padding: "6px",
+        minWidth: shellViewportProfile.shellMinWidth,
+        height: isPhoneShell ? "var(--shell-viewport-height, 100vh)" : undefined,
+        minHeight: isPhoneShell
+          ? "var(--shell-viewport-height, 100vh)"
+          : shellViewportProfile.shellMinHeight,
+        padding: "var(--edge-chrome)",
         alignItems: "center",
         color: "var(--text)",
         colorScheme: resolved,
@@ -2055,13 +2292,14 @@ export default function AppShell({
         style={{
           ...backgroundStyle,
           ...styleVars,
-          borderRadius: "20px",
-          paddingLeft: "6px",
-          paddingRight: "6px",
+          borderRadius: "var(--viewport-radius)",
+          paddingLeft: "var(--edge-chrome)",
+          paddingRight: "var(--edge-chrome)",
           boxSizing: "border-box",
           color: "var(--text)",
           colorScheme: resolved,
         }}
+        data-shell-profile={mobileShellProfile.shellMode}
       >
       <div id="cfy-portal-root" />
       {/* {view === "dashboard" && (
@@ -2074,131 +2312,108 @@ export default function AppShell({
         />
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
-      <div className="relative z-10 w-full flex items-center justify-between gap-3">
-        <div
-          className="glass-pill isolate"
-          style={{ paddingTop: "var(--pill-pad-y)", paddingBottom: "var(--pill-pad-y)" }}
-        >
-          {/* glass backdrop */}
-          <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
-            <RefractiveGlassCard
-              wallpaperUrl={activeWallpaper}
-              className="w-full h-full rounded-full"
-              style={{ background: "transparent", border: "none" }}
-              intensity={0.006}
-              aberration={0.006}
-            />
-          </div>
-
-          {/* brand badge — doubles as layout mode toggle */}
-          <button
-            type="button"
-            className="pill-tab brand-tab"
-            style={{ color: "var(--text-on-accent)" }}
-            title={
-              layoutMode === "zen"
-                ? "Zen layout — click to switch to Focus"
-                : "Focus layout — click to switch to Zen"
+      <div
+        className={`relative z-10 flex w-full items-start gap-3 ${isPhoneShell ? "flex-col" : "flex-row"}`}
+      >
+        <div className="min-w-0 shrink-0">
+          <div
+            className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
+            data-testid="app-shell-top-nav"
+            data-shell-nav-mode={
+              mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
             }
-            onClick={() =>
-              setLayoutMode((prev) => (prev === "focus" ? "zen" : "focus"))
-            }
+            style={mobileTopNavDockStyle}
           >
-            Codexify
-          </button>
+            {/* glass backdrop */}
+            <div className="absolute inset-0 -z-10 overflow-hidden rounded-full pointer-events-none">
+              <RefractiveGlassCard
+                wallpaperUrl={activeWallpaper}
+                className="w-full h-full rounded-full"
+                style={{ background: "transparent", border: "none" }}
+                intensity={0.006}
+                aberration={0.006}
+              />
+            </div>
 
-          {/* beta release indicator — persistent across navigation */}
-          <span
-            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase"
-            style={{
-              background: "var(--accent)",
-              color: "var(--text-on-accent)",
-              opacity: 0.85,
-              letterSpacing: "0.05em",
-            }}
-            title="Beta release — feedback welcome"
-          >
-            Beta
-          </span>
-
-          {/* nav tabs */}
-          <button
-            className="pill-tab"
-            data-state={view === "guardian" ? "active" : "inactive"}
-            onClick={() => navigateToView("guardian")}
-          >
-            Guardian
-          </button>
-          <button
-            className="pill-tab"
-            data-state={view === "dashboard" ? "active" : "inactive"}
-            onClick={() => navigateToView("dashboard")}
-          >
-            Dashboard
-          </button>
-          <button
-            className="pill-tab"
-            data-state={view === "documents" ? "active" : "inactive"}
-            onClick={() => navigateToView("documents")}
-          >
-            Documents
-          </button>
-          <button
-            className="pill-tab"
-            data-state={view === "gallery" ? "active" : "inactive"}
-            onClick={() => navigateToView("gallery")}
-          >
-            Gallery
-          </button>
-          <button
-            className="pill-tab"
-            data-state={view === "settings" ? "active" : "inactive"}
-            onClick={() => navigateToView("settings")}
-          >
-            Settings
-          </button>
-          <button
-            className="pill-tab"
-            data-state={view === "personaStudio" ? "active" : "inactive"}
-            onClick={() => navigateToView("personaStudio")}
-          >
-            Persona Studio
-          </button>
-        </div>
-        {(workspaceShellEnabled || activeRouteThreadId != null) && (
-          <div className="flex items-center justify-end gap-2">
-            {workspaceShellEnabled && (
+            <div
+              className="inline-flex min-w-0 items-center"
+              style={mobileTopNavRailStyle}
+            >
+              {/* brand badge — doubles as layout mode toggle */}
               <button
                 type="button"
-                className="pill-tab"
-                data-state={workspaceDrawerOpen ? "active" : "inactive"}
-                data-testid="workspace-drawer-toggle"
-                aria-pressed={workspaceDrawerOpen}
-                onClick={toggleWorkspaceDrawer}
+                className="pill-tab brand-tab shrink-0 whitespace-nowrap"
+                style={{ color: "var(--text-on-accent)" }}
+                title={
+                  layoutMode === "zen"
+                    ? "Zen layout — click to switch to Focus"
+                    : "Focus layout — click to switch to Zen"
+                }
+                onClick={() =>
+                  setLayoutMode((prev) => (prev === "focus" ? "zen" : "focus"))
+                }
               >
-                Workspace
+                Codexify
               </button>
-            )}
-            {activeRouteThreadId != null && (
-            <ShareButton
-              targetType="thread"
-              targetId={activeRouteThreadId}
-              className="pill-tab"
-              dataState="inactive"
-              style={{
-                borderRadius: 999,
-                border: "1px solid var(--chip-border)",
-                background: "var(--chip-bg)",
-                color: "var(--text)",
-                fontSize: "0.78rem",
-                fontWeight: 500,
-                boxShadow:
-                  "inset 0 1px 0 rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.18)",
-              }}
-            />
-            )}
+
+              {/* beta release indicator — persistent across navigation */}
+              <span
+                className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap"
+                style={{
+                  background: "var(--accent)",
+                  color: "var(--text-on-accent)",
+                  opacity: 0.85,
+                  letterSpacing: "0.05em",
+                }}
+                title="Beta release — feedback welcome"
+              >
+                Beta
+              </span>
+
+              {/* nav tabs */}
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "guardian" ? "active" : "inactive"}
+                onClick={() => navigateToView("guardian")}
+              >
+                Guardian
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "dashboard" ? "active" : "inactive"}
+                onClick={() => navigateToView("dashboard")}
+              >
+                Dashboard
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "documents" ? "active" : "inactive"}
+                onClick={() => navigateToView("documents")}
+              >
+                Documents
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "gallery" ? "active" : "inactive"}
+                onClick={() => navigateToView("gallery")}
+              >
+                Gallery
+              </button>
+              <button
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "personaStudio" ? "active" : "inactive"}
+                onClick={() => navigateToView("personaStudio")}
+              >
+                Persona Studio
+              </button>
+            </div>
           </div>
-        )}
+        </div>
+        <div
+          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
+        >
+          {isPhoneShell ? mobileHeaderUtilityActions : desktopHeaderUtilityActions}
+        </div>
       </div>
 
       {showRuntimeBanner && (
@@ -2279,22 +2494,28 @@ export default function AppShell({
                 "--frame": "1px",
                 "--bezel": "var(--bezel, 6px)",
                 "--rim": "1px",
-                "--gutter": "16px",
-                "--card-pad": "10px",
-                "--min-h": "clamp(520px, 70vh, 1000px)",
+                "--gutter": "var(--shell-gap)",
+                "--card-pad": shellViewportProfile.shellCardPad,
+                "--min-h": shellViewportProfile.contentMinHeight,
                 borderRadius: "var(--card-radius)",
               } as React.CSSProperties}
             >
               <div
-                className="h-full min-h-0 w-full flex items-stretch gap-[var(--gutter)]"
+                className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
                 {/* LIST COLUMN (left) */}
                 <div
                   data-testid="workspace-primary-pane"
-                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
                   data-pane-min-width={
-                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
                   }
                   className="min-w-0 min-h-0 overflow-visible rounded-[var(--radius)]"
                   style={{
@@ -2305,7 +2526,7 @@ export default function AppShell({
                     height: "var(--h, auto)",
                     minHeight: "var(--min-h, 0)",
                     maxHeight: "var(--max-h, none)",
-                    ["--min-h"]: "clamp(520px, 70vh, 1000px)",
+                    ["--min-h"]: shellViewportProfile.contentMinHeight,
                     borderRadius: "var(--card-radius)",
                     ...workspacePrimaryPaneStyle,
                   }}
@@ -2322,9 +2543,9 @@ export default function AppShell({
                       onOpenInThread={openDocInThread}
                       onDeleteDocument={deleteDocument}
                       defaultProjectId={generalProjectId}
-                      projectScopeMode={projectScopeMode}
-                      onProjectScopeModeChange={setProjectScopeMode}
-                      showProjectScopeToggle={activeRouteThreadId != null}
+                      documentScope={documentScope}
+                      onDocumentScopeChange={setDocumentScope}
+                      threadScopeEnabled={activeRouteThreadId != null}
                     />
                   </FrameCard>
                 </div>
@@ -2399,17 +2620,23 @@ export default function AppShell({
           {!startupLocked && view === "guardian" && (
             <div
               className="h-full w-full isolate"
-              style={{ "--gutter": "16px" } as React.CSSProperties}
+              style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
-                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
                 <div
                   data-testid="workspace-primary-pane"
-                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
                   data-pane-min-width={
-                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
                   }
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
@@ -2433,8 +2660,12 @@ export default function AppShell({
                         userName={userName}
                         prefill={prefill}
                         onPrefillConsumed={() => setPrefill(undefined)}
+                        pendingDocumentTiles={pendingComposerDocumentTiles}
+                        onPendingDocumentTilesConsumed={() =>
+                          setPendingComposerDocumentTiles([])
+                        }
                         onWorkspaceToggle={toggleWorkspaceDrawer}
-                        workspaceOpen={false}
+                        workspaceOpen={workspaceDrawerOpen}
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                       />
@@ -2448,17 +2679,23 @@ export default function AppShell({
           {!startupLocked && view === "dashboard" && (
             <div
               className="h-full w-full isolate"
-              style={{ "--gutter": "16px" } as React.CSSProperties}
+              style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
-                className="flex h-full min-h-0 w-full gap-[var(--gutter)] items-stretch"
+                className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
                 <div
                   data-testid="workspace-primary-pane"
-                  data-pane-basis={showWorkspaceDrawer ? primaryPaneBasis : "100.00%"}
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
                   data-pane-min-width={
-                    showWorkspaceDrawer ? primaryPaneMinWidth : "0px"
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
                   }
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
@@ -2486,7 +2723,7 @@ export default function AppShell({
               data-testid="settings-framecard"
               style={settingsLayout}
             >
-              <div className="w-full min-h-0 max-h-full overflow-auto p-[var(--card-pad)]" data-testid="settings-scroll-body">
+              <div className="w-full min-h-0 max-h-full overflow-auto p-0" data-testid="settings-scroll-body">
                 <ErrorBoundary>
                   <SettingsView
                     mode={mode}

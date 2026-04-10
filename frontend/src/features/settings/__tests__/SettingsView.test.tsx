@@ -123,4 +123,57 @@ describe("SettingsView", () => {
     expect(screen.getByTestId("mock-persona-settings")).toBeInTheDocument();
     expect(screen.getByTestId("mock-system-prompt-inspector")).toBeInTheDocument();
   });
+
+  test("scopes the import controls to the Data tab", async () => {
+    const user = userEvent.setup();
+    const props = {
+      baseColor: "#111111",
+      dashboardThreadRows: 2,
+      depth: 0.4,
+      extColors: {
+        codex: "#000000",
+        doc: "#000000",
+        docx: "#000000",
+        jpeg: "#000000",
+        md: "#000000",
+        pdf: "#000000",
+        png: "#000000",
+        sketch: "#000000",
+        txt: "#000000",
+      } satisfies ExtColors,
+      fade: 0.2,
+      guardianName: "Harbor",
+      mode: "light" as ThemeMode,
+      notes: "Local notes",
+      resolved: "light" as const,
+      role: "Researcher",
+      setBaseColor: vi.fn(),
+      setDashboardThreadRows: vi.fn(),
+      setDepth: vi.fn(),
+      setExtColors: vi.fn(),
+      setFade: vi.fn(),
+      setGuardianName: vi.fn(),
+      setMode: vi.fn(),
+      setNotes: vi.fn(),
+      setRole: vi.fn(),
+      setSystemPrompt: vi.fn(),
+      setUserName: vi.fn(),
+      setWallpaper: vi.fn(),
+      systemPrompt: "Local preview prompt",
+      userName: "Ari",
+      wallpaper: null,
+    };
+
+    render(<SettingsView {...props} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Import ChatGPT history" })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+
+    expect(
+      screen.getByRole("button", { name: "Import ChatGPT history" })
+    ).toBeInTheDocument();
+  });
 });

@@ -525,6 +525,14 @@ def init_services(db: ChatDB) -> tuple[VectorStore, Sensors]:
     return _vector_store, _sensors
 
 
+def get_vector_store() -> VectorStore:
+    """Return the shared runtime vector store, creating it on first use."""
+    global _vector_store
+    if _vector_store is None:
+        _vector_store = VectorStore()
+    return _vector_store
+
+
 def _embedder_preflight_cache_ttl_seconds() -> float:
     raw = (os.getenv("EMBEDDER_PREFLIGHT_CACHE_TTL_SECONDS") or "5").strip()
     try:
@@ -827,6 +835,7 @@ __all__ = [
     "_sensors",
     "_memory_store",
     "init_services",
+    "get_vector_store",
     "event_bus",
     # AI Completion
     "_groq_complete",

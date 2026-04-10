@@ -1,6 +1,7 @@
 /**
  * ChatView - renders Guardian message history without owning fetch loops.
  */
+import { ArrowDown } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -10,27 +11,25 @@ import React, {
   useState,
 } from "react";
 
+import ContextMenu from "@/components/ui/ContextMenu";
+import { CHAT_LANE_INLINE_PADDING, CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
+import ChatBubble from "@/features/chat/components/ChatBubble";
+import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
+import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
 import type {
   ChatMessage,
   CompletionState,
   StreamingDraft,
 } from "@/features/chat/useChat";
-import ChatBubble from "@/features/chat/components/ChatBubble";
-import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
-import ContextMenu from "@/components/ui/ContextMenu";
 import { cn } from "@/lib/utils";
-import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
+import { parseDocumentContextContent } from "@/lib/documentContext";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
+import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
   type InferenceRequestState,
 } from "@/types/inference";
-import {
-  CHAT_LANE_INLINE_PADDING,
-  CHAT_LANE_GUTTER_CLASS,
-  CHAT_LANE_MAX_WIDTH,
-  CHAT_LANE_MAX_WIDTH_CLASS,
-} from "@/features/chat/chatLane";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
 type BubblePlayState =
@@ -100,7 +99,9 @@ export function ChatView({
 }) {
   const { containerRef, endRef } = useChatAutoScroll(messages.length);
   const initialScrollRef = useRef(true);
+  const initialScrollAppliedRef = useRef(false);
   const [hasOverflow, setHasOverflow] = useState(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [voiceUnavailableMessageIds, setVoiceUnavailableMessageIds] = useState<
@@ -112,6 +113,10 @@ export function ChatView({
   const lastAutoReadMessageIdRef = useRef<number | null>(null);
   const autoReadPrimedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const conversationLaneRef = useRef<HTMLDivElement | null>(null);
+  const mobileShellProfile = useMobileShellProfile();
+  const viewportInsets = useViewportInsets(mobileShellProfile.active);
+  const shouldStickToLatestRef = useRef(true);
 
   const isCompletingForThread =
     completionState.isCompleting && completionState.activeThreadId === threadId;
@@ -140,6 +145,25 @@ export function ChatView({
       ? streamingDraft.content
       : "";
   const showStreamingDraft = Boolean(streamingDraftText.trim());
+  const viewportLayoutSignature = useMemo(
+    () =>
+      [
+        messages.length,
+        loading ? "loading" : "idle",
+        error ?? "",
+        hasMore ? "more" : "none",
+        showCompletionIndicator ? "completion" : "steady",
+        showStreamingDraft ? "draft" : "no-draft",
+      ].join("|"),
+    [
+      error,
+      hasMore,
+      loading,
+      messages.length,
+      showCompletionIndicator,
+      showStreamingDraft,
+    ]
+  );
 
   const showToast = useCallback((message: string) => {
     try {
@@ -164,10 +188,43 @@ export function ChatView({
     setVoiceUnavailableMessageIds(voiceUnavailableMessageIdsRef.current);
   }, []);
 
+  const measureChatViewport = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) {
+      setHasOverflow(false);
+      setShowJumpToLatest(false);
+      return;
+    }
+
+    const viewportHeight = el.clientHeight;
+    const overflowing = viewportHeight > 0 && el.scrollHeight > viewportHeight + 1;
+    const distanceFromBottom = Math.max(
+      0,
+      el.scrollHeight - viewportHeight - el.scrollTop
+    );
+    shouldStickToLatestRef.current = distanceFromBottom <= 120;
+    const shouldShowJump = overflowing && distanceFromBottom > viewportHeight;
+
+    setHasOverflow(overflowing);
+    setShowJumpToLatest(shouldShowJump);
+  }, [containerRef]);
+
+  const handleJumpToLatest = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    shouldStickToLatestRef.current = true;
+    measureChatViewport();
+    el.dispatchEvent(new Event("scroll", { bubbles: true }));
+  }, [containerRef, measureChatViewport]);
+
   useEffect(() => {
     initialScrollRef.current = true;
+    initialScrollAppliedRef.current = false;
     autoReadPrimedRef.current = false;
     lastAutoReadMessageIdRef.current = null;
+    shouldStickToLatestRef.current = true;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -177,6 +234,8 @@ export function ChatView({
     setVoiceUnavailableMessageIds({});
     voiceRouteMissingRef.current = false;
     setVoiceRouteMissing(false);
+    setHasOverflow(false);
+    setShowJumpToLatest(false);
   }, [threadId]);
 
   useEffect(() => {
@@ -189,11 +248,26 @@ export function ChatView({
   }, []);
 
   useLayoutEffect(() => {
+    if (!initialScrollAppliedRef.current) return;
+    measureChatViewport();
+  }, [measureChatViewport, viewportLayoutSignature]);
+
+  useLayoutEffect(() => {
+    if (!initialScrollAppliedRef.current) return;
     const el = containerRef.current;
     if (!el) return;
-    const overflowing = el.scrollHeight > el.clientHeight + 1;
-    setHasOverflow(overflowing);
-  }, [containerRef, messages.length]);
+
+    if (shouldStickToLatestRef.current) {
+      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    }
+    measureChatViewport();
+  }, [
+    bottomPadding,
+    containerRef,
+    measureChatViewport,
+    viewportInsets.keyboardInset,
+    viewportInsets.visualViewportHeight,
+  ]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -206,6 +280,8 @@ export function ChatView({
           requestAnimationFrame(() => {
             if (containerRef.current) {
               containerRef.current.scrollTop = parseInt(saved, 10);
+              initialScrollAppliedRef.current = true;
+              measureChatViewport();
             }
           });
           initialScrollRef.current = false;
@@ -219,8 +295,26 @@ export function ChatView({
     if (initialScrollRef.current) {
       el.scrollTop = el.scrollHeight;
       initialScrollRef.current = false;
+      initialScrollAppliedRef.current = true;
+      measureChatViewport();
     }
-  }, [containerRef, messages.length, threadId]);
+  }, [containerRef, measureChatViewport, messages.length, threadId]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    const lane = conversationLaneRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (!initialScrollAppliedRef.current) return;
+      measureChatViewport();
+    });
+    observer.observe(el);
+    if (lane) {
+      observer.observe(lane);
+    }
+    return () => observer.disconnect();
+  }, [containerRef, conversationLaneRef, measureChatViewport]);
 
   const playMessageAudio = useCallback(
     async (
@@ -334,6 +428,8 @@ export function ChatView({
     const el = containerRef.current;
     if (!el) return;
 
+    measureChatViewport();
+
     if (typeof window !== "undefined") {
       try {
         sessionStorage.setItem(`chat-scroll-${threadId}`, String(el.scrollTop));
@@ -350,10 +446,11 @@ export function ChatView({
         if (containerRef.current) {
           containerRef.current.scrollTop =
             containerRef.current.scrollHeight - previousHeight;
+          measureChatViewport();
         }
       });
     }
-  }, [containerRef, hasMore, loading, onLoadOlderMessages, threadId]);
+  }, [containerRef, hasMore, loading, measureChatViewport, onLoadOlderMessages, threadId]);
 
   const savePrompt = useCallback((text: string) => {
     const title = window.prompt("Optional title", "");
@@ -390,7 +487,8 @@ export function ChatView({
   const shouldMask = hasOverflow && bottomPadding > 0;
   const scrollStyle: React.CSSProperties = useMemo(
     () => ({
-      paddingBottom: bottomPadding ?? 0,
+      "--chat-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
+      paddingBottom: `calc(${bottomPadding ?? 0}px + var(--chat-safe-area-bottom, 0px))`,
       ...(shouldMask
         ? {
             maskImage:
@@ -400,11 +498,11 @@ export function ChatView({
           }
         : {}),
     }),
-    [bottomPadding, shouldMask]
+    [bottomPadding, mobileShellProfile.chat.composer.bottomSafeArea, shouldMask]
   );
 
   return (
-    <div className={cn("flex flex-col h-full min-h-0", className)}>
+    <div className={cn("relative flex min-h-0 min-w-0 flex-col h-full", className)}>
       <div
         ref={containerRef}
         onScroll={() => {
@@ -412,15 +510,17 @@ export function ChatView({
         }}
         data-testid="chat-container"
         data-debug-scroll
-        className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain"
+        className="flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto overflow-x-hidden overscroll-contain"
         style={{
           ...scrollStyle,
           paddingInline: CHAT_LANE_INLINE_PADDING,
+          overflowAnchor: "none",
         }}
       >
         <div
+          ref={conversationLaneRef}
           data-testid="chat-conversation-lane"
-          className="mx-auto w-full max-w-full md:max-w-[888px] space-y-4"
+          className="mx-auto w-full min-w-0 max-w-full md:max-w-[888px] space-y-4"
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
         >
           {messages.map((message, index) => {
@@ -452,17 +552,19 @@ export function ChatView({
                     : "idle";
 
             return (
-              <div
-                data-testid="chat-message"
-                key={message.id ?? `${message.role}-${message.created_at ?? index}`}
-                className="max-w-full"
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  const content = String(message.content ?? "");
-                  if (!content.trim()) return;
-                  setMenu({ x: event.clientX, y: event.clientY, text: content });
-                }}
-              >
+                <div
+                  data-testid="chat-message"
+                  key={message.id ?? `${message.role}-${message.created_at ?? index}`}
+                  className="max-w-full"
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    const content = parseDocumentContextContent(
+                      String(message.content ?? "")
+                    ).text;
+                    if (!content.trim()) return;
+                    setMenu({ x: event.clientX, y: event.clientY, text: content });
+                  }}
+                >
                 <ChatBubble
                   message={{
                     id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),
@@ -483,6 +585,7 @@ export function ChatView({
                   showPlay={showPlay}
                   playing={playState === "playing"}
                   playState={playState}
+                  isPhoneShell={mobileShellProfile.active}
                   onPlay={() => {
                     if (!Number.isFinite(messageId)) return;
                     handlePlayClick(message);
@@ -494,10 +597,10 @@ export function ChatView({
 
           {showStreamingDraft ? (
             <div
-              className="w-full flex justify-start"
+              className="w-full flex justify-start min-w-0"
               data-testid="chat-streaming-draft"
             >
-              <div className="max-w-[min(34rem,calc(100%-1rem))] opacity-90">
+              <div className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 opacity-90">
                 <ChatBubble
                   message={{
                     id: `${threadId}-streaming-draft`,
@@ -507,6 +610,7 @@ export function ChatView({
                     createdAt: streamingDraft?.updatedAt ?? null,
                   }}
                   isGuardian
+                  isPhoneShell={mobileShellProfile.active}
                 />
               </div>
             </div>
@@ -518,7 +622,7 @@ export function ChatView({
               data-testid="chat-completing-indicator"
             >
               <div
-                className="max-w-[min(34rem,calc(100%-1rem))] rounded-[22px] px-4 py-3 shadow-sm"
+                className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 rounded-[22px] px-4 py-3 shadow-sm"
                 style={{
                   background:
                     "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
@@ -535,18 +639,43 @@ export function ChatView({
           ) : null}
 
           {loading ? (
-            <div className="text-xs opacity-70" data-testid="chat-loading">
+            <div className="min-w-0 text-xs opacity-70" data-testid="chat-loading">
               Loading...
             </div>
           ) : null}
           {error ? (
-            <div className="text-xs text-red-500" data-testid="chat-error">
+            <div className="min-w-0 text-xs text-red-500" data-testid="chat-error">
               {error}
             </div>
           ) : null}
           <div ref={endRef} />
         </div>
       </div>
+
+      {showJumpToLatest ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-30 flex justify-center px-4"
+          style={{ bottom: "calc(1rem + var(--chat-safe-area-bottom, 0px))" }}
+        >
+          <button
+            type="button"
+            data-testid="jump-to-latest-button"
+            aria-label="Jump to latest turn"
+            title="Jump to latest turn"
+            onClick={handleJumpToLatest}
+            className="icon-inline pointer-events-auto inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-2xl backdrop-blur-xl transition-transform duration-150 hover:-translate-y-0.5"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 88%, rgba(255,255,255,0.12))",
+              color: "var(--text)",
+            }}
+          >
+            <ArrowDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>Latest</span>
+          </button>
+        </div>
+      ) : null}
 
       {menu ? (
         <ContextMenu

@@ -141,4 +141,47 @@ describe("Composer source selector", () => {
       screen.getByRole("button", { name: "Select retrieval source" })
     ).toHaveTextContent("Personal Knowledge");
   });
+
+  it("shows lineage copy and no project/thread toggle in the composer", () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="thread-1"
+        draftValue=""
+        threadId={1}
+        projectId={7}
+        projectName="Imports"
+      />
+    );
+
+    expect(screen.getByTestId("composer-lineage-copy")).toHaveTextContent(
+      "Send a message to Imports"
+    );
+    expect(
+      screen.queryByRole("button", { name: /Toggle source context/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the prompt copy once the user starts typing", () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="thread-1"
+        draftValue=""
+        projectName="Home Renovation"
+      />
+    );
+
+    expect(screen.getByTestId("composer-lineage-copy")).toHaveTextContent(
+      "Send a message to Home Renovation"
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("Write a message…"), {
+      target: { value: "Hello" },
+    });
+
+    expect(
+      screen.queryByTestId("composer-lineage-copy")
+    ).not.toBeInTheDocument();
+  });
 });

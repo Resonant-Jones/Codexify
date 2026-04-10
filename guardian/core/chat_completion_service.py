@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import unquote
 
 from fastapi import HTTPException
 
@@ -51,6 +52,9 @@ RETRIEVAL_PLAN_TRACE_KEY = "retrieval_plan"
 DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY = "debug_latest_completion_task_id"
 DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY = "debug_rag_trace_candidate"
 DEBUG_LATEST_RAG_TRACE_METADATA_KEY = "debug_latest_rag_trace"
+_LOCAL_IMAGE_CAPTIONER_MODEL_NAME = "Salesforce/blip-image-captioning-base"
+_LOCAL_IMAGE_CAPTIONER: tuple[Any, Any] | None = None
+_LOCAL_IMAGE_CAPTIONER_ATTEMPTED = False
 
 try:  # pragma: no cover - prompts are optional in some deployments
     from guardian.cognition.system_prompt_builder import (
@@ -108,12 +112,37 @@ def _source_mode_from_origin(origin: Any) -> str:
     return "project"
 
 
+def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
+    text = str(origin or "").strip()
+    if not text:
+        return None
+
+    for segment in text.split("|")[1:]:
+        key, _, value = segment.partition("=")
+        if key.strip() != "slash_intent":
+            continue
+        raw_value = unquote(value.strip())
+        if not raw_value:
+            return None
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:
+            logger.debug(
+                "[chat-completion] failed to decode slash intent origin segment",
+                exc_info=True,
+            )
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
 @dataclass(frozen=True)
 class ThreadCompletionSettings:
     provider: str
     model: str
     reasoning_mode: str | None
     source_mode: str
+    # Request-scoped persona selector copied from the thread config.
     persona_id: str | None = None
     has_thread_config: bool = False
 
@@ -462,11 +491,118 @@ def _build_interpreter_context(
     return "\n".join(lines).strip()
 
 
-def _interpret_image_attachments(
-    image_attachments: list[dict[str, Any]],
-    *,
-    settings: Any,
-) -> list[dict[str, Any]] | None:
+def _load_local_image_captioner() -> tuple[Any, Any] | None:
+    global _LOCAL_IMAGE_CAPTIONER, _LOCAL_IMAGE_CAPTIONER_ATTEMPTED
+
+    if _LOCAL_IMAGE_CAPTIONER is not None:
+        return _LOCAL_IMAGE_CAPTIONER
+    if _LOCAL_IMAGE_CAPTIONER_ATTEMPTED:
+        return None
+    if not bool(getattr(dependencies, "ENABLE_BLIP_MODEL", False)):
+        return None
+
+    _LOCAL_IMAGE_CAPTIONER_ATTEMPTED = True
+    try:
+        from transformers import BlipForConditionalGeneration, BlipProcessor
+    except Exception as exc:
+        logger.debug(
+            "[chat-completion] local BLIP imports unavailable: %s", exc
+        )
+        return None
+
+    try:
+        processor = BlipProcessor.from_pretrained(
+            _LOCAL_IMAGE_CAPTIONER_MODEL_NAME,
+            use_fast=False,
+        )
+        model = BlipForConditionalGeneration.from_pretrained(
+            _LOCAL_IMAGE_CAPTIONER_MODEL_NAME
+        )
+        try:
+            model.eval()
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.warning(
+            "[chat-completion] local BLIP captioner unavailable: %s", exc
+        )
+        return None
+
+    _LOCAL_IMAGE_CAPTIONER = (processor, model)
+    return _LOCAL_IMAGE_CAPTIONER
+
+
+def _download_image_bytes(src: str) -> bytes | None:
+    source = str(src or "").strip()
+    if not source:
+        return None
+
+    if source.startswith("data:"):
+        try:
+            from base64 import b64decode
+        except Exception:
+            return None
+        _, _, payload = source.partition(",")
+        if not payload:
+            return None
+        try:
+            return b64decode(payload)
+        except Exception:
+            return None
+
+    try:
+        import requests
+
+        response = requests.get(source, timeout=30)
+        response.raise_for_status()
+        return response.content
+    except Exception as exc:
+        logger.debug(
+            "[chat-completion] failed to download image for interpretation: %s",
+            exc,
+        )
+        return None
+
+
+def _caption_image_with_local_blip(src: str) -> str | None:
+    captioner = _load_local_image_captioner()
+    if captioner is None:
+        return None
+
+    image_bytes = _download_image_bytes(src)
+    if not image_bytes:
+        return None
+
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+    except Exception as exc:
+        logger.debug(
+            "[chat-completion] PIL unavailable for local image captioning: %s",
+            exc,
+        )
+        return None
+
+    processor, model = captioner
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    inputs = processor(images=image, return_tensors="pt")
+    try:
+        import torch
+    except Exception:
+        torch = None  # type: ignore[assignment]
+
+    if torch is not None:
+        with torch.inference_mode():
+            output = model.generate(**inputs, max_new_tokens=32)
+    else:
+        output = model.generate(**inputs, max_new_tokens=32)
+    caption = processor.decode(output[0], skip_special_tokens=True)
+    normalized = " ".join(str(caption or "").split()).strip()
+    return normalized or None
+
+
+def _caption_image_with_groq_vision(src: str, *, settings: Any) -> str | None:
     vision_model = str(getattr(settings, "GROQ_VISION_MODEL", "") or "").strip()
     api_key = str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
     if not vision_model or not api_key:
@@ -476,27 +612,74 @@ def _interpret_image_attachments(
         "Describe the image for downstream reasoning. "
         "If the image includes readable text, extract it."
     )
-    interpretations: list[dict[str, Any]] = []
+    content = build_openai_vision_content(prompt, [src])
+    summary = chat_with_ai(
+        [{"role": "user", "content": content}],
+        model=vision_model,
+        provider="groq",
+    )
+    normalized = " ".join(str(summary or "").split()).strip()
+    return normalized or None
+
+
+def _interpret_image_attachments(
+    image_attachments: list[dict[str, Any]],
+    *,
+    settings: Any,
+) -> list[dict[str, Any]] | None:
+    valid_attachments = []
     for attachment in image_attachments:
+        if not isinstance(attachment, dict):
+            continue
         src = str(attachment.get("src") or "").strip()
         if not src:
             continue
-        try:
-            content = build_openai_vision_content(prompt, [src])
-            summary = chat_with_ai(
-                [{"role": "user", "content": content}],
-                model=vision_model,
-                provider="groq",
+        valid_attachments.append((attachment, src))
+
+    if not valid_attachments:
+        return None
+
+    if bool(getattr(dependencies, "ENABLE_BLIP_MODEL", False)):
+        local_interpretations: list[dict[str, Any]] = []
+        for attachment, src in valid_attachments:
+            try:
+                summary = _caption_image_with_local_blip(src)
+            except Exception as exc:
+                logger.warning(
+                    "[chat-completion] local BLIP caption failed; falling back to cloud vision: %s",
+                    exc,
+                )
+                local_interpretations = []
+                break
+            if not summary:
+                local_interpretations = []
+                break
+            local_interpretations.append(
+                {
+                    "label": _format_image_label(attachment),
+                    "summary": summary,
+                }
             )
+        if local_interpretations and len(local_interpretations) == len(
+            valid_attachments
+        ):
+            return local_interpretations
+
+    interpretations: list[dict[str, Any]] = []
+    for attachment, src in valid_attachments:
+        try:
+            summary = _caption_image_with_groq_vision(src, settings=settings)
         except Exception as exc:
             raise HTTPException(
                 status_code=502,
                 detail=f"Image interpreter failed: {exc}",
             ) from exc
+        if not summary:
+            continue
         interpretations.append(
             {
                 "label": _format_image_label(attachment),
-                "summary": str(summary or "").strip(),
+                "summary": summary,
             }
         )
     if not interpretations:
@@ -1172,6 +1355,8 @@ async def build_messages_for_llm(
             source_mode=source_mode,
         )
         if thread_execution.persona_id:
+            # Thread config personaId is request-scoped input, not actor
+            # replacement. It only selects the persona layer for this request.
             bundle["requested_persona"] = thread_execution.persona_id
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
@@ -1185,6 +1370,8 @@ async def build_messages_for_llm(
 
     if isinstance(bundle, dict):
         if thread_execution.persona_id:
+            # Keep the request-scoped selector with the bundle so the prompt
+            # builder can resolve the correct persona layer.
             bundle["requested_persona"] = thread_execution.persona_id
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
@@ -1317,7 +1504,9 @@ async def build_messages_for_llm(
     messages_for_llm.extend(retrieved_context_messages)
     messages_for_llm.extend(context)
 
-    model = normalize_model_id(task.model)
+    model = normalize_model_id(thread_execution.model)
+    if not model:
+        model = normalize_model_id(task.model)
     if not model and profile_model:
         model = profile_model
     if not model and provider:
@@ -1379,6 +1568,9 @@ def run_chat_completion_task(
             ),
         }
     )
+    slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
+    if slash_intent is not None:
+        payload_summary["slash_intent"] = slash_intent
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {

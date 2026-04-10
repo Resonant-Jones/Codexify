@@ -1,5 +1,11 @@
+import * as React from "react";
+import type { ComponentType } from "react";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import SourceLogoImage from "./icons/SourceLogoImage";
+import openaiOfficialSrc from "@/assets/brands/openai/openai-official.png";
+import googleOfficialSrc from "@/assets/brands/google/google-official.png";
+import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 
 /* ================================
    Project Normalization (codex)
@@ -168,6 +174,8 @@ export function projectMatchesSidebarQuery(
 export type SidebarProvenanceOption = {
   value: string;
   label: string;
+  description?: string;
+  Icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 };
 
 const CANONICAL_PROVENANCE_LABELS = new Map<string, string>([
@@ -215,6 +223,39 @@ type SidebarProvenanceDescriptor = {
   key: string;
   label: string;
 };
+
+type SidebarProvenanceIconProps = {
+  className?: string;
+  "aria-hidden"?: boolean;
+};
+
+function createSidebarProvenanceIcon(
+  name: string,
+  src: string
+): ComponentType<SidebarProvenanceIconProps> {
+  const Icon = ({ className, "aria-hidden": ariaHidden }: SidebarProvenanceIconProps) =>
+    React.createElement(SourceLogoImage, {
+      src,
+      alt: "",
+      className,
+      "aria-hidden": ariaHidden ?? true,
+    });
+
+  Icon.displayName = `${name}SidebarProvenanceIcon`;
+
+  return Icon;
+}
+
+const SIDEBAR_PROVENANCE_ICONS: Record<string, ComponentType<SidebarProvenanceIconProps>> = {
+  chatgpt: createSidebarProvenanceIcon("ChatGPT", openaiOfficialSrc),
+  openai: createSidebarProvenanceIcon("OpenAI", openaiOfficialSrc),
+  gemini: createSidebarProvenanceIcon("Gemini", googleOfficialSrc),
+  codexify: createSidebarProvenanceIcon("Codexify", codexifyMarkSrc),
+};
+
+function resolveSidebarProvenanceIcon(key: string): ComponentType<SidebarProvenanceIconProps> | null {
+  return SIDEBAR_PROVENANCE_ICONS[key] ?? null;
+}
 
 export function normalizeSidebarProvenanceKey(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -285,7 +326,12 @@ export function collectSidebarProvenanceOptions(
     const descriptor = resolveThreadProvenanceDescriptor(thread);
     if (!descriptor || seen.has(descriptor.key)) continue;
     seen.add(descriptor.key);
-    options.push({ value: descriptor.key, label: descriptor.label });
+    const Icon = resolveSidebarProvenanceIcon(descriptor.key);
+    options.push(
+      Icon
+        ? { value: descriptor.key, label: descriptor.label, Icon }
+        : { value: descriptor.key, label: descriptor.label }
+    );
   }
 
   return options;

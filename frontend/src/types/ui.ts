@@ -38,6 +38,8 @@ export type Thread = {
   participants: Array<{ id: string; name: string }>;
   messages: Message[];
   projectId?: string | null;
+  projectName?: string | null;
+  lastInteractionAt?: string | null;
   parentId?: string | null;
   archivedAt?: string | null;
   metadata?: Record<string, unknown> | null;

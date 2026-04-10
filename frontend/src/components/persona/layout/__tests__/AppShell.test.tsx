@@ -286,6 +286,19 @@ function readPaneBasis(element: HTMLElement): number {
   return Number.parseFloat(element.getAttribute("data-pane-basis") ?? "0");
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
+beforeEach(() => {
+  setViewportWidth(1280);
+});
+
 describe("AppShell logo wordmark color contract", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -361,6 +374,46 @@ describe("AppShell logo wordmark color contract", () => {
     expect(
       await screen.findByText(/configure runtime persona profiles/i)
     ).toBeInTheDocument();
+  });
+});
+
+describe("AppShell settings utility trigger", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    setRouteThread(null);
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("moves Settings into the utility rail and opens the existing settings surface", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("app-shell-top-nav")).toHaveClass(
+      "glass-pill",
+      "inline-flex",
+      "w-fit",
+      "max-w-full"
+    );
+    expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("settings-utility-toggle"));
+
+    expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
   });
 });
 
@@ -625,6 +678,82 @@ describe("AppShell workspace drawer shell", () => {
       expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
     }
   );
+
+  it("keeps the mobile workspace summon explicit and opens the drawer as an overlay", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("app-shell-top-nav")).toHaveAttribute(
+      "data-shell-nav-mode",
+      "scroll_rail"
+    );
+    expect(
+      screen.getByRole("button", { name: "Open Workspace" })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open Workspace" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Close Workspace" })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-overlay-mode",
+      "mobile"
+    );
+    expect(screen.getByTestId("workspace-drawer-pane")).toHaveAttribute(
+      "data-overlay",
+      "true"
+    );
+  });
+
+  it("tracks the phone shell height from the visual viewport instead of plain 100vh", () => {
+    const originalInnerHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    const originalVisualViewport = Object.getOwnPropertyDescriptor(
+      window,
+      "visualViewport"
+    );
+
+    setViewportWidth(390);
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      writable: true,
+      value: 844,
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: {
+        height: 544,
+        offsetTop: 0,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(null);
+
+    try {
+      const { container } = render(<AppShell />);
+      const root = container.firstElementChild as HTMLElement;
+
+      expect(root.style.height).toBe("var(--shell-viewport-height, 100vh)");
+      expect(root.style.minHeight).toBe("var(--shell-viewport-height, 100vh)");
+      expect(root.style.getPropertyValue("--shell-viewport-height")).toBe("544px");
+      expect(root.style.getPropertyValue("--shell-keyboard-inset")).toBe("300px");
+    } finally {
+      if (originalInnerHeight) {
+        Object.defineProperty(window, "innerHeight", originalInnerHeight);
+      }
+      if (originalVisualViewport) {
+        Object.defineProperty(window, "visualViewport", originalVisualViewport);
+      } else {
+        delete (window as any).visualViewport;
+      }
+    }
+  });
 
   it("resolves supported views to chat_focus while the workspace is closed", () => {
     localStorage.setItem("cfy.lastView", "dashboard");

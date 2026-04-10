@@ -31,7 +31,6 @@ import { ModelProvider } from "@/Providers/ModelProvider";
 import api from "@/lib/api";
 
 import {
-  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
 } from "@/features/chat/chatLane";
 
@@ -507,7 +506,7 @@ export function Composer({
 
       <div
         data-send-wrap
-        className={`shrink-0 m-0 flex gap-2 ${CHAT_COMPOSER_SEND_EDGE_INSET_CLASS} ${CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS}`}
+        className={`shrink-0 m-0 flex gap-1 ${CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS}`}
       >
         {/* Hidden file inputs (triggered by the attachment buttons) */}
         <input
@@ -640,37 +639,22 @@ export function Composer({
           <Sparkles className="h-5 w-5" />
         </Button>
 
-      {/* Send Button: visually prominent, shows disabled state while sending */}
+      {/* Send Button: compact circular design */}
         <Button
           type="button"
           onClick={() => void send()}
           disabled={sending || uploading || (!value.trim() && draftAttachments.length === 0)}
           size="icon"
-          className="relative grid h-11 w-11 place-items-center rounded-2xl border focus:outline-none m-0"
+          className="relative grid h-8 w-8 place-items-center rounded-full border focus:outline-none m-0"
           style={{
-            // glossy cap + jewel body tied to accent
-            background:
-              "radial-gradient(120% 120% at 30% 12%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.38) 10%, rgba(255,255,255,0.0) 36%), " +
-              `linear-gradient(180deg, ${accentStrong} 0%, color-mix(in srgb, ${accentStrong} 85%, black 15%) 100%)`,
+            background: "color-mix(in srgb, var(--accent-strong) 85%, black 15%)",
             color: "#fff",
-            borderColor: "color-mix(in srgb, var(--accent-strong) 70%, white 30%)",
-            boxShadow:
-              "inset 0 1px rgba(255,255,255,0.35), inset 0 -8px 12px rgba(0,0,0,0.28), 0 8px 18px color-mix(in srgb, var(--accent-strong) 55%, black 45%)",
-            outlineColor: "var(--accent-weak)",
+            borderColor: "color-mix(in srgb, var(--accent-strong) 60%, white 40%)",
+            boxShadow: "0 2px 6px color-mix(in srgb, var(--accent-strong) 50%, black 50%)",
           }}
           aria-label="Send"
         >
-          <Send className="h-5 w-5" />
-          {/* tiny sparkle */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -top-0.5 left-1 block h-2 w-2 rounded-full"
-            style={{
-              background:
-                "radial-gradient(100% 100% at 50% 50%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.0) 70%)",
-              filter: "blur(0.2px)",
-            }}
-          />
+          <Send className="h-3.5 w-3.5" />
         </Button>
       </div>
       </div>

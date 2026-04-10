@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspacePane from "../WorkspacePane";
 import { setRuntimeApiKey } from "@/lib/api";
+import api from "@/lib/api";
 import { initRuntimeConfig } from "@/lib/runtimeConfig";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 import type { DocumentLike } from "@/types/documents";
@@ -209,6 +210,40 @@ describe("WorkspacePane preview surface", () => {
     expect(previewContent).toHaveTextContent("First line");
     expect(previewContent).toHaveTextContent("*literal stars*");
     expect(screen.getByTestId("workspace-metadata")).toHaveTextContent("Text (.txt)");
+  });
+
+  it("loads full document content when only a preview snippet is present", async () => {
+    const apiGetSpy = vi.spyOn(api, "get").mockResolvedValueOnce({
+      data: {
+        id: "doc-snippet",
+        title: "Snippet Notes",
+        content: "# Full Notes\n\nExpanded body text.",
+      },
+    } as any);
+
+    render(
+      <WorkspacePane
+        activeDoc={buildDocument({
+          id: "doc-snippet",
+          title: "Snippet Notes",
+          ext: "md",
+          type: "file",
+          previewText: "Short excerpt",
+        })}
+      />
+    );
+
+    const previewSurface = screen.getByTestId("workspace-preview-surface");
+
+    await waitFor(() => {
+      expect(
+        within(previewSurface).getByRole("heading", { name: "Full Notes" })
+      ).toBeInTheDocument();
+    });
+
+    expect(apiGetSpy).toHaveBeenCalledWith("/media/documents/doc-snippet");
+    expect(within(previewSurface).getByText("Expanded body text.")).toBeInTheDocument();
+    expect(within(previewSurface).queryByText("Short excerpt")).not.toBeInTheDocument();
   });
 
   it("detects signed image preview URLs using the parsed pathname", () => {

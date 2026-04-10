@@ -214,7 +214,8 @@ def get_imprint_status(
     current_user: str = Depends(get_current_user),
 ):
     """
-    Return active imprint/persona and system prompt meta for current user/project.
+    Return persisted active imprint/persona rows and resolved system prompt
+    metadata for the current user/project.
     """
     user_id, resolved_project, _thread = _resolve_user_project(
         current_user,
@@ -452,7 +453,7 @@ def system_prompt_summary(
     project_id: int | None = Query(None),
     current_user: str = Depends(get_current_user),
 ):
-    """Return system prompt meta for the current user/project."""
+    """Return resolved system prompt metadata for the current user/project."""
     user_id, resolved_project, _ = _resolve_user_project(
         current_user,
         thread_id,

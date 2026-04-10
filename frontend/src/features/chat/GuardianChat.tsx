@@ -35,12 +35,14 @@ import api, {
   buildChatCompletePath,
   clearInFlightCompletionTurnId,
   getInFlightCompletionTurnId,
+  moveChatThread,
   updateThreadConfig,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
@@ -56,7 +58,10 @@ import {
   isChatSelectableModel,
   useLlmCatalog,
 } from "@/features/chat/hooks/useLlmCatalog";
-import { useInferenceRequestState } from "@/features/chat/hooks/useInferenceRequestState";
+import {
+  describeInferenceRequestState,
+  useInferenceRequestState,
+} from "@/features/chat/hooks/useInferenceRequestState";
 import {
   createIdleInferenceRequestState,
   DEFAULT_COMPOSER_INFERENCE_MODE,
@@ -84,6 +89,12 @@ import {
   forwardLegacyDocumentOpenToWorkspace,
   LEGACY_DOCUMENT_OPEN_EVENT,
 } from "@/features/workspace/state/useWorkspaceState";
+import {
+  loadDocumentContentById,
+  serializeDocumentContextMessage,
+  type DocumentContextTile,
+  type DocumentContextContent,
+} from "@/lib/documentContext";
 
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
@@ -168,6 +179,21 @@ function getThreadSourceStorageKey(threadId: number): string {
 
 function getTabSourceStorageKey(tabId: TabId | null | undefined): string {
   return `cfy.chat.source.tab:${tabId ?? "global"}`;
+}
+
+function readStoredGeneralProjectId(): number | null {
+  if (typeof window === "undefined") return null;
+  const candidates = [
+    window.localStorage.getItem("cfy.generalProjectId"),
+    window.localStorage.getItem("cfy.defaultProjectId"),
+  ];
+  for (const raw of candidates) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 function readStoredSourceMode(options: {
@@ -559,6 +585,24 @@ function isTerminalInferencePhase(phase: string): boolean {
   return phase === "completed" || phase === "failed" || phase === "cancelled";
 }
 
+function documentTileScopeKey(tabId: TabId | null | undefined): string {
+  return tabId ? String(tabId) : "global";
+}
+
+function dedupeDocumentContextTiles(
+  tiles: DocumentContextTile[]
+): DocumentContextTile[] {
+  const seen = new Set<string>();
+  const next: DocumentContextTile[] = [];
+  for (const tile of tiles) {
+    const id = String(tile?.id ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    next.push(tile);
+  }
+  return next;
+}
+
 /**
  * Consciousness container for Guardian chat conversations.
  *
@@ -572,9 +616,12 @@ export function GuardianChat({
   userName,
   prefill,
   onPrefillConsumed,
+  pendingDocumentTiles,
+  onPendingDocumentTilesConsumed,
   onWorkspaceToggle,
   workspaceOpen = false,
   activeThread,
+  workspaceProjectId = null,
   onSendMessage,
   onThreadPersisted,
   onNewChat,
@@ -601,10 +648,13 @@ export function GuardianChat({
   userName: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
+  pendingDocumentTiles?: DocumentContextTile[];
+  onPendingDocumentTilesConsumed?: () => void;
   onWorkspaceToggle?: () => void;
   workspaceOpen?: boolean;
   activeThread: Thread;
-  onSendMessage: (text: string) => Promise<void>;
+  workspaceProjectId?: string | number | null;
+  onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<void>;
   onThreadPersisted?: (
     threadId: number,
     title?: string,
@@ -644,6 +694,9 @@ export function GuardianChat({
   const [ragTraceOpen, setRagTraceOpen] = useState(false);
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
+  const [documentTilesByScope, setDocumentTilesByScope] = useState<
+    Record<string, DocumentContextTile[]>
+  >({});
   // Chat state management including completion tracking
   const {
     messages,
@@ -729,6 +782,23 @@ export function GuardianChat({
     activeSessionTabIdRef.current = activeSessionTabId;
   }, [activeSessionTabId]);
 
+  useEffect(() => {
+    if (!pendingDocumentTiles || pendingDocumentTiles.length === 0) {
+      return;
+    }
+
+    const scopeKey = documentTileScopeKey(activeSessionTabId);
+    setDocumentTilesByScope((previous) => {
+      const current = previous[scopeKey] ?? [];
+      const next = dedupeDocumentContextTiles([...current, ...pendingDocumentTiles]);
+      return {
+        ...previous,
+        [scopeKey]: next,
+      };
+    });
+    onPendingDocumentTilesConsumed?.();
+  }, [activeSessionTabId, onPendingDocumentTilesConsumed, pendingDocumentTiles]);
+
   // Listen for external prefill requests (e.g., Prompt Library selection)
   useEffect(() => {
     const onPrefill = (e: Event) => {
@@ -742,8 +812,10 @@ export function GuardianChat({
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
+  const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerShellRef = useRef<HTMLDivElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
   const [voiceCapabilities, setVoiceCapabilities] = useState<VoiceCapabilities>(
     DEFAULT_VOICE_CAPABILITIES
@@ -1097,6 +1169,7 @@ export function GuardianChat({
   const llmStatusMessage =
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
+  const mobileShellProfile = useMobileShellProfile();
   const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
@@ -1118,6 +1191,51 @@ export function GuardianChat({
     },
     [focusComposer]
   );
+  useLayoutEffect(() => {
+    const el = composerShellRef.current;
+    if (!el || typeof window === "undefined") return;
+
+    const measure = () => {
+      const style = window.getComputedStyle(el);
+      const marginTop = Number.parseFloat(style.marginTop || "0") || 0;
+      const measured = Math.max(
+        0,
+        Math.ceil(el.getBoundingClientRect().height + marginTop)
+      );
+      setComposerShellReserve((previous) => {
+        const next = measured > 0 ? measured : previous;
+        return previous === next ? previous : next;
+      });
+    };
+
+    let frameId = 0;
+    const scheduleMeasure = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        measure();
+      });
+    };
+
+    measure();
+    window.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("scroll", scheduleMeasure);
+
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleMeasure);
+    observer?.observe(el);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      observer?.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("scroll", scheduleMeasure);
+    };
+  }, [mobileShellProfile.chat.composer.shellMaxHeight]);
   const handleSessionTabOpenRequest = useCallback(() => {
     if (onSessionTabOpen) {
       onSessionTabOpen();
@@ -1296,6 +1414,7 @@ export function GuardianChat({
     providerId?: string | null;
     modelId?: string | null;
     reasoningMode?: ComposerInferenceMode;
+    slashIntent?: ComposerSendOptions["slashIntent"];
   };
 
   const resolveCompletionSelection = useCallback(
@@ -1340,6 +1459,7 @@ export function GuardianChat({
         reasoningMode: selection.reasoningMode,
       }),
       source_mode: sourceMode,
+      ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),
     };
     const provisionalTaskId = `pending-${Date.now()}`;
     setCompletionInFlight(tid, true);
@@ -2386,6 +2506,58 @@ export function GuardianChat({
     }
   };
 
+  const activeDocumentTiles = useMemo(
+    () => documentTilesByScope[documentTileScopeKey(activeSessionTabId)] ?? [],
+    [activeSessionTabId, documentTilesByScope]
+  );
+
+  const handleDocumentTileRemove = useCallback(
+    (tileId: string) => {
+      const scopeKey = documentTileScopeKey(activeSessionTabId);
+      setDocumentTilesByScope((previous) => {
+        const current = previous[scopeKey] ?? [];
+        const next = current.filter((tile) => tile.id !== tileId);
+        if (next.length === current.length) {
+          return previous;
+        }
+        return {
+          ...previous,
+          [scopeKey]: next,
+        };
+      });
+    },
+    [activeSessionTabId]
+  );
+
+  const buildDocumentContextMessage = useCallback(
+    async (bodyText: string, tiles: DocumentContextTile[]) => {
+      if (!tiles.length) {
+        return bodyText;
+      }
+
+      const loaded: DocumentContextContent[] = await Promise.all(
+        tiles.map(async (tile) => {
+          const record = await loadDocumentContentById(tile.id);
+          const content = String(record.content ?? "").trim();
+          if (!content) {
+            throw new Error(`Document "${tile.title}" has no readable content.`);
+          }
+          return {
+            tile: {
+              ...tile,
+              title: tile.title || record.title || "Untitled",
+              ext: tile.ext || record.ext,
+            },
+            content,
+          };
+        })
+      );
+
+      return serializeDocumentContextMessage(bodyText, loaded);
+    },
+    []
+  );
+
   // Enhanced send handler with auto-thread creation
   const handleSendMessage = async (
     text: string,
@@ -2429,7 +2601,7 @@ export function GuardianChat({
         sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${targetThreadId}`);
       }
       try {
-        await onSendMessage(text);
+        await onSendMessage(text, options);
         const switched = await switchThreadProfile(
           targetThreadId,
           requestedProfileId
@@ -2459,6 +2631,10 @@ export function GuardianChat({
       }
       return;
     }
+    const contentForSend = await buildDocumentContextMessage(
+      text,
+      activeDocumentTiles
+    );
     if (!targetThreadId) {
       const firstLine = text.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -2469,9 +2645,10 @@ export function GuardianChat({
           thread_id: null,
           draft_tab_id: originTabId ?? undefined,
           role: "user",
-          content: text,
+          content: contentForSend,
           user_id: normalizedUserId,
           title: provisionalTitle,
+          project_id: workspaceProjectId ?? undefined,
         });
         const th = (resp && resp.data) || {};
         const newThreadId =
@@ -2502,7 +2679,7 @@ export function GuardianChat({
 
         // Complete the thread and refresh.
         startInferenceForThread(numericNewId);
-        const completionOutcome = await completeThread(numericNewId);
+        const completionOutcome = await completeThread(numericNewId, options);
         if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
           setTurnLockForThread(numericNewId, false);
           if (completionOutcome === "failed") {
@@ -2528,8 +2705,9 @@ export function GuardianChat({
         if (targetThreadId !== effectiveThreadId) {
           await api.post(`/chat/${targetThreadId}/messages`, {
             role: "user",
-            content: text,
+            content: contentForSend,
             user_id: normalizedUserId,
+            project_id: workspaceProjectId ?? undefined,
           });
           emitThreadsRefresh("refresh", {
             reason: "message",
@@ -2537,7 +2715,7 @@ export function GuardianChat({
           });
           setChatReloadVersion((v) => v + 1);
         } else {
-          await onSendMessage(text);
+          await onSendMessage(contentForSend, options);
           await refreshSnapshot(targetThreadId, "user-send");
         }
 
@@ -2546,7 +2724,7 @@ export function GuardianChat({
         setTimeout(() => {
           if (targetThreadId == null) return;
           void (async () => {
-            const completionOutcome = await completeThread(targetThreadId);
+            const completionOutcome = await completeThread(targetThreadId, options);
             if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
               setTurnLockForThread(targetThreadId, false);
               if (completionOutcome === "failed") {
@@ -2606,6 +2784,10 @@ export function GuardianChat({
     inferenceRequest.state.threadId === numericThreadId
       ? inferenceRequest.state
       : createIdleInferenceRequestState();
+  const composerInferenceSnapshot = useMemo(
+    () => describeInferenceRequestState(composerInferenceState),
+    [composerInferenceState]
+  );
   const handleCancelInference = () => {
     const releaseThreadId =
       inferenceRequest.state.threadId ??
@@ -2634,6 +2816,50 @@ export function GuardianChat({
       }
     });
   };
+
+  const emitMoveUndoToast = (
+    fromProjectId: number | null,
+    fromLabel: string,
+    toLabel: string
+  ) => {
+    if (effectiveThreadId == null) return;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("cfy:toast", {
+          detail: {
+            message: `Moved thread from ${fromLabel} → ${toLabel}.`,
+            actionLabel: "Undo",
+            timeoutMs: 10000,
+            onAction: () => {
+              void (async () => {
+                try {
+                  if (fromProjectId == null || effectiveThreadId == null) return;
+                  await moveChatThread(effectiveThreadId, fromProjectId);
+                  emitThreadsRefresh("move", {
+                    id: String(effectiveThreadId),
+                    project_id: fromProjectId,
+                  });
+                } catch (error) {
+                  console.warn("[guardian] undo move failed", error);
+                }
+              })();
+            },
+          },
+        })
+      );
+    } catch {
+      // no-op
+    }
+  };
+  const composerProjectId = (() => {
+    const candidate =
+      workspaceProjectId != null
+        ? Number(workspaceProjectId)
+        : activeThread.projectId != null
+          ? Number(activeThread.projectId)
+          : null;
+    return Number.isFinite(candidate) ? candidate : null;
+  })();
 
   const headerActions = (
     <>
@@ -2768,8 +2994,11 @@ export function GuardianChat({
               const pid = Number(pidRaw);
               if (!Number.isFinite(pid)) return alert("Invalid project id");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                const fromProjectId = activeThread.projectId != null ? Number(activeThread.projectId) : null;
+                const fromLabel = activeThread.projectName ?? (fromProjectId != null ? `Project #${fromProjectId}` : "No Project");
+                await moveChatThread(effectiveThreadId, pid);
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
+                emitMoveUndoToast(fromProjectId, fromLabel, `Project #${pid}`);
               } catch (e) {
                 console.warn(e);
                 alert("Add failed.");
@@ -2786,8 +3015,11 @@ export function GuardianChat({
               const pid = Number(pidRaw);
               if (!Number.isFinite(pid)) return alert("Invalid project id");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: pid });
+                const fromProjectId = activeThread.projectId != null ? Number(activeThread.projectId) : null;
+                const fromLabel = activeThread.projectName ?? (fromProjectId != null ? `Project #${fromProjectId}` : "No Project");
+                await moveChatThread(effectiveThreadId, pid);
                 emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: pid });
+                emitMoveUndoToast(fromProjectId, fromLabel, `Project #${pid}`);
               } catch (e) {
                 console.warn(e);
                 alert("Move failed.");
@@ -2799,16 +3031,24 @@ export function GuardianChat({
           <DropdownMenuItem
             onClick={async () => {
               if (effectiveThreadId == null) return alert("Thread is not persisted yet");
+              const generalProjectId = readStoredGeneralProjectId();
+              if (generalProjectId == null) return alert("General project not configured");
               try {
-                await api.patch(`/chat/${effectiveThreadId}`, { project_id: null });
-                emitThreadsRefresh("move", { id: String(effectiveThreadId), project_id: null });
+                const fromProjectId = activeThread.projectId != null ? Number(activeThread.projectId) : null;
+                const fromLabel = activeThread.projectName ?? (fromProjectId != null ? `Project #${fromProjectId}` : "No Project");
+                await moveChatThread(effectiveThreadId, generalProjectId);
+                emitThreadsRefresh("move", {
+                  id: String(effectiveThreadId),
+                  project_id: generalProjectId,
+                });
+                emitMoveUndoToast(fromProjectId, fromLabel, "General");
               } catch (e) {
                 console.warn(e);
-                alert("Eject failed.");
+                alert("Move to General failed.");
               }
             }}
           >
-            Eject from Project
+            Move to General
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={async () => {
@@ -2975,32 +3215,39 @@ export function GuardianChat({
       )}
 
       {/* Messages region - Flex 1, scrolls independently */}
-      <div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
+      <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
         {effectiveThreadId != null ? (
-          <ChatView
-            key={effectiveThreadId}
-            threadId={effectiveThreadId}
-            guardianName={guardianName}
-            messages={messages}
-            loading={chatLoading}
-            error={chatError}
-            hasMore={chatHasMore}
-            onLoadOlderMessages={() => loadOlderMessages(effectiveThreadId)}
-            reloadVersion={chatReloadVersion}
-            completionState={completionState}
-            endCompletion={endCompletion}
-            className="flex flex-col flex-1 min-h-0"
-            bottomPadding={160}
-            autoReadEnabled={autoReadEnabled}
-            depthMode={depth}
-            profileId={resolvedProfile.id}
-            voiceReadAloudEnabled={voiceReadAloudEnabled}
-            voiceCapabilitiesFailed={voiceCapabilitiesFailed}
-            inferenceState={composerInferenceState}
-            streamingDraft={streamingDraft}
-            onCancelInference={handleCancelInference}
-            onSwitchToFast={handleSwitchToNoThink}
-          />
+          <div
+            data-testid="chat-message-region"
+            data-inference-delayed={composerInferenceSnapshot.isDelayed ? "true" : "false"}
+            data-inference-state={composerInferenceSnapshot.canonicalState}
+            className="flex flex-1 min-h-0 min-w-0 overflow-hidden"
+          >
+            <ChatView
+              key={effectiveThreadId}
+              threadId={effectiveThreadId}
+              guardianName={guardianName}
+              messages={messages}
+              loading={chatLoading}
+              error={chatError}
+              hasMore={chatHasMore}
+              onLoadOlderMessages={() => loadOlderMessages(effectiveThreadId)}
+              reloadVersion={chatReloadVersion}
+              completionState={completionState}
+              endCompletion={endCompletion}
+              className="flex flex-col flex-1 min-h-0"
+              bottomPadding={composerShellReserve}
+              autoReadEnabled={autoReadEnabled}
+              depthMode={depth}
+              profileId={resolvedProfile.id}
+              voiceReadAloudEnabled={voiceReadAloudEnabled}
+              voiceCapabilitiesFailed={voiceCapabilitiesFailed}
+              inferenceState={composerInferenceState}
+              streamingDraft={streamingDraft}
+              onCancelInference={handleCancelInference}
+              onSwitchToFast={handleSwitchToNoThink}
+            />
+          </div>
         ) : (
           <div
             className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
@@ -3013,6 +3260,7 @@ export function GuardianChat({
 
       <div className="shrink-0 z-20 mt-2 flex w-full justify-center">
         <div
+          ref={composerShellRef}
           data-testid="composer-shell"
           className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
           style={{
@@ -3022,7 +3270,7 @@ export function GuardianChat({
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
             minHeight: "140px",
-            maxHeight: "60vh",
+            maxHeight: mobileShellProfile.chat.composer.shellMaxHeight,
           }}
         >
           <div className="flex h-full min-h-0 flex-col">
@@ -3047,7 +3295,11 @@ export function GuardianChat({
                   setExternalPrefill(undefined);
                   onPrefillConsumed?.();
                 }}
+                documentTiles={activeDocumentTiles}
+                onDocumentTileRemove={handleDocumentTileRemove}
                 threadId={effectiveThreadId ?? undefined}
+                projectId={composerProjectId}
+                projectName={activeThread.projectName ?? null}
                 isTurnInFlight={isTurnLocked(effectiveThreadId)}
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
@@ -3227,17 +3479,15 @@ export function GuardianChat({
   if (bare) {
     return (
       <>
-        {/* Messages scroll container - ChatView owns internal scroll, this provides outer constraint */}
-<div
-  className="relative flex flex-col flex-1 min-h-0 overflow-y-auto"
->
-  <div
-    data-testid="guardian-shell"
-    className={`relative mx-auto flex h-full w-full min-h-0 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
-    style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
-  >
-    {body}
-  </div>
+        {/* ChatView owns the scroll container; this wrapper just constrains layout. */}
+        <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div
+            data-testid="guardian-shell"
+            className={`relative mx-auto flex h-full w-full min-h-0 flex-col ${GUARDIAN_SHELL_MAX_WIDTH_CLASS}`}
+            style={{ maxWidth: GUARDIAN_SHELL_MAX_WIDTH }}
+          >
+            {body}
+          </div>
         </div>
         <RAGTracePanel
           open={ragTraceOpen}

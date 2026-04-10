@@ -55,9 +55,39 @@ def test_rag_trace_exposes_payload_summary(monkeypatch):
 
     trace = chat.get_latest_rag_trace(77, api_key="test-key")
     assert trace["payload_summary"] == payload_summary
+    assert "slash_intent" not in trace["payload_summary"]
 
     chat._thread_latest_task.pop(77, None)
     chat._rag_traces.pop(77, None)
+
+
+def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
+    chat._thread_latest_task[78] = "task-78"
+
+    slash_intent = {
+        "commandId": "project",
+        "intentKind": "workspace",
+        "retrievalHint": "project",
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "slash_intent": slash_intent,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(78, api_key="test-key")
+    assert trace["payload_summary"]["slash_intent"] == slash_intent
+
+    chat._thread_latest_task.pop(78, None)
+    chat._rag_traces.pop(78, None)
 
 
 def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
@@ -219,17 +249,24 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
         ],
         "graph": [{"node_id": "node-b", "kind": "memory", "text": "b node"}],
     }
+    task_one_id = str(uuid.uuid4())
+    task_two_id = str(uuid.uuid4())
+    slash_intent = {
+        "commandId": "doc",
+        "intentKind": "knowledge",
+        "retrievalHint": "personal_knowledge",
+    }
     metadata_by_thread = {
         thread_one: {
             DEBUG_LATEST_RAG_TRACE_METADATA_KEY: {
-                "task_id": str(uuid.uuid4()),
+                "task_id": task_one_id,
                 "thread_id": thread_one,
                 "trace": trace_one,
             }
         },
         thread_two: {
             DEBUG_LATEST_RAG_TRACE_METADATA_KEY: {
-                "task_id": str(uuid.uuid4()),
+                "task_id": task_two_id,
                 "thread_id": thread_two,
                 "trace": trace_two,
             }
@@ -241,8 +278,27 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
         "_fetch_thread_metadata",
         lambda thread_id: metadata_by_thread.get(thread_id, {}),
     )
+    chat._thread_latest_task[thread_one] = task_one_id
+    chat._thread_latest_task[thread_two] = task_two_id
     monkeypatch.setattr(
-        chat, "_get_task_completed_payload", lambda _task_id: None
+        chat,
+        "_get_task_completed_payload",
+        lambda task_id: {
+            "trace": trace_one
+            if task_id
+            == metadata_by_thread[thread_one][
+                DEBUG_LATEST_RAG_TRACE_METADATA_KEY
+            ]["task_id"]
+            else trace_two,
+            "payload_summary": {
+                "message_count": 2,
+                **(
+                    {"slash_intent": slash_intent}
+                    if task_id == task_one_id
+                    else {}
+                ),
+            },
+        },
     )
 
     first = chat.get_latest_rag_trace(thread_one, api_key="test-key")
@@ -250,8 +306,10 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
 
     assert first["documents"] == trace_one["documents"]
     assert first["graph"] == trace_one["graph"]
+    assert first["payload_summary"]["slash_intent"] == slash_intent
     assert second["documents"] == trace_two["documents"]
     assert second["graph"] == trace_two["graph"]
+    assert "slash_intent" not in second["payload_summary"]
 
     chat._thread_latest_task.pop(thread_one, None)
     chat._thread_latest_task.pop(thread_two, None)

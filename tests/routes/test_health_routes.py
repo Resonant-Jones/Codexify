@@ -30,7 +30,9 @@ def _mock_local_runtime_request(url: str, *args, **kwargs):
             (),
             {
                 "status_code": 200,
-                "json": lambda self=None: {"models": [{"name": "qwen3.5:0.8b"}]},
+                "json": lambda self=None: {
+                    "models": [{"name": "qwen3.5:0.8b"}]
+                },
             },
         )()
     return type(
@@ -164,3 +166,76 @@ def test_health_vector_returns_down_when_dependency_is_malformed(
     assert payload["status"] == "down"
     assert payload["details"]["ok"] is False
     assert "error" in payload["details"]
+
+
+def test_health_executors_returns_all_registry_executors(test_client):
+    response = test_client.get("/api/health/executors")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "executors" in payload
+    executors = payload["executors"]
+    assert isinstance(executors, list)
+    executor_ids = {e["executor_id"] for e in executors}
+    assert executor_ids == {"codex", "claude_code", "opencode"}
+
+
+def test_health_executors_includes_required_fields(test_client):
+    response = test_client.get("/api/health/executors")
+
+    assert response.status_code == 200
+    payload = response.json()
+    executors = payload["executors"]
+
+    for executor in executors:
+        assert "executor_id" in executor
+        assert "label" in executor
+        assert "release_posture" in executor
+        assert "installed" in executor
+        assert "binary_path" in executor
+        assert "auth_state" in executor
+        assert "availability_state" in executor
+        assert "supports_local_models" in executor
+        assert "supports_gateway_routing" in executor
+        assert "supports_direct_provider_config" in executor
+        assert "supported_auth_modes" in executor
+        assert "status_detail" in executor
+
+
+def test_health_executors_preserves_release_posture(test_client):
+    response = test_client.get("/api/health/executors")
+
+    assert response.status_code == 200
+    payload = response.json()
+    executors = {e["executor_id"]: e for e in payload["executors"]}
+
+    assert executors["codex"]["release_posture"] == "official"
+    assert executors["claude_code"]["release_posture"] == "optional"
+    assert executors["opencode"]["release_posture"] == "optional"
+
+
+def test_health_executors_unknown_auth_remains_explicit(test_client):
+    response = test_client.get("/api/health/executors")
+
+    assert response.status_code == 200
+    payload = response.json()
+    executors_list = payload["executors"]
+
+    for executor in executors_list:
+        assert executor["auth_state"] in {
+            "authenticated",
+            "unauthenticated",
+            "unknown",
+        }
+
+
+def test_health_executors_availability_states_are_valid(test_client):
+    response = test_client.get("/api/health/executors")
+
+    assert response.status_code == 200
+    payload = response.json()
+    executors = payload["executors"]
+
+    valid_states = {"ready", "degraded", "unavailable", "not_installed"}
+    for executor in executors:
+        assert executor["availability_state"] in valid_states

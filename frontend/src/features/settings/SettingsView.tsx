@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -339,9 +339,7 @@ export function SettingsView({
   setDashboardThreadRows: (n: number) => void;
 }) {
   const desktopMode = isTauriRuntime();
-  const [tab, setTab] = useState<
-    SettingsTab
-  >("appearance");
+  const [tab, setTab] = useState<SettingsTab>("appearance");
   const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
     appearance: null,
     system: null,
@@ -350,6 +348,8 @@ export function SettingsView({
     connection: null,
     diagnostics: null,
   });
+  const settingsScrollContainerRef = useRef<HTMLElement | null>(null);
+  const tabScrollPositionsRef = useRef<Partial<Record<SettingsTab, number>>>({});
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
   const [migrationStepSkipped, setMigrationStepSkipped] = useState(false);
   const [migrationStats, setMigrationStats] = useState<MigrationStats | null>(
@@ -1019,8 +1019,42 @@ export function SettingsView({
     (definition) => !definition.requiresDesktop || desktopMode
   );
 
-  function activateTab(nextTab: SettingsTab) {
+  useLayoutEffect(() => {
+    const scrollContainer = settingsScrollContainerRef.current;
+    if (!scrollContainer) return;
+    scrollContainer.scrollTop = tabScrollPositionsRef.current[tab] ?? 0;
+  }, [tab]);
+
+  useEffect(() => {
+    const scrollContainer = settingsScrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const rememberScrollPosition = () => {
+      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
+    };
+
+    rememberScrollPosition();
+    scrollContainer.addEventListener("scroll", rememberScrollPosition, {
+      passive: true,
+    });
+
+    return () => {
+      scrollContainer.removeEventListener("scroll", rememberScrollPosition);
+      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
+    };
+  }, [tab]);
+
+  function handleTabChange(nextTab: SettingsTab) {
+    const scrollContainer = settingsScrollContainerRef.current;
+    if (scrollContainer) {
+      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
+      scrollContainer.scrollTop = tabScrollPositionsRef.current[nextTab] ?? 0;
+    }
     setTab(nextTab);
+  }
+
+  function activateTab(nextTab: SettingsTab) {
+    handleTabChange(nextTab);
     tabButtonRefs.current[nextTab]?.focus();
   }
 
@@ -1079,7 +1113,7 @@ export function SettingsView({
 
   return (
     <div className="w-full" style={{ color: "var(--text)" }}>
-      <SettingsPanelShell>
+      <SettingsPanelShell scrollContainerRef={settingsScrollContainerRef}>
         <SettingsPanelDock>
           {visibleTabs.map(renderTabButton)}
         </SettingsPanelDock>
@@ -1521,6 +1555,16 @@ export function SettingsView({
                 </p>
               )}
             </div>
+
+            <ChatGPTImportModal
+              open={chatGPTModalOpen}
+              onOpenChange={setChatGPTModalOpen}
+              userName={userName}
+              onImported={(stats) => {
+                setMigrationStats(stats);
+                setMigrationStepSkipped(false);
+              }}
+            />
           </SettingsSectionCard>
         )}
 
@@ -1642,15 +1686,6 @@ export function SettingsView({
         )}
       </SettingsPanelShell>
 
-      <ChatGPTImportModal
-        open={chatGPTModalOpen}
-        onOpenChange={setChatGPTModalOpen}
-        userName={userName}
-        onImported={(stats) => {
-          setMigrationStats(stats);
-          setMigrationStepSkipped(false);
-        }}
-      />
     </div>
   );
 }

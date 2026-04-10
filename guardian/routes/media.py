@@ -148,6 +148,24 @@ class DocumentUploadResponse(BaseModel):
     created_at: str
 
 
+class DocumentDetailResponse(BaseModel):
+    id: str
+    project_id: int
+    thread_id: Optional[int] = None
+    src_url: str
+    filename: str
+    filesize: int
+    mime_type: str
+    source_tag: Optional[str] = None
+    content: Optional[str] = None
+    parsed_text: Optional[str] = None
+    embedding_status: Optional[str] = None
+    embedding_error: Optional[str] = None
+    embedding_started_at: Optional[str] = None
+    embedding_completed_at: Optional[str] = None
+    created_at: str
+
+
 class ImageGenerationRequest(BaseModel):
     prompt: str = Field(..., description="Text prompt for image generation")
     model: str = Field(default="dall-e-3", description="Model to use")
@@ -586,6 +604,42 @@ def _document_upload_response_from_row(
         filesize=document.filesize,
         mime_type=document.mime_type,
         source_tag=document.source_tag,
+        parsed_text=document.parsed_text,
+        embedding_status=document.embedding_status,
+        embedding_error=document.embedding_error,
+        embedding_started_at=(
+            document.embedding_started_at.isoformat()
+            if document.embedding_started_at
+            else None
+        ),
+        embedding_completed_at=(
+            document.embedding_completed_at.isoformat()
+            if document.embedding_completed_at
+            else None
+        ),
+        created_at=(
+            document.created_at.isoformat()
+            if document.created_at
+            else datetime.now(timezone.utc).isoformat()
+        ),
+    )
+
+
+def _document_detail_response_from_row(
+    document: UploadedDocument,
+    *,
+    fallback_project_id: int,
+) -> DocumentDetailResponse:
+    return DocumentDetailResponse(
+        id=document.id,
+        project_id=int(document.project_id or fallback_project_id),
+        thread_id=document.thread_id,
+        src_url=_signed_src_url(document.src_url),
+        filename=document.filename,
+        filesize=document.filesize,
+        mime_type=document.mime_type,
+        source_tag=document.source_tag,
+        content=document.parsed_text,
         parsed_text=document.parsed_text,
         embedding_status=document.embedding_status,
         embedding_error=document.embedding_error,
@@ -2047,6 +2101,29 @@ async def list_documents(
             ],
             "count": len(documents),
         }
+
+
+@router.get(
+    "/documents/{document_id}",
+    response_model=DocumentDetailResponse,
+    tags=["media"],
+)
+async def get_document(document_id: str):
+    """Fetch a single uploaded document with parsed text content."""
+    db = _get_db()
+
+    with db.get_session() as session:
+        document = (
+            session.query(UploadedDocument).filter_by(id=document_id).first()
+        )
+
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        return _document_detail_response_from_row(
+            document,
+            fallback_project_id=int(document.project_id or 0),
+        )
 
 
 @router.delete("/documents/{document_id}", tags=["media"])

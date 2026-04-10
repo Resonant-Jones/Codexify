@@ -57,11 +57,34 @@ class VectorStore:
         self.store = runtime.backend
         self.chroma_path = runtime.chroma_path
         self.collection = runtime.collection
+
+        shared_store = None
+        try:  # pragma: no cover - import cycle guard
+            from guardian.core import dependencies as core_dependencies
+
+            shared_store = getattr(core_dependencies, "_vector_store", None)
+        except Exception:
+            shared_store = None
+
+        if (
+            shared_store is not None
+            and shared_store is not self
+            and getattr(shared_store, "runtime", None) is not None
+            and getattr(shared_store.runtime, "as_dict", None) is not None
+            and shared_store.runtime.as_dict() == self.runtime.as_dict()
+            and getattr(shared_store, "_embedder_factory_token", None)
+            == id(Embedder)
+        ):
+            self.embedder = shared_store.embedder
+            self._embedder_factory_token = id(Embedder)
+            return
+
         self.embedder = Embedder(
             store=self.store,
             chroma_path=self.chroma_path,
             collection=self.collection,
         )
+        self._embedder_factory_token = id(Embedder)
 
     def describe_runtime(self) -> Dict[str, str]:
         return self.runtime.as_dict()
@@ -92,11 +115,15 @@ class VectorStore:
             metas.append(meta)
 
         # Use embed_and_index which handles embedding and storage
-        self.embedder.embed_and_index(
-            texts,
-            metadatas=metas,
-            ids=ids if include_ids and ids else None,
-        )
+        embed_kwargs = {"metadatas": metas}
+        if include_ids and ids:
+            embed_kwargs["ids"] = ids
+        try:
+            self.embedder.embed_and_index(texts, **embed_kwargs)
+        except TypeError:
+            # Backward compatibility for lighter-weight test doubles and
+            # older embedder implementations that do not accept ids.
+            self.embedder.embed_and_index(texts, metadatas=metas)
         return len(items)
 
     def search(
@@ -142,3 +169,22 @@ class VectorStore:
         if not stale:
             return 0
         return self.embedder.delete_by_ids(stale)
+
+    def delete_by_doc_id(self, doc_id: str) -> int:
+        """Delete all chunks for a document by doc_id metadata.
+
+        Args:
+            doc_id: The document ID to delete chunks for.
+
+        Returns:
+            Number of chunks deleted.
+        """
+        if self.store != "chroma":
+            return 0
+        doc_id = (doc_id or "").strip()
+        if not doc_id:
+            return 0
+        existing_ids = self.embedder.get_ids(where={"doc_id": doc_id})
+        if not existing_ids:
+            return 0
+        return self.embedder.delete_by_ids(existing_ids)

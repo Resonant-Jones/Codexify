@@ -4,25 +4,34 @@
  * Renders the chat composer input and controls, including turn-based gating
  * to prevent overlapping user sends while an assistant reply is in flight.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
+import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
+import DocumentContextTileView from "@/features/chat/components/DocumentContextTile";
+import {
+  SLASH_COMMANDS,
+  type SlashCommandDefinition,
+  type SlashCommandId,
+  type SlashCommandIntentPayload,
+  buildSlashCommandIntentPayload,
+  resolveSlashCommandIntent,
+} from "@/contracts/slashCommands";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
+import type { DocumentContextTile } from "@/lib/documentContext";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-  CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
 } from "@/features/chat/chatLane";
 const ACCEPTED_ATTACHMENTS =
   [
@@ -42,6 +51,95 @@ const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
 const COMPOSER_TEXTAREA_PAD_Y = "var(--composer-text-pad-y, 10px)";
+const SLASH_COMMAND_TOKEN_SPLIT_RE = /\s/;
+
+function normalizeSlashCommandQuery(query: string) {
+  return query.replace(/^\/+/, "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function fuzzySlashMatchScore(query: string, candidate: string) {
+  const normalizedCandidate = candidate.toLowerCase().trim().replace(/\s+/g, " ");
+  if (!query) return 1000;
+  if (normalizedCandidate === query) return 2000;
+  if (normalizedCandidate.startsWith(query)) return 1800 - normalizedCandidate.length;
+
+  const containsAt = normalizedCandidate.indexOf(query);
+  if (containsAt >= 0) return 1600 - containsAt * 10 - normalizedCandidate.length * 0.1;
+
+  let queryIndex = 0;
+  let lastMatchIndex = -1;
+  let gapCount = 0;
+  for (let candidateIndex = 0; candidateIndex < normalizedCandidate.length; candidateIndex += 1) {
+    if (normalizedCandidate[candidateIndex] !== query[queryIndex]) continue;
+    if (lastMatchIndex >= 0) {
+      gapCount += candidateIndex - lastMatchIndex - 1;
+    }
+    lastMatchIndex = candidateIndex;
+    queryIndex += 1;
+    if (queryIndex >= query.length) break;
+  }
+
+  if (queryIndex < query.length) return null;
+  return 400 - gapCount * 8 - normalizedCandidate.length * 0.1;
+}
+
+function rankSlashCommands(
+  query: string | readonly string[],
+  commands: readonly SlashCommandDefinition[]
+) {
+  const normalizedQueries = (Array.isArray(query) ? query : [query])
+    .map((value) => normalizeSlashCommandQuery(value))
+    .filter(Boolean);
+
+  if (normalizedQueries.length === 0) return [...commands];
+
+  return commands
+    .map((command, index) => {
+      const candidates = [command.label, ...command.aliases, ...command.keywords];
+      let bestScore: number | null = null;
+      for (const candidate of candidates) {
+        for (const normalizedQuery of normalizedQueries) {
+          const score = fuzzySlashMatchScore(normalizedQuery, candidate);
+          if (score == null) continue;
+          if (bestScore == null || score > bestScore) {
+            bestScore = score;
+          }
+        }
+      }
+      return bestScore == null ? null : { command, index, score: bestScore };
+    })
+    .filter(
+      (entry): entry is { command: SlashCommandDefinition; index: number; score: number } =>
+        entry != null
+    )
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.command);
+}
+
+function extractSlashCommandContext(value: string, caretIndex: number | null) {
+  const caret = Math.max(0, Math.min(caretIndex ?? value.length, value.length));
+  let start = -1;
+  for (let index = caret - 1; index >= 0; index -= 1) {
+    if (value[index] !== "/") continue;
+    if (index > 0 && !SLASH_COMMAND_TOKEN_SPLIT_RE.test(value[index - 1])) continue;
+    start = index;
+    break;
+  }
+
+  if (start < 0) return null;
+
+  const token = value.slice(start, caret);
+  if (!token.startsWith("/")) return null;
+
+  const query = token.slice(1);
+  return {
+    start,
+    end: caret,
+    text: token,
+    query,
+    key: `${start}:${caret}:${token}`,
+  } as const;
+}
 
 const parsePx = (value?: string | null) => {
   const parsed = Number.parseFloat(value ?? "");
@@ -78,6 +176,7 @@ const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
 
 export type ComposerSendOptions = {
   threadIdOverride?: number;
+  slashIntent?: SlashCommandIntentPayload | null;
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -85,8 +184,15 @@ type SourceMode = "project" | "personal_knowledge";
 
 type DraftAttachment = {
   id: string;
-  file: File;
   kind: "image" | "document";
+  file?: File;
+  asset?: {
+    id?: string;
+    src_url: string;
+    filename: string;
+    project_id?: string | number | null;
+    thread_id?: string | number | null;
+  };
   previewUrl?: string;
 };
 
@@ -155,6 +261,8 @@ export function Composer({
   ensureThreadIdForAttachments,
   prefill,
   onPrefillConsumed,
+  documentTiles = [],
+  onDocumentTileRemove,
   threadId,
   isSending,
   isTurnInFlight,
@@ -175,6 +283,8 @@ export function Composer({
   sourceMode = "project",
   sourceOptions = [],
   onSourceModeChange,
+  projectId = null,
+  projectName,
   depthMode = "normal",
   depthOptions = [],
   onDepthModeChange,
@@ -187,6 +297,8 @@ export function Composer({
   ) => Promise<number | null>;
   prefill?: string;
   onPrefillConsumed?: () => void;
+  documentTiles?: DocumentContextTile[];
+  onDocumentTileRemove?: (tileId: string) => void;
   threadId?: number;
   isSending?: boolean;
   isTurnInFlight?: boolean;
@@ -207,6 +319,8 @@ export function Composer({
   sourceMode?: SourceMode;
   sourceOptions?: ComposerSelectOption[];
   onSourceModeChange?: (mode: SourceMode) => void;
+  projectId?: number | null;
+  projectName?: string | null;
   depthMode?: DepthMode;
   depthOptions?: Array<{
     value: DepthMode;
@@ -240,10 +354,45 @@ export function Composer({
   const valueRef = useRef(value);
   const lastCommittedDraftRef = useRef(value);
   const draftCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [caretIndex, setCaretIndex] = useState(() => resolveInitialDraft().length);
+  const [slashPaletteOpen, setSlashPaletteOpen] = useState(false);
+  const [activeSlashCommandId, setActiveSlashCommandId] = useState<SlashCommandId | null>(null);
+  const dismissedSlashTokenKeyRef = useRef<string | null>(null);
+  const activeSlashToken = useMemo(
+    () => extractSlashCommandContext(value, caretIndex),
+    [caretIndex, value]
+  );
+  const activeSlashIntent = useMemo(
+    () => (activeSlashToken ? resolveSlashCommandIntent(activeSlashToken.text) : null),
+    [activeSlashToken?.text]
+  );
+  const activeSlashQueries = useMemo(() => {
+    if (!activeSlashToken) return [] as string[];
+
+    const queries = [activeSlashToken.query];
+    const normalizedQuery = normalizeSlashCommandQuery(activeSlashToken.query);
+    if (normalizedQuery) {
+      const commandToken = normalizedQuery.split(/\s+/)[0] ?? "";
+      if (commandToken && commandToken !== normalizedQuery) {
+        queries.push(commandToken);
+      }
+    }
+
+    if (activeSlashIntent?.queryText) {
+      queries.push(activeSlashIntent.queryText);
+    }
+
+    return queries;
+  }, [activeSlashIntent?.queryText, activeSlashToken?.query]);
+  const visibleSlashCommands = useMemo(
+    () => rankSlashCommands(activeSlashQueries, SLASH_COMMANDS),
+    [activeSlashQueries]
+  );
 
   const [internalSending, setInternalSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showImgGen, setShowImgGen] = useState(false);
+  const mobileShellProfile = useMobileShellProfile();
   const effectiveSending = Boolean(isSending) || internalSending;
   const turnLocked = Boolean(isTurnInFlight);
   const transportBusy = effectiveSending || uploading;
@@ -251,7 +400,8 @@ export function Composer({
   const voiceTurnDisabled = turnLocked || transportBusy;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
-  const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
+  const hasDraftContent =
+    Boolean(value.trim()) || draftAttachments.length > 0 || documentTiles.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -302,6 +452,36 @@ export function Composer({
     valueRef.current = value;
   }, [value]);
 
+  useEffect(() => {
+    if (!activeSlashToken) {
+      dismissedSlashTokenKeyRef.current = null;
+      setSlashPaletteOpen(false);
+      setActiveSlashCommandId(null);
+      return;
+    }
+
+    if (dismissedSlashTokenKeyRef.current === activeSlashToken.key) {
+      setSlashPaletteOpen(false);
+      return;
+    }
+
+    setSlashPaletteOpen(true);
+  }, [activeSlashToken]);
+
+  useEffect(() => {
+    if (!slashPaletteOpen || visibleSlashCommands.length === 0) {
+      setActiveSlashCommandId(null);
+      return;
+    }
+
+    setActiveSlashCommandId((current) => {
+      if (current && visibleSlashCommands.some((command) => command.id === current)) {
+        return current;
+      }
+      return visibleSlashCommands[0]?.id ?? null;
+    });
+  }, [slashPaletteOpen, visibleSlashCommands]);
+
   // Flush pending draft for previous scope before switching tabs/unmounting.
   useEffect(() => {
     return () => {
@@ -317,6 +497,10 @@ export function Composer({
     valueRef.current = initial;
     lastCommittedDraftRef.current = initial;
     setValue(initial);
+    setCaretIndex(initial.length);
+    setSlashPaletteOpen(false);
+    setActiveSlashCommandId(null);
+    dismissedSlashTokenKeyRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftScopeKey, draftValue, threadId]);
 
@@ -389,6 +573,29 @@ export function Composer({
     return inferProjectIdFromLocation(null);
   };
 
+  const closeSlashPalette = (tokenKey: string | null = activeSlashToken?.key ?? null) => {
+    dismissedSlashTokenKeyRef.current = tokenKey;
+    setSlashPaletteOpen(false);
+    setActiveSlashCommandId(null);
+  };
+
+  const applySlashCommand = (command: SlashCommandDefinition) => {
+    if (!activeSlashToken) return;
+
+    const nextValue =
+      `${value.slice(0, activeSlashToken.start)}` +
+      `${command.scaffold}` +
+      `${value.slice(activeSlashToken.end)}`;
+    const nextCaretIndex = activeSlashToken.start + command.scaffold.length;
+    const normalizedNextToken = extractSlashCommandContext(nextValue, nextCaretIndex);
+
+    setValue(nextValue);
+    valueRef.current = nextValue;
+    setCaretIndex(nextCaretIndex);
+    scheduleDraftCommit(nextValue);
+    closeSlashPalette(normalizedNextToken?.key ?? null);
+  };
+
   function stageFiles(files: FileList | File[]) {
     const arr = Array.from(files || []);
     if (!arr.length) return;
@@ -403,6 +610,7 @@ export function Composer({
         // Prevent duplicate staging of the exact same file within the draft.
         const exists = next.some(
           (item) =>
+            item.file != null &&
             item.file.name === file.name &&
             item.file.size === file.size &&
             item.file.type === file.type
@@ -416,6 +624,31 @@ export function Composer({
           previewUrl: isImage ? URL.createObjectURL(file) : undefined,
         });
       }
+      return next;
+    });
+  }
+
+  function stageRemoteAsset(asset: DraftAttachment["asset"]) {
+    if (!asset) return;
+    setDraftAttachments((prev) => {
+      const next = [...prev];
+      const duplicate = next.some((item) => {
+        if (!item.asset) return false;
+        return (
+          item.asset.id === asset.id &&
+          item.asset.src_url === asset.src_url &&
+          item.asset.filename === asset.filename
+        );
+      });
+      if (duplicate) return prev;
+      next.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        kind: asset.filename.match(/\.(png|jpe?g|gif|webp|avif)$/i)
+          ? "image"
+          : "document",
+        asset,
+        previewUrl: toAbsoluteMediaUrl(asset.src_url),
+      });
       return next;
     });
   }
@@ -436,13 +669,21 @@ export function Composer({
     att: DraftAttachment,
     uploadThreadId: number
   ): Promise<UploadedAttachment | null> {
+    if (att.asset) {
+      return {
+        kind: att.kind,
+        id: att.asset.id,
+        src_url: toAbsoluteMediaUrl(att.asset.src_url),
+        filename: att.asset.filename,
+      };
+    }
     const file = att.file;
     if (!file) return null;
 
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
-    const resolvedProjectId = resolveProjectId();
+    const resolvedProjectId = projectId ?? resolveProjectId();
     if (resolvedProjectId !== null) {
       form.append("project_id", String(resolvedProjectId));
     }
@@ -482,6 +723,7 @@ export function Composer({
     if (prefill && prefill !== value) {
       setValue(prefill);
       valueRef.current = prefill;
+      setCaretIndex(prefill.length);
       commitDraftNow(prefill);
       setTimeout(() => ref.current?.focus(), 0);
       onPrefillConsumed && onPrefillConsumed();
@@ -497,7 +739,10 @@ export function Composer({
 
     const bodyText = value.trim();
     const hasAttachments = draftAttachments.length > 0;
-    if (!bodyText && !hasAttachments) return;
+    const hasDocumentTiles = documentTiles.length > 0;
+    if (!bodyText && !hasAttachments && !hasDocumentTiles) return;
+
+    const slashIntent = buildSlashCommandIntentPayload(value);
 
     setInternalSending(true);
     setUploading(hasAttachments);
@@ -526,8 +771,9 @@ export function Composer({
       const message = hasAttachments
         ? buildChatAttachmentMessage(uploaded, bodyText)
         : bodyText;
+      const slashIntent = buildSlashCommandIntentPayload(value);
 
-      if (!message) {
+      if (hasAttachments && !message) {
         showToast("No attachments could be uploaded.");
         return;
       }
@@ -538,12 +784,15 @@ export function Composer({
           uploadThreadId != null && uploadThreadId !== threadId
             ? uploadThreadId
             : undefined,
+        ...(slashIntent ? { slashIntent } : {}),
       });
 
       // Clear the draft after a successful send.
       setValue("");
       valueRef.current = "";
+      setCaretIndex(0);
       commitDraftNow("");
+      closeSlashPalette(null);
       setDraftAttachments((prev) => {
         for (const attachment of prev) {
           if (attachment.previewUrl) {
@@ -617,6 +866,51 @@ export function Composer({
       notifyTransportBusy();
       return;
     }
+    const rawAsset = e.dataTransfer?.getData("application/x-cfy-asset");
+    if (rawAsset) {
+      try {
+        const parsed = JSON.parse(rawAsset) as {
+          kind?: "image" | "document";
+          item?: Record<string, unknown>;
+        };
+        const item = parsed?.item ?? {};
+        const droppedProjectId = Number(item.project_id ?? item.projectId ?? null);
+        const droppedThreadId = Number(item.thread_id ?? item.threadId ?? null);
+        const assetProjectId = Number.isFinite(droppedProjectId) ? droppedProjectId : null;
+        const assetThreadId = Number.isFinite(droppedThreadId) ? droppedThreadId : null;
+        const allowed =
+          (projectId != null &&
+            assetProjectId != null &&
+            assetProjectId === projectId) ||
+          (threadId != null &&
+            assetThreadId != null &&
+            assetThreadId === threadId);
+        if (!allowed) {
+          window.dispatchEvent(
+            new CustomEvent("cfy:toast", {
+              detail: {
+                kind: "error",
+                message:
+                  "Cross-context file not allowed. Drag the file into composer to include it manually.",
+              },
+            })
+          );
+          return;
+        }
+        const filename = String(item.filename ?? item.name ?? "Untitled").trim();
+        const srcUrl = String(item.src_url ?? item.srcUrl ?? item.src ?? item.url ?? "");
+        stageRemoteAsset({
+          id: item.id != null ? String(item.id) : undefined,
+          src_url: srcUrl,
+          filename,
+          project_id: item.project_id ?? item.projectId ?? null,
+          thread_id: item.thread_id ?? item.threadId ?? null,
+        });
+        return;
+      } catch {
+        // Fall through to file staging below.
+      }
+    }
     if (e.dataTransfer?.files?.length) {
       stageFiles(e.dataTransfer.files);
     }
@@ -653,6 +947,17 @@ export function Composer({
     sourceOptions.find((option) => option.value === sourceMode)?.label ??
     sourceOptions[0]?.label ??
     "Project";
+  const lineageTargetLabel = projectName?.trim() || "General";
+  const activeSlashCommand =
+    visibleSlashCommands.find((command) => command.id === activeSlashCommandId) ??
+    visibleSlashCommands[0] ??
+    null;
+  const activeSlashSemanticHint = activeSlashIntent
+    ? `intent kind: ${activeSlashIntent.command.effects.intentKind} · retrieval hint: ${activeSlashIntent.command.effects.retrievalHint}`
+    : null;
+  const showLineageCopy =
+    !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
+  const lineageCopy = `Send a message to ${lineageTargetLabel}`;
   const handleAttemptSend = () => {
     if (turnLocked) {
       notifyTurnLocked();
@@ -660,45 +965,228 @@ export function Composer({
     }
     void send();
   };
+  const composerSurfaceStyle = useMemo<React.CSSProperties>(
+    () =>
+      ({
+        "--composer-pad-x": mobileShellProfile.chat.composer.padX,
+        "--composer-pad-y": mobileShellProfile.chat.composer.padY,
+        "--composer-text-pad-x": mobileShellProfile.chat.composer.textPadX,
+        "--composer-text-pad-y": mobileShellProfile.chat.composer.textPadY,
+        "--composer-control-gap": mobileShellProfile.chat.composer.controlGap,
+        "--composer-control-size": mobileShellProfile.chat.composer.controlSize,
+        "--composer-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
+        paddingBottom: "calc(var(--composer-pad-y, 12px) + var(--composer-safe-area-bottom, 0px))",
+      }) as React.CSSProperties,
+    [mobileShellProfile]
+  );
 
   return (
     <>
       <div
         data-composer-root
-        className="flex flex-col flex-1 w-full py-[var(--composer-pad-y,12px)]"
+        className="flex min-w-0 flex-col flex-1 w-full py-[var(--composer-pad-y,12px)] overflow-x-hidden"
+        style={composerSurfaceStyle}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
         <div
           data-testid="composer-content-plane"
-          className="flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
         >
+          {showLineageCopy ? (
+            <div
+              data-testid="composer-lineage-copy"
+              className="pointer-events-none absolute left-[var(--composer-text-pad-x,14px)] top-[var(--composer-text-pad-y,10px)] text-base leading-relaxed font-normal tracking-normal text-[var(--text)] opacity-[0.85]"
+            >
+              {lineageCopy}
+            </div>
+          ) : null}
+          {documentTiles.length > 0 ? (
+            <div className="flex flex-wrap gap-2 px-[var(--composer-text-pad-x,14px)]">
+              {documentTiles.map((tile) => (
+                <DocumentContextTileView
+                  key={tile.id}
+                  tile={tile}
+                  onRemove={
+                    onDocumentTileRemove
+                      ? () => onDocumentTileRemove(tile.id)
+                      : undefined
+                  }
+                  className="max-w-full"
+                />
+              ))}
+            </div>
+          ) : null}
           <Textarea
             ref={ref}
             rows={MIN_COMPOSER_ROWS}
+            wrap="soft"
             value={value}
             onChange={(e) => {
               const next = e.target.value;
               setValue(next);
               valueRef.current = next;
+              setCaretIndex(e.currentTarget.selectionStart ?? next.length);
               scheduleDraftCommit(next);
             }}
-            onBlur={() => commitDraftNow(valueRef.current)}
+            onSelect={(e) => {
+              setCaretIndex(e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+            }}
+            onBlur={() => {
+              commitDraftNow(valueRef.current);
+              if (slashPaletteOpen) {
+                closeSlashPalette(activeSlashToken?.key ?? null);
+              }
+            }}
             placeholder="Write a message…"
             onPaste={onPaste}
             onKeyDown={(e) => {
+              if (slashPaletteOpen) {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  closeSlashPalette(activeSlashToken?.key ?? null);
+                  return;
+                }
+
+                if (e.key === "ArrowDown" && visibleSlashCommands.length > 0) {
+                  e.preventDefault();
+                  const currentIndex = visibleSlashCommands.findIndex(
+                    (command) => command.id === activeSlashCommandId
+                  );
+                  const nextIndex =
+                    currentIndex < 0
+                      ? 0
+                      : (currentIndex + 1) % visibleSlashCommands.length;
+                  setActiveSlashCommandId(visibleSlashCommands[nextIndex]?.id ?? null);
+                  return;
+                }
+
+                if (e.key === "ArrowUp" && visibleSlashCommands.length > 0) {
+                  e.preventDefault();
+                  const currentIndex = visibleSlashCommands.findIndex(
+                    (command) => command.id === activeSlashCommandId
+                  );
+                  const nextIndex =
+                    currentIndex < 0
+                      ? visibleSlashCommands.length - 1
+                      : (currentIndex - 1 + visibleSlashCommands.length) %
+                        visibleSlashCommands.length;
+                  setActiveSlashCommandId(visibleSlashCommands[nextIndex]?.id ?? null);
+                  return;
+                }
+
+                if (e.key === "Enter" && !e.shiftKey && visibleSlashCommands.length > 0) {
+                  e.preventDefault();
+                  const nextCommand = activeSlashCommand ?? visibleSlashCommands[0];
+                  if (nextCommand) {
+                    applySlashCommand(nextCommand);
+                  }
+                  return;
+                }
+              }
+
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleAttemptSend();
               }
             }}
-            className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
+            className="w-full min-w-0 resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-transparent"
             style={{
               color: "var(--text)",
               overflow: "hidden",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
               padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
             }}
           />
+
+          {slashPaletteOpen ? (
+            <div
+              role="menu"
+              aria-label="Slash commands"
+              className="overflow-hidden rounded-2xl border px-1 py-1.5"
+              style={{
+                marginTop: "2px",
+                borderColor: "color-mix(in oklab, var(--panel-border) 70%, transparent)",
+                background:
+                  "color-mix(in oklab, var(--panel-bg) 90%, var(--text) 10%)",
+                boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
+                backdropFilter: "blur(18px)",
+              }}
+            >
+              <div className="flex items-center justify-between px-2 pb-1 text-[10px] font-medium uppercase tracking-[0.18em]">
+                <span style={{ color: "color-mix(in oklab, var(--muted) 82%, transparent)" }}>
+                  Slash commands
+                </span>
+                <span style={{ color: "color-mix(in oklab, var(--muted) 72%, transparent)" }}>
+                  {activeSlashToken?.query ? `/${activeSlashToken.query}` : "/"}
+                </span>
+              </div>
+              {activeSlashSemanticHint ? (
+                <div
+                  className="px-2 pb-2 text-[10px] leading-snug"
+                  style={{ color: "color-mix(in oklab, var(--muted) 76%, transparent)" }}
+                >
+                  {activeSlashSemanticHint}
+                </div>
+              ) : null}
+              <div className="max-h-60 overflow-y-auto">
+                {visibleSlashCommands.length > 0 ? (
+                  visibleSlashCommands.map((command) => {
+                    const isActive = command.id === activeSlashCommand?.id;
+                    return (
+                      <button
+                        key={command.id}
+                        type="button"
+                        role="menuitem"
+                        aria-label={`${command.label} ${command.description}`}
+                        aria-current={isActive ? "true" : undefined}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setActiveSlashCommandId(command.id)}
+                        onClick={() => applySlashCommand(command)}
+                        className={cn(
+                          "flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors",
+                          isActive
+                            ? "bg-[color-mix(in_oklab,var(--accent)_14%,var(--panel-bg)_86%)]"
+                            : "hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]"
+                        )}
+                        style={{
+                          color: "var(--text)",
+                        }}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12px] font-medium leading-snug">
+                            {command.label}
+                          </span>
+                          <span
+                            className="mt-0.5 block text-[11px] leading-snug"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            {command.description}
+                          </span>
+                        </span>
+                        <span
+                          className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
+                          style={{
+                            color: isActive ? "var(--accent)" : "var(--muted)",
+                            background: isActive
+                              ? "color-mix(in oklab, var(--accent) 10%, transparent)"
+                              : "transparent",
+                          }}
+                        >
+                          /{command.id}
+                        </span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-3 text-sm" style={{ color: "var(--muted)" }}>
+                    No slash commands match this query.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           {draftAttachments.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -707,12 +1195,12 @@ export function Composer({
                   key={att.id}
                   className="relative overflow-hidden rounded-[var(--tile-radius)] border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5"
                   style={{ width: 88, height: 68 }}
-                  title={att.file.name}
+                  title={att.file?.name ?? att.asset?.filename ?? "Attachment"}
                 >
                   {att.kind === "image" ? (
                     <img
                       src={att.previewUrl}
-                      alt={att.file.name}
+                      alt={att.file?.name ?? att.asset?.filename ?? "Attachment"}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -751,13 +1239,14 @@ export function Composer({
             data-testid="composer-control-row"
             className={cn(
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-              CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
               "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
+            style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
             <div
               data-testid="composer-controls-strip"
               className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
+              style={{ gap: "var(--composer-control-gap, 12px)" }}
             >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
@@ -827,9 +1316,10 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex shrink-0 items-center justify-center"
+              className="flex w-8 shrink-0 items-center justify-center"
+              style={{ width: "var(--composer-control-size, 2rem)" }}
             >
-              <Button
+              <button
                 type="button"
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
@@ -841,9 +1331,8 @@ export function Composer({
                     ? "Finish the current reply before sending."
                     : undefined
                 }
-                size="icon"
                 className={cn(
-                  "h-8 w-8 min-w-0 rounded-full p-0 transition-opacity",
+                  "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
                   sendTransportDisabled
                     ? "cursor-not-allowed opacity-50"
                     : sendBlockedByTurnLock
@@ -851,13 +1340,16 @@ export function Composer({
                     : ""
                 )}
                 style={{
+                  width: "var(--composer-control-size, 2rem)",
+                  height: "var(--composer-control-size, 2rem)",
                   background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
                   color: "var(--text-on-accent, #111827)",
                   boxShadow: "none",
+                  borderRadius: "9999px",
                 }}
               >
                 <Send className="h-3.5 w-3.5 shrink-0" />
-              </Button>
+              </button>
             </div>
           </div>
           {imageCapabilityMessage ? (
@@ -870,7 +1362,7 @@ export function Composer({
       <ImageGenModal
         open={showImgGen}
         onOpenChange={setShowImgGen}
-        projectId={resolveProjectId()}
+        projectId={projectId ?? resolveProjectId()}
         threadId={threadId ?? null}
       />
     </>
