@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "./SettingsView";
@@ -14,6 +14,8 @@ const mockedApi = vi.hoisted(() => ({
 }));
 
 const mockedUpdatePersonaSettings = vi.hoisted(() => vi.fn());
+const fetchLatestRagTraceMock = vi.hoisted(() => vi.fn());
+const mockedUseContextTrace = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/ui/button", () => ({
   Button: (props: Record<string, unknown>) => (
@@ -83,6 +85,7 @@ vi.mock("@/lib/runtimeConfig", () => ({
 vi.mock("@/lib/api", () => ({
   default: mockedApi,
   clearRuntimeApiKey: vi.fn(),
+  fetchLatestRagTrace: fetchLatestRagTraceMock,
   getAuthToken: vi.fn(() => null),
   getDevApiKey: vi.fn(() => ""),
   readRuntimeApiKey: vi.fn(() => ""),
@@ -102,6 +105,10 @@ vi.mock("@/lib/guardianEventSource", () => ({
     removeEventListener() {}
     close() {}
   },
+}));
+
+vi.mock("@/state/contextTrace", () => ({
+  useContextTrace: mockedUseContextTrace,
 }));
 
 function renderSettingsView(
@@ -145,6 +152,14 @@ describe("SettingsView save flow", () => {
     mockedApi.get.mockClear();
     mockedApi.post.mockClear();
     mockedApi.delete.mockClear();
+    fetchLatestRagTraceMock.mockReset();
+    mockedUseContextTrace.mockReturnValue({
+      lastDepth: "normal",
+      lastMemory: [],
+      lastSemantic: [],
+      lastThreadId: null,
+      lastTimestamp: null,
+    });
     window.localStorage.clear();
     window.history.pushState({}, "", "/chat/42");
   });
@@ -177,26 +192,65 @@ describe("SettingsView save flow", () => {
       );
     });
 
-    expect(
-      await screen.findByText("Saved locally and synced to runtime persona layer.")
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Saved locally and synced to runtime persona layer\./)
+      ).toBeInTheDocument();
+    });
+
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
   });
 
-  it("renders the personal facts lifecycle panel from the new settings tab", async () => {
+  it("moves the settings rail with arrow keys", () => {
     renderSettingsView();
 
-    fireEvent.click(screen.getByRole("tab", { name: /^personal facts$/i }));
+    const appearanceTab = screen.getByRole("tab", { name: /^appearance$/i });
+    const imprintTab = screen.getByRole("tab", { name: /^imprint$/i });
 
-    expect(screen.getByTestId("personal-facts-panel")).toBeInTheDocument();
-    expect(screen.getByText("Quarantine before trust")).toBeInTheDocument();
+    appearanceTab.focus();
+    fireEvent.keyDown(appearanceTab, { key: "ArrowRight" });
+
+    expect(imprintTab).toHaveFocus();
+    expect(imprintTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: /^imprint$/i })).toBeInTheDocument();
+  });
+
+  it("binds diagnostics to the active route thread and refreshes when the active thread changes", async () => {
+    fetchLatestRagTraceMock.mockResolvedValue({ documents: [], graph: [] });
+
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenCalledWith(42);
+    });
+
     expect(
-      screen.getByText(
-        "Candidate facts must never participate in retrieval, prompt assembly, or runtime behavior. Only user-approved, verified, active facts are runtime-eligible."
+      screen.getAllByText(
+        (_, element) =>
+          element?.textContent?.trim() === "Depth: normal • Thread: 42"
       )
-    ).toBeInTheDocument();
-    expect(screen.getByText("Candidates")).toBeInTheDocument();
-    expect(screen.getByText("Verified")).toBeInTheDocument();
-    expect(screen.getByText("History")).toBeInTheDocument();
+    ).not.toHaveLength(0);
+    expect(
+      screen.queryByText((_, element) =>
+        Boolean(element?.textContent?.includes("Thread: n/a"))
+      )
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, "", "/chat/84");
+    });
+
+    await waitFor(() => {
+      expect(fetchLatestRagTraceMock).toHaveBeenLastCalledWith(84);
+    });
+
+    expect(
+      screen.getAllByText(
+        (_, element) =>
+          element?.textContent?.trim() === "Depth: normal • Thread: 84"
+      )
+    ).not.toHaveLength(0);
   });
 });

@@ -119,8 +119,18 @@ describe("commandCenterRunAggregation", () => {
         {
           completed_at: "2026-04-01T16:00:05Z",
           duration_ms: 4200,
+          attempted_model: "gpt-5-mini",
+          attempted_provider: "openai",
+          final_model: "gpt-5",
+          final_provider: "openai",
+          fallback_reason: "model_capability",
+          fallback_triggered: true,
           latest_turn_message_id: "msg-4",
           message_id: "msg-4",
+          persistence_outcome: "persisted",
+          retrieval_depth: "project",
+          retrieval_intent: "answer_question",
+          selection_source: "runtime_policy",
           run_id: "run-1",
           retrieval_query: "How does the cache behave?",
           retrieval_query_matches_latest_turn: true,
@@ -158,6 +168,16 @@ describe("commandCenterRunAggregation", () => {
     expect(run?.summary).toBe("chat completion · completed");
     expect(run?.lastType).toBe("task.completed");
     expect(run?.latestTurnMessageId).toBe("msg-4");
+    expect(run?.attemptedProvider).toBe("openai");
+    expect(run?.attemptedModel).toBe("gpt-5-mini");
+    expect(run?.finalProvider).toBe("openai");
+    expect(run?.finalModel).toBe("gpt-5");
+    expect(run?.fallbackTriggered).toBe(true);
+    expect(run?.fallbackReason).toBe("model_capability");
+    expect(run?.selectionSource).toBe("runtime_policy");
+    expect(run?.persistenceOutcome).toBe("persisted");
+    expect(run?.retrievalIntent).toBe("answer_question");
+    expect(run?.retrievalDepth).toBe("project");
     expect(run?.threadId).toBe(42);
     expect(run?.turnId).toBe("turn-1");
     expect(run?.events).toHaveLength(5);
@@ -340,21 +360,13 @@ describe("commandCenterRunAggregation", () => {
 
     const result = aggregateCommandCenterEvents([classified, unclassified]);
 
-    expect(result.runs).toHaveLength(2);
+    expect(result.runs).toHaveLength(1);
 
     const classifiedRun = result.runs.find((run) => run.taskId === "task-4");
-    const unclassifiedRun = result.runs.find(
-      (run) => run.identityKind === "synthetic" && run.status === "unknown"
-    );
 
     expect(classifiedRun).toBeDefined();
     expect(classifiedRun?.eventCount).toBe(1);
     expect(classifiedRun?.summary).toBe("chat completion · created");
-    expect(unclassifiedRun).toBeDefined();
-    expect(unclassifiedRun?.runType).toBeNull();
-    expect(unclassifiedRun?.summary).toBe("unclassified event");
-    expect(unclassifiedRun?.eventCount).toBe(1);
-    expect(unclassifiedRun?.taskId).toBeNull();
-    expect(unclassifiedRun?.requestId).toBeNull();
+    expect(result.runs.some((run) => run.identityKind === "synthetic")).toBe(false);
   });
 });

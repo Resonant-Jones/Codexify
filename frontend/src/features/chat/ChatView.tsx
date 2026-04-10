@@ -24,6 +24,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { parseDocumentContextContent } from "@/lib/documentContext";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
+import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -114,6 +115,8 @@ export function ChatView({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const conversationLaneRef = useRef<HTMLDivElement | null>(null);
   const mobileShellProfile = useMobileShellProfile();
+  const viewportInsets = useViewportInsets(mobileShellProfile.active);
+  const shouldStickToLatestRef = useRef(true);
 
   const isCompletingForThread =
     completionState.isCompleting && completionState.activeThreadId === threadId;
@@ -149,12 +152,10 @@ export function ChatView({
         loading ? "loading" : "idle",
         error ?? "",
         hasMore ? "more" : "none",
-        bottomPadding,
         showCompletionIndicator ? "completion" : "steady",
         showStreamingDraft ? "draft" : "no-draft",
       ].join("|"),
     [
-      bottomPadding,
       error,
       hasMore,
       loading,
@@ -201,6 +202,7 @@ export function ChatView({
       0,
       el.scrollHeight - viewportHeight - el.scrollTop
     );
+    shouldStickToLatestRef.current = distanceFromBottom <= 120;
     const shouldShowJump = overflowing && distanceFromBottom > viewportHeight;
 
     setHasOverflow(overflowing);
@@ -212,6 +214,7 @@ export function ChatView({
     if (!el) return;
 
     el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    shouldStickToLatestRef.current = true;
     measureChatViewport();
     el.dispatchEvent(new Event("scroll", { bubbles: true }));
   }, [containerRef, measureChatViewport]);
@@ -221,6 +224,7 @@ export function ChatView({
     initialScrollAppliedRef.current = false;
     autoReadPrimedRef.current = false;
     lastAutoReadMessageIdRef.current = null;
+    shouldStickToLatestRef.current = true;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -245,9 +249,25 @@ export function ChatView({
 
   useLayoutEffect(() => {
     if (!initialScrollAppliedRef.current) return;
-    void viewportLayoutSignature;
     measureChatViewport();
   }, [measureChatViewport, viewportLayoutSignature]);
+
+  useLayoutEffect(() => {
+    if (!initialScrollAppliedRef.current) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (shouldStickToLatestRef.current) {
+      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    }
+    measureChatViewport();
+  }, [
+    bottomPadding,
+    containerRef,
+    measureChatViewport,
+    viewportInsets.keyboardInset,
+    viewportInsets.visualViewportHeight,
+  ]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -494,6 +514,7 @@ export function ChatView({
         style={{
           ...scrollStyle,
           paddingInline: CHAT_LANE_INLINE_PADDING,
+          overflowAnchor: "none",
         }}
       >
         <div

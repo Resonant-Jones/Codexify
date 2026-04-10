@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeState = vi.hoisted(() => ({
   invokeTauriCommandMock: vi.fn(),
@@ -23,7 +23,20 @@ vi.mock("@/lib/runtimeConfig", () => ({
 
 import DashboardGallery from "@/features/dashboard/components/DashboardGallery";
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 describe("DashboardGallery desktop media rendering", () => {
+  beforeEach(() => {
+    setViewportWidth(1280);
+  });
+
   afterEach(() => {
     runtimeState.tauriRuntime = false;
     runtimeState.invokeTauriCommandMock.mockReset();
