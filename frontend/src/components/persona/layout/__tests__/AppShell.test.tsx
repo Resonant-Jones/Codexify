@@ -403,6 +403,17 @@ describe("AppShell settings utility trigger", () => {
 
     render(<AppShell />);
 
+    expect(screen.getByTestId("app-shell-top-chrome")).toHaveStyle(
+      "grid-template-columns: auto minmax(var(--shell-gap), 1fr) auto"
+    );
+    expect(screen.getByTestId("app-shell-nav-anchor")).toHaveStyle({
+      gridColumn: "1",
+      justifySelf: "start",
+    });
+    expect(screen.getByTestId("app-shell-utility-cluster")).toHaveStyle({
+      gridColumn: "3",
+      justifySelf: "end",
+    });
     expect(screen.getByTestId("app-shell-top-nav")).toHaveClass(
       "glass-pill",
       "inline-flex",
