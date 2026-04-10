@@ -71,8 +71,8 @@ type SettingsTab =
   | "system"
   | "connectors"
   | "data"
-  | "personalFacts"
   | "connection"
+  | "personalFacts"
   | "diagnostics";
 
 type SettingsTabDefinition = {
@@ -86,8 +86,8 @@ const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
   { value: "system", label: "Imprint" },
   { value: "connectors", label: "Connectors" },
   { value: "data", label: "Data" },
-  { value: "personalFacts", label: "Personal Facts" },
   { value: "connection", label: "Connection", requiresDesktop: true },
+  { value: "personalFacts", label: "Personal Facts" },
   { value: "diagnostics", label: "Diagnostics" },
 ];
 
@@ -99,44 +99,43 @@ function getSettingsTabPanelId(tab: SettingsTab): string {
   return `settings-panel-${tab}`;
 }
 
-const DEFAULT_SETTINGS_TAB: SettingsTab = "appearance";
-const SETTINGS_TAB_STORAGE_KEY = "cfy.settings.activeTab";
-const CHATGPT_IMPORT_TASK_STORAGE_KEY = "codexify.chatgpt_import_task";
+const SETTINGS_TAB_STORAGE_KEY = "cfy.settingsTab";
 
-function isSettingsTab(value: string): value is SettingsTab {
-  return SETTINGS_TAB_DEFINITIONS.some(
-    (definition) => definition.value === value
-  );
+function normalizeSettingsTab(value: unknown): SettingsTab | null {
+  if (typeof value !== "string") return null;
+  const compact = value.trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (!compact) return null;
+  if (compact === "appearance") return "appearance";
+  if (compact === "system" || compact === "imprint") return "system";
+  if (compact === "connectors") return "connectors";
+  if (compact === "data") return "data";
+  if (compact === "connection") return "connection";
+  if (compact === "personalfacts") return "personalFacts";
+  if (compact === "diagnostics") return "diagnostics";
+  return null;
 }
 
-function readPersistedSettingsTab(desktopMode: boolean): SettingsTab {
-  if (typeof window === "undefined") return DEFAULT_SETTINGS_TAB;
-
+function readPersistedSettingsTab(): SettingsTab | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY);
-    if (!raw) return DEFAULT_SETTINGS_TAB;
-
-    const candidate = raw.trim();
-    if (!isSettingsTab(candidate)) return DEFAULT_SETTINGS_TAB;
-    if (candidate === "connection" && !desktopMode) return DEFAULT_SETTINGS_TAB;
-    return candidate;
+    return normalizeSettingsTab(
+      window.sessionStorage.getItem(SETTINGS_TAB_STORAGE_KEY)
+    );
   } catch {
-    return DEFAULT_SETTINGS_TAB;
+    return null;
   }
 }
 
-function persistSettingsTab(tab: SettingsTab, desktopMode: boolean): void {
+function persistSettingsTab(tab: SettingsTab): void {
   if (typeof window === "undefined") return;
-
-  const nextTab =
-    tab === "connection" && !desktopMode ? DEFAULT_SETTINGS_TAB : tab;
-
   try {
-    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, nextTab);
+    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, tab);
   } catch {
-    // Ignore storage failures for session-scoped UI state.
+    /* ignore */
   }
 }
+
+const CHATGPT_IMPORT_TASK_STORAGE_KEY = "codexify.chatgpt_import_task";
 
 function isChatGPTImportPath(rawUrl: unknown): boolean {
   if (typeof rawUrl !== "string") return false;
@@ -378,16 +377,20 @@ export function SettingsView({
   setDashboardThreadRows: (n: number) => void;
 }) {
   const desktopMode = isTauriRuntime();
-  const [tab, setTab] = useState<SettingsTab>(() =>
-    readPersistedSettingsTab(desktopMode)
-  );
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const storedTab = readPersistedSettingsTab();
+    if (storedTab === "connection" && !desktopMode) {
+      return "appearance";
+    }
+    return storedTab ?? "appearance";
+  });
   const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
     appearance: null,
     system: null,
     connectors: null,
     data: null,
-    personalFacts: null,
     connection: null,
+    personalFacts: null,
     diagnostics: null,
   });
   const settingsScrollContainerRef = useRef<HTMLElement | null>(null);
@@ -534,6 +537,9 @@ export function SettingsView({
     setSystemPromptSaveMessage(null);
     setSystemPromptSaveError(null);
   }, [memo, name, prompt, uName, uRole]);
+  useEffect(() => {
+    persistSettingsTab(tab);
+  }, [tab]);
   useEffect(() => {
     if (!desktopMode) return;
     const settings = getDesktopConnectionSettings();
@@ -827,12 +833,8 @@ export function SettingsView({
 
   useEffect(() => {
     if (tab === "connection" && !desktopMode) {
-      setTab(DEFAULT_SETTINGS_TAB);
+      setTab("appearance");
     }
-  }, [desktopMode, tab]);
-
-  useEffect(() => {
-    persistSettingsTab(tab, desktopMode);
   }, [desktopMode, tab]);
 
   async function handleSave() {
@@ -1123,7 +1125,7 @@ export function SettingsView({
     setTab(nextTab);
   }
 
-    function activateTab(nextTab: SettingsTab) {
+  function activateTab(nextTab: SettingsTab) {
     handleTabChange(nextTab);
     tabButtonRefs.current[nextTab]?.focus();
   }
@@ -1183,12 +1185,18 @@ export function SettingsView({
 
   return (
     <div className="w-full" style={{ color: "var(--text)" }}>
-      <SettingsPanelShell scrollContainerRef={settingsScrollContainerRef}>
-        <SettingsPanelDock>
-          {visibleTabs.map(renderTabButton)}
-        </SettingsPanelDock>
+      <SettingsPanelShell>
+        <div className="flex h-full min-h-0 flex-col gap-[var(--shell-gap)]">
+          <SettingsPanelDock>
+            {visibleTabs.map(renderTabButton)}
+          </SettingsPanelDock>
 
-        {tab === "system" && (
+          <div
+            ref={settingsScrollContainerRef}
+            data-testid="settings-panel-scroll-body"
+            className="flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)] overflow-x-visible overflow-y-auto"
+          >
+            {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"
             role="tabpanel"
@@ -1277,7 +1285,10 @@ export function SettingsView({
                 </p>
               </div>
               <ImprintReviewPanel />
-              <SystemPromptInspector />
+              <div className="grid gap-4 xl:grid-cols-2">
+                <PersonalFactsPanel />
+                <SystemPromptInspector />
+              </div>
             </SettingsSectionCard>
           </SettingsSectionCard>
         )}
@@ -1644,18 +1655,6 @@ export function SettingsView({
           </SettingsSectionCard>
         )}
 
-        {tab === "personalFacts" && (
-          <SettingsSectionCard
-            data-testid="settings-personal-facts-surface"
-            role="tabpanel"
-            id={getSettingsTabPanelId("personalFacts")}
-            aria-labelledby={getSettingsTabButtonId("personalFacts")}
-            className="space-y-4"
-          >
-            <PersonalFactsPanel />
-          </SettingsSectionCard>
-        )}
-
         {tab === "connection" && desktopMode && (
           <SettingsSectionCard
             data-testid="settings-connection-surface"
@@ -1761,6 +1760,18 @@ export function SettingsView({
           </SettingsSectionCard>
         )}
 
+        {tab === "personalFacts" && (
+          <SettingsSectionCard
+            data-testid="settings-panel-personal-facts"
+            role="tabpanel"
+            id={getSettingsTabPanelId("personalFacts")}
+            aria-labelledby={getSettingsTabButtonId("personalFacts")}
+            className="space-y-4"
+          >
+            <PersonalFactsPanel />
+          </SettingsSectionCard>
+        )}
+
         {tab === "diagnostics" && (
           <SettingsSectionCard
             data-testid="settings-diagnostics-surface"
@@ -1772,8 +1783,9 @@ export function SettingsView({
             <MemoryBrowser activeThreadId={activeThreadId} />
           </SettingsSectionCard>
         )}
+          </div>
+        </div>
       </SettingsPanelShell>
-
     </div>
   );
 }

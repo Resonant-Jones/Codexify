@@ -104,10 +104,9 @@ describe("Composer draft sync", () => {
       const payload = buildSlashCommandIntentPayload("/doc query text");
       expect(payload).toEqual({
         commandId: "doc",
-        rawToken: "/doc",
-        queryText: "query text",
         intentKind: "knowledge",
         retrievalHint: "personal_knowledge",
+        rawInput: "/doc query text",
       });
     });
 
@@ -116,8 +115,9 @@ describe("Composer draft sync", () => {
       expect(payload).toEqual(
         expect.objectContaining({
           commandId: "project",
-          rawToken: "/repo",
-          queryText: "scope planning",
+          intentKind: "workspace",
+          retrievalHint: "project",
+          rawInput: "/repo scope planning",
         })
       );
     });
@@ -131,153 +131,6 @@ describe("Composer draft sync", () => {
       expect(buildSlashCommandIntentPayload("")).toBeNull();
       expect(buildSlashCommandIntentPayload("/")).toBeNull();
     });
-  });
-
-  it("closes the slash palette when the slash token is removed", async () => {
-    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
-
-    const textarea = screen.getByPlaceholderText("Write a message…");
-    fireEvent.change(textarea, { target: { value: "/doc" } });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
-    });
-
-    fireEvent.change(textarea, { target: { value: "hello world" } });
-
-    await waitFor(() => {
-      expect(screen.queryByRole("menu", { name: "Slash commands" })).not.toBeInTheDocument();
-    });
-  });
-
-  it("moves through the palette with arrow keys and inserts the selected scaffold on Enter", async () => {
-    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
-
-    const textarea = screen.getByPlaceholderText("Write a message…");
-    fireEvent.change(textarea, { target: { value: "/" } });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(
-        screen.getByRole("menuitem", { name: /Thread/i })
-      ).toHaveAttribute("aria-current", "true");
-    });
-
-    fireEvent.keyDown(textarea, { key: "ArrowDown" });
-    fireEvent.keyDown(textarea, { key: "Enter" });
-
-    expect(textarea).toHaveValue("/doc");
-    expect(screen.queryByRole("menu", { name: "Slash commands" })).not.toBeInTheDocument();
-  });
-
-  it("opens the slash palette when the composer starts with /", async () => {
-    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
-
-    const textarea = screen.getByPlaceholderText("Write a message…");
-    fireEvent.change(textarea, { target: { value: "/" } });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
-    });
-
-    expect(
-      screen.getByRole("menuitem", { name: /Thread/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("menuitem", { name: /Document/i })
-    ).toBeInTheDocument();
-  });
-
-  it("refreshes slash results as more characters are typed and fuzzy matches partial input", async () => {
-    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
-
-    const textarea = screen.getByPlaceholderText("Write a message…");
-    fireEvent.change(textarea, { target: { value: "/" } });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("menuitem", { name: /Thread/i })).toBeInTheDocument();
-
-    fireEvent.change(textarea, { target: { value: "/prj" } });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: /Project/i })).toBeInTheDocument();
-    });
-
-    expect(
-      screen.queryByRole("menuitem", { name: /Thread/i })
-    ).not.toBeInTheDocument();
-  });
-
-  it("resolves slash intent payloads canonically from the shared registry", () => {
-    expect(resolveSlashCommandIntent("/repo scope planning")).toEqual(
-      expect.objectContaining({
-        rawToken: "/repo",
-        queryText: "scope planning",
-        command: expect.objectContaining({
-          id: "project",
-          scaffold: "/project",
-        }),
-      })
-    );
-    expect(buildSlashCommandIntentPayload("/repo scope planning")).toEqual({
-      commandId: "project",
-      intentKind: "workspace",
-      retrievalHint: "project",
-      rawInput: "/repo scope planning",
-    });
-    expect(buildSlashCommandIntentPayload("hello world")).toBeNull();
-  });
-
-  it("surfaces semantic hint metadata and attaches slash intent on send", async () => {
-    const onSend = vi.fn().mockResolvedValue(undefined);
-    render(<Composer onSend={onSend} draftScopeKey="tab-1" draftValue="" />);
-
-    const textarea = screen.getByPlaceholderText("Write a message…");
-    fireEvent.change(textarea, { target: { value: "/repo scope planning" } });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/intent kind:\s*workspace/i)).toBeInTheDocument();
-    expect(screen.getByText(/retrieval hint:\s*project/i)).toBeInTheDocument();
-
-    fireEvent.keyDown(textarea, { key: "Escape" });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    await waitFor(() => {
-      expect(onSend).toHaveBeenCalledTimes(1);
-    });
-    expect(onSend).toHaveBeenCalledWith(
-      "/repo scope planning",
-      expect.objectContaining({
-        slashIntent: {
-          commandId: "project",
-          intentKind: "workspace",
-          retrievalHint: "project",
-          rawInput: "/repo scope planning",
-        },
-      })
-    );
-  });
-
-  it("does not attach slash intent metadata for ordinary messages", async () => {
-    const onSend = vi.fn().mockResolvedValue(undefined);
-    render(<Composer onSend={onSend} draftScopeKey="tab-1" draftValue="" />);
-
-    const textarea = screen.getByPlaceholderText("Write a message…");
-    fireEvent.change(textarea, { target: { value: "hello world" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    await waitFor(() => {
-      expect(onSend).toHaveBeenCalledTimes(1);
-    });
-    expect(onSend.mock.calls[0][1]?.slashIntent).toBeUndefined();
   });
 
   it("closes the slash palette when the slash token is removed", async () => {
@@ -477,9 +330,10 @@ describe("Composer draft sync", () => {
     expect(onSend).toHaveBeenCalledWith(
       "hello",
       expect.objectContaining({
-        slashIntent: null,
+        threadIdOverride: undefined,
       })
     );
+    expect(onSend.mock.calls[0][1]?.slashIntent).toBeUndefined();
   });
 
   it("does not attach slash intent when composer contains no recognized slash command", async () => {
@@ -503,9 +357,10 @@ describe("Composer draft sync", () => {
     expect(onSend).toHaveBeenCalledWith(
       "hello world",
       expect.objectContaining({
-        slashIntent: null,
+        threadIdOverride: undefined,
       })
     );
+    expect(onSend.mock.calls[0][1]?.slashIntent).toBeUndefined();
   });
 
   it("enables send when the draft only contains document tiles", async () => {
@@ -693,7 +548,6 @@ describe("Composer draft sync", () => {
     expect(onSend.mock.calls[0][0]).toContain("hello attachments");
     expect(onSend.mock.calls[0][1]).toEqual({
       threadIdOverride: 123,
-      slashIntent: null,
     });
   });
 

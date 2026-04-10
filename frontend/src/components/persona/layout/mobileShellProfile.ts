@@ -10,6 +10,18 @@ export type MobileShellProfile = {
   active: boolean;
   shellMode: "default" | "mobile";
   viewportClass: ShellViewportClass;
+  documents: {
+    layout: "grid" | "list";
+    itemWidth: string;
+    contentGap: string;
+  };
+  dashboard: {
+    layout: "split" | "stack";
+    sectionGap: string;
+    threadColumns: 1 | 2;
+    documentColumns: 1 | 4;
+    contentPadding: string;
+  };
   topNav: {
     scrollable: boolean;
     width: string;
@@ -37,10 +49,25 @@ export type MobileShellProfile = {
       bottomSafeArea: string;
     };
   };
+  bottomEdge: {
+    suppressOnKeyboard: boolean;
+  };
 };
 
 const DESKTOP_SHELL_PROFILE = {
   shellMode: "default",
+  documents: {
+    layout: "grid",
+    itemWidth: "127px",
+    contentGap: "var(--shell-gap)",
+  },
+  dashboard: {
+    layout: "split",
+    sectionGap: "var(--gutter)",
+    threadColumns: 2,
+    documentColumns: 4,
+    contentPadding: "20px",
+  },
   topNav: {
     scrollable: false,
     width: "auto",
@@ -68,10 +95,25 @@ const DESKTOP_SHELL_PROFILE = {
       bottomSafeArea: "0px",
     },
   },
+  bottomEdge: {
+    suppressOnKeyboard: false,
+  },
 } as const satisfies Omit<MobileShellProfile, "active" | "viewportClass">;
 
 const PHONE_SHELL_PROFILE = {
   shellMode: "mobile",
+  documents: {
+    layout: "list",
+    itemWidth: "100%",
+    contentGap: "var(--shell-gap)",
+  },
+  dashboard: {
+    layout: "stack",
+    sectionGap: "var(--shell-gap)",
+    threadColumns: 1,
+    documentColumns: 1,
+    contentPadding: "var(--card-pad)",
+  },
   topNav: {
     scrollable: true,
     width: "100%",
@@ -98,6 +140,9 @@ const PHONE_SHELL_PROFILE = {
       shellMaxHeight: "calc(var(--shell-viewport-height, 100vh) * 0.6)",
       bottomSafeArea: "env(safe-area-inset-bottom, 0px)",
     },
+  },
+  bottomEdge: {
+    suppressOnKeyboard: true,
   },
 } as const satisfies Omit<MobileShellProfile, "active" | "viewportClass">;
 

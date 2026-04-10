@@ -18,8 +18,7 @@ describe("SettingsPanelShell", () => {
       "min-h-0",
       "w-full",
       "min-w-0",
-      "overflow-x-clip",
-      "overflow-y-auto"
+      "overflow-hidden"
     );
     expect(shell).toHaveStyle({
       padding: "calc(var(--card-pad) + var(--board-edge))",

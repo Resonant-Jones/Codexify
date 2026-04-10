@@ -334,6 +334,9 @@ export default function DashboardView({
     [gallery, hasRealGallery, realGallery]
   );
   const dashboardLayoutMode = isPhoneShell ? "mobile_stack" : "desktop_split";
+  const dashboardGalleryOuterClassName = isPhoneShell
+    ? "flex-1 min-h-0 overflow-visible"
+    : "flex-1 min-h-0 overflow-auto pr-1";
 
   return (
     <section
@@ -346,6 +349,7 @@ export default function DashboardView({
           className={`flex h-full min-h-0 ${
             isPhoneShell ? "flex-col gap-[var(--gutter)] overflow-auto" : "gap-[var(--gutter)]"
           }`}
+          data-layout-mode={isPhoneShell ? "mobile-stack" : "desktop-split"}
         >
           <div
             className={`flex min-h-0 flex-col gap-[var(--gutter)] ${
@@ -371,7 +375,9 @@ export default function DashboardView({
                 >
                   <div>
                     <h2 className="text-lg font-semibold tracking-tight">Recent Threads</h2>
-                    <p className="text-xs opacity-70">Jump back into a conversation or spin up something new.</p>
+                    <p className="text-xs opacity-70">
+                      Jump back into a conversation or spin up something new.
+                    </p>
                   </div>
                   <div
                     className={`glass-pill h-auto py-[3px] px-[6px] ${
@@ -460,18 +466,15 @@ export default function DashboardView({
                   }`}
                 >
                   <h2 className="text-lg font-semibold tracking-tight">Recent Documents</h2>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={onNavigateDocuments}
-                  >
+                  <Button type="button" variant="ghost" size="sm" onClick={onNavigateDocuments}>
                     See All
                   </Button>
                 </div>
                 {!hasRealDocs && (
                   <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
-                    <p className="text-xs opacity-75">Demo documents. Create or upload to replace.</p>
+                    <p className="text-xs opacity-75">
+                      Demo documents. Create or upload to replace.
+                    </p>
                   </div>
                 )}
                 <div className="flex-1 min-h-0 overflow-hidden">
@@ -482,9 +485,7 @@ export default function DashboardView({
                   ) : (
                     <div
                       className={`h-full content-start justify-start gap-[var(--gutter)] ${
-                        isPhoneShell
-                          ? "flex flex-col overflow-visible"
-                          : "grid"
+                        isPhoneShell ? "flex flex-col overflow-visible" : "grid"
                       }`}
                       style={
                         isPhoneShell
@@ -552,10 +553,12 @@ export default function DashboardView({
               </div>
               {!hasRealGallery && (
                 <div className="rounded-[var(--tile-radius)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
-                  <p className="text-xs opacity-75">Demo gallery images. They'll disappear once you add your own.</p>
+                  <p className="text-xs opacity-75">
+                    Demo gallery images. They'll disappear once you add your own.
+                  </p>
                 </div>
               )}
-              <div className="flex-1 min-h-0 overflow-auto pr-1">
+              <div className={dashboardGalleryOuterClassName}>
                 {galleryToRender.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm opacity-70">
                     No gallery images yet. Generate or upload to get started.
