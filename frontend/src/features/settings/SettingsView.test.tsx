@@ -192,6 +192,12 @@ describe("SettingsView save flow", () => {
       );
     });
 
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Saved locally and synced to runtime persona layer\./)
+      ).toBeInTheDocument();
+    });
+
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
   });
 
@@ -234,7 +240,6 @@ describe("SettingsView save flow", () => {
 
     act(() => {
       window.history.pushState({}, "", "/chat/84");
-      window.dispatchEvent(new PopStateEvent("popstate"));
     });
 
     await waitFor(() => {

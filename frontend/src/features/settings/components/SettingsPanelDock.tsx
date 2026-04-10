@@ -16,7 +16,7 @@ export default function SettingsPanelDock({
     <nav
       data-testid={dataTestId}
       role="tablist"
-      aria-label="Settings sections"
+      aria-label="Settings tabs"
       aria-orientation="horizontal"
       className={cn("sticky z-20 w-full shrink-0", className)}
       style={{
