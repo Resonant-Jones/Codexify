@@ -15,9 +15,13 @@ describe("SettingsPanelShell", () => {
     );
 
     expect(screen.getByTestId("settings-panel-shell")).toHaveClass(
+      "flex",
+      "h-full",
+      "min-h-0",
       "w-full",
       "min-w-0",
-      "overflow-x-clip"
+      "overflow-x-clip",
+      "overflow-y-auto"
     );
     expect(screen.getByText("Body").parentElement).toHaveClass(
       "w-full",

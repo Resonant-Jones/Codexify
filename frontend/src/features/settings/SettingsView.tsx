@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -299,6 +299,8 @@ export function SettingsView({
 }) {
   const desktopMode = isTauriRuntime();
   const [tab, setTab] = useState<SettingsTab>("appearance");
+  const settingsScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const tabScrollPositionsRef = useRef<Partial<Record<SettingsTab, number>>>({});
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
   const [migrationStepSkipped, setMigrationStepSkipped] = useState(false);
   const [migrationStats, setMigrationStats] = useState<MigrationStats | null>(
@@ -931,11 +933,46 @@ export function SettingsView({
     syncConnector,
   } = useConnectors({ enabled: connectorsEnabled });
 
+  useLayoutEffect(() => {
+    const scrollContainer = settingsScrollContainerRef.current;
+    if (!scrollContainer) return;
+    scrollContainer.scrollTop = tabScrollPositionsRef.current[tab] ?? 0;
+  }, [tab]);
+
+  useEffect(() => {
+    const scrollContainer = settingsScrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const rememberScrollPosition = () => {
+      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
+    };
+
+    rememberScrollPosition();
+    scrollContainer.addEventListener("scroll", rememberScrollPosition, {
+      passive: true,
+    });
+
+    return () => {
+      scrollContainer.removeEventListener("scroll", rememberScrollPosition);
+      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
+    };
+  }, [tab]);
+
+  function handleTabChange(nextTab: SettingsTab) {
+    const scrollContainer = settingsScrollContainerRef.current;
+    if (scrollContainer) {
+      tabScrollPositionsRef.current[tab] = scrollContainer.scrollTop;
+      scrollContainer.scrollTop = tabScrollPositionsRef.current[nextTab] ?? 0;
+    }
+    setTab(nextTab);
+  }
+
   return (
     <SettingsPanelShell
       activeTab={tab}
       desktopMode={desktopMode}
-      onTabChange={setTab}
+      onTabChange={handleTabChange}
+      scrollContainerRef={settingsScrollContainerRef}
     >
       {tab === "system" && (
         <div className="w-full min-w-0 space-y-[var(--shell-gap)]">
@@ -1362,6 +1399,16 @@ export function SettingsView({
                 </p>
               )}
             </div>
+
+            <ChatGPTImportModal
+              open={chatGPTModalOpen}
+              onOpenChange={setChatGPTModalOpen}
+              userName={userName}
+              onImported={(stats) => {
+                setMigrationStats(stats);
+                setMigrationStepSkipped(false);
+              }}
+            />
           </div>
         )}
 
@@ -1476,15 +1523,6 @@ export function SettingsView({
         </div>
       )}
 
-      <ChatGPTImportModal
-        open={chatGPTModalOpen}
-        onOpenChange={setChatGPTModalOpen}
-        userName={userName}
-        onImported={(stats) => {
-          setMigrationStats(stats);
-          setMigrationStepSkipped(false);
-        }}
-      />
     </SettingsPanelShell>
   );
 }

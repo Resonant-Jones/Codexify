@@ -76,7 +76,7 @@ export default function SettingsPanelDock({
       role="tablist"
       aria-label="Settings tabs"
       data-testid="settings-panel-dock"
-      className="glass-pill sticky top-0 z-30 inline-flex w-fit max-w-full min-w-0 items-stretch overflow-x-auto"
+      className="glass-pill sticky top-0 z-30 inline-flex w-fit max-w-full min-w-0 shrink-0 items-stretch overflow-x-auto"
       style={
         {
           "--pill-active-text": "var(--text-on-accent)",
