@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,6 +65,37 @@ type StoredChatGPTImportTask = {
   detail: string;
   lastEventAt: number;
 };
+
+type SettingsTab =
+  | "appearance"
+  | "system"
+  | "connectors"
+  | "data"
+  | "connection"
+  | "diagnostics";
+
+type SettingsTabDefinition = {
+  value: SettingsTab;
+  label: string;
+  requiresDesktop?: boolean;
+};
+
+const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
+  { value: "appearance", label: "Appearance" },
+  { value: "system", label: "Imprint" },
+  { value: "connectors", label: "Connectors" },
+  { value: "data", label: "Data" },
+  { value: "connection", label: "Connection", requiresDesktop: true },
+  { value: "diagnostics", label: "Diagnostics" },
+];
+
+function getSettingsTabButtonId(tab: SettingsTab): string {
+  return `settings-tab-${tab}`;
+}
+
+function getSettingsTabPanelId(tab: SettingsTab): string {
+  return `settings-panel-${tab}`;
+}
 
 const CHATGPT_IMPORT_TASK_STORAGE_KEY = "codexify.chatgpt_import_task";
 
@@ -308,8 +340,16 @@ export function SettingsView({
 }) {
   const desktopMode = isTauriRuntime();
   const [tab, setTab] = useState<
-    "appearance" | "system" | "connectors" | "data" | "connection" | "diagnostics"
+    SettingsTab
   >("appearance");
+  const tabButtonRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({
+    appearance: null,
+    system: null,
+    connectors: null,
+    data: null,
+    connection: null,
+    diagnostics: null,
+  });
   const [chatGPTModalOpen, setChatGPTModalOpen] = useState(false);
   const [migrationStepSkipped, setMigrationStepSkipped] = useState(false);
   const [migrationStats, setMigrationStats] = useState<MigrationStats | null>(
@@ -718,6 +758,12 @@ export function SettingsView({
     };
   }, []);
 
+  useEffect(() => {
+    if (tab === "connection" && !desktopMode) {
+      setTab("appearance");
+    }
+  }, [desktopMode, tab]);
+
   async function handleSave() {
     const localDirty =
       name !== guardianName ||
@@ -969,41 +1015,81 @@ export function SettingsView({
     syncConnector,
   } = useConnectors({ enabled: connectorsEnabled });
 
+  const visibleTabs = SETTINGS_TAB_DEFINITIONS.filter(
+    (definition) => !definition.requiresDesktop || desktopMode
+  );
+
+  function activateTab(nextTab: SettingsTab) {
+    setTab(nextTab);
+    tabButtonRefs.current[nextTab]?.focus();
+  }
+
+  function handleTabKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentTab: SettingsTab
+  ) {
+    const navigationTabs = visibleTabs.map((definition) => definition.value);
+    const currentIndex = navigationTabs.indexOf(currentTab);
+    if (currentIndex < 0 || navigationTabs.length === 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % navigationTabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + navigationTabs.length) % navigationTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = navigationTabs.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    activateTab(navigationTabs[nextIndex]);
+  }
+
+  function renderTabButton(definition: SettingsTabDefinition) {
+    const selected = tab === definition.value;
+    const tabButtonId = getSettingsTabButtonId(definition.value);
+    const tabPanelId = getSettingsTabPanelId(definition.value);
+
+    return (
+      <Button
+        ref={(node) => {
+          tabButtonRefs.current[definition.value] = node;
+        }}
+        key={definition.value}
+        type="button"
+        role="tab"
+        id={tabButtonId}
+        aria-controls={tabPanelId}
+        aria-selected={selected}
+        tabIndex={selected ? 0 : -1}
+        variant={selected ? "default" : "ghost"}
+        size="sm"
+        className="rounded-[var(--tile-radius,19px)]"
+        onClick={() => activateTab(definition.value)}
+        onKeyDown={(event) => handleTabKeyDown(event, definition.value)}
+      >
+        {definition.label}
+      </Button>
+    );
+  }
+
   return (
     <div className="w-full" style={{ color: "var(--text)" }}>
       <SettingsPanelShell>
         <SettingsPanelDock>
-          <Button type="button" variant={tab === "appearance" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("appearance")}>
-            Appearance
-          </Button>
-          <Button type="button" variant={tab === "system" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("system")}>
-            Imprint
-          </Button>
-          <Button type="button" variant={tab === "connectors" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("connectors")}>
-            Connectors
-          </Button>
-          <Button type="button" variant={tab === "data" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("data")}>
-            Data
-          </Button>
-          {desktopMode && (
-            <Button
-              type="button"
-              variant={tab === "connection" ? "default" : "ghost"}
-              size="sm"
-              className="rounded-[var(--tile-radius,19px)]"
-              onClick={() => setTab("connection")}
-            >
-              Connection
-            </Button>
-          )}
-          <Button type="button" variant={tab === "diagnostics" ? "default" : "ghost"} size="sm" className="rounded-[var(--tile-radius,19px)]" onClick={() => setTab("diagnostics")}>
-            Diagnostics
-          </Button>
+          {visibleTabs.map(renderTabButton)}
         </SettingsPanelDock>
 
         {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("system")}
+            aria-labelledby={getSettingsTabButtonId("system")}
             className="space-y-4"
           >
             <div
@@ -1089,6 +1175,9 @@ export function SettingsView({
         {tab === "appearance" && (
           <SettingsSectionCard
             data-testid="settings-appearance-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("appearance")}
+            aria-labelledby={getSettingsTabButtonId("appearance")}
             className="space-y-5"
           >
             <div className="space-y-2">
@@ -1213,6 +1302,9 @@ export function SettingsView({
         {tab === "connectors" && (
           <SettingsSectionCard
             data-testid="settings-connectors-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("connectors")}
+            aria-labelledby={getSettingsTabButtonId("connectors")}
             className="space-y-4"
           >
             {runtimeCapabilitiesReady &&
@@ -1256,6 +1348,9 @@ export function SettingsView({
         {tab === "data" && (
           <SettingsSectionCard
             data-testid="settings-data-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("data")}
+            aria-labelledby={getSettingsTabButtonId("data")}
             className="space-y-4"
           >
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
@@ -1432,6 +1527,9 @@ export function SettingsView({
         {tab === "connection" && desktopMode && (
           <SettingsSectionCard
             data-testid="settings-connection-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("connection")}
+            aria-labelledby={getSettingsTabButtonId("connection")}
             className="space-y-4"
           >
             <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
@@ -1534,6 +1632,9 @@ export function SettingsView({
         {tab === "diagnostics" && (
           <SettingsSectionCard
             data-testid="settings-diagnostics-surface"
+            role="tabpanel"
+            id={getSettingsTabPanelId("diagnostics")}
+            aria-labelledby={getSettingsTabButtonId("diagnostics")}
             className="space-y-4"
           >
             <MemoryBrowser activeThreadId={activeThreadId} />

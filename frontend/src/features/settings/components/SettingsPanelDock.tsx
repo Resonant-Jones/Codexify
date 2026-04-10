@@ -17,6 +17,7 @@ export default function SettingsPanelDock({
       data-testid={dataTestId}
       role="tablist"
       aria-label="Settings sections"
+      aria-orientation="horizontal"
       className={cn("sticky z-20 w-full", className)}
       style={{
         position: "sticky",

@@ -108,9 +108,16 @@ describe("SettingsView", () => {
 
     render(<SettingsView {...props} />);
 
-    await user.click(screen.getByRole("button", { name: "Imprint" }));
+    expect(
+      screen.getByRole("tablist", { name: "Settings sections" })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Imprint" }));
 
     expect(screen.getByText("Local Preview")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Imprint" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
     expect(screen.getByTestId("imprint-workspace")).toBeInTheDocument();
     expect(screen.getByTestId("mock-imprint-review")).toBeInTheDocument();
     expect(screen.getByTestId("mock-persona-settings")).toBeInTheDocument();
