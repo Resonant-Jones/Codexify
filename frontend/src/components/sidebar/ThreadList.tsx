@@ -222,7 +222,7 @@ function ThreadPreviewList({
                       onClick={() => onProvenanceFilterChange(option.value)}
                     >
                       {option.Icon ? (
-                        <option.Icon className="h-4 w-4" aria-hidden="true" />
+                        <option.Icon className="h-4 w-4" aria-hidden={true} />
                       ) : (
                         <span className="sr-only">{option.label}</span>
                       )}

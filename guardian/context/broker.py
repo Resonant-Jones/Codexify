@@ -21,6 +21,7 @@ _SOURCE_MODE_PROJECT = "project"
 _SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
 _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
 _THREAD_CANDIDATE_LIMIT = 500
+_PERSONAL_FACT_LIMIT = 100
 
 
 def _thread_namespace(thread_id: int) -> str:
@@ -41,6 +42,19 @@ def _normalize_source_mode(value: Any) -> str:
         if value == _SOURCE_MODE_PERSONAL_KNOWLEDGE
         else _SOURCE_MODE_PROJECT
     )
+
+
+def _is_verified_active_personal_fact(fact: Any) -> bool:
+    if not isinstance(fact, dict):
+        return False
+    if str(fact.get("status") or "").strip().lower() != "verified":
+        return False
+    if fact.get("is_active") is False:
+        return False
+
+    key = str(fact.get("key") or "").strip()
+    value = str(fact.get("value") or "").strip()
+    return bool(key and value)
 
 
 def _coerce_graph_value(value: Any) -> Any:
@@ -334,6 +348,40 @@ class ContextBroker:
                     "[ContextBroker] Failed to fetch scoped documents: %s", e
                 )
 
+        personal_facts_trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "depth_not_allowed",
+            "count": 0,
+            "retrieved_count": 0,
+            "user_id": resolved_user_id or "default",
+        }
+        if normalized_depth in ("deep", "diagnostic"):
+            try:
+                (
+                    personal_facts,
+                    personal_facts_trace,
+                ) = await self._fetch_verified_personal_facts(
+                    user_id=resolved_user_id,
+                    limit=_PERSONAL_FACT_LIMIT,
+                )
+                if personal_facts:
+                    context["personal_facts"] = personal_facts
+            except Exception as e:
+                logger.warning(
+                    "[ContextBroker] Personal facts unavailable; continuing without them: %s",
+                    e,
+                )
+                personal_facts_trace = {
+                    "attempted": True,
+                    "status": "failed",
+                    "reason": "retrieval_error",
+                    "error": str(e),
+                    "count": 0,
+                    "retrieved_count": 0,
+                    "user_id": resolved_user_id or "default",
+                }
+
         # Optional graph-derived context (explicit flag; deferred for CORE LOOP by default)
         context["graph"] = []
         graph_trace: Dict[str, Any] = {
@@ -473,6 +521,7 @@ class ContextBroker:
             ),
             "graph_context": graph_trace,
             "memory_context": memory_trace,
+            "personal_facts_context": personal_facts_trace,
         }
 
         try:
@@ -494,6 +543,74 @@ class ContextBroker:
             pass
 
         return context, rag_trace
+
+    async def _fetch_verified_personal_facts(
+        self,
+        *,
+        user_id: Optional[str],
+        limit: int,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Fetch verified, active personal facts from the chatlog adapter."""
+        effective_user_id = str(user_id or "default").strip() or "default"
+        trace: Dict[str, Any] = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "no_fact_adapter",
+            "count": 0,
+            "retrieved_count": 0,
+            "user_id": effective_user_id,
+        }
+
+        getter = getattr(self.chatlog, "list_facts", None)
+        if not callable(getter):
+            return [], trace
+
+        try:
+            try:
+                result = getter(
+                    effective_user_id,
+                    status="verified",
+                    active_only=True,
+                    limit=limit,
+                )
+            except TypeError:
+                result = getter(
+                    effective_user_id,
+                    status="verified",
+                    active_only=True,
+                )
+            if hasattr(result, "__await__"):
+                result = await result
+            raw_facts = result if isinstance(result, list) else []
+            eligible_facts = [
+                fact
+                for fact in raw_facts
+                if _is_verified_active_personal_fact(fact)
+            ]
+            trace.update(
+                attempted=True,
+                retrieved_count=len(raw_facts),
+                count=len(eligible_facts),
+                status=(
+                    "contributed" if eligible_facts else "attempted_no_hits"
+                ),
+                reason=(
+                    "verified_active_facts"
+                    if eligible_facts
+                    else "no_verified_facts"
+                ),
+            )
+            return eligible_facts, trace
+        except Exception as exc:
+            trace.update(
+                attempted=True,
+                status="failed",
+                reason="retrieval_error",
+                error=str(exc),
+                count=0,
+                retrieved_count=0,
+            )
+            return [], trace
 
     def _obsidian_retrieval_enabled(self) -> bool:
         getter = getattr(self.chatlog, "get_connector_config", None)

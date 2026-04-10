@@ -997,7 +997,6 @@ def health_vector():
 
         from backend.rag.embedder import Embedder
         from guardian.core import dependencies
-        from guardian.vector.store import VectorStore
 
         vector_store = dependencies._vector_store
         backend = (
@@ -1030,7 +1029,7 @@ def health_vector():
         else:
             source = "shared"
             if vector_store is None:
-                vector_store = VectorStore()
+                vector_store = dependencies.get_vector_store()
                 source = "local"
             added = vector_store.add_texts(
                 [{"text": probe_text, "meta": probe_meta}]

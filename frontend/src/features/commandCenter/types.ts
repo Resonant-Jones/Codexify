@@ -231,6 +231,8 @@ export interface CommandCenterRunTraceEvidence {
 }
 
 export interface CommandCenterEvent {
+  attemptedModel?: string | null;
+  attemptedProvider?: string | null;
   eventId: string | null;
   completedAt?: number | null;
   durationMs?: number | null;
@@ -242,6 +244,12 @@ export interface CommandCenterEvent {
   lifecycleState?: string | null;
   latestTurnContent?: string | null;
   memoryCount?: number | null;
+  fallbackTriggered?: boolean | null;
+  finalModel?: string | null;
+  finalProvider?: string | null;
+  fallbackReason?: string | null;
+  persistenceOutcome?: string | null;
+  selectionSource?: string | null;
   raw: string;
   receivedAt: number;
   queuedAt?: number | null;
@@ -249,6 +257,8 @@ export interface CommandCenterEvent {
   runId: string | null;
   runKind?: CommandCenterRunKind | null;
   sourceMode?: string | null;
+  retrievalDepth?: string | null;
+  retrievalIntent?: string | null;
   taskType: string | null;
   sseType: string | null;
   status: string | null;
@@ -270,6 +280,8 @@ export interface CommandCenterEvent {
 }
 
 export interface CommandCenterRun {
+  attemptedModel?: string | null;
+  attemptedProvider?: string | null;
   eventCount: number;
   events?: CommandCenterEvent[];
   identityKind?: CommandCenterRunIdentityKind;
@@ -280,6 +292,10 @@ export interface CommandCenterRun {
   lastKind: string | null;
   lastType: string | null;
   latestTurnMessageId?: string | null;
+  fallbackTriggered?: boolean | null;
+  finalModel?: string | null;
+  finalProvider?: string | null;
+  fallbackReason?: string | null;
   requestId?: string | null;
   runId: string | null;
   runKind?: CommandCenterRunKind | null;
@@ -290,6 +306,10 @@ export interface CommandCenterRun {
   summary: string;
   taskId: string | null;
   terminalOutcome?: CommandCenterRunTerminalOutcome | null;
+  persistenceOutcome?: string | null;
+  selectionSource?: string | null;
+  retrievalDepth?: string | null;
+  retrievalIntent?: string | null;
   timings?: CommandCenterRunTimings | null;
   turnId?: string | null;
   threadId?: number | null;

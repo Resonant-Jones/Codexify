@@ -50,6 +50,8 @@ import {
   useAuthState,
 } from "@/lib/authState";
 import type { DocumentContextTile } from "@/lib/documentContext";
+import { useShellViewportProfile } from "./shellBreakpointContract";
+import { getMobileShellProfile } from "./mobileShellProfile";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -251,10 +253,13 @@ export default function GuardianChatWithSidebar({
       localStorage.setItem("cfy.sidebarVisible", String(isSidebarVisible));
     } catch { /* ignore */ }
   }, [isSidebarVisible]);
-  const [isDesktopLayout, setIsDesktopLayout] = React.useState(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
-    return window.matchMedia("(min-width: 1024px)").matches;
-  });
+  const shellViewportProfile = useShellViewportProfile();
+  const mobileShellProfile = useMemo(
+    () => getMobileShellProfile(shellViewportProfile),
+    [shellViewportProfile]
+  );
+  const isPhoneShell = mobileShellProfile.active;
+  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
@@ -492,34 +497,13 @@ export default function GuardianChatWithSidebar({
     sessionSpine,
     threads,
   ]);
-  React.useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const handleChange = (event?: MediaQueryListEvent) => {
-      if (event && typeof event.matches === "boolean") {
-        setIsDesktopLayout(event.matches);
-        return;
-      }
-      setIsDesktopLayout(mq.matches);
-    };
-    handleChange();
-    if (typeof mq.addEventListener === "function") {
-      mq.addEventListener("change", handleChange);
-      return () => {
-        mq.removeEventListener("change", handleChange);
-      };
-    }
-    if (typeof mq.addListener === "function") {
-      mq.addListener(handleChange);
-      return () => {
-        mq.removeListener(handleChange);
-      };
-    }
-    return undefined;
-  }, []);
-
   const isSidebarOpen = isDesktopLayout ? isSidebarVisible : isMobileSidebarOpen;
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
+  const guardianLayoutMode = mobileShellProfile.guardian.singleLane
+    ? "single_lane"
+    : isDesktopLayout
+      ? "split"
+      : "collapsed_drawer";
 
   // Portal target: mount inside the themed app shell so the overlay inherits
   // the same CSS variables and theme context as the rest of the UI.
@@ -1483,6 +1467,7 @@ export default function GuardianChatWithSidebar({
   );
 
   const chatDisabled = !isDesktopLayout && isSidebarOpen;
+  const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
   const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
@@ -1515,7 +1500,7 @@ export default function GuardianChatWithSidebar({
               top: 0,
               left: 0,
               height: "100%",
-              width: "min(360px, 90vw)",
+              width: mobileShellProfile.guardian.drawerWidth,
               zIndex: 10001,
             }}
             onPointerDown={stopDrawerEvent}
@@ -1562,15 +1547,24 @@ export default function GuardianChatWithSidebar({
     <>
       {mobileOverlay}
       <div
-        className="relative grid h-full w-full max-w-[1500px] min-h-0 overflow-hidden box-border items-stretch mx-auto"
+        className={clsx(
+          "relative h-full w-full min-h-0 overflow-hidden box-border items-stretch mx-auto",
+          isPhoneShell ? "flex flex-col" : "grid"
+        )}
+        data-guardian-layout={guardianLayoutMode}
+        data-shell-profile={mobileShellProfile.shellMode}
         style={{
-          gridTemplateColumns: isDesktopLayout && isSidebarOpen
-            ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
-            : "1fr",
-          gap: "8px",
+          maxWidth: mobileShellProfile.guardian.frameMaxWidth,
+          gridTemplateColumns:
+            !isPhoneShell && isDesktopLayout && isSidebarOpen
+              ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+              : "1fr",
+          gap: "var(--gutter)",
           padding: "0px",
           boxSizing: "border-box",
-          transition: "grid-template-columns 0.2s ease-out",
+          transition: isPhoneShell
+            ? undefined
+            : "grid-template-columns 0.2s ease-out",
         }}
       >
         {imprintZero.proposal && (
@@ -1643,7 +1637,7 @@ export default function GuardianChatWithSidebar({
                   Authentication required. Please sign in or set a dev key.
                 </div>
               )}
-              {workspaceOpen && (
+              {showWorkspacePreview && (
                 <div className="absolute inset-0 z-[110] pointer-events-auto">
                   <div className="absolute right-0 top-0 h-full w-[min(420px,90vw)] bg-black/50 backdrop-blur-md border-l border-white/10 shadow-2xl overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
