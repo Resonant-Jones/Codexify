@@ -7,8 +7,12 @@ describe("SettingsPanelDock", () => {
   test("keeps the tab rail sticky and labeled as a control surface", () => {
     render(
       <SettingsPanelDock>
-        <button type="button">Appearance</button>
-        <button type="button">Imprint</button>
+        <button type="button" role="tab" aria-selected="true">
+          Appearance
+        </button>
+        <button type="button" role="tab" aria-selected="false">
+          Imprint
+        </button>
       </SettingsPanelDock>
     );
 
@@ -17,7 +21,8 @@ describe("SettingsPanelDock", () => {
       position: "sticky",
       top: "calc(var(--card-pad) + var(--board-edge))",
     });
-    expect(screen.getByRole("button", { name: "Appearance" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Imprint" })).toBeInTheDocument();
+    expect(dock).toHaveAttribute("aria-orientation", "horizontal");
+    expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Imprint" })).toBeInTheDocument();
   });
 });

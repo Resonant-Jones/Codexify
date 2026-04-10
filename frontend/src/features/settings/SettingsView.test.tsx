@@ -176,7 +176,7 @@ describe("SettingsView save flow", () => {
 
     renderSettingsView({ setSystemPrompt });
 
-    fireEvent.click(screen.getByRole("button", { name: /^imprint$/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /^imprint$/i }));
     fireEvent.change(screen.getByDisplayValue("Original system prompt"), {
       target: { value: "Updated system prompt" },
     });
@@ -195,12 +195,26 @@ describe("SettingsView save flow", () => {
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
   });
 
+  it("moves the settings rail with arrow keys", () => {
+    renderSettingsView();
+
+    const appearanceTab = screen.getByRole("tab", { name: /^appearance$/i });
+    const imprintTab = screen.getByRole("tab", { name: /^imprint$/i });
+
+    appearanceTab.focus();
+    fireEvent.keyDown(appearanceTab, { key: "ArrowRight" });
+
+    expect(imprintTab).toHaveFocus();
+    expect(imprintTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: /^imprint$/i })).toBeInTheDocument();
+  });
+
   it("binds diagnostics to the active route thread and refreshes when the active thread changes", async () => {
     fetchLatestRagTraceMock.mockResolvedValue({ documents: [], graph: [] });
 
     renderSettingsView();
 
-    fireEvent.click(screen.getByRole("button", { name: /^diagnostics$/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
 
     await waitFor(() => {
       expect(fetchLatestRagTraceMock).toHaveBeenCalledWith(42);

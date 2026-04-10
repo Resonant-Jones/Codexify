@@ -1,18 +1,25 @@
-import type { CSSProperties, PropsWithChildren } from "react";
+import type {
+  CSSProperties,
+  ComponentPropsWithoutRef,
+  PropsWithChildren,
+} from "react";
 
 import { cn } from "@/lib/utils";
 
-type SettingsSectionCardProps = PropsWithChildren<{
-  className?: string;
-  "data-testid"?: string;
-  style?: CSSProperties;
-}>;
+type SettingsSectionCardProps = PropsWithChildren<
+  Omit<ComponentPropsWithoutRef<"section">, "children" | "className" | "style"> & {
+    className?: string;
+    "data-testid"?: string;
+    style?: CSSProperties;
+  }
+>;
 
 export default function SettingsSectionCard({
   children,
   className,
   style,
   "data-testid": dataTestId,
+  ...rest
 }: SettingsSectionCardProps) {
   return (
     <section
@@ -26,6 +33,7 @@ export default function SettingsSectionCard({
           "inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.12)",
         ...style,
       }}
+      {...rest}
     >
       {children}
     </section>
