@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DocumentsView from "@/components/documents/DocumentsView";
 import type { ExtColors } from "@/types/ui";
@@ -41,13 +41,33 @@ const DOCUMENT = {
   src_url: "/media/documents/doc-1.pdf",
 };
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 describe("DocumentsView interactions", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setViewportWidth(1280);
+    act(() => {
+      setViewportWidth(1280);
+    });
+  });
+
   afterEach(() => {
+    act(() => {
+      setViewportWidth(1280);
+    });
     requestWorkspaceOpenMock.mockReset();
     vi.restoreAllMocks();
   });
 
-  it("shows only the Thread and Project scope pills in the header", () => {
+  it("renders the thread rail with its scope pills inside the rail chrome", () => {
     render(
       <DocumentsView
         documents={[]}
@@ -58,6 +78,13 @@ describe("DocumentsView interactions", () => {
       />
     );
 
+    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
+      "data-rail-state",
+      "open"
+    );
+    expect(
+      screen.getByRole("button", { name: "Hide thread rail" })
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Thread" })).toHaveAttribute(
       "data-state",
       "active"
@@ -69,6 +96,34 @@ describe("DocumentsView interactions", () => {
     expect(
       screen.queryByRole("button", { name: /Open in Thread/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("collapses the rail and keeps a summon affordance visible", () => {
+    render(
+      <DocumentsView
+        documents={[]}
+        extColors={EXT_COLORS}
+        onDocumentScopeChange={vi.fn()}
+        threadScopeEnabled
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide thread rail" }));
+
+    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
+      "data-rail-state",
+      "collapsed"
+    );
+    expect(
+      screen.getByRole("button", { name: "Show thread rail" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show thread rail" }));
+
+    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
+      "data-rail-state",
+      "open"
+    );
   });
 
   it("opens the workspace on primary click", () => {
@@ -115,7 +170,9 @@ describe("DocumentsView interactions", () => {
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "Quarterly Plan" }));
 
-    const menuItem = await screen.findByRole("menuitem", { name: "Open in Thread" });
+    const menuItem = await screen.findByRole("menuitem", {
+      name: "Open in Thread",
+    });
     fireEvent.click(menuItem);
 
     await waitFor(() => {
@@ -126,5 +183,71 @@ describe("DocumentsView interactions", () => {
         })
       );
     });
+  });
+
+  it("switches to the mobile list layout and keeps the summon handle discoverable", () => {
+    setViewportWidth(390);
+
+    render(
+  it("switches to a mobile list layout and keeps document taps explicit", async () => {
+    act(() => {
+      setViewportWidth(390);
+    });
+
+    const { container } = render(
+      <DocumentsView
+        documents={[DOCUMENT]}
+        extColors={EXT_COLORS}
+        onDocumentScopeChange={vi.fn()}
+        threadScopeEnabled
+      />
+    );
+
+    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+      "data-documents-layout",
+      "mobile_list"
+    );
+    expect(screen.getByTestId("documents-thread-rail")).toHaveAttribute(
+      "data-rail-state",
+      "collapsed"
+    );
+    expect(
+      screen.getByRole("button", { name: "Show thread rail" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open Quarterly Plan in Workspace" })
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+        "data-documents-layout",
+        "mobile_list"
+      );
+      expect(
+        container.querySelector('[data-layout-mode="mobile-list"]')
+      ).toBeTruthy();
+    });
+
+    expect(
+      screen.getByTestId("documents-mobile-row-button-doc-1")
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Quarterly Plan in Workspace" })
+    );
+
+    expect(requestWorkspaceOpenMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        doc: expect.objectContaining({
+          id: "doc-1",
+          title: "Quarterly Plan",
+          ext: "pdf",
+        }),
+        source: "documents",
+        targetView: "documents",
+      }),
+      expect.objectContaining({
+        source: "documents",
+        targetView: "documents",
+      })
+    );
   });
 });

@@ -77,14 +77,8 @@ export default function PersonaSettingsPanel({
             <span style={{ color: "var(--muted)" }}>{draftText.length} chars</span>
           </div>
 
-          <label
-            className="block space-y-2"
-            htmlFor="persona-settings-text"
-          >
-            <span
-              className="text-sm font-medium"
-              style={{ color: "var(--text)" }}
-            >
+          <label className="block space-y-2" htmlFor="persona-settings-text">
+            <span className="text-sm font-medium" style={{ color: "var(--text)" }}>
               Active persona text
             </span>
             <Textarea

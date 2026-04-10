@@ -13,6 +13,7 @@ type UseRagTraceResult = {
   error: string | null;
   loading: boolean;
   resolvedThreadId: number | null;
+  rawTrace: Record<string, unknown> | null;
   trace: CommandCenterRagTracePayload | null;
   unavailable: boolean;
   unavailableReason: CommandCenterRagTraceUnavailableReason | null;
@@ -235,6 +236,7 @@ export default function useRagTrace(
     error: null,
     loading: false,
     resolvedThreadId: null,
+    rawTrace: null,
     trace: null,
     unavailable: true,
     unavailableReason: "no_run",
@@ -248,6 +250,7 @@ export default function useRagTrace(
         error: null,
         loading: false,
         resolvedThreadId: null,
+        rawTrace: null,
         trace: null,
         unavailable: true,
         unavailableReason: "no_run",
@@ -261,6 +264,7 @@ export default function useRagTrace(
         error: null,
         loading: false,
         resolvedThreadId: null,
+        rawTrace: null,
         trace: null,
         unavailable: true,
         unavailableReason: "no_thread",
@@ -272,6 +276,7 @@ export default function useRagTrace(
       error: null,
       loading: true,
       resolvedThreadId,
+      rawTrace: null,
       trace: null,
       unavailable: false,
       unavailableReason: null,
@@ -280,22 +285,25 @@ export default function useRagTrace(
     void fetchLatestRagTrace(resolvedThreadId)
       .then((payload) => {
         if (cancelled) return;
-        const normalized = normalizeTracePayload(payload, resolvedThreadId);
-        if (!normalized) {
+        const rawTrace = asRecord(payload);
+        if (!rawTrace) {
           setState({
             error: null,
             loading: false,
             resolvedThreadId,
+            rawTrace: null,
             trace: null,
             unavailable: true,
             unavailableReason: "no_trace",
           });
           return;
         }
+        const normalized = normalizeTracePayload(rawTrace, resolvedThreadId);
         setState({
           error: null,
           loading: false,
           resolvedThreadId,
+          rawTrace,
           trace: normalized,
           unavailable: false,
           unavailableReason: null,
@@ -308,6 +316,7 @@ export default function useRagTrace(
             error: null,
             loading: false,
             resolvedThreadId,
+            rawTrace: null,
             trace: null,
             unavailable: true,
             unavailableReason: "no_trace",
@@ -318,6 +327,7 @@ export default function useRagTrace(
           error: formatError(error),
           loading: false,
           resolvedThreadId,
+          rawTrace: null,
           trace: null,
           unavailable: false,
           unavailableReason: null,

@@ -3,19 +3,20 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import RunDetailDrawer from "@/features/commandCenter/components/RunDetailDrawer";
-import HealthPanel from "@/features/commandCenter/components/HealthPanel";
-import RunSummaryCard from "@/features/commandCenter/components/RunSummaryCard";
+import EventConsole from "@/features/commandCenter/components/EventConsole";
+import HealthOverview from "@/features/commandCenter/components/HealthOverview";
+import TraceWorkbench from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
-import type {
-  CommandCenterConnectionState,
-  CommandCenterHealthItem,
-  CommandCenterRun,
-} from "@/features/commandCenter/types";
 import {
-  COMMAND_CENTER_HEALTH_STATES,
-  COMMAND_CENTER_RUN_STATUSES,
+  buildCommandCenterEventConsoleRows,
+  countCommandCenterUnknownItems,
+  countCommandCenterWarningSignals,
+  filterCommandCenterRuns,
+} from "@/features/commandCenter/commandCenterObservability";
+import type {
+  CommandCenterRun,
+  CommandCenterTraceFilters,
 } from "@/features/commandCenter/types";
 import {
   describeRuntimeStatusPresentation,
@@ -26,63 +27,23 @@ type CommandCenterPageProps = {
   enabled: boolean;
 };
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
+type BadgeTone = RuntimeStatusTone | "danger";
 
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed) return trimmed;
-  }
-  return null;
-}
-
-function firstNumber(...values: unknown[]): number | null {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) continue;
-      const parsed = Number(trimmed);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return null;
-}
+const filtersDefault: CommandCenterTraceFilters = {
+  model: "",
+  provider: "",
+  retrieval: "",
+  status: "all",
+  threadId: "",
+  warningsOnly: false,
+};
 
 function formatTimestamp(value: number | null): string {
   if (!value) return "Not yet";
   return new Date(value).toLocaleString();
 }
 
-type BadgeTone = RuntimeStatusTone;
-
-const sectionSurfaceStyle: React.CSSProperties = {
-  background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-  borderColor: "var(--panel-border)",
-  borderRadius: "var(--tile-radius)",
-};
-
-const tileSurfaceStyle: React.CSSProperties = {
-  background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
-  borderColor: "var(--panel-border)",
-  borderRadius: "var(--tile-radius)",
-};
-
-const rawSurfaceStyle: React.CSSProperties = {
-  background: "var(--surface-soft)",
-  borderColor: "var(--panel-border)",
-  borderRadius: "var(--tile-radius)",
-};
-
-function badgeToneStyle(tone: BadgeTone): React.CSSProperties {
+function toneStyle(tone: BadgeTone): React.CSSProperties {
   switch (tone) {
     case "active":
       return {
@@ -127,66 +88,40 @@ function badgeToneStyle(tone: BadgeTone): React.CSSProperties {
 function BadgePill({
   ariaLabel,
   children,
-  className,
   tone,
 }: {
   ariaLabel?: string;
   children: React.ReactNode;
-  className?: string;
   tone: BadgeTone;
 }) {
   return (
     <Badge
       aria-label={ariaLabel}
-      className={`border text-[11px] font-medium leading-none ${className ?? ""}`.trim()}
-      style={badgeToneStyle(tone)}
+      className="border text-[11px] font-medium leading-none"
+      style={toneStyle(tone)}
     >
       {children}
     </Badge>
   );
 }
 
-function StatusPill({
-  ariaLabelPrefix,
-  fallbackStatus,
-  status,
-}: {
-  ariaLabelPrefix?: string;
-  fallbackStatus?: string;
-  status: string | null | undefined;
-}) {
-  const presentation = describeRuntimeStatusPresentation(
-    firstString(status, fallbackStatus)
-  );
-
-  return (
-    <BadgePill
-      ariaLabel={
-        ariaLabelPrefix ? `${ariaLabelPrefix} ${presentation.label}` : presentation.label
-      }
-      tone={presentation.tone}
-    >
-      {presentation.label}
-    </BadgePill>
-  );
-}
-
 function SummaryTile({
   children,
-  dataTestId,
   label,
   note,
 }: {
   children: React.ReactNode;
-  dataTestId?: string;
   label: string;
   note: React.ReactNode;
 }) {
   return (
     <div
       className="space-y-2 border p-[var(--card-pad)]"
-      data-testid={dataTestId}
-      style={tileSurfaceStyle}
+      style={{
+        background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
+        borderColor: "var(--panel-border)",
+        borderRadius: "var(--tile-radius)",
+      }}
     >
       <div
         className="text-[11px] font-semibold uppercase tracking-[0.16em]"
@@ -202,346 +137,143 @@ function SummaryTile({
   );
 }
 
-function countUnknownItems(
-  healthItems: CommandCenterHealthItem[],
-  runs: CommandCenterRun[]
-): number {
-  const healthUnknownCount = healthItems.filter(
-    (item) => item.status === COMMAND_CENTER_HEALTH_STATES.UNKNOWN
-  ).length;
-  const runUnknownCount = runs.filter(
-    (run) => run.status === COMMAND_CENTER_RUN_STATUSES.UNKNOWN
-  ).length;
-  return healthUnknownCount + runUnknownCount;
-}
-
-function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
-  const payload = asRecord(run.lastEvent.json);
-  const thread = asRecord(payload?.thread);
-  const task = asRecord(payload?.task);
-  const nestedRun = asRecord(payload?.run);
-  const context = asRecord(payload?.context);
-  const nestedPayload = asRecord(payload?.payload);
-
-  return firstNumber(
-    run.threadId,
-    payload?.thread_id,
-    payload?.threadId,
-    thread?.id,
-    thread?.thread_id,
-    thread?.threadId,
-    nestedRun?.thread_id,
-    nestedRun?.threadId,
-    task?.thread_id,
-    task?.threadId,
-    context?.thread_id,
-    context?.threadId,
-    nestedPayload?.thread_id,
-    nestedPayload?.threadId
-  );
-}
-
-function resolveSelectedRunTraceUrl(run: CommandCenterRun): string | null {
-  const payload = asRecord(run.lastEvent.json);
-  const nestedRun = asRecord(payload?.run);
-  const response = asRecord(payload?.response);
-  const result = asRecord(payload?.result);
-
-  return firstString(
-    run.traceUrl,
-    payload?.trace_url,
-    payload?.traceUrl,
-    nestedRun?.trace_url,
-    nestedRun?.traceUrl,
-    response?.trace_url,
-    response?.traceUrl,
-    result?.trace_url,
-    result?.traceUrl
-  );
-}
-
-function SummaryStrip({
-  connectionState,
+function DashboardHeader({
+  connectionDetail,
   lastEventAt,
-  healthItems,
-  runs,
-  unauthorized,
+  transportLabel,
+  transportTone,
 }: {
-  connectionState: CommandCenterConnectionState;
+  connectionDetail: string | null;
   lastEventAt: number | null;
-  healthItems: CommandCenterHealthItem[];
-  runs: CommandCenterRun[];
-  unauthorized: boolean;
+  transportLabel: string;
+  transportTone: BadgeTone;
 }) {
-  const unknownCount = countUnknownItems(healthItems, runs);
-
   return (
     <Card
       className="bezel-none border"
-      role="region"
-      aria-label="Command Center summary strip"
-      data-testid="command-center-summary-strip"
       style={{
-        ...sectionSurfaceStyle,
+        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+        borderColor: "var(--panel-border)",
       }}
     >
-      <CardHeader className="space-y-2 pb-3">
+      <CardContent className="flex flex-col gap-4 p-[var(--card-pad)] sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <div
+            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+            style={{ color: "var(--muted)" }}
+          >
+            Command Center
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>
+            Agent Command Center
+          </h1>
+          <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--muted)" }}>
+            Split observability surface for health, RAG diagnostics, and raw transport truth.
+          </p>
+          {connectionDetail ? (
+            <div className="text-xs" style={{ color: "var(--muted)" }}>
+              {connectionDetail}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <BadgePill ariaLabel={`Transport state ${transportLabel}`} tone={transportTone}>
+            {transportLabel}
+          </BadgePill>
+          <BadgePill tone="subtle">Last event: {formatTimestamp(lastEventAt)}</BadgePill>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DashboardSummary({
+  healthCount,
+  unknownCount,
+  visibleRunCount,
+  warningCount,
+  transportLabel,
+  transportTone,
+  lastEventAt,
+}: {
+  healthCount: number;
+  lastEventAt: number | null;
+  transportLabel: string;
+  transportTone: BadgeTone;
+  unknownCount: number;
+  visibleRunCount: number;
+  warningCount: number;
+}) {
+  return (
+    <Card
+      className="bezel-none border"
+      style={{
+        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <CardHeader className="pb-3">
         <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-          Runtime snapshot
+          Runtime summary
         </CardTitle>
         <p className="text-sm" style={{ color: "var(--muted)" }}>
-          Live counts from the current connection, visible health surfaces, and
-          run records on this page.
+          Compact high-value state only. Raw payloads remain in the trace report and console panes.
         </p>
       </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <SummaryTile
-          dataTestId="command-center-summary-service"
-          label="Service status"
-          note={
-            unauthorized
-              ? "Authentication is required for live surfaces."
-              : "Current transport state from the live stream."
-          }
+          label="Transport state"
+          note="Current SSE connection state."
         >
-          <StatusPill
-            ariaLabelPrefix="Service status"
-            status={unauthorized ? "unauthorized" : connectionState}
-          />
+          <BadgePill tone={transportTone} ariaLabel={`Transport state ${transportLabel}`}>
+            {transportLabel}
+          </BadgePill>
         </SummaryTile>
 
-        <SummaryTile
-          dataTestId="command-center-summary-last-event"
-          label="Last event"
-          note="Most recent page-level event timestamp."
-        >
-          <div
-            className="text-lg font-semibold leading-tight"
-            data-testid="command-center-summary-last-event-value"
-          >
+        <SummaryTile label="Last event" note="Most recent event timestamp.">
+          <div className="text-lg font-semibold leading-tight" style={{ color: "var(--text)" }}>
             {formatTimestamp(lastEventAt)}
           </div>
         </SummaryTile>
 
-        <SummaryTile
-          dataTestId="command-center-summary-health-count"
-          label="Health surfaces"
-          note="Health probes currently shown."
-        >
-          <div className="text-2xl font-semibold leading-none">{healthItems.length}</div>
+        <SummaryTile label="Health surfaces" note="Visible service checks.">
+          <div className="text-2xl font-semibold leading-none" style={{ color: "var(--text)" }}>
+            {healthCount}
+          </div>
         </SummaryTile>
 
-        <SummaryTile
-          dataTestId="command-center-summary-run-count"
-          label="Visible runs"
-          note="Run records currently visible."
-        >
-          <div className="text-2xl font-semibold leading-none">{runs.length}</div>
+        <SummaryTile label="Visible runs" note="Runs after current trace filters.">
+          <div className="text-2xl font-semibold leading-none" style={{ color: "var(--text)" }}>
+            {visibleRunCount}
+          </div>
         </SummaryTile>
 
-        <SummaryTile
-          dataTestId="command-center-summary-unknown-count"
-          label="Unknown items"
-          note={
-            unknownCount > 0
-              ? "Unresolved items remain visible."
-              : "No unknown statuses are currently visible."
-          }
-        >
+        <SummaryTile label="Unknown items" note="Promoted unknowns are suppressed; raw noise stays in the console.">
           <div
             className="text-2xl font-semibold leading-none"
             aria-label={`Unknown items ${unknownCount}`}
+            style={{ color: "var(--text)" }}
           >
             {unknownCount}
           </div>
         </SummaryTile>
-      </CardContent>
-    </Card>
-  );
-}
 
-function RunFeed({
-  onSelectRun,
-  runs,
-  selectedRunKey,
-}: {
-  onSelectRun: (run: CommandCenterRun) => void;
-  runs: CommandCenterRun[];
-  selectedRunKey: string | null;
-  }) {
-  return (
-    <Card
-      className="bezel-none border"
-      role="region"
-      aria-label="Command Center runs feed"
-      data-testid="command-center-runs-feed"
-      style={{
-        ...sectionSurfaceStyle,
-      }}
-    >
-      <CardHeader className="space-y-2">
-        <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-          Runs
-        </CardTitle>
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          Summary-first cards derived from the global SSE stream. Raw identifiers
-          and payload text stay collapsed unless needed.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {runs.length === 0 ? (
-          <div
-            className="rounded-[var(--tile-radius)] border px-[var(--card-pad)] py-5 text-sm"
-            style={{ ...tileSurfaceStyle, color: "var(--muted)" }}
-          >
-            Waiting for run-identifiable events.
+        <SummaryTile label="Warnings / failures" note="Health failures + trace warnings + console warnings.">
+          <div className="text-2xl font-semibold leading-none" style={{ color: "var(--text)" }}>
+            {warningCount}
           </div>
-        ) : (
-          runs.map((run) => {
-            const selected = run.key === selectedRunKey;
-            return (
-              <RunSummaryCard
-                key={run.key}
-                onOpen={onSelectRun}
-                run={run}
-                selected={selected}
-              />
-            );
-          })
-        )}
+        </SummaryTile>
       </CardContent>
     </Card>
   );
 }
 
-function ApprovalsPanelSection({
-  approvals,
-  onSelectRun,
-  selectedRunKey,
-}: {
-  approvals: Array<{
-    key: string;
-    label: string;
-    receivedAt: number;
-    runId: string | null;
-    runKey: string | null;
-    status: string | null;
-    summary: string;
-    taskId: string | null;
-  }>;
-  onSelectRun: (runKey: string | null) => void;
-  selectedRunKey: string | null;
-}) {
-  return (
-    <Card
-      className="bezel-none rounded-2xl border"
-      style={{
-        background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
-        borderColor: "var(--panel-border)",
-      }}
-    >
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-          Approvals
-        </CardTitle>
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          Escalation-facing events filtered from the same global SSE stream.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {approvals.length === 0 ? (
-          <div
-            className="rounded-xl border px-4 py-5 text-sm"
-            style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
-          >
-            No approval or clarification events detected yet.
-          </div>
-        ) : (
-          approvals.map((approval) => {
-            const selectable = Boolean(approval.runKey);
-            const selected =
-              selectable && approval.runKey != null && approval.runKey === selectedRunKey;
-            const status = approval.status ?? "attention";
-
-            return (
-              <button
-                key={approval.key}
-                type="button"
-                className="w-full text-left"
-                onClick={() => onSelectRun(approval.runKey)}
-                disabled={!selectable}
-              >
-                <Card
-                  className={`bezel-none rounded-xl border transition-colors ${
-                    selected ? "ring-1 ring-[var(--accent)]" : ""
-                  }`}
-                  style={{
-                    background:
-                      "color-mix(in srgb, rgba(250, 204, 21, 0.08) 80%, var(--panel-bg))",
-                    borderColor: selected ? "var(--accent)" : "var(--panel-border)",
-                    opacity: selectable ? 1 : 0.72,
-                  }}
-                >
-                  <CardContent className="space-y-3 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                          {approval.label}
-                        </div>
-                        <div className="text-xs" style={{ color: "var(--muted)" }}>
-                          {approval.summary}
-                        </div>
-                      </div>
-                      <StatusPill
-                        ariaLabelPrefix={`${approval.label} status`}
-                        status={status}
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
-                      <span
-                        className="rounded-full border px-2 py-1"
-                        style={{ borderColor: "var(--panel-border)" }}
-                      >
-                        Task: {approval.taskId ?? "—"}
-                      </span>
-                      <span
-                        className="rounded-full border px-2 py-1"
-                        style={{ borderColor: "var(--panel-border)" }}
-                      >
-                        Run: {approval.runId ?? "—"}
-                      </span>
-                      <span
-                        className="rounded-full border px-2 py-1"
-                        style={{ borderColor: "var(--panel-border)" }}
-                      >
-                        Seen: {new Date(approval.receivedAt).toLocaleString()}
-                      </span>
-                      <span
-                        className="rounded-full border px-2 py-1"
-                        style={{ borderColor: "var(--panel-border)" }}
-                      >
-                        {selectable ? "Selectable" : "No run selection available"}
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-              </button>
-            );
-          })
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-export default function CommandCenterPage({
-  enabled,
-}: CommandCenterPageProps) {
+export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const {
-    approvals,
     connectionDetail,
     connectionState,
+    events,
     lastEventAt,
     runs,
     unauthorized,
@@ -550,25 +282,60 @@ export default function CommandCenterPage({
     enabled,
   });
   const [selectedRunKey, setSelectedRunKey] = React.useState<string | null>(null);
+  const [traceFilters, setTraceFilters] =
+    React.useState<CommandCenterTraceFilters>(filtersDefault);
 
-  const selectedRun = React.useMemo<CommandCenterRun | null>(
-    () => {
-      const run = runs.find((candidate) => candidate.key === selectedRunKey) ?? null;
-      if (!run) return null;
-      return {
-        ...run,
-        threadId: resolveSelectedRunThreadId(run),
-        traceUrl: resolveSelectedRunTraceUrl(run),
-      };
-    },
-    [runs, selectedRunKey]
+  const consoleRows = React.useMemo(() => buildCommandCenterEventConsoleRows(events), [events]);
+  const visibleRuns = React.useMemo(
+    () => filterCommandCenterRuns(runs, traceFilters),
+    [runs, traceFilters]
   );
 
+  const selectedRun = React.useMemo<CommandCenterRun | null>(() => {
+    if (!selectedRunKey) return null;
+    return visibleRuns.find((candidate) => candidate.key === selectedRunKey) ?? null;
+  }, [selectedRunKey, visibleRuns]);
+
   React.useEffect(() => {
-    if (!selectedRunKey) return;
-    if (runs.some((run) => run.key === selectedRunKey)) return;
-    setSelectedRunKey(null);
-  }, [runs, selectedRunKey]);
+    if (visibleRuns.length === 0) {
+      if (selectedRunKey !== null) {
+        setSelectedRunKey(null);
+      }
+      return;
+    }
+
+    if (!selectedRunKey || !visibleRuns.some((run) => run.key === selectedRunKey)) {
+      setSelectedRunKey(visibleRuns[0]?.key ?? null);
+    }
+  }, [selectedRunKey, visibleRuns]);
+
+  const transportPresentation = React.useMemo(() => {
+    if (unauthorized) {
+      return { label: "Unauthorized", tone: "danger" as BadgeTone };
+    }
+    const presentation = describeRuntimeStatusPresentation(connectionState);
+    return { label: presentation.label, tone: presentation.tone as BadgeTone };
+  }, [connectionState, unauthorized]);
+
+  const unknownCount = React.useMemo(
+    () =>
+      countCommandCenterUnknownItems({
+        healthItems,
+        runs: visibleRuns,
+        consoleRows,
+      }),
+    [consoleRows, healthItems, visibleRuns]
+  );
+
+  const warningCount = React.useMemo(
+    () =>
+      countCommandCenterWarningSignals({
+        healthItems,
+        runs: visibleRuns,
+        consoleRows,
+      }),
+    [consoleRows, healthItems, visibleRuns]
+  );
 
   if (!enabled) {
     return (
@@ -580,14 +347,14 @@ export default function CommandCenterPage({
           <Card
             className="bezel-none w-full border"
             style={{
-              ...sectionSurfaceStyle,
+              background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+              borderColor: "var(--panel-border)",
             }}
           >
             <CardContent className="space-y-3 p-6">
               <div className="text-lg font-semibold">Command Center not enabled</div>
               <p className="text-sm" style={{ color: "var(--muted)" }}>
-                Set <code>VITE_ENABLE_COMMAND_CENTER=true</code> to expose this
-                route outside development.
+                Set <code>VITE_ENABLE_COMMAND_CENTER=true</code> to expose this route outside development.
               </p>
             </CardContent>
           </Card>
@@ -598,78 +365,55 @@ export default function CommandCenterPage({
 
   return (
     <main
-      className="min-h-screen overflow-auto p-[var(--card-pad)]"
+      className="h-screen overflow-hidden p-[var(--card-pad)]"
       style={{ background: "var(--panel-bg)", color: "var(--text)" }}
     >
-      <div className="mx-auto flex max-w-7xl flex-col gap-[var(--shell-gap)]">
-        <Card
-          className="bezel-none border"
-          style={{
-            ...sectionSurfaceStyle,
-          }}
-        >
-          <CardContent className="flex flex-col gap-4 p-[var(--card-pad)] sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <div
-                className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                style={{ color: "var(--muted)" }}
-              >
-                Command Center
-              </div>
-              <h1 className="text-2xl font-semibold tracking-tight">Agent Command Center</h1>
-              <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--muted)" }}>
-                Read-only operational surface for service health, runs, approvals,
-                and task event streams.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              <StatusPill
-                ariaLabelPrefix="Service status"
-                status={unauthorized ? "unauthorized" : connectionState}
-              />
-              <BadgePill tone="subtle">Last event: {formatTimestamp(lastEventAt)}</BadgePill>
-              {connectionDetail ? <BadgePill tone="subtle">{connectionDetail}</BadgePill> : null}
-            </div>
-          </CardContent>
-        </Card>
-
-        <SummaryStrip
-          connectionState={connectionState}
-          healthItems={healthItems}
+      <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-col gap-4">
+        <DashboardHeader
+          connectionDetail={connectionDetail}
           lastEventAt={lastEventAt}
-          runs={runs}
-          unauthorized={unauthorized}
+          transportLabel={transportPresentation.label}
+          transportTone={transportPresentation.tone}
         />
 
-        <HealthPanel
+        <DashboardSummary
+          healthCount={healthItems.length}
+          lastEventAt={lastEventAt}
+          transportLabel={transportPresentation.label}
+          transportTone={transportPresentation.tone}
+          unknownCount={unknownCount}
+          visibleRunCount={visibleRuns.length}
+          warningCount={warningCount}
+        />
+
+        <HealthOverview
           healthItems={healthItems}
           lastCheckedAt={lastCheckedAt}
           loading={loading}
           onRefresh={refresh}
         />
 
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.75fr)]">
-          <RunFeed
-            onSelectRun={(run) => setSelectedRunKey(run.key)}
-            runs={runs}
+        <div className="min-h-0 flex-1">
+          <TraceWorkbench
+            allRuns={runs}
+            filters={traceFilters}
+            onFiltersChange={setTraceFilters}
+            onSelectRun={setSelectedRunKey}
+            selectedRun={selectedRun}
             selectedRunKey={selectedRunKey}
+            visibleRuns={visibleRuns}
           />
-          <div className="space-y-5 self-start">
-            <ApprovalsPanelSection
-              approvals={approvals}
-              onSelectRun={(runKey) => {
-                if (runKey) setSelectedRunKey(runKey);
-              }}
-              selectedRunKey={selectedRunKey}
-            />
-          </div>
+        </div>
+
+        <div className="h-[22rem] min-h-0">
+          <EventConsole
+            connectionDetail={connectionDetail}
+            connectionState={connectionState}
+            lastEventAt={lastEventAt}
+            rows={consoleRows}
+          />
         </div>
       </div>
-
-      <RunDetailDrawer
-        run={selectedRun}
-        onClose={() => setSelectedRunKey(null)}
-      />
     </main>
   );
 }

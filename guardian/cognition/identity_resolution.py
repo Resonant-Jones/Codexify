@@ -1,10 +1,23 @@
-"""Deterministic persona/imprint resolution with explicit precedence rules."""
+"""Deterministic persona/imprint resolution with explicit precedence rules.
+
+Current runtime posture: actor-plus-role. Guardian remains the stable actor;
+persona and imprint are additive layers that shape behavior and presentation.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from guardian.cognition.identity_contract import (
+    IMPRINT_RESOLUTION_SOURCE_ACTIVE_SCOPE,
+    IMPRINT_RESOLUTION_SOURCE_SYSTEM_DEFAULT,
+    IMPRINT_RESOLUTION_SOURCE_USER_DEFAULT,
+    PERSONA_RESOLUTION_SOURCE_ACTIVE_SCOPE,
+    PERSONA_RESOLUTION_SOURCE_PROJECT_DEFAULT,
+    PERSONA_RESOLUTION_SOURCE_REQUEST_OVERRIDE,
+    PERSONA_RESOLUTION_SOURCE_SYSTEM_DEFAULT,
+)
 from guardian.cognition.imprints import store as imprint_store
 from guardian.cognition.personas import store as persona_store
 from guardian.db.models import Imprint, Persona
@@ -84,7 +97,12 @@ def resolve_persona(
     *,
     system_default_persona: str = SYSTEM_DEFAULT_PERSONA,
 ) -> ResolvedPersona:
-    """Resolve persona using deterministic precedence."""
+    """Resolve persona using deterministic precedence.
+
+    Request-scoped overrides are resolved first. They may point at a persisted
+    persona record or supply an inline runtime override string, but they do not
+    replace the stable Guardian actor.
+    """
     requested = requested_persona_id_or_name
     if requested is not None and str(requested).strip():
         requested_id = _try_parse_int(requested)
@@ -96,9 +114,11 @@ def resolve_persona(
                 raise ValueError("requested persona user mismatch")
             if candidate.project_id not in {project_id, None}:
                 raise ValueError("requested persona scope mismatch")
-            return _from_persona_row("request_override", candidate)
+            return _from_persona_row(
+                PERSONA_RESOLUTION_SOURCE_REQUEST_OVERRIDE, candidate
+            )
         return ResolvedPersona(
-            source="request_override",
+            source=PERSONA_RESOLUTION_SOURCE_REQUEST_OVERRIDE,
             persona_id=None,
             user_id=user_id,
             project_id=project_id,
@@ -108,15 +128,19 @@ def resolve_persona(
 
     active_scope = persona_store.get_active_persona(user_id, project_id)
     if active_scope:
-        return _from_persona_row("active_scope", active_scope)
+        return _from_persona_row(
+            PERSONA_RESOLUTION_SOURCE_ACTIVE_SCOPE, active_scope
+        )
 
     if project_id is not None:
         project_default = persona_store.get_active_persona(user_id, None)
         if project_default:
-            return _from_persona_row("project_default", project_default)
+            return _from_persona_row(
+                PERSONA_RESOLUTION_SOURCE_PROJECT_DEFAULT, project_default
+            )
 
     return ResolvedPersona(
-        source="system_default",
+        source=PERSONA_RESOLUTION_SOURCE_SYSTEM_DEFAULT,
         persona_id=None,
         user_id=user_id,
         project_id=project_id,
@@ -131,19 +155,27 @@ def resolve_imprint(
     *,
     system_default_imprint: dict[str, Any] | None = None,
 ) -> ResolvedImprint:
-    """Resolve imprint using deterministic precedence."""
+    """Resolve imprint using deterministic precedence.
+
+    Imprint remains additive presentation/style state. It can influence how
+    Guardian presents itself, but it does not rebind the stable actor.
+    """
     active_scope = imprint_store.get_active_imprint(user_id, project_id)
     if active_scope:
-        return _from_imprint_row("active_scope", active_scope)
+        return _from_imprint_row(
+            IMPRINT_RESOLUTION_SOURCE_ACTIVE_SCOPE, active_scope
+        )
 
     if project_id is not None:
         user_default = imprint_store.get_active_imprint(user_id, None)
         if user_default:
-            return _from_imprint_row("user_default", user_default)
+            return _from_imprint_row(
+                IMPRINT_RESOLUTION_SOURCE_USER_DEFAULT, user_default
+            )
 
     fallback = dict(system_default_imprint or SYSTEM_DEFAULT_IMPRINT)
     return ResolvedImprint(
-        source="system_default",
+        source=IMPRINT_RESOLUTION_SOURCE_SYSTEM_DEFAULT,
         imprint_id=None,
         user_id=user_id,
         project_id=project_id,
@@ -159,6 +191,8 @@ def resolve_imprint(
 __all__ = [
     "ResolvedImprint",
     "ResolvedPersona",
+    "SYSTEM_DEFAULT_IMPRINT",
+    "SYSTEM_DEFAULT_PERSONA",
     "resolve_imprint",
     "resolve_persona",
 ]

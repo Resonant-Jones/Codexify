@@ -34,7 +34,11 @@ test.describe('App Views Screenshots', () => {
     await page.waitForLoadState('networkidle');
 
     // Try to find and click settings
-    const settingsLink = page.locator('button:has-text("Settings"), [href*="settings"], a:has-text("Settings"), [data-testid="settings"]').first();
+    const settingsLink = page
+      .locator(
+        'button[aria-label="Settings"], [data-testid="settings-utility-toggle"], [href*="settings"], a:has-text("Settings")'
+      )
+      .first();
 
     if (await settingsLink.isVisible({ timeout: 2000 }).catch(() => false)) {
       await settingsLink.click();
