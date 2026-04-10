@@ -108,6 +108,62 @@ def _source_mode_from_origin(origin: Any) -> str:
     return "project"
 
 
+def _normalize_retrieval_override(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        override = dict(value)
+    else:
+        try:
+            override = dict(vars(value))
+        except Exception:
+            return None
+    if not override:
+        return None
+    mode = _clean_thread_config_text(override.get("mode"))
+    if mode is not None:
+        override["mode"] = mode.lower()
+    return override
+
+
+def _retrieval_override_mode(value: Any) -> str | None:
+    override = _normalize_retrieval_override(value)
+    if not override:
+        return None
+    mode = _clean_thread_config_text(override.get("mode"))
+    return mode.lower() if mode else None
+
+
+def _resolve_effective_source_mode_for_assembly(
+    source_mode: Any,
+    retrieval_override: Any,
+) -> str:
+    normalized_source_mode = _normalize_source_mode(source_mode)
+    override_mode = _retrieval_override_mode(retrieval_override)
+    if override_mode == "project":
+        return "project"
+    if override_mode == "personal_knowledge":
+        return "personal_knowledge"
+    if override_mode in {"none", "conversation"}:
+        return normalized_source_mode
+    return normalized_source_mode
+
+
+def _task_routing_debug_metadata(task: Any) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    slash_intent = _clean_thread_config_text(
+        getattr(task, "slash_intent", None)
+    )
+    if slash_intent is not None:
+        metadata["slash_intent"] = slash_intent
+    retrieval_override = _normalize_retrieval_override(
+        getattr(task, "retrieval_override", None)
+    )
+    if retrieval_override is not None:
+        metadata["retrieval_override"] = retrieval_override
+    return metadata
+
+
 @dataclass(frozen=True)
 class ThreadCompletionSettings:
     provider: str
@@ -1010,6 +1066,11 @@ async def build_messages_for_llm(
         settings=settings,
     )
     provider = thread_execution.provider
+    routing_debug_metadata = _task_routing_debug_metadata(task)
+    effective_source_mode = _resolve_effective_source_mode_for_assembly(
+        thread_execution.source_mode,
+        getattr(task, "retrieval_override", None),
+    )
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -1141,7 +1202,7 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
-    source_mode = thread_execution.source_mode
+    source_mode = effective_source_mode
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -1288,6 +1349,8 @@ async def build_messages_for_llm(
     if isinstance(trace, dict):
         trace = dict(trace)
         trace.update(latest_turn_trace_fields)
+        trace.update(routing_debug_metadata)
+        trace.setdefault("source_mode", effective_source_mode)
 
     try:
         retrieval_plan = resolve_retrieval_plan(
@@ -1361,6 +1424,7 @@ def run_chat_completion_task(
         model=model,
         settings=settings,
     )
+    routing_debug_metadata = _task_routing_debug_metadata(task)
 
     payload_summary = build_sanitized_payload_summary(
         messages_for_llm,
@@ -1379,6 +1443,9 @@ def run_chat_completion_task(
             ),
         }
     )
+    payload_summary.update(routing_debug_metadata)
+    if isinstance(trace, dict):
+        payload_summary["effective_source_mode"] = trace.get("source_mode")
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {
