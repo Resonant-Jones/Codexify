@@ -2783,6 +2783,7 @@ export default function AppShell({
                         key={`guardian-surface-${guardianSurfaceEpoch}`}
                         guardianName={guardianName}
                         userName={userName}
+                        userProfession={role}
                         prefill={prefill}
                         onPrefillConsumed={() => setPrefill(undefined)}
                         pendingDocumentTiles={pendingComposerDocumentTiles}

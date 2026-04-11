@@ -7,6 +7,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from guardian.cognition import system_prompt_builder
+from guardian.cognition.identity_resolution import (
+    ResolvedImprint,
+    ResolvedPersona,
+)
 from guardian.cognition.imprints import store as imprint_store
 from guardian.cognition.personas import store as persona_store
 from guardian.core import chat_completion_service
@@ -289,3 +294,142 @@ async def test_build_messages_for_llm_prefers_thread_persona_override_without_re
     assert prompt_meta["resolved_persona_id"] == override_persona.id
     assert prompt_meta["persona_has_body"] is True
     assert persona_store.get_active_persona("u1", 7).id == active_persona.id
+
+
+@pytest.mark.parametrize(
+    ("identity_context", "expected_present", "expected_absent"),
+    [
+        (
+            {
+                "preferred_name": "Harbor",
+                "profession": "Engineer",
+                "guardian_name": "Aurelia",
+            },
+            [
+                "User preferred name: Harbor",
+                "User profession: Engineer",
+                "Assistant name: Aurelia",
+            ],
+            [],
+        ),
+        (
+            {"preferred_name": "Harbor"},
+            ["User preferred name: Harbor"],
+            ["User profession:", "Assistant name:"],
+        ),
+        (
+            {},
+            [],
+            [
+                "User preferred name:",
+                "User profession:",
+                "Assistant name:",
+            ],
+        ),
+    ],
+)
+def test_build_guardian_system_prompt_injects_identity_lines(
+    monkeypatch: pytest.MonkeyPatch,
+    identity_context,
+    expected_present,
+    expected_absent,
+):
+    monkeypatch.setattr(
+        system_prompt_builder,
+        "resolve_imprint",
+        lambda *args, **kwargs: ResolvedImprint(
+            source="system_default",
+            imprint_id=None,
+            user_id="user-1",
+            project_id=None,
+            guardian_name=None,
+            preferred_name=None,
+            style=None,
+            grammar_prefs={},
+            metrics={},
+            heat_score=None,
+        ),
+    )
+    monkeypatch.setattr(
+        system_prompt_builder,
+        "resolve_persona",
+        lambda *args, **kwargs: ResolvedPersona(
+            source="system_default",
+            persona_id=None,
+            user_id="user-1",
+            project_id=None,
+            body="",
+            record_source="system_default",
+        ),
+    )
+    monkeypatch.setattr(
+        system_prompt_builder,
+        "get_docs_for",
+        lambda *args, **kwargs: [],
+    )
+
+    prompt, meta = system_prompt_builder.build_guardian_system_prompt(
+        user_id="user-1",
+        project_id=None,
+        depth="normal",
+        bundle={},
+        identity_context=identity_context,
+    )
+
+    for needle in expected_present:
+        assert needle in prompt
+    for needle in expected_absent:
+        assert needle not in prompt
+    assert "undefined" not in prompt
+    assert "null" not in prompt
+    assert meta["estimated_tokens_total"] > 0
+
+
+def test_run_chat_completion_task_injects_identity_context_into_fresh_thread(
+    _runtime_prompt_setup,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    def _capture_build_guardian_system_prompt(**kwargs):
+        captured.update(kwargs)
+        return (
+            "system prompt",
+            {
+                "estimated_tokens": 1,
+                "resolved_persona_id": None,
+                "persona_has_body": False,
+            },
+        )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_guardian_system_prompt",
+        _capture_build_guardian_system_prompt,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "assistant answer",
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        max_context=50,
+        depth_mode="normal",
+        preferred_name="Harbor",
+        profession="Engineer",
+        guardian_name="Aurelia",
+    )
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert "message_id" not in result
+    assert captured["identity_context"] == {
+        "preferred_name": "Harbor",
+        "profession": "Engineer",
+        "guardian_name": "Aurelia",
+    }

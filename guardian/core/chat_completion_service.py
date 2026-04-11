@@ -1536,6 +1536,11 @@ async def build_messages_for_llm(
         "retrieved_context": retrieved_context_messages,
     }
     completion_assembly.update(latest_turn_trace_fields)
+    identity_context = {
+        "preferred_name": getattr(task, "preferred_name", None),
+        "profession": getattr(task, "profession", None),
+        "guardian_name": getattr(task, "guardian_name", None),
+    }
 
     try:
         if build_guardian_system_prompt:
@@ -1545,6 +1550,7 @@ async def build_messages_for_llm(
                 depth=depth,
                 bundle=bundle,
                 profile=resolved_profile,
+                identity_context=identity_context,
             )
             token_est = prompt_meta.get(
                 "estimated_tokens", _estimate_tokens(system_content)
