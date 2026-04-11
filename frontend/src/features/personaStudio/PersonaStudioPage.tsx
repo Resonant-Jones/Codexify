@@ -907,75 +907,69 @@ export default function PersonaStudioPage() {
                 </div>
               </CardHeader>
               <CardContent className="relative min-h-0 flex-1 pt-0">
-                <div
-                  data-testid="persona-studio-utility-profiles-panel"
-                  data-state={utilityTab === "Profiles" ? "active" : "inactive"}
-                  className={
-                    utilityTab === "Profiles"
-                      ? "relative space-y-2"
-                      : "sr-only"
-                  }
-                >
-                  {profiles.map((profile) => (
-                    <button
-                      key={profile.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedProfileId(profile.id);
-                      }}
-                      className={`w-full rounded-xl p-3 text-left transition-colors ${
-                        profile.id === selectedProfileId
-                          ? "border-2"
-                          : "border border-transparent hover:border-[var(--panel-border)]"
-                      }`}
-                      style={{
-                        background:
+                {utilityTab === "Profiles" ? (
+                  <div
+                    data-testid="persona-studio-utility-profiles-panel"
+                    data-state="active"
+                    className="relative space-y-2"
+                  >
+                    {profiles.map((profile) => (
+                      <button
+                        key={profile.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedProfileId(profile.id);
+                        }}
+                        className={`w-full rounded-xl p-3 text-left transition-colors ${
                           profile.id === selectedProfileId
-                            ? "rgba(255,255,255,0.08)"
-                            : "transparent",
-                        borderColor:
-                          profile.id === selectedProfileId
-                            ? "var(--accent)"
-                            : "transparent",
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{profile.name}</span>
-                        {profile.isDefault && (
-                          <Badge
-                            variant="outline"
-                            className="px-1.5 py-0.5 text-[10px]"
-                            style={{ borderColor: "var(--panel-border)" }}
-                          >
-                            Default
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
-                        {profile.description}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-
-                <div
-                  role="complementary"
-                  aria-label="Persona Studio diagnostics"
-                  data-testid="persona-studio-diagnostics"
-                  data-state={utilityTab === "Diagnostics" ? "active" : "inactive"}
-                  className={
-                    utilityTab === "Diagnostics"
-                      ? "relative h-full"
-                      : "sr-only"
-                  }
-                >
-                  <DiagnosticsPanel
-                    profile={selectedProfile}
-                    config={currentConfig}
-                    isDirty={isDirty}
-                    hasSavedVersion={hasSavedVersion}
-                  />
-                </div>
+                            ? "border-2"
+                            : "border border-transparent hover:border-[var(--panel-border)]"
+                        }`}
+                        style={{
+                          background:
+                            profile.id === selectedProfileId
+                              ? "rgba(255,255,255,0.08)"
+                              : "transparent",
+                          borderColor:
+                            profile.id === selectedProfileId
+                              ? "var(--accent)"
+                              : "transparent",
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{profile.name}</span>
+                          {profile.isDefault && (
+                            <Badge
+                              variant="outline"
+                              className="px-1.5 py-0.5 text-[10px]"
+                              style={{ borderColor: "var(--panel-border)" }}
+                            >
+                              Default
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
+                          {profile.description}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    role="complementary"
+                    aria-label="Persona Studio diagnostics"
+                    data-testid="persona-studio-diagnostics"
+                    data-state="active"
+                    className="relative h-full"
+                  >
+                    <DiagnosticsPanel
+                      profile={selectedProfile}
+                      config={currentConfig}
+                      isDirty={isDirty}
+                      hasSavedVersion={hasSavedVersion}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           ) : null}
