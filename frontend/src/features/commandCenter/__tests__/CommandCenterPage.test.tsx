@@ -375,6 +375,123 @@ const mockedRuns: CommandCenterRun[] = [
     traceUrl: null,
     turnId: "turn-bravo",
   },
+  {
+    eventCount: 1,
+    identityKind: "task",
+    key: "task-charlie",
+    lastEvent: makeEvent({
+      eventId: "evt-5",
+      json: { thread_id: 100, type: "chat.completion" },
+      kind: null,
+      raw: '{"thread_id":100,"type":"chat.completion"}',
+      receivedAt: Date.parse("2026-04-01T15:59:00Z"),
+      runId: "run-charlie",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: "task-charlie",
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 100,
+      turnId: "turn-charlie",
+      type: "task.completed",
+    }),
+    lastEventAt: Date.parse("2026-04-01T15:59:00Z"),
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: "run-charlie",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: "task-charlie",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId: 100,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: "turn-charlie",
+  },
+  {
+    eventCount: 1,
+    identityKind: "task",
+    key: "task-delta",
+    lastEvent: makeEvent({
+      eventId: "evt-6",
+      json: { thread_id: 200, type: "chat.completion" },
+      kind: null,
+      raw: '{"thread_id":200,"type":"chat.completion"}',
+      receivedAt: Date.parse("2026-04-01T15:59:05Z"),
+      runId: "run-delta",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: "task-delta",
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 200,
+      turnId: "turn-delta",
+      type: "task.completed",
+    }),
+    lastEventAt: Date.parse("2026-04-01T15:59:05Z"),
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: "run-delta",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: "task-delta",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId: 200,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: "turn-delta",
+  },
+  {
+    eventCount: 1,
+    identityKind: "task",
+    key: "task-echo",
+    lastEvent: makeEvent({
+      eventId: "evt-7",
+      json: { thread_id: 300, type: "chat.completion" },
+      kind: null,
+      raw: '{"thread_id":300,"type":"chat.completion"}',
+      receivedAt: Date.parse("2026-04-01T15:59:10Z"),
+      runId: "run-echo",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: "task-echo",
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 300,
+      turnId: "turn-echo",
+      type: "task.completed",
+    }),
+    lastEventAt: Date.parse("2026-04-01T15:59:10Z"),
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: "run-echo",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: "task-echo",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId: 300,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: "turn-echo",
+  },
 ];
 
 vi.mock("../hooks/useCommandCenterEvents", () => ({
@@ -443,6 +560,30 @@ const mockedRetrievalPosture: CommandCenterRetrievalPosture = {
   conversation_only: true,
 };
 
+const mockedProjectPosture: CommandCenterRetrievalPosture = {
+  source_mode: "project",
+  boundary_label: "same_user_same_project",
+  retrieval_override_mode: null,
+  widen_reason: "insufficient_thread_hits",
+  conversation_only: false,
+};
+
+const mockedPersonalKnowledgePosture: CommandCenterRetrievalPosture = {
+  source_mode: "personal_knowledge",
+  boundary_label: "same_user_only",
+  retrieval_override_mode: null,
+  widen_reason: "explicit_personal_knowledge",
+  conversation_only: false,
+};
+
+const mockedUnknownPosture: CommandCenterRetrievalPosture = {
+  source_mode: "unknown_mode",
+  boundary_label: "unknown_boundary",
+  retrieval_override_mode: null,
+  widen_reason: "unknown_reason",
+  conversation_only: false,
+};
+
 vi.mock("../hooks/useRetrievalPosture", () => ({
   default: (threadId: number | null) => {
     if (threadId === 42) {
@@ -459,6 +600,30 @@ vi.mock("../hooks/useRetrievalPosture", () => ({
         loading: false,
         retrievalPosture: null,
         status: "empty",
+      };
+    }
+    if (threadId === 100) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: mockedProjectPosture,
+        status: "ok",
+      };
+    }
+    if (threadId === 200) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: mockedPersonalKnowledgePosture,
+        status: "ok",
+      };
+    }
+    if (threadId === 300) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: mockedUnknownPosture,
+        status: "ok",
       };
     }
     return {
@@ -604,6 +769,10 @@ describe("CommandCenterPage", () => {
     expect(within(workbench).getByText(/override: conversation/i)).toBeInTheDocument();
     expect(within(workbench).getByText(/widen: none/i)).toBeInTheDocument();
     expect(within(workbench).getByText(/conversation-only/i)).toBeInTheDocument();
+
+    // Verify explainer text is also present
+    expect(within(workbench).getByText(/This run stayed inside the active conversation\./i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/No widening occurred\./i)).toBeInTheDocument();
   });
 
   it("renders empty state for retrieval posture when status is empty", () => {
@@ -618,5 +787,75 @@ describe("CommandCenterPage", () => {
     // Retrieval posture section should show empty state
     expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
     expect(within(workbench).getByText(/no retrieval posture evidence/i)).toBeInTheDocument();
+  });
+
+  it("renders explainer for conversation-only posture", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+
+    // Ensure task-alpha is selected (threadId 42, conversation-only posture)
+    const taskAlphaButton = within(workbench).queryByRole("button", { name: /task-alpha/i });
+    if (taskAlphaButton) {
+      fireEvent.click(taskAlphaButton);
+    }
+
+    // Verify explainer text for conversation-only posture
+    expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
+    expect(within(workbench).getByText(/This run stayed inside the active conversation\./i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/Evidence was constrained to the active conversation\./i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/No widening occurred\./i)).toBeInTheDocument();
+  });
+
+  it("renders explainer for project posture with widening", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+
+    // Select task-charlie (threadId 100, project posture with widening)
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-charlie/i }));
+    expect(within(workbench).getByText("Selected: task-charlie")).toBeInTheDocument();
+
+    // Verify explainer text for project posture with widening
+    expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
+    expect(within(workbench).getByText(/source: project/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/widen: insufficient_thread_hits/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/This run operated within the current project scope\./i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/This run widened within the current project when thread-local evidence was insufficient\./i)).toBeInTheDocument();
+  });
+
+  it("renders explainer for personal knowledge posture", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+
+    // Select task-delta (threadId 200, personal_knowledge posture)
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-delta/i }));
+    expect(within(workbench).getByText("Selected: task-delta")).toBeInTheDocument();
+
+    // Verify explainer text for personal knowledge posture
+    expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
+    expect(within(workbench).getByText(/source: personal_knowledge/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/This run was allowed to use the user's personal knowledge scope\./i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/This run was allowed to widen across the same user's knowledge scope\./i)).toBeInTheDocument();
+  });
+
+  it("renders fallback explainer for unsupported posture values", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+
+    // Select task-echo (threadId 300, unknown posture)
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-echo/i }));
+    expect(within(workbench).getByText("Selected: task-echo")).toBeInTheDocument();
+
+    // Verify fallback explainer text
+    expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
+    expect(within(workbench).getByText(/source: unknown_mode/i)).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(
+        /Retrieval posture metadata is present, but this combination does not yet have a tailored explanation\./i
+      )
+    ).toBeInTheDocument();
   });
 });
