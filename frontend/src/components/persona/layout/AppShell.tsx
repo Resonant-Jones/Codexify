@@ -88,7 +88,14 @@ import {
   getMobileTopNavDockStyle,
   getMobileTopNavRailStyle,
   getMobileWorkspaceSummonCopy,
+  getMobileNavPillFeedbackStyle,
+  getMobileWorkspaceSummonFeedbackStyle,
+  type MobileNavPillFeedbackContext,
 } from "./mobileNavigationContract";
+import {
+  getMobilePressFeedbackStyle,
+  type MobileInteractionContext,
+} from "./mobileInteractionContract";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -1450,6 +1457,31 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+
+  // Mobile interaction context for micro-interaction feedback
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    if (mq.addEventListener) mq.addEventListener("change", handler);
+    else mq.addListener(handler);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", handler);
+      else mq.removeListener(handler);
+    };
+  }, []);
+
+  const mobileInteractionContext = useMemo<MobileInteractionContext>(
+    () => ({
+      isPhoneShell,
+      prefersReducedMotion,
+      coarsePointer: true, // Assume coarse pointer for phone shells
+    }),
+    [isPhoneShell, prefersReducedMotion]
+  );
+
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
@@ -2185,6 +2217,14 @@ export default function AppShell({
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
   const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
+
+  // Mobile micro-interaction feedback styles
+  const mobileWorkspaceSummonFeedbackStyle = useMemo<React.CSSProperties>(
+    () =>
+      getMobilePressFeedbackStyle(mobileInteractionContext, workspaceDrawerOpen ? "idle" : "idle"),
+    [mobileInteractionContext, workspaceDrawerOpen]
+  );
+
   const workspaceDrawerToggle = workspaceShellEnabled ? (
     <button
       type="button"
@@ -2205,6 +2245,7 @@ export default function AppShell({
             : "Open workspace drawer"
       }
       onClick={toggleWorkspaceDrawer}
+      style={isPhoneShell ? mobileWorkspaceSummonFeedbackStyle : undefined}
     >
       {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
     </button>
@@ -2437,6 +2478,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "guardian" ? "active" : "inactive"}
                 onClick={() => navigateToView("guardian")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "guardian") : undefined}
               >
                 Guardian
               </button>
@@ -2444,6 +2486,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "dashboard" ? "active" : "inactive"}
                 onClick={() => navigateToView("dashboard")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "dashboard") : undefined}
               >
                 Dashboard
               </button>
@@ -2451,6 +2494,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
                 onClick={() => navigateToView("documents")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "documents") : undefined}
               >
                 Documents
               </button>
@@ -2458,6 +2502,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "gallery" ? "active" : "inactive"}
                 onClick={() => navigateToView("gallery")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "gallery") : undefined}
               >
                 Gallery
               </button>
@@ -2465,6 +2510,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 onClick={() => navigateToView("personaStudio")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "personaStudio") : undefined}
               >
                 Persona Studio
               </button>

@@ -4,7 +4,7 @@
  * Renders the chat composer input and controls, including turn-based gating
  * to prevent overlapping user sends while an assistant reply is in flight.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
@@ -12,6 +12,10 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
+import {
+  getMobileComposerSubmitFeedbackStyle,
+  type MobileInteractionContext,
+} from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
@@ -394,6 +398,36 @@ export function Composer({
   const [showImgGen, setShowImgGen] = useState(false);
   const mobileShellProfile = useMobileShellProfile();
   const effectiveSending = Boolean(isSending) || internalSending;
+
+  // Submit feedback phase for mobile micro-interaction
+  const [submitFeedbackPhase, setSubmitFeedbackPhase] = useState<"idle" | "submitting" | "submitted">("idle");
+
+  // Mobile interaction context
+  const mobileInteractionContext = useMemo<MobileInteractionContext>(() => {
+    const prefersReduced =
+      typeof window !== "undefined"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    return {
+      isPhoneShell: mobileShellProfile.active,
+      prefersReducedMotion: prefersReduced,
+      coarsePointer: true, // Assume coarse pointer on mobile
+    };
+  }, [mobileShellProfile.active]);
+
+  // Handle submit feedback sequence
+  const triggerSubmitFeedback = useCallback(() => {
+    if (!mobileShellProfile.active) return;
+    setSubmitFeedbackPhase("submitting");
+    const timer1 = setTimeout(() => {
+      setSubmitFeedbackPhase("submitted");
+      const timer2 = setTimeout(() => {
+        setSubmitFeedbackPhase("idle");
+      }, 80);
+      return () => clearTimeout(timer2);
+    }, 60);
+    return () => clearTimeout(timer1);
+  }, [mobileShellProfile.active]);
   const turnLocked = Boolean(isTurnInFlight);
   const transportBusy = effectiveSending || uploading;
   const draftControlsDisabled = transportBusy;
@@ -963,6 +997,7 @@ export function Composer({
       notifyTurnLocked();
       return;
     }
+    triggerSubmitFeedback();
     void send();
   };
   const composerSurfaceStyle = useMemo<React.CSSProperties>(
@@ -1346,6 +1381,9 @@ export function Composer({
                   color: "var(--text-on-accent, #111827)",
                   boxShadow: "none",
                   borderRadius: "9999px",
+                  ...(mobileShellProfile.active
+                    ? getMobileComposerSubmitFeedbackStyle(mobileInteractionContext, submitFeedbackPhase)
+                    : {}),
                 }}
               >
                 <Send className="h-3.5 w-3.5 shrink-0" />
