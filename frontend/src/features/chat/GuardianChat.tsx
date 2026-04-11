@@ -106,6 +106,18 @@ const TURN_LOCK_TOAST =
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
+const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
+
+function normalizePreferredName(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (UNSET_PREFERRED_NAME_VALUES.has(trimmed.toLowerCase())) {
+    return null;
+  }
+  return trimmed;
+}
 
 export function flattenChatEventPayload(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -698,6 +710,7 @@ export function GuardianChat({
     })
   );
   const [ragTraceOpen, setRagTraceOpen] = useState(false);
+  const preferredName = normalizePreferredName(userName);
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   const [documentTilesByScope, setDocumentTilesByScope] = useState<
@@ -3241,7 +3254,9 @@ export function GuardianChat({
             className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
             style={{ color: "var(--muted)" }}
           >
-            New thread ready. Start typing below.
+            {preferredName
+              ? `Welcome back, ${preferredName}. Let’s get started.`
+              : "New thread ready. Start typing below."}
           </div>
         )}
       </div>
