@@ -22,6 +22,7 @@ import type {
 import {
   COMMAND_CENTER_RUN_STATUSES,
   describeCommandCenterRunStatusPresentation,
+  type CommandCenterRetrievalPosture,
   type CommandCenterStatusTone,
 } from "@/features/commandCenter/types";
 
@@ -137,6 +138,82 @@ function firstNumber(...values: unknown[]): number | null {
     }
   }
   return null;
+}
+
+/**
+ * Derives a brief human-readable explanation of the retrieval posture from
+ * canonical backend fields. Presentation-only — does not infer or classify.
+ */
+function describeRetrievalPosture(posture: CommandCenterRetrievalPosture): string {
+  const { source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only } =
+    posture;
+
+  // Mode summary — what evidence scope was used
+  const modeSummary = (() => {
+    switch (source_mode) {
+      case "conversation":
+        return "This run stayed inside the active conversation.";
+      case "project":
+        return "This run operated within the current project scope.";
+      case "personal_knowledge":
+        return "This run was allowed to use the user's personal knowledge scope.";
+      default:
+        return null;
+    }
+  })();
+
+  // Boundary summary — what the retrieval boundary was
+  const boundarySummary = (() => {
+    switch (boundary_label) {
+      case "active_conversation_only":
+        return "Evidence was constrained to the active conversation.";
+      case "same_user_same_project":
+        return "Evidence was drawn from the current project.";
+      case "same_user_only":
+        return "Evidence was drawn from the same user's broader knowledge.";
+      default:
+        return null;
+    }
+  })();
+
+  // Widen summary — whether widening occurred and why
+  const widenSummary = (() => {
+    if (widen_reason === "none") {
+      return "No widening occurred.";
+    }
+    switch (widen_reason) {
+      case "insufficient_thread_hits":
+        return "This run widened within the current project when thread-local evidence was insufficient.";
+      case "explicit_personal_knowledge":
+        return "This run was allowed to widen across the same user's knowledge scope.";
+      default:
+        return null;
+    }
+  })();
+
+  // Override note — when an explicit override was applied
+  const overrideNote = (() => {
+    if (!retrieval_override_mode || retrieval_override_mode === source_mode) {
+      return null;
+    }
+    return `An explicit override redirected the retrieval scope to ${retrieval_override_mode}.`;
+  })();
+
+  // Conversation-only note — a flag that restricts scope regardless of other fields
+  const conversationOnlyNote = conversation_only
+    ? "Scope was locked to the active conversation."
+    : null;
+
+  // Collect non-null parts and build the explanation
+  const parts = [modeSummary, boundarySummary, widenSummary, overrideNote, conversationOnlyNote].filter(
+    (p): p is string => p !== null
+  );
+
+  if (parts.length === 0) {
+    return "Retrieval posture metadata is present, but this combination does not yet have a tailored explanation.";
+  }
+
+  return parts.join(" ");
 }
 
 function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
@@ -578,27 +655,32 @@ function TraceViewerPane({
                 No retrieval posture evidence for this thread.
               </div>
             ) : retrievalPosture ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                  source: {retrievalPosture.source_mode}
-                </Badge>
-                <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                  boundary: {retrievalPosture.boundary_label}
-                </Badge>
-                {retrievalPosture.retrieval_override_mode ? (
+              <>
+                <div className="mt-2 flex flex-wrap gap-2">
                   <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                    override: {retrievalPosture.retrieval_override_mode}
+                    source: {retrievalPosture.source_mode}
                   </Badge>
-                ) : null}
-                <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                  widen: {retrievalPosture.widen_reason}
-                </Badge>
-                {retrievalPosture.conversation_only && (
-                  <Badge className="border text-[11px] font-medium leading-none" style={{ background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)", borderColor: "var(--panel-border)", color: "var(--text-on-accent)" }}>
-                    conversation-only
+                  <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
+                    boundary: {retrievalPosture.boundary_label}
                   </Badge>
-                )}
-              </div>
+                  {retrievalPosture.retrieval_override_mode ? (
+                    <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
+                      override: {retrievalPosture.retrieval_override_mode}
+                    </Badge>
+                  ) : null}
+                  <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
+                    widen: {retrievalPosture.widen_reason}
+                  </Badge>
+                  {retrievalPosture.conversation_only && (
+                    <Badge className="border text-[11px] font-medium leading-none" style={{ background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)", borderColor: "var(--panel-border)", color: "var(--text-on-accent)" }}>
+                      conversation-only
+                    </Badge>
+                  )}
+                </div>
+                <p className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
+                  {describeRetrievalPosture(retrievalPosture)}
+                </p>
+              </>
             ) : null}
           </div>
         )}
