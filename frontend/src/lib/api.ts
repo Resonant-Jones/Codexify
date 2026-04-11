@@ -262,6 +262,19 @@ export function buildLatestRagTracePath(threadId: string | number): string {
   return `/api/chat/debug/rag-trace/${normalizePathSegment(threadId)}/latest`;
 }
 
+export function buildLatestRetrievalPosturePath(threadId: string | number): string {
+  return `/api/chat/debug/retrieval-posture/${normalizePathSegment(threadId)}/latest`;
+}
+
+export async function fetchLatestRetrievalPosture(
+  threadId: number
+): Promise<Record<string, unknown>> {
+  const response = await api.get<Record<string, unknown>>(
+    buildLatestRetrievalPosturePath(threadId)
+  );
+  return response.data;
+}
+
 export type ThreadConfigUpdate = {
   providerId?: string;
   modelId?: string;

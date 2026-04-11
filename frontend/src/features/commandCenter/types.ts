@@ -369,6 +369,20 @@ export interface CommandCenterRagTracePayload {
   semantic: CommandCenterRagTraceItem[];
 }
 
+export interface CommandCenterRetrievalPosture {
+  source_mode: string;
+  boundary_label: string;
+  retrieval_override_mode: string | null;
+  widen_reason: string;
+  conversation_only: boolean;
+}
+
+export interface CommandCenterRetrievalPostureResponse {
+  thread_id: number;
+  status: "ok" | "empty";
+  retrieval_posture: CommandCenterRetrievalPosture | null;
+}
+
 function normalizeCommandCenterToken(value: string | null | undefined): string {
   return String(value ?? "")
     .trim()
