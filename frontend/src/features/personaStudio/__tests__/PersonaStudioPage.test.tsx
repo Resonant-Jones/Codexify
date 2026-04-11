@@ -35,6 +35,100 @@ describe("Persona Studio Page", () => {
     );
   });
 
+  it("renders the preview harness in the main editor", () => {
+    renderPage();
+
+    expect(screen.getByTestId("persona-studio-preview-harness")).toBeVisible();
+    expect(screen.getByText(/preview-only \/ ephemeral/i)).toBeVisible();
+    expect(screen.getByText(/uses the current draft, including unsaved edits/i)).toBeVisible();
+  });
+
+  it("appends preview exchanges from canned prompt chips", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+
+    const transcript = screen.getByTestId("persona-studio-preview-transcript");
+    expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
+    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
+  });
+
+  it("appends a typed preview prompt to the local transcript", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(
+      screen.getByRole("textbox", { name: /preview prompt/i }),
+      "Summarize the plan"
+    );
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    const transcript = screen.getByTestId("persona-studio-preview-transcript");
+    expect(within(transcript).getByText(/summarize the plan/i)).toBeVisible();
+    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
+  });
+
+  it("appends a deterministic assistant preview summary after a prompt", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^planning$/i }));
+
+    const transcript = screen.getByTestId("persona-studio-preview-transcript");
+    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
+    expect(within(transcript).getByText(/draft-aware/i)).toBeVisible();
+    expect(within(transcript).getByText(/guardian default/i)).toBeVisible();
+    expect(within(transcript).getByText(/openai \/ gpt-4o/i)).toBeVisible();
+    expect(within(transcript).getByText(/0\.7/i)).toBeVisible();
+  });
+
+  it("reflects unsaved draft edits in the assistant preview summary", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.clear(screen.getByPlaceholderText("Enter persona name"));
+    await user.type(screen.getByPlaceholderText("Enter persona name"), "Shadow Guardian");
+    await user.click(screen.getByRole("button", { name: /^casual help$/i }));
+
+    const transcript = screen.getByTestId("persona-studio-preview-transcript");
+    expect(within(transcript).getByText(/shadow guardian/i)).toBeVisible();
+    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
+  });
+
+  it("can clear the local preview transcript", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^research$/i }));
+    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
+      /local preview summary/i
+    );
+
+    await user.click(screen.getByRole("button", { name: /clear preview/i }));
+
+    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
+      /no preview messages yet/i
+    );
+  });
+
+  it("does not persist preview messages across remounts", async () => {
+    const user = userEvent.setup();
+    const firstRender = renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
+      /local preview summary/i
+    );
+
+    firstRender.unmount();
+    renderPage();
+
+    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
+      /no preview messages yet/i
+    );
+  });
+
   it("can collapse and reopen the utility pane", async () => {
     const user = userEvent.setup();
     renderPage();

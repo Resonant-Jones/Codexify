@@ -46,8 +46,344 @@ const TABS = [
 ] as const;
 
 const UTILITY_TABS = ["Profiles", "Diagnostics"] as const;
+const PREVIEW_PROMPTS = ["Coding", "Research", "Planning", "Casual Help"] as const;
 
 type UtilityTab = (typeof UTILITY_TABS)[number];
+
+type PreviewSummary = {
+  personaName: string;
+  description: string;
+  modelLine: string;
+  temperatureLine: string;
+  systemPrompt: string;
+  styleNotes: string;
+  directives: string;
+  retrieval: string;
+  pinnedTools: string;
+  allowedTools: string;
+  voice: string;
+};
+
+type PreviewTranscriptEntry =
+  | {
+      id: string;
+      role: "user";
+      message: string;
+    }
+  | {
+      id: string;
+      role: "assistant";
+      summary: PreviewSummary;
+    };
+
+function formatList(values: string[]) {
+  return values.length > 0 ? values.join(", ") : "None";
+}
+
+function createPreviewSummary(profile: PersonaProfileDraft | null): PreviewSummary {
+  const config = profile?.config ?? null;
+
+  return {
+    personaName: profile?.name || config?.identity.name || "Persona",
+    description:
+      profile?.description || config?.identity.description || "No description set.",
+    modelLine: config
+      ? `${config.model.provider} / ${config.model.model}`
+      : "No model selected.",
+    temperatureLine: config ? String(config.model.temperature) : "n/a",
+    systemPrompt: config?.prompt.systemPrompt || "No system prompt set.",
+    styleNotes: config?.prompt.styleNotes || "No style notes set.",
+    directives: config?.prompt.directives || "No directives set.",
+    retrieval: config
+      ? config.retrieval.enabled
+        ? `Enabled: ${config.retrieval.mode} / topK ${config.retrieval.topK} / rerank ${
+            config.retrieval.rerank ? "on" : "off"
+          }`
+        : "Disabled"
+      : "Unavailable",
+    pinnedTools: config ? formatList(config.tools.pinnedTools) : "None",
+    allowedTools: config ? formatList(config.tools.allowedTools) : "None",
+    voice: config
+      ? config.voice.enabled
+        ? `${config.voice.provider} / ${config.voice.voicePreset}`
+        : "Disabled"
+      : "Unavailable",
+  };
+}
+
+function PreviewHarness({ profile }: { profile: PersonaProfileDraft | null }) {
+  const [previewTranscript, setPreviewTranscript] = React.useState<PreviewTranscriptEntry[]>(
+    []
+  );
+  const [previewPrompt, setPreviewPrompt] = React.useState("");
+  const messageIdRef = React.useRef(0);
+
+  const appendPreviewExchange = React.useCallback(
+    (message: string) => {
+      const trimmedMessage = message.trim();
+      if (!trimmedMessage) {
+        return;
+      }
+
+      const nextSummary = createPreviewSummary(profile);
+      const nextUserMessageId = `preview-message-${messageIdRef.current + 1}`;
+      messageIdRef.current += 1;
+      const nextUserMessage: PreviewTranscriptEntry = {
+        id: nextUserMessageId,
+        role: "user",
+        message: trimmedMessage,
+      };
+      const nextAssistantMessageId = `preview-message-${messageIdRef.current + 1}`;
+      messageIdRef.current += 1;
+      const nextAssistantMessage: PreviewTranscriptEntry = {
+        id: nextAssistantMessageId,
+        role: "assistant",
+        summary: nextSummary,
+      };
+
+      setPreviewTranscript((previous) => [...previous, nextUserMessage, nextAssistantMessage]);
+      setPreviewPrompt("");
+    },
+    [profile]
+  );
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    appendPreviewExchange(previewPrompt);
+  };
+
+  return (
+    <Card
+      className="bezel-none rounded-2xl border"
+      role="region"
+      aria-label="Persona Studio preview harness"
+      data-testid="persona-studio-preview-harness"
+      style={{
+        background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <CardHeader className="space-y-3 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Preview Harness</CardTitle>
+            <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+              Preview-only / ephemeral. Uses the current draft, including unsaved edits.
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
+            Ephemeral
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {PREVIEW_PROMPTS.map((prompt) => (
+            <Button
+              key={prompt}
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => appendPreviewExchange(prompt)}
+            >
+              {prompt}
+            </Button>
+          ))}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setPreviewTranscript([])}
+            disabled={previewTranscript.length === 0}
+          >
+            Clear Preview
+          </Button>
+        </div>
+        <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
+          <Input
+            value={previewPrompt}
+            onChange={(event) => setPreviewPrompt(event.target.value)}
+            placeholder="Type a preview prompt"
+            aria-label="Preview prompt"
+            className="min-w-0 flex-1"
+          />
+          <Button type="submit" disabled={!previewPrompt.trim()}>
+            Send
+          </Button>
+        </form>
+        <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+          This harness does not create Guardian chat threads, call backend completion routes, or
+          persist preview messages across reload.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div
+          className="space-y-3 rounded-2xl border p-3"
+          data-testid="persona-studio-preview-transcript"
+          aria-live="polite"
+          style={{
+            background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
+            borderColor: "var(--panel-border)",
+          }}
+        >
+          {previewTranscript.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              No preview messages yet.
+            </p>
+          ) : (
+            previewTranscript.map((entry) =>
+              entry.role === "user" ? (
+                <div key={entry.id} className="flex justify-end">
+                  <div
+                    className="max-w-[85%] rounded-2xl border px-3 py-2 text-sm"
+                    style={{
+                      background: "color-mix(in srgb, var(--accent) 10%, var(--panel-bg))",
+                      borderColor: "color-mix(in oklab, var(--accent) 18%, var(--panel-border))",
+                    }}
+                  >
+                    <div
+                      className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      You
+                    </div>
+                    <p className="mt-1 leading-6">{entry.message}</p>
+                  </div>
+                </div>
+              ) : (
+                <div key={entry.id} className="flex justify-start">
+                  <div
+                    className="max-w-[95%] rounded-2xl border px-3 py-3 text-sm"
+                    style={{
+                      background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                      borderColor: "var(--panel-border)",
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
+                        Local preview summary
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        Draft-aware
+                      </Badge>
+                    </div>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Persona
+                        </div>
+                        <p className="leading-6">{entry.summary.personaName}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Description
+                        </div>
+                        <p className="leading-6">{entry.summary.description}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Model
+                        </div>
+                        <p className="leading-6">{entry.summary.modelLine}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Temperature
+                        </div>
+                        <p className="leading-6">{entry.summary.temperatureLine}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          System Prompt
+                        </div>
+                        <p className="leading-6">{entry.summary.systemPrompt}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Style Notes
+                        </div>
+                        <p className="leading-6">{entry.summary.styleNotes}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Directives
+                        </div>
+                        <p className="leading-6">{entry.summary.directives}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Retrieval
+                        </div>
+                        <p className="leading-6">{entry.summary.retrieval}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Voice
+                        </div>
+                        <p className="leading-6">{entry.summary.voice}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Pinned Tools
+                        </div>
+                        <p className="leading-6">{entry.summary.pinnedTools}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Allowed Tools
+                        </div>
+                        <p className="leading-6">{entry.summary.allowedTools}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            )
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function IdentityEditor({
   config,
@@ -987,6 +1323,7 @@ export default function PersonaStudioPage() {
             }}
           >
             <CardHeader className="space-y-4 pb-4">
+              <PreviewHarness profile={selectedProfile} />
               <div
                 className="rounded-2xl border px-4 py-4"
                 data-testid="persona-studio-active-profile-summary"
