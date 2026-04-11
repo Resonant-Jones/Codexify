@@ -28,10 +28,7 @@ describe("Persona Studio Page", () => {
       "data-state",
       "active"
     );
-    expect(screen.getByTestId("persona-studio-diagnostics")).toHaveAttribute(
-      "data-state",
-      "inactive"
-    );
+    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
       "data-state",
       "active"
@@ -60,14 +57,8 @@ describe("Persona Studio Page", () => {
       "data-state",
       "active"
     );
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
-      "data-state",
-      "inactive"
-    );
-    expect(screen.getByTestId("persona-studio-diagnostics")).toHaveAttribute(
-      "data-state",
-      "active"
-    );
+    expect(screen.queryByTestId("persona-studio-utility-profiles-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-diagnostics")).toHaveAttribute("data-state", "active");
     expect(screen.getByText("Save Status")).toBeVisible();
     expect(screen.getByText("Effective Config")).toBeVisible();
     expect(screen.getByText("Debug Log")).toBeVisible();
@@ -78,10 +69,7 @@ describe("Persona Studio Page", () => {
       "data-state",
       "active"
     );
-    expect(screen.getByTestId("persona-studio-diagnostics")).toHaveAttribute(
-      "data-state",
-      "inactive"
-    );
+    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
   });
 
   it("renders the section tabs in the header area", () => {
