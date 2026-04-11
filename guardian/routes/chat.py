@@ -44,6 +44,7 @@ from pydantic import (
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -3364,6 +3365,102 @@ def get_latest_rag_trace(
     return trace
 
 
+def _synthesize_retrieval_posture(
+    trace: Dict[str, Any],
+    payload_summary: Dict[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Build a canonical retrieval posture snapshot from legacy trace fields.
+
+    Used as fallback when the completion-service seam has not yet emitted
+    payload_summary["retrieval_posture"].  Produces the same shape as the
+    canonical snapshot so callers receive a consistent contract.
+    """
+    if trace is None:
+        return None
+
+    source_mode = trace.get("source_mode")
+    if not source_mode:
+        # No posture evidence in the trace itself
+        return None
+
+    widen_reason = str(trace.get("widen_reason") or "none")
+    retrieval_override = (
+        payload_summary.get("retrieval_override")
+        if isinstance(payload_summary, dict)
+        else None
+    )
+    retrieval_override_mode: str | None = None
+    if isinstance(retrieval_override, dict):
+        retrieval_override_mode = retrieval_override.get("mode")
+
+    return {
+        "source_mode": source_mode,
+        "boundary_label": source_mode_boundary_label(source_mode),
+        "retrieval_override_mode": retrieval_override_mode,
+        "widen_reason": widen_reason,
+        "conversation_only": source_mode == "conversation",
+    }
+
+
+def get_latest_retrieval_posture(
+    thread_id: int, api_key: str = Depends(require_api_key)
+) -> Dict[str, Any]:
+    """
+    [DEV ONLY] Get the latest canonical retrieval posture snapshot for this thread.
+
+    Uses the same latest-trace evidence path as get_latest_rag_trace.
+    Returns the posture directly from payload_summary["retrieval_posture"] if
+    present, otherwise synthesizes from legacy trace fields.
+    Returns an empty-state response when no completed trace evidence exists.
+    """
+    metadata = _fetch_thread_metadata(thread_id)
+    task_id = _thread_latest_task_id(thread_id, metadata)
+
+    posture: Dict[str, Any] | None = None
+
+    if task_id:
+        completed_payload = _get_task_completed_payload(task_id)
+        if isinstance(completed_payload, dict):
+            payload_summary = completed_payload.get("payload_summary")
+            if isinstance(payload_summary, dict):
+                # Fast path: canonical snapshot already emitted by completion-service
+                posture = payload_summary.get("retrieval_posture")
+
+            # Fallback: synthesize from legacy trace fields if no canonical snapshot
+            if posture is None:
+                trace = completed_payload.get("trace")
+                if isinstance(trace, dict):
+                    posture = _synthesize_retrieval_posture(
+                        trace, payload_summary
+                    )
+
+    # Empty state when no posture evidence exists
+    if posture is None:
+        return {
+            "thread_id": thread_id,
+            "status": "empty",
+            "retrieval_posture": None,
+        }
+
+    return {
+        "thread_id": thread_id,
+        "status": "ok",
+        "retrieval_posture": posture,
+    }
+
+
+@router.get("/debug/retrieval-posture/{thread_id}/latest", tags=["Debug"])
+def get_latest_retrieval_posture_endpoint(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """
+    [DEV ONLY] Get the latest canonical retrieval posture snapshot for this thread.
+
+    See get_latest_retrieval_posture for full documentation.
+    """
+    return get_latest_retrieval_posture(thread_id, api_key=api_key)
+
+
 @simple_chat_router.get("/chat/stream")
 async def simple_chat_stream(
     prompt: str = Query(..., description="Prompt text"),
@@ -3511,6 +3608,16 @@ def api_get_latest_rag_trace(
 ):
     """Compat alias for GET /chat/debug/rag-trace/{thread_id}/latest."""
     return get_latest_rag_trace(thread_id, api_key=api_key)
+
+
+@api_chat_router.get(
+    "/debug/retrieval-posture/{thread_id}/latest", tags=["Debug"]
+)
+def api_get_latest_retrieval_posture(
+    thread_id: int, api_key: str = Depends(require_api_key)
+):
+    """Compat alias for GET /chat/debug/retrieval-posture/{thread_id}/latest."""
+    return get_latest_retrieval_posture(thread_id, api_key=api_key)
 
 
 @api_chat_router.delete("/{thread_id}/messages/{message_id}")
