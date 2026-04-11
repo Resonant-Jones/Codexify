@@ -662,6 +662,9 @@ class ChatCompletionRequest(BaseModel):
     provider: Optional[str] = None
     reasoning_mode: Optional[str] = None
     system_override: Optional[str] = None
+    preferred_name: Optional[str] = None
+    profession: Optional[str] = None
+    guardian_name: Optional[str] = None
     turn_id: Optional[str] = None
     source_mode: Optional[str] = "project"
     slash_intent: Optional["SlashIntentRequest"] = Field(
@@ -2607,6 +2610,9 @@ async def chat_complete(
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
         retrieval_override=retrieval_override,
+        preferred_name=body.preferred_name,
+        profession=body.profession,
+        guardian_name=body.guardian_name,
         # Temporary transport bridge: carry turn_id, source_mode, and
         # bounded slash intent metadata via origin until ChatCompletionTask
         # gains typed fields for those values.

@@ -618,6 +618,7 @@ function dedupeDocumentContextTiles(
 export function GuardianChat({
   guardianName,
   userName,
+  userProfession = "",
   prefill,
   onPrefillConsumed,
   pendingDocumentTiles,
@@ -650,6 +651,7 @@ export function GuardianChat({
 }: {
   guardianName: string;
   userName: string;
+  userProfession?: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
   pendingDocumentTiles?: DocumentContextTile[];
@@ -1474,6 +1476,9 @@ export function GuardianChat({
         providerId: selection.providerId,
         modelId: selection.modelId,
         reasoningMode: selection.reasoningMode,
+        preferredName: userName,
+        profession: userProfession,
+        guardianName,
       }),
       source_mode: sourceMode,
       ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),

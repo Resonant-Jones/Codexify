@@ -312,12 +312,20 @@ function buildUserMessage(id: number, content: string) {
   } as any;
 }
 
-function renderChat(threadId = "1") {
+function renderChat(
+  threadId = "1",
+  overrides: {
+    guardianName?: string;
+    userName?: string;
+    userProfession?: string;
+  } = {}
+) {
   const onSendMessage = vi.fn().mockResolvedValue(undefined);
   const utils = render(
     <GuardianChat
-      guardianName="Guardian"
-      userName="tester"
+      guardianName={overrides.guardianName ?? "Guardian"}
+      userName={overrides.userName ?? "tester"}
+      userProfession={overrides.userProfession ?? ""}
       activeThread={buildThread(threadId)}
       onSendMessage={onSendMessage}
       onNewChat={vi.fn()}
@@ -562,6 +570,26 @@ describe("GuardianChat inference rail", () => {
             intentKind: "workspace",
             retrievalHint: "project",
           }),
+        })
+      );
+    });
+  });
+
+  it("attaches identity fields to the completion request payload when configured", async () => {
+    renderChat("1", {
+      guardianName: "Aurelia",
+      userName: "Harbor",
+      userProfession: "Engineer",
+    });
+    await startTrackedRequest();
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/1/complete",
+        expect.objectContaining({
+          preferred_name: "Harbor",
+          profession: "Engineer",
+          guardian_name: "Aurelia",
         })
       );
     });
