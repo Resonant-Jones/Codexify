@@ -9,6 +9,7 @@ import type {
   CommandCenterEvent,
   CommandCenterHealthItem,
   CommandCenterRagTracePayload,
+  CommandCenterRetrievalPosture,
   CommandCenterRun,
 } from "@/features/commandCenter/types";
 import {
@@ -103,6 +104,9 @@ const mockedTracePayload: CommandCenterRagTracePayload = {
       timestamp: "2026-04-01T15:58:08Z",
     },
   ],
+  // graph is accessed in buildOutcomeRows but not present in the type;
+  // include it as an empty array so the optional chain doesn't throw.
+  graph: [],
 };
 
 const mockedRawTrace = {
@@ -431,6 +435,41 @@ vi.mock("../hooks/useRagTrace", () => ({
   },
 }));
 
+const mockedRetrievalPosture: CommandCenterRetrievalPosture = {
+  source_mode: "conversation",
+  boundary_label: "active_conversation_only",
+  retrieval_override_mode: "conversation",
+  widen_reason: "none",
+  conversation_only: true,
+};
+
+vi.mock("../hooks/useRetrievalPosture", () => ({
+  default: (threadId: number | null) => {
+    if (threadId === 42) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: mockedRetrievalPosture,
+        status: "ok",
+      };
+    }
+    if (threadId === 84) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: null,
+        status: "empty",
+      };
+    }
+    return {
+      error: null,
+      loading: false,
+      retrievalPosture: null,
+      status: null,
+    };
+  },
+}));
+
 beforeEach(() => {
   mockRefresh.mockClear();
 });
@@ -545,5 +584,39 @@ describe("CommandCenterPage", () => {
     expect(within(console).getByRole("button", { name: /auto-scroll/i })).toBeInTheDocument();
     expect(within(console).getByRole("button", { name: /copy visible/i })).toBeInTheDocument();
     expect(within(console).getByText("No classification yet")).toBeInTheDocument();
+  });
+
+  it("renders retrieval posture section for active thread with status ok", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+
+    // Ensure task-alpha is selected (click it if not already selected)
+    const taskAlphaButton = within(workbench).queryByRole("button", { name: /task-alpha/i });
+    if (taskAlphaButton) {
+      fireEvent.click(taskAlphaButton);
+    }
+
+    // Retrieval posture section should be present for threadId 42
+    expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
+    expect(within(workbench).getByText(/source: conversation/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/override: conversation/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/widen: none/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/conversation-only/i)).toBeInTheDocument();
+  });
+
+  it("renders empty state for retrieval posture when status is empty", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+
+    // Select task-bravo (threadId 84) which returns status=empty
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-bravo/i }));
+    expect(within(workbench).getByText("Selected: task-bravo")).toBeInTheDocument();
+
+    // Retrieval posture section should show empty state
+    expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
+    expect(within(workbench).getByText(/no retrieval posture evidence/i)).toBeInTheDocument();
   });
 });
