@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
+from guardian.core import chat_completion_service
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
 )
 from guardian.routes import chat
+from guardian.tasks.types import ChatCompletionTask
 
 
 def test_rag_trace_includes_profile_debug_fields(monkeypatch):
@@ -192,6 +196,96 @@ def test_rag_trace_preserves_conversation_override_and_effective_source_mode(
 
     chat._thread_latest_task.pop(80, None)
     chat._rag_traces.pop(80, None)
+
+
+@pytest.mark.parametrize(
+    ("trace_payload", "expected_effective_policy"),
+    [
+        (
+            {
+                "source_mode": "personal_knowledge",
+                "retrieval_override": {
+                    "mode": "personal_knowledge",
+                    "reason": "slash_personal_knowledge_hint",
+                },
+                "effective_policy": {
+                    "source_mode": "personal_knowledge",
+                    "widening_enabled": True,
+                    "identity_scope": "personal_knowledge",
+                },
+            },
+            {
+                "source_mode": "personal_knowledge",
+                "widening_enabled": True,
+                "identity_scope": "personal_knowledge",
+            },
+        ),
+        (
+            {
+                "source_mode": "conversation",
+                "retrieval_override": {
+                    "mode": "conversation",
+                    "reason": "slash_conversation_hint",
+                },
+                "effective_policy": {
+                    "source_mode": "thread",
+                    "widening_enabled": False,
+                    "identity_scope": "thread",
+                },
+            },
+            {
+                "source_mode": "thread",
+                "widening_enabled": False,
+                "identity_scope": "thread",
+            },
+        ),
+    ],
+)
+def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
+    monkeypatch,
+    trace_payload,
+    expected_effective_policy,
+):
+    async def _fake_build_messages_for_llm(_task):
+        return (
+            [{"role": "system", "content": "SYSTEM"}],
+            "groq",
+            "mock-model",
+            {},
+            trace_payload,
+        )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_messages_for_llm",
+        _fake_build_messages_for_llm,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "assistant reply",
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="groq",
+        model="mock-model",
+        origin="api:chat.complete|turn_id=abc|source_mode=project",
+    )
+    task.retrieval_override = trace_payload["retrieval_override"]
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert result["trace"]["effective_policy"] == expected_effective_policy
+    assert result["payload_summary"]["effective_policy"] == (
+        expected_effective_policy
+    )
+    assert (
+        result["payload_summary"]["source_mode"] == trace_payload["source_mode"]
+    )
 
 
 def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
