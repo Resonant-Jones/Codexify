@@ -20,6 +20,7 @@ export type MobileWorkspaceMotionState =
 export const MOBILE_MOTION = {
   workspaceSheetEnterMs: 240,
   workspaceSheetExitMs: 180,
+  workspaceSheetSettleMs: 60,
   chromeMs: 180,
   reducedMs: 1,
   touchTargetMinHeight: "44px",
@@ -47,17 +48,29 @@ function getMobileMotionDurationMs(
 
 function getMobileMotionTimingFunction(
   gestureState: MobileGestureState,
-  phase: "enter" | "exit" | "chrome"
+  phase: "enter" | "exit" | "chrome" | "settle"
 ): string {
   if (gestureState.prefersReducedMotion) {
     return "linear";
   }
 
-  if (phase === "exit") {
-    return "cubic-bezier(0.4, 0, 0.2, 1)";
+  switch (phase) {
+    case "exit":
+      // Deliberate exit - feels resolved rather than mechanically disappearing
+      return "cubic-bezier(0.25, 0.46, 0.65, 0.8)";
+    case "settle":
+      // Subtle settle at the end - feels intentional
+      return "cubic-bezier(0.34, 1.1, 0.64, 1)";
+    case "chrome":
+      // Quick but smooth chrome transitions
+      return gestureState.isKeyboardOpen
+        ? "cubic-bezier(0.25, 0.46, 0.45, 0.94)"
+        : "cubic-bezier(0.22, 1, 0.36, 1)";
+    case "enter":
+    default:
+      // Spring-like enter - feels responsive and natural
+      return "cubic-bezier(0.22, 1, 0.36, 1)";
   }
-
-  return "cubic-bezier(0.22, 1, 0.36, 1)";
 }
 
 export function getMobileWorkspaceMotionState(
@@ -82,12 +95,11 @@ export function getMobileWorkspaceMotionState(
 
 export function getMobileWorkspaceSheetStyle(
   gestureState: MobileGestureState,
-  isOpen: boolean
+  isOpen: boolean,
+  isClosing: boolean = false
 ): CSSProperties {
-  const durationMs = getMobileMotionDurationMs(
-    gestureState,
-    isOpen ? "enter" : "exit"
-  );
+  const phase = isOpen ? "enter" : isClosing ? "settle" : "exit";
+  const durationMs = getMobileMotionDurationMs(gestureState, isOpen ? "enter" : "exit");
 
   return {
     opacity: gestureState.prefersReducedMotion ? 1 : isOpen ? 1 : 0,
@@ -101,10 +113,7 @@ export function getMobileWorkspaceSheetStyle(
       ? "none"
       : "transform, opacity",
     transitionDuration: `${durationMs}ms`,
-    transitionTimingFunction: getMobileMotionTimingFunction(
-      gestureState,
-      isOpen ? "enter" : "exit"
-    ),
+    transitionTimingFunction: getMobileMotionTimingFunction(gestureState, phase),
     willChange: gestureState.prefersReducedMotion ? undefined : "transform, opacity",
     pointerEvents: isOpen ? "auto" : "none",
   };
