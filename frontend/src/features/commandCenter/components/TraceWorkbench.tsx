@@ -144,76 +144,63 @@ function firstNumber(...values: unknown[]): number | null {
  * Derives a brief human-readable explanation of the retrieval posture from
  * canonical backend fields. Presentation-only — does not infer or classify.
  */
-function describeRetrievalPosture(posture: CommandCenterRetrievalPosture): string {
-  const { source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only } =
-    posture;
+function describeRetrievalPosture(posture: CommandCenterRetrievalPosture): string[] {
+  const {
+    source_mode,
+    boundary_label,
+    retrieval_override_mode,
+    widen_reason,
+    conversation_only,
+  } = posture;
 
-  // Mode summary — what evidence scope was used
-  const modeSummary = (() => {
-    switch (source_mode) {
-      case "conversation":
-        return "This run stayed inside the active conversation.";
-      case "project":
-        return "This run operated within the current project scope.";
-      case "personal_knowledge":
-        return "This run was allowed to use the user's personal knowledge scope.";
-      default:
-        return null;
-    }
-  })();
+  const genericFallback = [
+    "Retrieval posture metadata is present, but this combination does not yet have a tailored explanation.",
+  ];
 
-  // Boundary summary — what the retrieval boundary was
-  const boundarySummary = (() => {
-    switch (boundary_label) {
-      case "active_conversation_only":
-        return "Evidence was constrained to the active conversation.";
-      case "same_user_same_project":
-        return "Evidence was drawn from the current project.";
-      case "same_user_only":
-        return "Evidence was drawn from the same user's broader knowledge.";
-      default:
-        return null;
-    }
-  })();
-
-  // Widen summary — whether widening occurred and why
-  const widenSummary = (() => {
-    if (widen_reason === "none") {
-      return "No widening occurred.";
-    }
-    switch (widen_reason) {
-      case "insufficient_thread_hits":
-        return "This run widened within the current project when thread-local evidence was insufficient.";
-      case "explicit_personal_knowledge":
-        return "This run was allowed to widen across the same user's knowledge scope.";
-      default:
-        return null;
-    }
-  })();
-
-  // Override note — when an explicit override was applied
-  const overrideNote = (() => {
-    if (!retrieval_override_mode || retrieval_override_mode === source_mode) {
-      return null;
-    }
-    return `An explicit override redirected the retrieval scope to ${retrieval_override_mode}.`;
-  })();
-
-  // Conversation-only note — a flag that restricts scope regardless of other fields
-  const conversationOnlyNote = conversation_only
-    ? "Scope was locked to the active conversation."
-    : null;
-
-  // Collect non-null parts and build the explanation
-  const parts = [modeSummary, boundarySummary, widenSummary, overrideNote, conversationOnlyNote].filter(
-    (p): p is string => p !== null
-  );
-
-  if (parts.length === 0) {
-    return "Retrieval posture metadata is present, but this combination does not yet have a tailored explanation.";
+  if (retrieval_override_mode !== null && retrieval_override_mode !== source_mode) {
+    return genericFallback;
   }
 
-  return parts.join(" ");
+  if (
+    source_mode === "conversation" &&
+    boundary_label === "active_conversation_only" &&
+    widen_reason === "none" &&
+    conversation_only
+  ) {
+    return [
+      "This run stayed inside the active conversation.",
+      "Evidence was constrained to the active conversation.",
+      "No widening occurred.",
+    ];
+  }
+
+  if (
+    source_mode === "project" &&
+    boundary_label === "same_user_same_project" &&
+    widen_reason === "insufficient_thread_hits" &&
+    !conversation_only
+  ) {
+    return [
+      "This run operated within the current project scope.",
+      "Evidence was drawn from the current project.",
+      "This run widened within the current project when thread-local evidence was insufficient.",
+    ];
+  }
+
+  if (
+    source_mode === "personal_knowledge" &&
+    boundary_label === "same_user_only" &&
+    widen_reason === "explicit_personal_knowledge" &&
+    !conversation_only
+  ) {
+    return [
+      "This run was allowed to use the user's personal knowledge scope.",
+      "Evidence was drawn from the same user's broader knowledge.",
+      "This run was allowed to widen across the same user's knowledge scope.",
+    ];
+  }
+
+  return genericFallback;
 }
 
 function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
@@ -677,9 +664,18 @@ function TraceViewerPane({
                     </Badge>
                   )}
                 </div>
-                <p className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
-                  {describeRetrievalPosture(retrievalPosture)}
-                </p>
+                <div
+                  className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+                  style={{
+                    background: "var(--surface-soft)",
+                    borderColor: "var(--panel-border)",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {describeRetrievalPosture(retrievalPosture).map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
               </>
             ) : null}
           </div>
