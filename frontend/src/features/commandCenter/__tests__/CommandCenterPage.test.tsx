@@ -531,6 +531,123 @@ const mockedRuns: CommandCenterRun[] = [
     traceUrl: null,
     turnId: "turn-foxtrot",
   },
+  {
+    eventCount: 1,
+    identityKind: "task",
+    key: "task-golf",
+    lastEvent: makeEvent({
+      eventId: "evt-9",
+      json: { thread_id: 500, type: "chat.completion" },
+      kind: null,
+      raw: '{"thread_id":500,"type":"chat.completion"}',
+      receivedAt: Date.parse("2026-04-01T15:59:20Z"),
+      runId: "run-golf",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: "task-golf",
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 500,
+      turnId: "turn-golf",
+      type: "task.completed",
+    }),
+    lastEventAt: Date.parse("2026-04-01T15:59:20Z"),
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: "run-golf",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: "task-golf",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId: 500,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: "turn-golf",
+  },
+  {
+    eventCount: 1,
+    identityKind: "task",
+    key: "task-hotel",
+    lastEvent: makeEvent({
+      eventId: "evt-10",
+      json: { thread_id: 600, type: "chat.completion" },
+      kind: null,
+      raw: '{"thread_id":600,"type":"chat.completion"}',
+      receivedAt: Date.parse("2026-04-01T15:59:25Z"),
+      runId: "run-hotel",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: "task-hotel",
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 600,
+      turnId: "turn-hotel",
+      type: "task.completed",
+    }),
+    lastEventAt: Date.parse("2026-04-01T15:59:25Z"),
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: "run-hotel",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: "task-hotel",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId: 600,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: "turn-hotel",
+  },
+  {
+    eventCount: 1,
+    identityKind: "task",
+    key: "task-india",
+    lastEvent: makeEvent({
+      eventId: "evt-11",
+      json: { thread_id: 700, type: "chat.completion" },
+      kind: null,
+      raw: '{"thread_id":700,"type":"chat.completion"}',
+      receivedAt: Date.parse("2026-04-01T15:59:30Z"),
+      runId: "run-india",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: "task-india",
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 700,
+      turnId: "turn-india",
+      type: "task.completed",
+    }),
+    lastEventAt: Date.parse("2026-04-01T15:59:30Z"),
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: "run-india",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: "task-india",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId: 700,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: "turn-india",
+  },
 ];
 
 vi.mock("../hooks/useCommandCenterEvents", () => ({
@@ -680,6 +797,30 @@ vi.mock("../hooks/useRetrievalPosture", () => ({
         status: "ok",
       };
     }
+    if (threadId === 500) {
+      return {
+        error: null,
+        loading: true,
+        retrievalPosture: null,
+        status: null,
+      };
+    }
+    if (threadId === 600) {
+      return {
+        error: "Retrieval posture unavailable",
+        loading: false,
+        retrievalPosture: null,
+        status: null,
+      };
+    }
+    if (threadId === 700) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: null,
+        status: "empty",
+      };
+    }
     return {
       error: null,
       loading: false,
@@ -805,6 +946,25 @@ describe("CommandCenterPage", () => {
     expect(within(console).getByText("No classification yet")).toBeInTheDocument();
   });
 
+  it("renders the standalone thread posture panel and updates with the selected thread", () => {
+    render(<CommandCenterPage enabled />);
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/no retrieval posture evidence for this thread/i)).toBeInTheDocument();
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/override: conversation/i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/widen: none/i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/conversation-only/i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/This run stayed inside the active conversation\./i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/No widening occurred\./i)).toBeInTheDocument();
+  });
+
   it("renders retrieval posture section for active thread with status ok", () => {
     render(<CommandCenterPage enabled />);
 
@@ -892,6 +1052,39 @@ describe("CommandCenterPage", () => {
     expect(within(workbench).getByText(/source: personal_knowledge/i)).toBeInTheDocument();
     expect(within(workbench).getByText(/This run was allowed to use the user's personal knowledge scope\./i)).toBeInTheDocument();
     expect(within(workbench).getByText(/This run was allowed to widen across the same user's knowledge scope\./i)).toBeInTheDocument();
+  });
+
+  it("renders loading state for the standalone posture panel", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-golf/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/loading retrieval posture/i)).toBeInTheDocument();
+  });
+
+  it("renders error state for the standalone posture panel", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-hotel/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/retrieval posture unavailable/i)).toBeInTheDocument();
+  });
+
+  it("renders empty state for the standalone posture panel", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-india/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/no retrieval posture evidence for this thread/i)).toBeInTheDocument();
   });
 
   it("renders fallback explainer for unsupported posture values", () => {

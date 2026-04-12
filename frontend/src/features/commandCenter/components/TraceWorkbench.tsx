@@ -144,7 +144,7 @@ function firstNumber(...values: unknown[]): number | null {
  * Derives a brief human-readable explanation of the retrieval posture from
  * canonical backend fields. Presentation-only — does not infer or classify.
  */
-function describeRetrievalPosture(posture: CommandCenterRetrievalPosture): string[] {
+export function describeRetrievalPosture(posture: CommandCenterRetrievalPosture): string[] {
   const {
     source_mode,
     boundary_label,
@@ -201,6 +201,142 @@ function describeRetrievalPosture(posture: CommandCenterRetrievalPosture): strin
   }
 
   return genericFallback;
+}
+
+function RetrievalPostureDetails({
+  retrievalPosture,
+}: {
+  retrievalPosture: CommandCenterRetrievalPosture;
+}) {
+  return (
+    <>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Badge
+          className="border text-[11px] font-medium leading-none"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+          }}
+        >
+          source: {retrievalPosture.source_mode}
+        </Badge>
+        <Badge
+          className="border text-[11px] font-medium leading-none"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+          }}
+        >
+          boundary: {retrievalPosture.boundary_label}
+        </Badge>
+        {retrievalPosture.retrieval_override_mode ? (
+          <Badge
+            className="border text-[11px] font-medium leading-none"
+            style={{
+              background: "var(--surface-soft)",
+              borderColor: "var(--panel-border)",
+              color: "var(--text)",
+            }}
+          >
+            override: {retrievalPosture.retrieval_override_mode}
+          </Badge>
+        ) : null}
+        <Badge
+          className="border text-[11px] font-medium leading-none"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+          }}
+        >
+          widen: {retrievalPosture.widen_reason}
+        </Badge>
+        {retrievalPosture.conversation_only && (
+          <Badge
+            className="border text-[11px] font-medium leading-none"
+            style={{
+              background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
+              borderColor: "var(--panel-border)",
+              color: "var(--text-on-accent)",
+            }}
+          >
+            conversation-only
+          </Badge>
+        )}
+      </div>
+      <div
+        className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+        style={{
+          background: "var(--surface-soft)",
+          borderColor: "var(--panel-border)",
+          color: "var(--muted)",
+        }}
+      >
+        {describeRetrievalPosture(retrievalPosture).map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
+    </>
+  );
+}
+
+export function RetrievalPosturePanel({
+  className,
+  compact = false,
+  threadId,
+  title = "Retrieval posture",
+  testId,
+}: {
+  className?: string;
+  compact?: boolean;
+  threadId: number | null;
+  title?: string;
+  testId?: string;
+}) {
+  const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
+    useRetrievalPosture(threadId);
+
+  const rootClassName = [
+    compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      data-testid={testId}
+      className={rootClassName}
+      style={{
+        background: "color-mix(in oklab, var(--surface-soft) 60%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <div
+        className={compact ? "text-[10px] font-semibold uppercase tracking-[0.16em]" : "text-[11px] font-semibold uppercase tracking-[0.18em]"}
+        style={{ color: "var(--muted)" }}
+      >
+        {title}
+      </div>
+      {postureLoading ? (
+        <div className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+          Loading retrieval posture…
+        </div>
+      ) : postureError ? (
+        <div className="mt-2 text-sm" style={{ color: "var(--danger-text)" }}>
+          {postureError}
+        </div>
+      ) : postureStatus === "empty" ? (
+        <div className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+          No retrieval posture evidence for this thread.
+        </div>
+      ) : retrievalPosture ? (
+        <RetrievalPostureDetails retrievalPosture={retrievalPosture} />
+      ) : null}
+    </div>
+  );
 }
 
 function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
@@ -523,8 +659,6 @@ function TraceViewerPane({
   }, [rawTrace]);
 
   const retrievalPostureThreadId = effectiveRun?.threadId ?? null;
-  const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
-    useRetrievalPosture(retrievalPostureThreadId);
 
   return (
     <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
@@ -624,62 +758,7 @@ function TraceViewerPane({
             ) : null}
           </div>
         )}
-        {effectiveRun && (
-          <div className="mt-4 rounded-[var(--tile-radius)] border p-3" style={{ background: "color-mix(in oklab, var(--surface-soft) 60%, transparent)", borderColor: "var(--panel-border)" }}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-              Retrieval posture
-            </div>
-            {postureLoading ? (
-              <div className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-                Loading retrieval posture…
-              </div>
-            ) : postureError ? (
-              <div className="mt-2 text-sm" style={{ color: "var(--danger-text)" }}>
-                {postureError}
-              </div>
-            ) : postureStatus === "empty" ? (
-              <div className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-                No retrieval posture evidence for this thread.
-              </div>
-            ) : retrievalPosture ? (
-              <>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                    source: {retrievalPosture.source_mode}
-                  </Badge>
-                  <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                    boundary: {retrievalPosture.boundary_label}
-                  </Badge>
-                  {retrievalPosture.retrieval_override_mode ? (
-                    <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                      override: {retrievalPosture.retrieval_override_mode}
-                    </Badge>
-                  ) : null}
-                  <Badge className="border text-[11px] font-medium leading-none" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--text)" }}>
-                    widen: {retrievalPosture.widen_reason}
-                  </Badge>
-                  {retrievalPosture.conversation_only && (
-                    <Badge className="border text-[11px] font-medium leading-none" style={{ background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)", borderColor: "var(--panel-border)", color: "var(--text-on-accent)" }}>
-                      conversation-only
-                    </Badge>
-                  )}
-                </div>
-                <div
-                  className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
-                  style={{
-                    background: "var(--surface-soft)",
-                    borderColor: "var(--panel-border)",
-                    color: "var(--muted)",
-                  }}
-                >
-                  {describeRetrievalPosture(retrievalPosture).map((line) => (
-                    <p key={line}>{line}</p>
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
-        )}
+        {effectiveRun ? <RetrievalPosturePanel threadId={retrievalPostureThreadId} /> : null}
       </div>
     </section>
   );

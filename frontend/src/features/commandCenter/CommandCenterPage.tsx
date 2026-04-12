@@ -5,7 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
-import TraceWorkbench from "@/features/commandCenter/components/TraceWorkbench";
+import TraceWorkbench, {
+  RetrievalPosturePanel,
+} from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
 import {
@@ -296,6 +298,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     return visibleRuns.find((candidate) => candidate.key === selectedRunKey) ?? null;
   }, [selectedRunKey, visibleRuns]);
 
+  const activeThreadId = React.useMemo<number | null>(() => {
+    return selectedRun?.threadId ?? visibleRuns[0]?.threadId ?? null;
+  }, [selectedRun, visibleRuns]);
+
   React.useEffect(() => {
     if (visibleRuns.length === 0) {
       if (selectedRunKey !== null) {
@@ -394,6 +400,16 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
         />
 
         <div className="min-h-0 flex-1">
+          {activeThreadId !== null ? (
+            <div className="mb-4">
+              <RetrievalPosturePanel
+                compact
+                testId="command-center-thread-posture-panel"
+                threadId={activeThreadId}
+                title="Thread retrieval posture"
+              />
+            </div>
+          ) : null}
           <TraceWorkbench
             allRuns={runs}
             filters={traceFilters}
