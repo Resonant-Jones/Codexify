@@ -203,11 +203,104 @@ export function describeRetrievalPosture(posture: CommandCenterRetrievalPosture)
   return genericFallback;
 }
 
+type RetrievalPostureTokenField =
+  | "source_mode"
+  | "boundary_label"
+  | "retrieval_override_mode"
+  | "widen_reason";
+
+const GENERIC_GLOSSARY_LINE =
+  "This token is present but does not yet have a tailored glossary entry.";
+
+function describeRetrievalPostureToken(
+  field: RetrievalPostureTokenField,
+  value: string | null
+): string {
+  switch (field) {
+    case "source_mode":
+      switch (value) {
+        case "conversation":
+          return "Retrieval began inside the active conversation.";
+        case "project":
+          return "Retrieval began in the current project scope.";
+        case "personal_knowledge":
+          return "Retrieval began in the same user's personal knowledge scope.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    case "boundary_label":
+      switch (value) {
+        case "active_conversation_only":
+          return "Retrieval stayed inside the active conversation.";
+        case "same_user_same_project":
+          return "Retrieval could move within the current project.";
+        case "same_user_only":
+          return "Retrieval could move within the same user's broader knowledge.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    case "retrieval_override_mode":
+      if (value === null) {
+        return "No explicit override was applied.";
+      }
+      switch (value) {
+        case "conversation":
+          return "Explicit command intent kept retrieval in conversation scope.";
+        case "project":
+          return "Explicit command intent kept retrieval in project scope.";
+        case "personal_knowledge":
+          return "Explicit command intent widened retrieval into personal knowledge.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    case "widen_reason":
+      switch (value) {
+        case "none":
+          return "Retrieval did not widen.";
+        case "insufficient_thread_hits":
+          return "Thread-local evidence was thin, so retrieval widened within the project.";
+        case "explicit_personal_knowledge":
+          return "Explicit personal-knowledge intent allowed retrieval to widen.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    default:
+      return GENERIC_GLOSSARY_LINE;
+  }
+}
+
 function RetrievalPostureDetails({
   retrievalPosture,
 }: {
   retrievalPosture: CommandCenterRetrievalPosture;
 }) {
+  const glossaryRows: Array<{
+    field: RetrievalPostureTokenField;
+    label: string;
+    value: string | null;
+  }> = [
+    {
+      field: "source_mode",
+      label: "source_mode",
+      value: retrievalPosture.source_mode,
+    },
+    {
+      field: "boundary_label",
+      label: "boundary_label",
+      value: retrievalPosture.boundary_label,
+    },
+    {
+      field: "retrieval_override_mode",
+      label: "retrieval_override_mode",
+      value: retrievalPosture.retrieval_override_mode,
+    },
+    {
+      field: "widen_reason",
+      label: "widen_reason",
+      value: retrievalPosture.widen_reason,
+    },
+  ];
+
   return (
     <>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -277,6 +370,29 @@ function RetrievalPostureDetails({
         {describeRetrievalPosture(retrievalPosture).map((line) => (
           <p key={line}>{line}</p>
         ))}
+      </div>
+      <div
+        className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2"
+        style={{
+          background: "color-mix(in oklab, var(--surface-soft) 84%, transparent)",
+          borderColor: "var(--panel-border)",
+        }}
+      >
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+          What these fields mean
+        </div>
+        <dl className="mt-2 grid gap-2 md:grid-cols-2">
+          {glossaryRows.map((row) => (
+            <div key={row.field} className="space-y-0.5">
+              <dt className="text-[11px] font-semibold tracking-[0.12em]" style={{ color: "var(--text)" }}>
+                {row.label}
+              </dt>
+              <dd className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                {describeRetrievalPostureToken(row.field, row.value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </>
   );
