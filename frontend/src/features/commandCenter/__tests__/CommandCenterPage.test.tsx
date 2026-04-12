@@ -492,6 +492,45 @@ const mockedRuns: CommandCenterRun[] = [
     traceUrl: null,
     turnId: "turn-echo",
   },
+  {
+    eventCount: 1,
+    identityKind: "task",
+    key: "task-foxtrot",
+    lastEvent: makeEvent({
+      eventId: "evt-8",
+      json: { thread_id: 400, type: "chat.completion" },
+      kind: null,
+      raw: '{"thread_id":400,"type":"chat.completion"}',
+      receivedAt: Date.parse("2026-04-01T15:59:15Z"),
+      runId: "run-foxtrot",
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: "task-foxtrot",
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId: 400,
+      turnId: "turn-foxtrot",
+      type: "task.completed",
+    }),
+    lastEventAt: Date.parse("2026-04-01T15:59:15Z"),
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: "run-foxtrot",
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: "task-foxtrot",
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId: 400,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: "turn-foxtrot",
+  },
 ];
 
 vi.mock("../hooks/useCommandCenterEvents", () => ({
@@ -584,6 +623,13 @@ const mockedUnknownPosture: CommandCenterRetrievalPosture = {
   conversation_only: false,
 };
 
+const mockedPartialPosture = {
+  source_mode: "conversation",
+  retrieval_override_mode: null,
+  widen_reason: "none",
+  conversation_only: true,
+} as unknown as CommandCenterRetrievalPosture;
+
 vi.mock("../hooks/useRetrievalPosture", () => ({
   default: (threadId: number | null) => {
     if (threadId === 42) {
@@ -623,6 +669,14 @@ vi.mock("../hooks/useRetrievalPosture", () => ({
         error: null,
         loading: false,
         retrievalPosture: mockedUnknownPosture,
+        status: "ok",
+      };
+    }
+    if (threadId === 400) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: mockedPartialPosture,
         status: "ok",
       };
     }
@@ -852,6 +906,23 @@ describe("CommandCenterPage", () => {
     // Verify fallback explainer text
     expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
     expect(within(workbench).getByText(/source: unknown_mode/i)).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(
+        /Retrieval posture metadata is present, but this combination does not yet have a tailored explanation\./i
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("renders fallback explainer for partially missing posture values", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-foxtrot/i }));
+    expect(within(workbench).getByText("Selected: task-foxtrot")).toBeInTheDocument();
+
+    expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
+    expect(within(workbench).getByText(/source: conversation/i)).toBeInTheDocument();
     expect(
       within(workbench).getByText(
         /Retrieval posture metadata is present, but this combination does not yet have a tailored explanation\./i
