@@ -963,6 +963,21 @@ describe("CommandCenterPage", () => {
     expect(within(threadPanel).getByText(/conversation-only/i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/This run stayed inside the active conversation\./i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/No widening occurred\./i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText("What these fields mean")).toBeInTheDocument();
+    expect(within(threadPanel).getByText("source_mode")).toBeInTheDocument();
+    expect(
+      within(threadPanel).getByText(/Retrieval began inside the active conversation\./i)
+    ).toBeInTheDocument();
+    expect(within(threadPanel).getByText("boundary_label")).toBeInTheDocument();
+    expect(
+      within(threadPanel).getByText(/Retrieval stayed inside the active conversation\./i)
+    ).toBeInTheDocument();
+    expect(within(threadPanel).getByText("retrieval_override_mode")).toBeInTheDocument();
+    expect(
+      within(threadPanel).getByText(/Explicit command intent kept retrieval in conversation scope\./i)
+    ).toBeInTheDocument();
+    expect(within(threadPanel).getByText("widen_reason")).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/Retrieval did not widen\./i)).toBeInTheDocument();
   });
 
   it("renders retrieval posture section for active thread with status ok", () => {
@@ -1036,6 +1051,17 @@ describe("CommandCenterPage", () => {
     expect(within(workbench).getByText(/widen: insufficient_thread_hits/i)).toBeInTheDocument();
     expect(within(workbench).getByText(/This run operated within the current project scope\./i)).toBeInTheDocument();
     expect(within(workbench).getByText(/This run widened within the current project when thread-local evidence was insufficient\./i)).toBeInTheDocument();
+    expect(within(workbench).getByText("What these fields mean")).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/Retrieval began in the current project scope\./i)
+    ).toBeInTheDocument();
+    expect(within(workbench).getByText(/Retrieval could move within the current project\./i)).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/No explicit override was applied\./i)
+    ).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/Thread-local evidence was thin, so retrieval widened within the project\./i)
+    ).toBeInTheDocument();
   });
 
   it("renders explainer for personal knowledge posture", () => {
@@ -1052,6 +1078,19 @@ describe("CommandCenterPage", () => {
     expect(within(workbench).getByText(/source: personal_knowledge/i)).toBeInTheDocument();
     expect(within(workbench).getByText(/This run was allowed to use the user's personal knowledge scope\./i)).toBeInTheDocument();
     expect(within(workbench).getByText(/This run was allowed to widen across the same user's knowledge scope\./i)).toBeInTheDocument();
+    expect(within(workbench).getByText("What these fields mean")).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/Retrieval began in the same user's personal knowledge scope\./i)
+    ).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/Retrieval could move within the same user's broader knowledge\./i)
+    ).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/No explicit override was applied\./i)
+    ).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/Explicit personal-knowledge intent allowed retrieval to widen\./i)
+    ).toBeInTheDocument();
   });
 
   it("renders loading state for the standalone posture panel", () => {
@@ -1099,11 +1138,17 @@ describe("CommandCenterPage", () => {
     // Verify fallback explainer text
     expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
     expect(within(workbench).getByText(/source: unknown_mode/i)).toBeInTheDocument();
+    expect(within(workbench).getByText("What these fields mean")).toBeInTheDocument();
     expect(
       within(workbench).getByText(
         /Retrieval posture metadata is present, but this combination does not yet have a tailored explanation\./i
       )
     ).toBeInTheDocument();
+    expect(
+      within(workbench).getAllByText(
+        /This token is present but does not yet have a tailored glossary entry\./i
+      )
+    ).toHaveLength(3);
   });
 
   it("renders fallback explainer for partially missing posture values", () => {
@@ -1116,10 +1161,14 @@ describe("CommandCenterPage", () => {
 
     expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
     expect(within(workbench).getByText(/source: conversation/i)).toBeInTheDocument();
+    expect(within(workbench).getByText("What these fields mean")).toBeInTheDocument();
     expect(
       within(workbench).getByText(
         /Retrieval posture metadata is present, but this combination does not yet have a tailored explanation\./i
       )
+    ).toBeInTheDocument();
+    expect(
+      within(workbench).getByText(/This token is present but does not yet have a tailored glossary entry\./i)
     ).toBeInTheDocument();
   });
 });
