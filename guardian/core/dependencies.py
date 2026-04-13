@@ -34,6 +34,7 @@ from guardian.core.auth import verify_session_token
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.core.config import get_settings as get_core_settings
+from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.db.models import AuthenticatedPrincipal
 from guardian.memory.query_memory import memory_store as _memory_store
@@ -704,6 +705,23 @@ def get_database_dsn() -> Optional[str]:
     return os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
 
 
+def get_capability_issuance_db() -> GuardianDB:
+    """Return a GuardianDB instance suitable for capability issuance tooling."""
+    resolved = load_guardian_db_from_env()
+    if resolved is not None:
+        if isinstance(resolved, GuardianDB):
+            return resolved
+        if hasattr(resolved, "get_session"):
+            return resolved  # type: ignore[return-value]
+
+    db_url = get_database_dsn()
+    if not db_url:
+        raise RuntimeError(
+            "Capability issuance requires GUARDIAN_DATABASE_URL or DATABASE_URL"
+        )
+    return GuardianDB(db_url)
+
+
 # =========================
 # Shared Services
 # =========================
@@ -1033,6 +1051,7 @@ __all__ = [
     "DB_BACKEND",
     "PG_DSN",
     "get_database_dsn",
+    "get_capability_issuance_db",
     # Services
     "_vector_store",
     "_sensors",
