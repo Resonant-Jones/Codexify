@@ -20,10 +20,12 @@ from textual.widgets import (
 
 from guardian.ops.setup_wizard import (
     DepStatus,
+    DockerReadiness,
     InstallerBootstrapState,
     default_env_target,
     default_installer_state_path,
     detect_core_dependencies,
+    detect_docker_readiness,
     effective_installer_bootstrap_state,
     write_env_file,
     write_installer_state_file,
@@ -36,6 +38,7 @@ logger = __import__("logging").getLogger(__name__)
 class WizardState:
     mode: str  # "fast" | "custom"
     deps: dict[str, DepStatus]
+    docker_readiness: DockerReadiness
     openai_api_key: str = ""
     allow_cloud_providers: bool = True
     runtime_profile: str = "docker"  # "docker" | "external"
@@ -88,7 +91,12 @@ class SetupWizardApp(App[Optional[str]]):
     def __init__(self, repo_root: Path | None = None) -> None:
         super().__init__()
         self.repo_root = (repo_root or Path.cwd()).resolve()
-        self.state = WizardState(mode="fast", deps=detect_core_dependencies())
+        docker_readiness = detect_docker_readiness()
+        self.state = WizardState(
+            mode="fast",
+            deps=detect_core_dependencies(docker_readiness=docker_readiness),
+            docker_readiness=docker_readiness,
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -280,15 +288,62 @@ class SetupWizardApp(App[Optional[str]]):
             custom_paths["ollama"] = ollama_path
         return custom_paths
 
+    @staticmethod
+    def _docker_readiness_message(readiness: DockerReadiness) -> str:
+        if readiness.status == "missing":
+            return "Docker is not installed. " f"{readiness.detail}"
+        if readiness.status == "daemon_unreachable":
+            return "Docker is installed but not running. " f"{readiness.detail}"
+        if readiness.status == "compose_unavailable":
+            return (
+                "Docker is running, but Compose is unavailable. "
+                f"{readiness.detail}"
+            )
+        if readiness.status == "ready":
+            return f"Docker is ready. {readiness.detail}"
+        return f"Docker readiness is partial. {readiness.detail}"
+
+    @staticmethod
+    def _docker_readiness_body(readiness: DockerReadiness) -> str:
+        label = {
+            "missing": "[danger][MISSING][/danger] Docker not installed",
+            "binary_only": (
+                "[danger][PARTIAL][/danger] Docker CLI is present, but "
+                "readiness could not be confirmed"
+            ),
+            "daemon_unreachable": (
+                "[danger][NOT RUNNING][/danger] Docker is installed "
+                "but not running"
+            ),
+            "compose_unavailable": (
+                "[danger][COMPOSE MISSING][/danger] Docker is running, "
+                "but Compose is unavailable"
+            ),
+            "ready": "[ok][READY][/ok] Docker is ready",
+        }[readiness.status]
+        return f"{label}. {readiness.detail}"
+
     def _scan_dependencies(self) -> None:
-        self.state.deps = detect_core_dependencies(self._current_custom_paths())
+        custom_paths = self._current_custom_paths()
+        docker_readiness = detect_docker_readiness(custom_paths.get("docker"))
+        self.state.docker_readiness = docker_readiness
+        self.state.deps = detect_core_dependencies(
+            custom_paths,
+            docker_readiness=docker_readiness,
+        )
         self.state.deps_acknowledged = False
 
     def _render_deps(self) -> None:
         body = self.query_one("#deps_body", Static)
         lines = []
         missing = False
-        for _, dep in self.state.deps.items():
+        lines.append(self._docker_readiness_body(self.state.docker_readiness))
+        if not self.state.docker_readiness.ok:
+            missing = True
+
+        for name, dep in self.state.deps.items():
+            if name == "docker":
+                continue
             if dep.is_present:
                 lines.append(
                     f"[ok][OK][/ok] {dep.name} found at {dep.found_path}"
@@ -299,13 +354,19 @@ class SetupWizardApp(App[Optional[str]]):
                     f"[danger][MISSING][/danger] {dep.name} not found. {dep.help_text}"
                 )
         body.update("\n".join(lines))
-        if missing:
+        if not self.state.docker_readiness.ok:
+            self._set_status(
+                self._docker_readiness_message(self.state.docker_readiness)
+            )
+        elif missing:
             self._set_status(
                 "Some dependencies are missing. Install them, then Re-scan, "
                 "or Continue to write config anyway."
             )
         else:
-            self._set_status("All scanned dependencies are available.")
+            self._set_status(
+                "Docker is ready and all scanned dependencies are available."
+            )
 
     def _set_status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)
@@ -586,10 +647,17 @@ class SetupWizardApp(App[Optional[str]]):
             dep for dep in self.state.deps.values() if not dep.is_present
         ]
         if missing_deps and not self.state.deps_acknowledged:
-            self._set_status(
-                "Missing dependencies detected. Choose Continue to accept "
-                "this state, or Re-scan after installing."
-            )
+            if not self.state.docker_readiness.ok:
+                self._set_status(
+                    self._docker_readiness_message(self.state.docker_readiness)
+                    + " Choose Continue to accept this state, or Re-scan "
+                    "after fixing Docker."
+                )
+            else:
+                self._set_status(
+                    "Missing dependencies detected. Choose Continue to "
+                    "accept this state, or Re-scan after installing."
+                )
             return
 
         validation_error = self._validate_custom_inputs()

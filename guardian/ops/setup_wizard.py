@@ -5,8 +5,10 @@ import os
 import platform
 import secrets
 import shutil
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -15,6 +17,34 @@ class DepStatus:
     is_present: bool
     found_path: str | None
     help_text: str
+
+
+DockerReadinessStatus = Literal[
+    "missing",
+    "binary_only",
+    "daemon_unreachable",
+    "compose_unavailable",
+    "ready",
+]
+
+_DOCKER_READINESS_STATUS_VALUES = {
+    "missing",
+    "binary_only",
+    "daemon_unreachable",
+    "compose_unavailable",
+    "ready",
+}
+
+
+@dataclass(frozen=True)
+class DockerReadiness:
+    status: DockerReadinessStatus
+    ok: bool
+    docker_binary_present: bool
+    docker_binary_path: str | None
+    docker_daemon_reachable: bool
+    docker_compose_available: bool
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -60,6 +90,164 @@ def _resolve_custom_binary_path(custom_path: str | None) -> str | None:
     return None
 
 
+def _probe_command(
+    command: list[str],
+    timeout_seconds: float,
+) -> tuple[bool, str]:
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return False, str(exc)
+    except PermissionError as exc:
+        return False, str(exc)
+    except subprocess.TimeoutExpired:
+        return False, f"timed out after {timeout_seconds:.1f}s"
+    except OSError as exc:
+        return False, str(exc)
+
+    output_parts = [
+        part.strip()
+        for part in (completed.stdout, completed.stderr)
+        if part and part.strip()
+    ]
+    detail = "\n".join(output_parts).strip()
+    if completed.returncode == 0:
+        return True, detail
+    return False, detail or f"exit code {completed.returncode}"
+
+
+def _looks_like_daemon_unreachable(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(
+        needle in lowered
+        for needle in (
+            "cannot connect to the docker daemon",
+            "is the docker daemon running",
+            "error during connect",
+            "connection refused",
+            "dial unix",
+            "permission denied",
+            "no such file or directory",
+        )
+    )
+
+
+def _probe_compose_availability(
+    docker_binary_path: str,
+    timeout_seconds: float,
+) -> tuple[bool, str]:
+    plugin_ok, plugin_detail = _probe_command(
+        [docker_binary_path, "compose", "version", "--short"],
+        timeout_seconds,
+    )
+    if plugin_ok:
+        return True, plugin_detail or "docker compose is available"
+
+    legacy_binary = shutil.which("docker-compose")
+    if legacy_binary:
+        legacy_ok, legacy_detail = _probe_command(
+            [legacy_binary, "version", "--short"],
+            timeout_seconds,
+        )
+        if legacy_ok:
+            return True, legacy_detail or "docker-compose is available"
+        legacy_message = legacy_detail or "docker-compose probe failed"
+    else:
+        legacy_message = "docker-compose binary not found"
+
+    plugin_message = plugin_detail or "docker compose probe failed"
+    return False, "; ".join(
+        message for message in (plugin_message, legacy_message) if message
+    )
+
+
+def detect_docker_readiness(
+    custom_path: str | None = None,
+    *,
+    timeout_seconds: float = 4.0,
+) -> DockerReadiness:
+    custom_resolved = _resolve_custom_binary_path(custom_path)
+    custom_prefix = ""
+    if custom_path and custom_resolved is None:
+        custom_prefix = f"Custom Docker path is not executable: {custom_path}. "
+
+    binary_path = custom_resolved or shutil.which("docker")
+    if not binary_path:
+        return DockerReadiness(
+            status="missing",
+            ok=False,
+            docker_binary_present=False,
+            docker_binary_path=None,
+            docker_daemon_reachable=False,
+            docker_compose_available=False,
+            detail=f"{custom_prefix}Docker CLI not found. {_os_hint_lines('docker')}",
+        )
+
+    daemon_ok, daemon_detail = _probe_command(
+        [binary_path, "info"],
+        timeout_seconds,
+    )
+    if not daemon_ok:
+        if _looks_like_daemon_unreachable(daemon_detail):
+            status = "daemon_unreachable"
+            detail = (
+                f"{custom_prefix}Docker binary found at {binary_path}, "
+                f"but the daemon is not reachable. {daemon_detail}"
+            )
+        else:
+            status = "binary_only"
+            detail = (
+                f"{custom_prefix}Docker binary found at {binary_path}, "
+                f"but readiness could not be confirmed. {daemon_detail}"
+            )
+        return DockerReadiness(
+            status=status,
+            ok=False,
+            docker_binary_present=True,
+            docker_binary_path=binary_path,
+            docker_daemon_reachable=False,
+            docker_compose_available=False,
+            detail=detail,
+        )
+
+    compose_ok, compose_detail = _probe_compose_availability(
+        binary_path,
+        timeout_seconds,
+    )
+    if not compose_ok:
+        return DockerReadiness(
+            status="compose_unavailable",
+            ok=False,
+            docker_binary_present=True,
+            docker_binary_path=binary_path,
+            docker_daemon_reachable=True,
+            docker_compose_available=False,
+            detail=(
+                f"{custom_prefix}Docker daemon is reachable at {binary_path}, "
+                f"but Compose is unavailable. {compose_detail}"
+            ),
+        )
+
+    return DockerReadiness(
+        status="ready",
+        ok=True,
+        docker_binary_present=True,
+        docker_binary_path=binary_path,
+        docker_daemon_reachable=True,
+        docker_compose_available=True,
+        detail=(
+            f"{custom_prefix}Docker daemon is reachable and Compose is "
+            f"available at {binary_path}. {compose_detail}"
+        ),
+    )
+
+
 def detect_dependency(
     binary_name: str,
     display_name: str,
@@ -82,6 +270,8 @@ def detect_dependency(
 
 def detect_core_dependencies(
     custom_paths: dict[str, str] | None = None,
+    *,
+    docker_readiness: DockerReadiness | None = None,
 ) -> dict[str, DepStatus]:
     """
     Core deps for a local-first default experience.
@@ -90,9 +280,13 @@ def detect_core_dependencies(
     """
 
     paths = custom_paths or {}
+    readiness = docker_readiness or detect_docker_readiness(paths.get("docker"))
     return {
-        "docker": detect_dependency(
-            "docker", "Docker", custom_path=paths.get("docker")
+        "docker": DepStatus(
+            name="Docker",
+            is_present=readiness.ok,
+            found_path=readiness.docker_binary_path,
+            help_text=readiness.detail,
         ),
         "ollama": detect_dependency(
             "ollama", "Ollama", custom_path=paths.get("ollama")
@@ -410,7 +604,7 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
             name="Docker available",
             ok=docker.is_present,
             required=docker_required,
-            detail=docker.found_path or docker.help_text,
+            detail=docker.help_text,
         )
     )
 
