@@ -45,6 +45,7 @@ from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
+from guardian.core import event_bus
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -3601,6 +3602,120 @@ def _synthesize_retrieval_posture(
     }
 
 
+def _canonical_retrieval_posture_from_completed_payload(
+    completed_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(completed_payload, dict):
+        return None
+
+    payload_summary = completed_payload.get("payload_summary")
+    if isinstance(payload_summary, dict):
+        posture = payload_summary.get("retrieval_posture")
+        if isinstance(posture, dict):
+            return dict(posture)
+
+    trace = completed_payload.get("trace")
+    if isinstance(trace, dict):
+        return _synthesize_retrieval_posture(
+            trace,
+            payload_summary if isinstance(payload_summary, dict) else None,
+        )
+    return None
+
+
+def _event_payload_from_record(
+    event: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(event, dict):
+        return None
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        return payload
+    payload = event.get("data")
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
+def _retrieval_posture_history_items(
+    thread_id: int,
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+
+    items: list[dict[str, Any]] = []
+    last_id = 0
+    chunk_limit = max(limit * 20, 100)
+
+    while True:
+        try:
+            events = event_bus.fetch_events_after(last_id, limit=chunk_limit)
+        except Exception as exc:
+            logger.debug(
+                "[chat.trace] failed to read retrieval posture history thread_id=%s: %s",
+                thread_id,
+                exc,
+            )
+            break
+
+        if not events:
+            break
+
+        for event in events:
+            event_id = _coerce_positive_int(event.get("id"))
+            if event_id is not None and event_id > last_id:
+                last_id = event_id
+
+            topic = str(event.get("topic") or event.get("type") or "").strip()
+            if topic != "task.completed":
+                continue
+
+            payload = _event_payload_from_record(event)
+            if not isinstance(payload, dict):
+                continue
+
+            payload_thread_id = _coerce_positive_int(payload.get("thread_id"))
+            if payload_thread_id != thread_id:
+                continue
+
+            posture = _canonical_retrieval_posture_from_completed_payload(
+                payload
+            )
+            if posture is None:
+                continue
+
+            task_ref = str(
+                payload.get("task_id")
+                or event.get("task_id")
+                or event.get("id")
+                or ""
+            ).strip()
+            created_at = (
+                event.get("created_at")
+                or payload.get("completed_at")
+                or payload.get("created_at")
+            )
+            items.append(
+                {
+                    "task_id": task_ref or str(event.get("id") or ""),
+                    "created_at": created_at,
+                    "retrieval_posture": posture,
+                }
+            )
+
+        if len(events) < chunk_limit:
+            break
+
+    if not items:
+        return []
+
+    recent_items = items[-limit:]
+    recent_items.reverse()
+    return recent_items
+
+
 def get_latest_retrieval_posture(
     thread_id: int,
     api_key: str = Depends(require_api_key),
@@ -3629,19 +3744,9 @@ def get_latest_retrieval_posture(
 
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
-        if isinstance(completed_payload, dict):
-            payload_summary = completed_payload.get("payload_summary")
-            if isinstance(payload_summary, dict):
-                # Fast path: canonical snapshot already emitted by completion-service
-                posture = payload_summary.get("retrieval_posture")
-
-            # Fallback: synthesize from legacy trace fields if no canonical snapshot
-            if posture is None:
-                trace = completed_payload.get("trace")
-                if isinstance(trace, dict):
-                    posture = _synthesize_retrieval_posture(
-                        trace, payload_summary
-                    )
+        posture = _canonical_retrieval_posture_from_completed_payload(
+            completed_payload
+        )
 
     # Empty state when no posture evidence exists
     if posture is None:
@@ -3671,6 +3776,57 @@ def get_latest_retrieval_posture_endpoint(
     """
     return get_latest_retrieval_posture(
         thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+def get_retrieval_posture_history(
+    thread_id: int,
+    limit: int = 5,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Dict[str, Any]:
+    """
+    [DEV ONLY] Get a bounded history of canonical retrieval posture snapshots
+    for this thread from completed trace evidence.
+    """
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    items = _retrieval_posture_history_items(thread_id, limit=limit)
+    if not items:
+        return {
+            "thread_id": thread_id,
+            "status": "empty",
+            "items": [],
+        }
+
+    return {
+        "thread_id": thread_id,
+        "status": "ok",
+        "items": items,
+    }
+
+
+@router.get("/{thread_id}/debug/retrieval-posture/history", tags=["Debug"])
+def get_retrieval_posture_history_endpoint(
+    thread_id: int,
+    limit: int = Query(default=5, ge=1, le=20),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """[DEV ONLY] Get posture history for a thread."""
+    return get_retrieval_posture_history(
+        thread_id,
+        limit=limit,
         api_key=api_key,
         request_user_scope=request_user_scope,
     )
@@ -3876,6 +4032,24 @@ def api_get_latest_retrieval_posture(
     """Compat alias for GET /chat/debug/retrieval-posture/{thread_id}/latest."""
     return get_latest_retrieval_posture(
         thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get(
+    "/{thread_id}/debug/retrieval-posture/history", tags=["Debug"]
+)
+def api_get_retrieval_posture_history(
+    thread_id: int,
+    limit: int = Query(default=5, ge=1, le=20),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Compat alias for GET /chat/{thread_id}/debug/retrieval-posture/history."""
+    return get_retrieval_posture_history(
+        thread_id,
+        limit=limit,
         api_key=api_key,
         request_user_scope=request_user_scope,
     )

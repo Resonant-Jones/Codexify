@@ -290,14 +290,59 @@ function serializeRetrievalPosture(posture: CommandCenterRetrievalPosture): stri
   return JSON.stringify(snapshot, null, 2);
 }
 
+function formatRetrievalPostureAuditNote(posture: CommandCenterRetrievalPosture): string {
+  const summaryLines = describeRetrievalPosture(posture);
+  const compactSummaryLines =
+    summaryLines.length > 1 ? [summaryLines[0], summaryLines[summaryLines.length - 1]] : summaryLines;
+
+  const lines = [
+    "Retrieval posture",
+    `- source_mode: ${posture.source_mode}`,
+    `- boundary_label: ${posture.boundary_label}`,
+    `- retrieval_override_mode: ${posture.retrieval_override_mode ?? "null"}`,
+    `- widen_reason: ${posture.widen_reason}`,
+  ];
+
+  if (typeof posture.conversation_only === "boolean") {
+    lines.push(`- conversation_only: ${posture.conversation_only}`);
+  }
+
+  lines.push("", "Summary");
+  compactSummaryLines.forEach((line) => {
+    lines.push(`- ${line}`);
+  });
+
+  return lines.join("\n");
+}
+
+function formatRetrievalPostureBundle(posture: CommandCenterRetrievalPosture): string {
+  return [
+    "Retrieval posture JSON",
+    serializeRetrievalPosture(posture),
+    "",
+    "Audit note",
+    formatRetrievalPostureAuditNote(posture),
+  ].join("\n");
+}
+
+type RetrievalPostureCopyFeedback =
+  | { action: "posture"; status: "copied" | "failed" }
+  | { action: "audit-note"; status: "copied" | "failed" }
+  | { action: "bundle"; status: "copied" | "failed" }
+  | null;
+
 function RetrievalPostureDetails({
   retrievalPosture,
-  onCopy,
-  copyStatus,
+  onCopyPosture,
+  onCopyAuditNote,
+  onCopyBundle,
+  copyFeedback,
 }: {
   retrievalPosture: CommandCenterRetrievalPosture;
-  onCopy: () => void;
-  copyStatus: "idle" | "copied" | "failed";
+  onCopyPosture: () => void;
+  onCopyAuditNote: () => void;
+  onCopyBundle: () => void;
+  copyFeedback: RetrievalPostureCopyFeedback;
 }) {
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
@@ -425,17 +470,51 @@ function RetrievalPostureDetails({
           variant="ghost"
           size="sm"
           className="border border-[var(--panel-border)]"
-          onClick={onCopy}
+          onClick={onCopyPosture}
         >
           Copy posture
         </Button>
-        {copyStatus === "copied" ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyAuditNote}
+        >
+          Copy audit note
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyBundle}
+        >
+          Copy posture bundle
+        </Button>
+        {copyFeedback?.action === "posture" && copyFeedback.status === "copied" ? (
           <span className="text-xs" style={{ color: "var(--muted)" }}>
             Copied posture
           </span>
-        ) : copyStatus === "failed" ? (
+        ) : copyFeedback?.action === "posture" && copyFeedback.status === "failed" ? (
           <span className="text-xs" style={{ color: "var(--danger-text)" }}>
             Copy failed
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied audit note
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Audit note copy failed
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture bundle
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Posture bundle copy failed
           </span>
         ) : null}
       </div>
@@ -458,26 +537,52 @@ export function RetrievalPosturePanel({
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
-  const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "failed">("idle");
+  const [copyFeedback, setCopyFeedback] = React.useState<RetrievalPostureCopyFeedback>(null);
 
   React.useEffect(() => {
-    setCopyStatus("idle");
+    setCopyFeedback(null);
   }, [threadId, retrievalPosture]);
+
+  const writeRetrievalPostureToClipboard = React.useCallback(async (payload: string) => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard unavailable");
+    }
+
+    await navigator.clipboard.writeText(payload);
+  }, []);
 
   const handleCopyPosture = React.useCallback(async () => {
     if (!retrievalPosture) return;
 
     try {
-      const payload = serializeRetrievalPosture(retrievalPosture);
-      if (!navigator.clipboard?.writeText) {
-        throw new Error("Clipboard unavailable");
-      }
-      await navigator.clipboard.writeText(payload);
-      setCopyStatus("copied");
+      await writeRetrievalPostureToClipboard(serializeRetrievalPosture(retrievalPosture));
+      setCopyFeedback({ action: "posture", status: "copied" });
     } catch {
-      setCopyStatus("failed");
+      setCopyFeedback({ action: "posture", status: "failed" });
     }
-  }, [retrievalPosture]);
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
+  const handleCopyAuditNote = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(formatRetrievalPostureAuditNote(retrievalPosture));
+      setCopyFeedback({ action: "audit-note", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "audit-note", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
+  const handleCopyBundle = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(formatRetrievalPostureBundle(retrievalPosture));
+      setCopyFeedback({ action: "bundle", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "bundle", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
 
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
@@ -515,8 +620,10 @@ export function RetrievalPosturePanel({
         </div>
       ) : retrievalPosture ? (
         <RetrievalPostureDetails
-          copyStatus={copyStatus}
-          onCopy={() => void handleCopyPosture()}
+          copyFeedback={copyFeedback}
+          onCopyAuditNote={() => void handleCopyAuditNote()}
+          onCopyBundle={() => void handleCopyBundle()}
+          onCopyPosture={() => void handleCopyPosture()}
           retrievalPosture={retrievalPosture}
         />
       ) : null}
