@@ -31,6 +31,7 @@ from guardian.core import event_bus
 from guardian.core.auth import verify_session_token
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
+from guardian.core.config import get_settings as get_core_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
@@ -230,13 +231,32 @@ def _multi_user_enabled() -> bool:
 
 def get_request_user_id(
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
 ) -> str:
     """
-    Resolve request user identity from server-side single-user configuration.
+    Resolve request user identity.
 
-    `X-User-Id` is only honored when explicit local debug flags are enabled.
+    In default single-user mode, `X-User-Id` is only honored when explicit
+    local debug flags are enabled and otherwise falls back to the configured
+    single-user identity.
+
+    When CODEXIFY_MULTI_USER_ENABLED=true, the request must carry an
+    authenticated subject from the existing session/JWT path.
     """
-    candidate = (x_user_id or "").strip()
+    if _multi_user_mode_enabled():
+        subject = _resolve_authenticated_subject(authorization, gc_session)
+        if subject:
+            return subject
+        logger.warning(
+            "Rejected request without authenticated subject in multi-user mode"
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Multi-user mode requires an authenticated session/JWT subject",
+        )
+
+    candidate = _coerce_text(x_user_id)
     allow_override = _allow_user_header_override()
     if candidate and allow_override:
         logger.debug(
@@ -499,12 +519,14 @@ def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
 def get_current_user(
     api_key: str = Depends(require_api_key),
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
 ) -> str:
     """
     Resolve current user from server-side single-user identity.
     """
     _ = api_key
-    return get_request_user_id(x_user_id)
+    return get_request_user_id(x_user_id, authorization, gc_session)
 
 
 # =========================
