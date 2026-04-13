@@ -15,6 +15,7 @@ import hmac
 import logging
 import os
 import time as time_module
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -23,6 +24,8 @@ from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, Header, HTTPException
 from fastapi.security.api_key import APIKeyHeader
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
@@ -32,6 +35,7 @@ from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.core.config import get_settings as get_core_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+from guardian.db.models import AuthenticatedPrincipal
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
 from guardian.vector.store import VectorStore
@@ -210,6 +214,15 @@ def get_single_user_id() -> str:
     return configured or _DEFAULT_SINGLE_USER_ID
 
 
+@dataclass(frozen=True)
+class RequestUserScope:
+    """Resolved request identity with legacy and durable principal fields."""
+
+    user_id: str
+    subject_id: str | None = None
+    account_id: str | None = None
+
+
 def _multi_user_mode_enabled() -> bool:
     try:
         settings = get_core_settings()
@@ -313,6 +326,129 @@ def get_request_user_id(
             "[auth] ignoring X-User-Id override outside DEBUG/LOCAL_DEV"
         )
     return get_single_user_id()
+
+
+_PRINCIPAL_SESSION_FACTORY: Any = None
+_PRINCIPAL_SESSION_DSN: str | None = None
+
+
+def _principal_database_url() -> str | None:
+    settings = get_core_settings()
+    configured = (
+        getattr(settings, "GUARDIAN_DATABASE_URL", None)
+        or os.getenv("GUARDIAN_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+    )
+    candidate = (configured or "").strip()
+    return candidate or None
+
+
+def _principal_session_factory() -> Any:
+    global _PRINCIPAL_SESSION_DSN
+    global _PRINCIPAL_SESSION_FACTORY
+
+    dsn = _principal_database_url()
+    if not dsn:
+        raise RuntimeError(
+            "Stable principal mapping requires GUARDIAN_DATABASE_URL or DATABASE_URL"
+        )
+
+    if _PRINCIPAL_SESSION_FACTORY is None or _PRINCIPAL_SESSION_DSN != dsn:
+        engine = create_engine(dsn, future=True)
+        _PRINCIPAL_SESSION_FACTORY = sessionmaker(
+            bind=engine,
+            autocommit=False,
+            autoflush=False,
+        )
+        _PRINCIPAL_SESSION_DSN = dsn
+
+    return _PRINCIPAL_SESSION_FACTORY
+
+
+def _resolve_account_id_for_subject(subject_id: str) -> str | None:
+    subject = (subject_id or "").strip()
+    if not subject:
+        return None
+
+    try:
+        Session = _principal_session_factory()
+        with Session() as session:
+            account_id = session.scalar(
+                select(AuthenticatedPrincipal.account_id).where(
+                    AuthenticatedPrincipal.subject_id == subject
+                )
+            )
+    except RuntimeError as exc:
+        logger.error(
+            "[auth] stable principal mapping unavailable: %s", str(exc)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Server misconfigured: stable principal mapping database is not configured"
+            ),
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            "[auth] stable principal lookup failed for subject=%s", subject
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Server misconfigured: stable principal lookup failed",
+        ) from exc
+
+    if account_id is None:
+        return None
+    cleaned = str(account_id).strip()
+    return cleaned or None
+
+
+def get_request_user_scope(
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
+) -> RequestUserScope:
+    """
+    Resolve the current request identity scope.
+
+    Single-user mode preserves the legacy `user_id` fallback behavior.
+    Multi-user mode exposes the authenticated subject and stable account id.
+    """
+    if _multi_user_mode_enabled():
+        subject_id = _resolve_authenticated_subject(authorization, gc_session)
+        if not subject_id:
+            logger.warning(
+                "Rejected request without authenticated subject in multi-user mode"
+            )
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Multi-user mode requires an authenticated session/JWT subject"
+                ),
+            )
+
+        account_id = _resolve_account_id_for_subject(subject_id)
+        if not account_id:
+            logger.warning(
+                "Rejected request without stable principal mapping subject=%s",
+                subject_id,
+            )
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Multi-user mode requires a stable account_id mapping for the authenticated subject"
+                ),
+            )
+
+        return RequestUserScope(
+            user_id=account_id,
+            subject_id=subject_id,
+            account_id=account_id,
+        )
+
+    return RequestUserScope(
+        user_id=get_request_user_id(x_user_id, authorization, gc_session)
+    )
 
 
 def _remote_token_secrets() -> List[str]:
@@ -907,8 +1043,10 @@ __all__ = [
     "verify_api_key",
     "require_api_key",
     "get_current_user",
+    "get_request_user_scope",
     "get_request_user_id",
     "get_single_user_id",
+    "RequestUserScope",
     "API_KEY",
     # Database
     "chatlog_db",
