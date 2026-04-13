@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Optional
 
@@ -19,9 +20,12 @@ from textual.widgets import (
 
 from guardian.ops.setup_wizard import (
     DepStatus,
+    InstallerBootstrapState,
     default_env_target,
+    default_installer_state_path,
     detect_core_dependencies,
     write_env_file,
+    write_installer_state_file,
 )
 
 logger = __import__("logging").getLogger(__name__)
@@ -669,9 +673,22 @@ class SetupWizardApp(App[Optional[str]]):
             # Back-compat with older signature
             write_env_file(env_path, kv)
 
+        installer_state_path = default_installer_state_path(self.repo_root)
+        installer_state = InstallerBootstrapState(
+            setup_complete=True,
+            runtime_profile=self.state.runtime_profile,
+            allow_cloud_providers=self.state.allow_cloud_providers,
+            env_path=str(env_path),
+            last_updated_at=datetime.now(timezone.utc).isoformat(
+                timespec="seconds"
+            ),
+        )
+        write_installer_state_file(installer_state_path, installer_state)
+
         self.exit(
             result=(
                 f"Wrote {env_path}.\n"
+                f"Saved bootstrap state to {installer_state_path}.\n"
                 f"Next steps:\n"
                 f"1. Review generated values in {env_path.name}.\n"
                 f"2. Start backend and UI when ready."

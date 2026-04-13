@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
 import secrets
 import shutil
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
@@ -14,6 +15,15 @@ class DepStatus:
     is_present: bool
     found_path: str | None
     help_text: str
+
+
+@dataclass(frozen=True)
+class InstallerBootstrapState:
+    setup_complete: bool = False
+    runtime_profile: str = "docker"
+    allow_cloud_providers: bool = True
+    env_path: str = ""
+    last_updated_at: str = ""
 
 
 def _os_hint_lines(dep: str) -> str:
@@ -172,6 +182,77 @@ def default_env_target(repo_root: Path) -> Path:
     """
 
     return repo_root / ".env"
+
+
+def default_installer_state_path(repo_root: Path) -> Path:
+    return repo_root / ".codexify" / "installer-bootstrap-state.json"
+
+
+def default_installer_bootstrap_state(
+    repo_root: Path,
+) -> InstallerBootstrapState:
+    return InstallerBootstrapState(env_path=str(default_env_target(repo_root)))
+
+
+def _coerce_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+    return default
+
+
+def write_installer_state_file(
+    state_path: Path,
+    state: InstallerBootstrapState,
+) -> None:
+    resolved = state_path.expanduser().resolve()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(
+        json.dumps(asdict(state), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def read_installer_state_file(repo_root: Path) -> InstallerBootstrapState:
+    state_path = default_installer_state_path(repo_root).expanduser().resolve()
+    default_state = default_installer_bootstrap_state(repo_root)
+
+    try:
+        raw_state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return default_state
+
+    if not isinstance(raw_state, dict):
+        return default_state
+
+    runtime_profile = str(
+        raw_state.get("runtime_profile") or default_state.runtime_profile
+    )
+    if runtime_profile not in {"docker", "external"}:
+        runtime_profile = default_state.runtime_profile
+
+    env_path = str(raw_state.get("env_path") or default_state.env_path)
+    last_updated_at = str(
+        raw_state.get("last_updated_at") or default_state.last_updated_at
+    )
+
+    return InstallerBootstrapState(
+        setup_complete=_coerce_bool(
+            raw_state.get("setup_complete"), default_state.setup_complete
+        ),
+        runtime_profile=runtime_profile,
+        allow_cloud_providers=_coerce_bool(
+            raw_state.get("allow_cloud_providers"),
+            default_state.allow_cloud_providers,
+        ),
+        env_path=env_path,
+        last_updated_at=last_updated_at,
+    )
 
 
 def read_env_file(env_path: Path) -> dict[str, str]:
