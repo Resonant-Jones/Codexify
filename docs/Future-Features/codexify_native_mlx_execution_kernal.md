@@ -22,7 +22,7 @@ native support for throughput-aware local workflows
 
 This is a future architecture target, not a statement of current runtime truth.
 
-1. Why this belongs in Future-Features
+2. Why this belongs in Future-Features
 
 Codexify’s current supported reality is still:
 
@@ -34,7 +34,7 @@ command bus and several adjacent orchestration surfaces still internal, quaranti
 
 This spec describes a native execution layer above the current core loop. It should not be treated as current behavior, release-ready scope, or implied implementation status.
 
-1. Product thesis
+3. Product thesis
 
 Codexify should eventually provide the feeling of a first-class coding runtime:
 
@@ -77,7 +77,7 @@ Preferred internal umbrella name:
 
 Codexify Execution Kernel
 
-1. Non-goals
+5. Non-goals
 
 This future subsystem is not intended to be:
 
@@ -103,7 +103,7 @@ A user should eventually be able to say:
 
 And Codexify should handle the workflow natively.
 
-1. Architectural overview
+7. Architectural overview
 User / Chat / Workspace Surface
         |
         v
@@ -125,7 +125,7 @@ Codexify Execution Kernel
 
 This future layer should sit above the current chat/retrieval substrate, not replace it. The current runtime already has meaningful seams in chat completion, context assembly, provider routing, queues, event transport, and subsystem boundaries that make this kind of later layering plausible.
 
-1. Relationship to current architecture
+8. Relationship to current architecture
 
 This future subsystem should build on existing Codexify strengths rather than bypass them.
 
@@ -146,7 +146,7 @@ The chat surface remains the invocation surface.
 
 The execution kernel becomes the actor.
 
-1. Core components
+9. Core components
 9.1 Intent Interpreter
 
 Transforms a user request into an executable coding intent.
@@ -286,7 +286,7 @@ maintain lineage integrity
 
 This direction should align with Codexify’s existing interest in thread-artifact lineage and explicit export/restore contracts rather than inventing disposable execution state with no provenance.
 
-1. MLX routing strategy
+10. MLX routing strategy
 10.1 Model lanes
 Fast lane
 
@@ -539,7 +539,7 @@ Execution-generated artifacts should remain linkable to source thread/project/me
 
 Future coding execution should respect retrieval-router discipline rather than embedding ad hoc retrieval heuristics inside prompt text.
 
-1. MVP boundary for the future feature
+16. MVP boundary for the future feature
 
 When this layer is eventually tackled, a realistic first slice would be:
 
@@ -582,7 +582,7 @@ Those can come later, if ever.
 
 The first win is a stable native repo operator with validation discipline.
 
-1. Final principle
+18. Final principle
 
 Codexify should eventually behave like this:
 
@@ -594,7 +594,7 @@ The Validation Plane is the conscience.
 
 That gives Codexify the capabilities people seek from Claude Code or Codex while keeping the product sovereign, local-first, and internally coherent.
 
-1. Future implementation note
+19. Future implementation note
 
 When this feature graduates from Future-Features into active engineering, planning should start from:
 
@@ -602,5 +602,3 @@ current runtime truth and supported-path constraints
 subsystem boundaries and blast radius
 current queue / retrieval / provider / operator-surface risks
 canonical token and runtime-contract discipline.
-
-I
