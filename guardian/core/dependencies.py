@@ -15,6 +15,7 @@ import hmac
 import logging
 import os
 import time as time_module
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -54,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 _SINGLE_USER_ID_ENV = "CODEXIFY_SINGLE_USER_ID"
 _DEFAULT_SINGLE_USER_ID = "local"
+_MULTI_USER_ENABLED_ENV = "CODEXIFY_MULTI_USER_ENABLED"
 
 
 # =========================
@@ -209,6 +211,23 @@ def get_single_user_id() -> str:
     return configured or _DEFAULT_SINGLE_USER_ID
 
 
+@dataclass(frozen=True, slots=True)
+class RequestUserScope:
+    """
+    Effective request identity scope.
+
+    account_id is the owner boundary that routes should use for data access.
+    """
+
+    account_id: str
+    principal_id: str
+    multi_user_enabled: bool
+
+
+def _multi_user_enabled() -> bool:
+    return _env_bool(_MULTI_USER_ENABLED_ENV, default=False)
+
+
 def get_request_user_id(
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ) -> str:
@@ -229,6 +248,40 @@ def get_request_user_id(
             "[auth] ignoring X-User-Id override outside DEBUG/LOCAL_DEV"
         )
     return get_single_user_id()
+
+
+def get_request_user_scope(
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+) -> RequestUserScope:
+    """
+    Resolve the authenticated request scope for ownership-sensitive routes.
+
+    In single-user mode we preserve existing behavior by delegating to the
+    server-side single-user identity resolver. In multi-user mode we require
+    an explicit request principal and treat it as the effective account owner.
+    """
+    multi_user_enabled = _multi_user_enabled()
+    principal_id = ""
+    if multi_user_enabled:
+        principal_id = (x_user_id or "").strip()
+        if not principal_id:
+            raise HTTPException(
+                status_code=403, detail="current user could not be resolved"
+            )
+    else:
+        principal_id = get_request_user_id(x_user_id)
+
+    principal_id = str(principal_id or "").strip()
+    if not principal_id:
+        raise HTTPException(
+            status_code=403, detail="current user could not be resolved"
+        )
+
+    return RequestUserScope(
+        account_id=principal_id,
+        principal_id=principal_id,
+        multi_user_enabled=multi_user_enabled,
+    )
 
 
 def _remote_token_secrets() -> List[str]:
@@ -821,8 +874,10 @@ __all__ = [
     "verify_api_key",
     "require_api_key",
     "get_current_user",
+    "get_request_user_scope",
     "get_request_user_id",
     "get_single_user_id",
+    "RequestUserScope",
     "API_KEY",
     # Database
     "chatlog_db",
