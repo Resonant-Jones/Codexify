@@ -15,6 +15,7 @@ import hmac
 import logging
 import os
 import time as time_module
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -54,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 _SINGLE_USER_ID_ENV = "CODEXIFY_SINGLE_USER_ID"
 _DEFAULT_SINGLE_USER_ID = "local"
+_MULTI_USER_ENABLED_ENV = "CODEXIFY_MULTI_USER_ENABLED"
 
 
 # =========================
@@ -201,6 +203,10 @@ def _allow_user_header_override() -> bool:
     )
 
 
+def _multi_user_enabled() -> bool:
+    return _env_bool(_MULTI_USER_ENABLED_ENV, default=False)
+
+
 def get_single_user_id() -> str:
     """
     Resolve the canonical single-user principal for this deployment.
@@ -218,10 +224,10 @@ def get_request_user_id(
     `X-User-Id` is only honored when explicit local debug flags are enabled.
     """
     candidate = (x_user_id or "").strip()
-    allow_override = _allow_user_header_override()
+    allow_override = _allow_user_header_override() or _multi_user_enabled()
     if candidate and allow_override:
         logger.debug(
-            "[auth] honoring X-User-Id override due to DEBUG/LOCAL_DEV"
+            "[auth] honoring X-User-Id override due to DEBUG/LOCAL_DEV or multi-user mode"
         )
         return candidate
     if candidate and not allow_override:
@@ -229,6 +235,30 @@ def get_request_user_id(
             "[auth] ignoring X-User-Id override outside DEBUG/LOCAL_DEV"
         )
     return get_single_user_id()
+
+
+@dataclass(frozen=True)
+class RequestUserScope:
+    account_id: str
+    multi_user_enabled: bool = False
+
+
+def get_request_user_scope(
+    request_user_id: str = Depends(get_request_user_id),
+) -> RequestUserScope:
+    """
+    Resolve the effective request principal for account-scoped chat routes.
+
+    Single-user deployments continue to collapse onto the canonical
+    single-user principal. Multi-user deployments honor the request principal
+    resolved by `get_request_user_id`.
+    """
+    multi_user_enabled = _multi_user_enabled()
+    account_id = (request_user_id or "").strip() or get_single_user_id()
+    return RequestUserScope(
+        account_id=account_id,
+        multi_user_enabled=multi_user_enabled,
+    )
 
 
 def _remote_token_secrets() -> List[str]:
@@ -445,13 +475,13 @@ def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
 
 def get_current_user(
     api_key: str = Depends(require_api_key),
-    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> str:
     """
-    Resolve current user from server-side single-user identity.
+    Resolve current user from the effective request scope.
     """
     _ = api_key
-    return get_request_user_id(x_user_id)
+    return request_user_scope.account_id
 
 
 # =========================
@@ -821,7 +851,9 @@ __all__ = [
     "verify_api_key",
     "require_api_key",
     "get_current_user",
+    "get_request_user_scope",
     "get_request_user_id",
+    "RequestUserScope",
     "get_single_user_id",
     "API_KEY",
     # Database
