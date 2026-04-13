@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
 import PersonaStudioPage from "../PersonaStudioPage";
-import { resetPersonaStudioApiMock } from "./personaStudioApiMock";
+import { personaStudioApiMock, resetPersonaStudioApiMock } from "./personaStudioApiMock";
 
 vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("./personaStudioApiMock")).personaStudioApiMock
@@ -35,98 +35,117 @@ describe("Persona Studio Page", () => {
     );
   });
 
-  it("renders the preview harness in the main editor", () => {
+  it("renders the ephemeral chat harness in the main editor", () => {
     renderPage();
 
-    expect(screen.getByTestId("persona-studio-preview-harness")).toBeVisible();
-    expect(screen.getByText(/preview-only \/ ephemeral/i)).toBeVisible();
-    expect(screen.getByText(/uses the current draft, including unsaved edits/i)).toBeVisible();
+    expect(screen.getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
+    expect(screen.getByText(/temporary, isolated, non-runtime/i)).toBeVisible();
+    expect(screen.getByText(/session-local only/i)).toBeVisible();
+    expect(screen.getByText(/no guardian thread creation, no memory writes/i)).toBeVisible();
   });
 
-  it("appends preview exchanges from canned prompt chips", async () => {
+  it("supports a multi-turn ephemeral transcript", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole("button", { name: /^coding$/i }));
-
-    const transcript = screen.getByTestId("persona-studio-preview-transcript");
-    expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
-    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
-  });
-
-  it("appends a typed preview prompt to the local transcript", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.type(
-      screen.getByRole("textbox", { name: /preview prompt/i }),
-      "Summarize the plan"
-    );
+    await user.type(screen.getByRole("textbox", { name: /ephemeral chat prompt/i }), "Summarize the plan");
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
-    const transcript = screen.getByTestId("persona-studio-preview-transcript");
-    expect(within(transcript).getByText(/summarize the plan/i)).toBeVisible();
-    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
+    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
+    expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^summarize the plan$/i)).toBeVisible();
+    expect(within(transcript).getByText(/this is the first temporary turn in this studio session/i)).toBeVisible();
+    expect(within(transcript).getAllByText(/current draft snapshot:/i)).toHaveLength(2);
+    expect(within(transcript).getByText(/this is temporary turn 2 in the current studio session/i)).toBeVisible();
   });
 
-  it("appends a deterministic assistant preview summary after a prompt", async () => {
+  it("keeps prior messages visible and changes later replies when the draft changes", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole("button", { name: /^planning$/i }));
 
-    const transcript = screen.getByTestId("persona-studio-preview-transcript");
-    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
-    expect(within(transcript).getByText(/draft-aware/i)).toBeVisible();
-    expect(within(transcript).getByText(/guardian default/i)).toBeVisible();
-    expect(within(transcript).getByText(/openai \/ gpt-4o/i)).toBeVisible();
-    expect(within(transcript).getByText(/0\.7/i)).toBeVisible();
+    const nameInput = screen.getByPlaceholderText("Enter persona name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Shadow Guardian");
+
+    expect(screen.getByText(/draft changed since the last reply/i)).toBeVisible();
+
+    await user.type(screen.getByRole("textbox", { name: /ephemeral chat prompt/i }), "Refine the answer");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
+    expect(within(transcript).getByText(/guardian default is the active persona draft right now/i)).toBeVisible();
+    expect(within(transcript).getByText(/shadow guardian is the active persona draft right now/i)).toBeVisible();
+    expect(within(transcript).getByText(/^earlier draft$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^current draft$/i)).toBeVisible();
   });
 
-  it("reflects unsaved draft edits in the assistant preview summary", async () => {
+  it("renders draft snapshot context in each assistant reply", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.clear(screen.getByPlaceholderText("Enter persona name"));
-    await user.type(screen.getByPlaceholderText("Enter persona name"), "Shadow Guardian");
-    await user.click(screen.getByRole("button", { name: /^casual help$/i }));
+    await user.click(screen.getByRole("button", { name: /^planning$/i }));
 
-    const transcript = screen.getByTestId("persona-studio-preview-transcript");
-    expect(within(transcript).getByText(/shadow guardian/i)).toBeVisible();
-    expect(within(transcript).getByText(/local preview summary/i)).toBeVisible();
+    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
+    expect(within(transcript).getByText(/current draft snapshot:/i)).toBeVisible();
+    expect(within(transcript).getByText(/^guardian default$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^openai \/ gpt-4o$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^0\.7$/i)).toBeVisible();
   });
 
-  it("can clear the local preview transcript", async () => {
+  it("clears the ephemeral session on demand", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole("button", { name: /^research$/i }));
-    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
-      /local preview summary/i
+    expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+      /current draft/i
     );
 
-    await user.click(screen.getByRole("button", { name: /clear preview/i }));
+    await user.click(screen.getByRole("button", { name: /clear session/i }));
 
-    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
-      /no preview messages yet/i
+    expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+      /no ephemeral messages yet/i
     );
   });
 
-  it("does not persist preview messages across remounts", async () => {
+  it("does not persist the ephemeral session across remounts", async () => {
     const user = userEvent.setup();
     const firstRender = renderPage();
 
     await user.click(screen.getByRole("button", { name: /^coding$/i }));
-    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
-      /local preview summary/i
+    await waitFor(() =>
+      expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+        /current draft snapshot:/i
+      )
     );
 
     firstRender.unmount();
     renderPage();
 
-    expect(screen.getByTestId("persona-studio-preview-transcript")).toHaveTextContent(
-      /no preview messages yet/i
+    expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+      /no ephemeral messages yet/i
     );
+  });
+
+  it("does not touch runtime write paths or session persistence", async () => {
+    const user = userEvent.setup();
+    const sessionSetItemSpy = vi.spyOn(window.sessionStorage, "setItem");
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+        /current draft snapshot:/i
+      )
+    );
+
+    expect(personaStudioApiMock.fetchPersonaProfiles).toHaveBeenCalledTimes(1);
+    expect(personaStudioApiMock.createPersonaProfile).not.toHaveBeenCalled();
+    expect(personaStudioApiMock.updatePersonaProfile).not.toHaveBeenCalled();
+    expect(sessionSetItemSpy).not.toHaveBeenCalled();
   });
 
   it("can collapse and reopen the utility pane", async () => {
