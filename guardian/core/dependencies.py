@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 
 _SINGLE_USER_ID_ENV = "CODEXIFY_SINGLE_USER_ID"
 _DEFAULT_SINGLE_USER_ID = "local"
+_MULTI_USER_ENABLED_ENV = "CODEXIFY_MULTI_USER_ENABLED"
 
 
 # =========================
@@ -242,49 +243,18 @@ def _resolve_authenticated_subject(
     gc_session: object = None,
 ) -> str | None:
     """
-    Resolve an authenticated subject from bearer/session credentials.
+    Effective request identity scope.
 
-    Returns None when no session/JWT subject can be extracted.
+    account_id is the owner boundary that routes should use for data access.
     """
 
-    def _subject_from_token(token: str) -> str | None:
-        raw = token.strip()
-        if not raw:
-            return None
+    account_id: str
+    principal_id: str
+    multi_user_enabled: bool
 
-        ok, subject = verify_session_token(raw)
-        if ok:
-            cleaned = (subject or "").strip()
-            if cleaned:
-                return cleaned
 
-        if jwt is None:
-            return None
-
-        for secret in _remote_token_secrets():
-            try:
-                payload = jwt.decode(
-                    raw,
-                    secret,
-                    algorithms=["HS256"],
-                    options={"verify_aud": False},
-                )
-            except Exception:
-                continue
-            cleaned = str(payload.get("sub") or "").strip()
-            if cleaned:
-                return cleaned
-        return None
-
-    for candidate in (_coerce_text(authorization), _coerce_text(gc_session)):
-        if not candidate:
-            continue
-        if candidate.lower().startswith("bearer "):
-            candidate = candidate[7:].strip()
-        subject = _subject_from_token(candidate)
-        if subject:
-            return subject
-    return None
+def _multi_user_enabled() -> bool:
+    return _env_bool(_MULTI_USER_ENABLED_ENV, default=False)
 
 
 def get_request_user_id(
