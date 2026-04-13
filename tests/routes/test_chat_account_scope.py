@@ -32,6 +32,7 @@ def test_single_user_create_thread_keeps_legacy_owner_hint(monkeypatch):
         {"title": "Legacy", "user_id": "legacy-user"},
         api_key="test-api-key",
         request_user_scope=RequestUserScope(
+            user_id="local",
             account_id="local",
             multi_user_enabled=False,
         ),
@@ -51,6 +52,7 @@ def test_multi_user_create_thread_rejects_conflicting_user_id(monkeypatch):
             {"title": "Rejected", "user_id": "other-account"},
             api_key="test-api-key",
             request_user_scope=RequestUserScope(
+                user_id="owner-a",
                 account_id="owner-a",
                 multi_user_enabled=True,
             ),
@@ -83,6 +85,7 @@ def test_multi_user_message_list_returns_owned_thread_data(monkeypatch):
         21,
         api_key="test-api-key",
         request_user_scope=RequestUserScope(
+            user_id="owner-a",
             account_id="owner-a",
             multi_user_enabled=True,
         ),
@@ -109,6 +112,7 @@ def test_multi_user_message_post_rejects_cross_account_thread(monkeypatch):
             {"role": "user", "content": "Hello", "user_id": "owner-a"},
             api_key="test-api-key",
             request_user_scope=RequestUserScope(
+                user_id="owner-a",
                 account_id="owner-a",
                 multi_user_enabled=True,
             ),
@@ -139,6 +143,7 @@ async def test_multi_user_completion_rejects_other_principal_thread(
             api_key="test-api-key",
             request_id=None,
             request_user_scope=RequestUserScope(
+                user_id="owner-a",
                 account_id="owner-a",
                 multi_user_enabled=True,
             ),
@@ -162,6 +167,7 @@ def test_multi_user_debug_posture_rejects_other_principal_thread(monkeypatch):
             51,
             api_key="test-api-key",
             request_user_scope=RequestUserScope(
+                user_id="owner-a",
                 account_id="owner-a",
                 multi_user_enabled=True,
             ),

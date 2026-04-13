@@ -233,7 +233,7 @@ def _multi_user_mode_enabled() -> bool:
 class RequestUserScope:
     """Resolved request identity with legacy and durable principal fields."""
 
-    user_id: str
+    user_id: str = ""
     subject_id: str | None = None
     account_id: str | None = None
     multi_user_enabled: bool = False
@@ -1026,7 +1026,6 @@ __all__ = [
     "get_request_user_id",
     "RequestUserScope",
     "get_single_user_id",
-    "RequestUserScope",
     "API_KEY",
     # Database
     "chatlog_db",
