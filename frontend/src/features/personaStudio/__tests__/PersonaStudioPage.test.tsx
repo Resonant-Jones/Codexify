@@ -39,9 +39,11 @@ describe("Persona Studio Page", () => {
     renderPage();
 
     expect(screen.getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
-    expect(screen.getByText(/temporary, isolated, non-runtime/i)).toBeVisible();
-    expect(screen.getByText(/session-local only/i)).toBeVisible();
-    expect(screen.getByText(/no guardian thread creation, no memory writes/i)).toBeVisible();
+    expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
+    expect(screen.getByText(/^session-local$/i)).toBeVisible();
+    expect(screen.getByText(/^non-runtime$/i)).toBeVisible();
+    expect(screen.getByText(/^ephemeral$/i)).toBeVisible();
+    expect(screen.getByText(/isolated from guardian runtime/i)).toBeVisible();
   });
 
   it("supports a multi-turn ephemeral transcript", async () => {
@@ -53,6 +55,11 @@ describe("Persona Studio Page", () => {
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
+    expect(within(transcript).getByText(/^session transcript$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
+    expect(within(transcript).getAllByText(/^draft input$/i).length).toBeGreaterThan(0);
+    expect(within(transcript).getAllByText(/^ephemeral assistant$/i).length).toBeGreaterThan(0);
     expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
     expect(within(transcript).getByText(/^summarize the plan$/i)).toBeVisible();
     expect(within(transcript).getByText(/this is the first temporary turn in this studio session/i)).toBeVisible();
@@ -104,10 +111,10 @@ describe("Persona Studio Page", () => {
       /current draft/i
     );
 
-    await user.click(screen.getByRole("button", { name: /clear session/i }));
+    await user.click(screen.getByRole("button", { name: /clear ephemeral session/i }));
 
     expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
-      /no ephemeral messages yet/i
+      /no ephemeral turns yet/i
     );
   });
 
@@ -126,8 +133,22 @@ describe("Persona Studio Page", () => {
     renderPage();
 
     expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
-      /no ephemeral messages yet/i
+      /no ephemeral turns yet/i
     );
+  });
+
+  it("renders the truthful empty-state copy for draft testing", () => {
+    renderPage();
+
+    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
+    expect(within(transcript).getByText(/^empty harness$/i)).toBeVisible();
+    expect(within(transcript).getByText(/local draft testing/i)).toBeVisible();
+    expect(
+      within(transcript).getByText(/use this session-local harness to test the active persona draft/i)
+    ).toBeVisible();
+    expect(
+      within(transcript).getByText(/send a temporary message, inspect the draft snapshot/i)
+    ).toBeVisible();
   });
 
   it("does not touch runtime write paths or session persistence", async () => {
