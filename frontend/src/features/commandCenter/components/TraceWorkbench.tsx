@@ -315,20 +315,33 @@ function formatRetrievalPostureAuditNote(posture: CommandCenterRetrievalPosture)
   return lines.join("\n");
 }
 
+function formatRetrievalPostureBundle(posture: CommandCenterRetrievalPosture): string {
+  return [
+    "Retrieval posture JSON",
+    serializeRetrievalPosture(posture),
+    "",
+    "Audit note",
+    formatRetrievalPostureAuditNote(posture),
+  ].join("\n");
+}
+
 type RetrievalPostureCopyFeedback =
   | { action: "posture"; status: "copied" | "failed" }
   | { action: "audit-note"; status: "copied" | "failed" }
+  | { action: "bundle"; status: "copied" | "failed" }
   | null;
 
 function RetrievalPostureDetails({
   retrievalPosture,
   onCopyPosture,
   onCopyAuditNote,
+  onCopyBundle,
   copyFeedback,
 }: {
   retrievalPosture: CommandCenterRetrievalPosture;
   onCopyPosture: () => void;
   onCopyAuditNote: () => void;
+  onCopyBundle: () => void;
   copyFeedback: RetrievalPostureCopyFeedback;
 }) {
   const glossaryRows: Array<{
@@ -470,6 +483,15 @@ function RetrievalPostureDetails({
         >
           Copy audit note
         </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyBundle}
+        >
+          Copy posture bundle
+        </Button>
         {copyFeedback?.action === "posture" && copyFeedback.status === "copied" ? (
           <span className="text-xs" style={{ color: "var(--muted)" }}>
             Copied posture
@@ -485,6 +507,14 @@ function RetrievalPostureDetails({
         ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "failed" ? (
           <span className="text-xs" style={{ color: "var(--danger-text)" }}>
             Audit note copy failed
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture bundle
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Posture bundle copy failed
           </span>
         ) : null}
       </div>
@@ -543,6 +573,17 @@ export function RetrievalPosturePanel({
     }
   }, [retrievalPosture, writeRetrievalPostureToClipboard]);
 
+  const handleCopyBundle = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(formatRetrievalPostureBundle(retrievalPosture));
+      setCopyFeedback({ action: "bundle", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "bundle", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
     className,
@@ -581,6 +622,7 @@ export function RetrievalPosturePanel({
         <RetrievalPostureDetails
           copyFeedback={copyFeedback}
           onCopyAuditNote={() => void handleCopyAuditNote()}
+          onCopyBundle={() => void handleCopyBundle()}
           onCopyPosture={() => void handleCopyPosture()}
           retrievalPosture={retrievalPosture}
         />
