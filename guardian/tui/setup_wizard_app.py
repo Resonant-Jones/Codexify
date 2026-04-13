@@ -19,9 +19,11 @@ from textual.widgets import (
 )
 
 from guardian.ops.setup_wizard import (
+    ComposeBootstrapResult,
     DepStatus,
     DockerReadiness,
     InstallerBootstrapState,
+    attempt_compose_bootstrap,
     default_env_target,
     default_installer_state_path,
     detect_core_dependencies,
@@ -39,6 +41,7 @@ class WizardState:
     mode: str  # "fast" | "custom"
     deps: dict[str, DepStatus]
     docker_readiness: DockerReadiness
+    compose_bootstrap_result: ComposeBootstrapResult | None = None
     openai_api_key: str = ""
     allow_cloud_providers: bool = True
     runtime_profile: str = "docker"  # "docker" | "external"
@@ -288,6 +291,39 @@ class SetupWizardApp(App[Optional[str]]):
             custom_paths["ollama"] = ollama_path
         return custom_paths
 
+    def _sync_dependency_state(self, *, reset_ack: bool) -> None:
+        custom_paths = self._current_custom_paths()
+        docker_readiness = detect_docker_readiness(custom_paths.get("docker"))
+        self.state.docker_readiness = docker_readiness
+        self.state.deps = detect_core_dependencies(
+            custom_paths,
+            docker_readiness=docker_readiness,
+        )
+        if reset_ack:
+            self.state.deps_acknowledged = False
+
+    def _scan_dependencies(self) -> None:
+        self._sync_dependency_state(reset_ack=True)
+
+    def _persist_installer_state(
+        self,
+        *,
+        env_path: Path,
+        setup_complete: bool,
+    ) -> Path:
+        installer_state_path = default_installer_state_path(self.repo_root)
+        installer_state = InstallerBootstrapState(
+            setup_complete=setup_complete,
+            runtime_profile=self.state.runtime_profile,
+            allow_cloud_providers=self.state.allow_cloud_providers,
+            env_path=str(env_path),
+            last_updated_at=datetime.now(timezone.utc).isoformat(
+                timespec="seconds"
+            ),
+        )
+        write_installer_state_file(installer_state_path, installer_state)
+        return installer_state_path
+
     @staticmethod
     def _docker_readiness_message(readiness: DockerReadiness) -> str:
         if readiness.status == "missing":
@@ -323,16 +359,6 @@ class SetupWizardApp(App[Optional[str]]):
         }[readiness.status]
         return f"{label}. {readiness.detail}"
 
-    def _scan_dependencies(self) -> None:
-        custom_paths = self._current_custom_paths()
-        docker_readiness = detect_docker_readiness(custom_paths.get("docker"))
-        self.state.docker_readiness = docker_readiness
-        self.state.deps = detect_core_dependencies(
-            custom_paths,
-            docker_readiness=docker_readiness,
-        )
-        self.state.deps_acknowledged = False
-
     def _render_deps(self) -> None:
         body = self.query_one("#deps_body", Static)
         lines = []
@@ -367,6 +393,20 @@ class SetupWizardApp(App[Optional[str]]):
             self._set_status(
                 "Docker is ready and all scanned dependencies are available."
             )
+
+    @staticmethod
+    def _compose_bootstrap_result_message(
+        result: ComposeBootstrapResult,
+    ) -> str:
+        if result.status == "started":
+            return f"Local Compose stack started. {result.detail}"
+        if result.status == "skipped":
+            return f"Compose bootstrap skipped. {result.detail}"
+        if result.status == "compose_missing":
+            return f"Compose bootstrap could not start: {result.detail}"
+        if result.status == "preflight_failed":
+            return f"Docker is not ready for bootstrap: {result.detail}"
+        return f"Compose bootstrap failed: {result.detail}"
 
     def _set_status(self, msg: str) -> None:
         self.query_one("#status", Static).update(msg)
@@ -665,6 +705,8 @@ class SetupWizardApp(App[Optional[str]]):
             self._set_status(f"[danger]{validation_error}[/danger]")
             return
 
+        self._sync_dependency_state(reset_ack=False)
+
         kv: dict[str, str] = {
             "ALLOW_CLOUD_PROVIDERS": "true"
             if self.state.allow_cloud_providers
@@ -750,25 +792,51 @@ class SetupWizardApp(App[Optional[str]]):
             # Back-compat with older signature
             write_env_file(env_path, kv)
 
-        installer_state_path = default_installer_state_path(self.repo_root)
-        installer_state = InstallerBootstrapState(
-            setup_complete=True,
-            runtime_profile=self.state.runtime_profile,
-            allow_cloud_providers=self.state.allow_cloud_providers,
-            env_path=str(env_path),
-            last_updated_at=datetime.now(timezone.utc).isoformat(
-                timespec="seconds"
-            ),
+        installer_state_path = self._persist_installer_state(
+            env_path=env_path,
+            setup_complete=False,
         )
-        write_installer_state_file(installer_state_path, installer_state)
+
+        compose_bootstrap_result = attempt_compose_bootstrap(
+            self.repo_root,
+            requested=self.state.runtime_profile == "docker",
+            runtime_profile=self.state.runtime_profile,
+            docker_custom_path=self._current_custom_paths().get("docker"),
+        )
+        self.state.compose_bootstrap_result = compose_bootstrap_result
+
+        if compose_bootstrap_result.status == "skipped":
+            installer_state_path = self._persist_installer_state(
+                env_path=env_path,
+                setup_complete=True,
+            )
+            self.exit(
+                result=(
+                    f"Wrote {env_path}.\n"
+                    f"Saved bootstrap state to {installer_state_path}.\n"
+                    f"Compose bootstrap skipped for the external runtime profile."
+                )
+            )
+            return
+
+        if not compose_bootstrap_result.ok:
+            self._set_status(
+                f"Wrote {env_path} and saved bootstrap state to "
+                f"{installer_state_path}, but "
+                f"{self._compose_bootstrap_result_message(compose_bootstrap_result)}"
+            )
+            return
+
+        installer_state_path = self._persist_installer_state(
+            env_path=env_path,
+            setup_complete=True,
+        )
 
         self.exit(
             result=(
                 f"Wrote {env_path}.\n"
                 f"Saved bootstrap state to {installer_state_path}.\n"
-                f"Next steps:\n"
-                f"1. Review generated values in {env_path.name}.\n"
-                f"2. Start backend and UI when ready."
+                f"Local Compose stack started."
             )
         )
 

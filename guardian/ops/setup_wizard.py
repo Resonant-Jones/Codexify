@@ -36,6 +36,31 @@ _DOCKER_READINESS_STATUS_VALUES = {
 }
 
 
+ComposeBootstrapStatus = Literal[
+    "skipped",
+    "preflight_failed",
+    "compose_missing",
+    "bootstrap_failed",
+    "started",
+]
+
+_COMPOSE_BOOTSTRAP_STATUS_VALUES = {
+    "skipped",
+    "preflight_failed",
+    "compose_missing",
+    "bootstrap_failed",
+    "started",
+}
+
+SUPPORTED_LOCAL_COMPOSE_BOOTSTRAP_SERVICES = (
+    "db",
+    "redis",
+    "backend",
+    "worker-chat",
+    "worker-document-embed",
+)
+
+
 @dataclass(frozen=True)
 class DockerReadiness:
     status: DockerReadinessStatus
@@ -45,6 +70,15 @@ class DockerReadiness:
     docker_daemon_reachable: bool
     docker_compose_available: bool
     detail: str
+
+
+@dataclass(frozen=True)
+class ComposeBootstrapResult:
+    ok: bool
+    status: ComposeBootstrapStatus
+    detail: str
+    command: list[str]
+    returncode: int | None
 
 
 @dataclass(frozen=True)
@@ -142,12 +176,25 @@ def _probe_compose_availability(
     docker_binary_path: str,
     timeout_seconds: float,
 ) -> tuple[bool, str]:
+    compose_invocation, compose_detail = _resolve_compose_invocation(
+        docker_binary_path,
+        timeout_seconds,
+    )
+    return compose_invocation is not None, compose_detail
+
+
+def _resolve_compose_invocation(
+    docker_binary_path: str,
+    timeout_seconds: float,
+) -> tuple[list[str] | None, str]:
     plugin_ok, plugin_detail = _probe_command(
         [docker_binary_path, "compose", "version", "--short"],
         timeout_seconds,
     )
     if plugin_ok:
-        return True, plugin_detail or "docker compose is available"
+        return [docker_binary_path, "compose"], (
+            plugin_detail or "docker compose is available"
+        )
 
     legacy_binary = shutil.which("docker-compose")
     if legacy_binary:
@@ -156,14 +203,178 @@ def _probe_compose_availability(
             timeout_seconds,
         )
         if legacy_ok:
-            return True, legacy_detail or "docker-compose is available"
+            return [
+                legacy_binary
+            ], legacy_detail or "docker-compose is available"
         legacy_message = legacy_detail or "docker-compose probe failed"
     else:
         legacy_message = "docker-compose binary not found"
 
     plugin_message = plugin_detail or "docker compose probe failed"
-    return False, "; ".join(
+    return None, "; ".join(
         message for message in (plugin_message, legacy_message) if message
+    )
+
+
+def _compose_bootstrap_command(compose_invocation: list[str]) -> list[str]:
+    return [
+        *compose_invocation,
+        "up",
+        "-d",
+        *SUPPORTED_LOCAL_COMPOSE_BOOTSTRAP_SERVICES,
+    ]
+
+
+def _summarize_process_output(
+    stdout: str | None,
+    stderr: str | None,
+    *,
+    limit: int = 400,
+) -> str:
+    parts = [part.strip() for part in (stdout, stderr) if part and part.strip()]
+    detail = "\n".join(parts).strip()
+    if len(detail) > limit:
+        detail = detail[: limit - 3].rstrip() + "..."
+    return detail
+
+
+def attempt_compose_bootstrap(
+    repo_root: Path,
+    *,
+    requested: bool,
+    runtime_profile: str,
+    docker_custom_path: str | None = None,
+    docker_readiness: DockerReadiness | None = None,
+    readiness_timeout_seconds: float = 4.0,
+    bootstrap_timeout_seconds: float = 120.0,
+) -> ComposeBootstrapResult:
+    planned_command = _compose_bootstrap_command(["docker", "compose"])
+    if not requested or runtime_profile != "docker":
+        detail = f"Compose bootstrap skipped for runtime_profile={runtime_profile!r}."
+        return ComposeBootstrapResult(
+            ok=False,
+            status="skipped",
+            detail=detail,
+            command=planned_command,
+            returncode=None,
+        )
+
+    readiness = docker_readiness or detect_docker_readiness(
+        docker_custom_path,
+        timeout_seconds=readiness_timeout_seconds,
+    )
+    if not readiness.ok:
+        status = (
+            "compose_missing"
+            if readiness.status == "compose_unavailable"
+            else "preflight_failed"
+        )
+        detail = readiness.detail
+        return ComposeBootstrapResult(
+            ok=False,
+            status=status,
+            detail=detail,
+            command=planned_command,
+            returncode=None,
+        )
+
+    compose_invocation, compose_detail = _resolve_compose_invocation(
+        readiness.docker_binary_path or "docker",
+        readiness_timeout_seconds,
+    )
+    if compose_invocation is None:
+        return ComposeBootstrapResult(
+            ok=False,
+            status="compose_missing",
+            detail=compose_detail,
+            command=planned_command,
+            returncode=None,
+        )
+
+    command = _compose_bootstrap_command(compose_invocation)
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=bootstrap_timeout_seconds,
+        )
+    except FileNotFoundError as exc:
+        return ComposeBootstrapResult(
+            ok=False,
+            status="bootstrap_failed",
+            detail=str(exc),
+            command=command,
+            returncode=None,
+        )
+    except PermissionError as exc:
+        return ComposeBootstrapResult(
+            ok=False,
+            status="bootstrap_failed",
+            detail=str(exc),
+            command=command,
+            returncode=None,
+        )
+    except subprocess.TimeoutExpired:
+        return ComposeBootstrapResult(
+            ok=False,
+            status="bootstrap_failed",
+            detail=(
+                f"Compose bootstrap timed out after "
+                f"{bootstrap_timeout_seconds:.1f}s"
+            ),
+            command=command,
+            returncode=None,
+        )
+    except OSError as exc:
+        return ComposeBootstrapResult(
+            ok=False,
+            status="bootstrap_failed",
+            detail=str(exc),
+            command=command,
+            returncode=None,
+        )
+
+    if completed.returncode != 0:
+        detail = _summarize_process_output(
+            completed.stdout,
+            completed.stderr,
+        )
+        if detail:
+            detail = (
+                f"Compose bootstrap failed with exit code "
+                f"{completed.returncode}: {detail}"
+            )
+        else:
+            detail = (
+                f"Compose bootstrap failed with exit code "
+                f"{completed.returncode}"
+            )
+        return ComposeBootstrapResult(
+            ok=False,
+            status="bootstrap_failed",
+            detail=detail,
+            command=command,
+            returncode=completed.returncode,
+        )
+
+    services = ", ".join(SUPPORTED_LOCAL_COMPOSE_BOOTSTRAP_SERVICES)
+    detail = f"Started local Compose stack for {services}."
+    output_detail = _summarize_process_output(
+        completed.stdout,
+        completed.stderr,
+    )
+    if output_detail:
+        detail = f"{detail} {output_detail}"
+
+    return ComposeBootstrapResult(
+        ok=True,
+        status="started",
+        detail=detail,
+        command=command,
+        returncode=completed.returncode,
     )
 
 
