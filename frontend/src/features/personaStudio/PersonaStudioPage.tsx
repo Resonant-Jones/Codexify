@@ -46,8 +46,488 @@ const TABS = [
 ] as const;
 
 const UTILITY_TABS = ["Profiles", "Diagnostics"] as const;
+const EPHEMERAL_SCENARIO_CHIPS = ["Coding", "Research", "Planning", "Casual Help"] as const;
 
 type UtilityTab = (typeof UTILITY_TABS)[number];
+
+type EphemeralChatDraftSnapshot = {
+  signature: string;
+  personaName: string;
+  description: string;
+  modelLine: string;
+  temperatureLine: string;
+  systemPrompt: string;
+  styleNotes: string;
+  directives: string;
+  retrieval: string;
+  pinnedTools: string;
+  allowedTools: string;
+  voice: string;
+};
+
+type EphemeralChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  draftSignature: string;
+  draftSnapshot: EphemeralChatDraftSnapshot;
+};
+
+function formatList(values: string[]) {
+  return values.length > 0 ? values.join(", ") : "None";
+}
+
+function buildEphemeralChatDraftSnapshot(
+  profile: PersonaProfileDraft | null
+): EphemeralChatDraftSnapshot {
+  const config = profile?.config ?? null;
+  const personaName = profile?.name || config?.identity?.name || "Persona";
+  const description =
+    profile?.description || config?.identity?.description || "No description set.";
+  const modelLine = config
+    ? `${config.model.provider} / ${config.model.model}`
+    : "No model selected.";
+  const temperatureLine = config ? String(config.model.temperature) : "n/a";
+  const systemPrompt = config?.prompt.systemPrompt || "No system prompt set.";
+  const styleNotes = config?.prompt.styleNotes || "No style notes set.";
+  const directives = config?.prompt.directives || "No directives set.";
+  const retrieval = config
+    ? config.retrieval.enabled
+      ? `Enabled: ${config.retrieval.mode} / topK ${config.retrieval.topK} / rerank ${
+          config.retrieval.rerank ? "on" : "off"
+        }`
+      : "Disabled"
+    : "Unavailable";
+  const pinnedTools = config ? formatList(config.tools.pinnedTools) : "None";
+  const allowedTools = config ? formatList(config.tools.allowedTools) : "None";
+  const voice = config
+    ? config.voice.enabled
+      ? `${config.voice.provider} / ${config.voice.voicePreset}`
+      : "Disabled"
+    : "Unavailable";
+
+  return {
+    signature: JSON.stringify({
+      personaName,
+      description,
+      modelLine,
+      temperatureLine,
+      systemPrompt,
+      styleNotes,
+      directives,
+      retrieval,
+      pinnedTools,
+      allowedTools,
+      voice,
+    }),
+    personaName,
+    description,
+    modelLine,
+    temperatureLine,
+    systemPrompt,
+    styleNotes,
+    directives,
+    retrieval,
+    pinnedTools,
+    allowedTools,
+    voice,
+  };
+}
+
+function getEphemeralPromptTone(prompt: string) {
+  const normalizedPrompt = prompt.trim().toLowerCase();
+  if (!normalizedPrompt) {
+    return "I will keep the reply anchored to the current persona draft and stay inside the studio harness.";
+  }
+  if (/(code|bug|test|refactor|debug|implement)/.test(normalizedPrompt)) {
+    return "I will keep this implementation-first and explicit about tradeoffs.";
+  }
+  if (/(research|cite|source|evidence|fact)/.test(normalizedPrompt)) {
+    return "I will separate facts from assumptions and call out any missing evidence.";
+  }
+  if (/(plan|roadmap|next step|strategy)/.test(normalizedPrompt)) {
+    return "I will turn this into a short, actionable plan.";
+  }
+  if (/(hello|hi|casual|chat|conversation)/.test(normalizedPrompt)) {
+    return "I will keep the tone warm, direct, and low-friction.";
+  }
+  return "I will answer from the current draft without leaving Persona Studio.";
+}
+
+function buildEphemeralChatReply(
+  prompt: string,
+  draftSnapshot: EphemeralChatDraftSnapshot,
+  turnNumber: number
+) {
+  const trimmedPrompt = prompt.trim().replace(/\s+/g, " ");
+  const promptLine = trimmedPrompt ? `You said: "${trimmedPrompt}".` : "You sent an empty prompt.";
+  const turnLine =
+    turnNumber === 1
+      ? "This is the first temporary turn in this Studio session."
+      : `This is temporary turn ${turnNumber} in the current Studio session.`;
+
+  return [
+    `${draftSnapshot.personaName} is the active persona draft right now.`,
+    promptLine,
+    getEphemeralPromptTone(trimmedPrompt),
+    `Current draft snapshot: ${draftSnapshot.modelLine}; temperature ${draftSnapshot.temperatureLine}; retrieval ${draftSnapshot.retrieval}; voice ${draftSnapshot.voice}.`,
+    turnLine,
+    "This conversation stays inside Persona Studio and clears on reload.",
+  ].join(" ");
+}
+
+function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null }) {
+  const [ephemeralMessages, setEphemeralMessages] = React.useState<EphemeralChatMessage[]>([]);
+  const [ephemeralPrompt, setEphemeralPrompt] = React.useState("");
+  const [isResponding, setIsResponding] = React.useState(false);
+  const messageIdRef = React.useRef(0);
+  const sessionVersionRef = React.useRef(0);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const currentDraftSnapshot = React.useMemo(
+    () => buildEphemeralChatDraftSnapshot(profile),
+    [profile]
+  );
+
+  const lastAssistantDraftSignature = React.useMemo(() => {
+    for (let index = ephemeralMessages.length - 1; index >= 0; index -= 1) {
+      const entry = ephemeralMessages[index];
+      if (entry.role === "assistant") {
+        return entry.draftSignature;
+      }
+    }
+
+    return null;
+  }, [ephemeralMessages]);
+
+  const draftChangedSinceLastReply =
+    Boolean(lastAssistantDraftSignature) &&
+    lastAssistantDraftSignature !== currentDraftSnapshot.signature;
+
+  const clearEphemeralSession = React.useCallback(() => {
+    sessionVersionRef.current += 1;
+    messageIdRef.current = 0;
+    setEphemeralMessages([]);
+    setEphemeralPrompt("");
+    setIsResponding(false);
+    inputRef.current?.focus();
+  }, []);
+
+  const sendEphemeralPrompt = React.useCallback(
+    async (message: string) => {
+      const trimmedMessage = message.trim();
+      if (!trimmedMessage || isResponding) {
+        return;
+      }
+
+      const sessionVersionAtSend = sessionVersionRef.current;
+      const draftSnapshotAtSend = buildEphemeralChatDraftSnapshot(profile);
+      const nextTurnNumber =
+        ephemeralMessages.filter((entry) => entry.role === "assistant").length + 1;
+      const userMessage: EphemeralChatMessage = {
+        id: `ephemeral-message-${messageIdRef.current + 1}`,
+        role: "user",
+        content: trimmedMessage,
+        draftSignature: draftSnapshotAtSend.signature,
+        draftSnapshot: draftSnapshotAtSend,
+      };
+
+      messageIdRef.current += 1;
+      setIsResponding(true);
+      setEphemeralMessages((previous) => [...previous, userMessage]);
+      setEphemeralPrompt("");
+
+      await Promise.resolve();
+
+      if (sessionVersionRef.current !== sessionVersionAtSend) {
+        return;
+      }
+
+      const assistantMessage: EphemeralChatMessage = {
+        id: `ephemeral-message-${messageIdRef.current + 1}`,
+        role: "assistant",
+        content: buildEphemeralChatReply(trimmedMessage, draftSnapshotAtSend, nextTurnNumber),
+        draftSignature: draftSnapshotAtSend.signature,
+        draftSnapshot: draftSnapshotAtSend,
+      };
+
+      messageIdRef.current += 1;
+      setEphemeralMessages((previous) => [...previous, assistantMessage]);
+      setIsResponding(false);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    },
+    [ephemeralMessages, isResponding, profile]
+  );
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void sendEphemeralPrompt(ephemeralPrompt);
+  };
+
+  const hasMessages = ephemeralMessages.length > 0;
+
+  return (
+    <Card
+      className="bezel-none rounded-2xl border"
+      role="region"
+      aria-label="Persona Studio ephemeral chat harness"
+      data-testid="persona-studio-ephemeral-chat-harness"
+      style={{
+        background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <CardHeader className="space-y-3 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Ephemeral Chat Harness</CardTitle>
+            <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+              Temporary, isolated, non-runtime. Uses the current draft, including unsaved edits,
+              and clears when this Studio session is reloaded.
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
+            Studio-only
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {EPHEMERAL_SCENARIO_CHIPS.map((prompt) => (
+            <Button
+              key={prompt}
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void sendEphemeralPrompt(prompt)}
+              disabled={isResponding}
+            >
+              {prompt}
+            </Button>
+          ))}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={clearEphemeralSession}
+            disabled={!hasMessages && !ephemeralPrompt.trim()}
+          >
+            Clear Session
+          </Button>
+        </div>
+        <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
+          <Input
+            ref={inputRef}
+            value={ephemeralPrompt}
+            onChange={(event) => setEphemeralPrompt(event.target.value)}
+            placeholder="Type a temporary message"
+            aria-label="Ephemeral chat prompt"
+            className="min-w-0 flex-1"
+            disabled={isResponding}
+          />
+          <Button type="submit" disabled={!ephemeralPrompt.trim() || isResponding}>
+            Send
+          </Button>
+        </form>
+        <div className="space-y-1 text-xs leading-5" style={{ color: "var(--muted)" }}>
+          <p>
+            No Guardian thread creation, no memory writes, no runtime conversation history, and
+            no artifact lineage.
+          </p>
+          <p>
+            This harness is session-local only. A full reload clears the temporary transcript.
+          </p>
+        </div>
+        {draftChangedSinceLastReply ? (
+          <p className="text-xs font-medium leading-5" style={{ color: "var(--accent)" }}>
+            Draft changed since the last reply. New turns use the current draft; earlier replies
+            remain as historical session turns.
+          </p>
+        ) : null}
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div
+          className="space-y-3 rounded-2xl border p-3"
+          data-testid="persona-studio-ephemeral-chat-transcript"
+          aria-live="polite"
+          aria-busy={isResponding}
+          style={{
+            background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
+            borderColor: "var(--panel-border)",
+          }}
+        >
+          {hasMessages ? (
+            <>
+              {isResponding ? (
+                <div className="flex justify-start">
+                  <div
+                    className="max-w-[95%] rounded-2xl border px-3 py-3 text-sm"
+                    style={{
+                      background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                      borderColor: "var(--panel-border)",
+                    }}
+                  >
+                    <div
+                      className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      Ephemeral chat harness
+                    </div>
+                    <p className="mt-1 leading-6">Generating a draft-aware reply…</p>
+                  </div>
+                </div>
+              ) : null}
+              {ephemeralMessages.map((entry) =>
+                entry.role === "user" ? (
+                  <div key={entry.id} className="flex justify-end">
+                    <div
+                      className="max-w-[85%] rounded-2xl border px-3 py-2 text-sm"
+                      style={{
+                        background: "color-mix(in srgb, var(--accent) 10%, var(--panel-bg))",
+                        borderColor: "color-mix(in oklab, var(--accent) 18%, var(--panel-border))",
+                      }}
+                    >
+                      <div
+                        className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        You
+                      </div>
+                      <p className="mt-1 leading-6">{entry.content}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={entry.id} className="flex justify-start">
+                    <div
+                      className="max-w-[95%] rounded-2xl border px-3 py-3 text-sm"
+                      style={{
+                        background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                        borderColor: "var(--panel-border)",
+                      }}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
+                          Ephemeral assistant
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                          style={{ borderColor: "var(--panel-border)" }}
+                        >
+                          {entry.draftSignature === currentDraftSnapshot.signature
+                            ? "Current draft"
+                            : "Earlier draft"}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 leading-6">{entry.content}</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Persona
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.personaName}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Model
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.modelLine}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Temperature
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.temperatureLine}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Voice
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.voice}</p>
+                        </div>
+                        <div className="space-y-1 sm:col-span-2">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Prompt
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.systemPrompt}</p>
+                        </div>
+                        <div className="space-y-1 sm:col-span-2">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Style Notes
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.styleNotes}</p>
+                        </div>
+                        <div className="space-y-1 sm:col-span-2">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Directives
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.directives}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Retrieval
+                          </div>
+                          <p className="leading-6">{entry.draftSnapshot.retrieval}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Tools
+                          </div>
+                          <p className="leading-6">
+                            Pinned: {entry.draftSnapshot.pinnedTools} | Allowed:{" "}
+                            {entry.draftSnapshot.allowedTools}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              )}
+            </>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm" style={{ color: "var(--muted)" }}>
+                No ephemeral messages yet.
+              </p>
+              <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                Start a temporary conversation with the active persona draft. The transcript stays
+                local to this Studio session and is not part of runtime chat history.
+              </p>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function IdentityEditor({
   config,
@@ -907,75 +1387,69 @@ export default function PersonaStudioPage() {
                 </div>
               </CardHeader>
               <CardContent className="relative min-h-0 flex-1 pt-0">
-                <div
-                  data-testid="persona-studio-utility-profiles-panel"
-                  data-state={utilityTab === "Profiles" ? "active" : "inactive"}
-                  className={
-                    utilityTab === "Profiles"
-                      ? "relative space-y-2"
-                      : "sr-only"
-                  }
-                >
-                  {profiles.map((profile) => (
-                    <button
-                      key={profile.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedProfileId(profile.id);
-                      }}
-                      className={`w-full rounded-xl p-3 text-left transition-colors ${
-                        profile.id === selectedProfileId
-                          ? "border-2"
-                          : "border border-transparent hover:border-[var(--panel-border)]"
-                      }`}
-                      style={{
-                        background:
+                {utilityTab === "Profiles" ? (
+                  <div
+                    data-testid="persona-studio-utility-profiles-panel"
+                    data-state="active"
+                    className="relative space-y-2"
+                  >
+                    {profiles.map((profile) => (
+                      <button
+                        key={profile.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedProfileId(profile.id);
+                        }}
+                        className={`w-full rounded-xl p-3 text-left transition-colors ${
                           profile.id === selectedProfileId
-                            ? "rgba(255,255,255,0.08)"
-                            : "transparent",
-                        borderColor:
-                          profile.id === selectedProfileId
-                            ? "var(--accent)"
-                            : "transparent",
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{profile.name}</span>
-                        {profile.isDefault && (
-                          <Badge
-                            variant="outline"
-                            className="px-1.5 py-0.5 text-[10px]"
-                            style={{ borderColor: "var(--panel-border)" }}
-                          >
-                            Default
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
-                        {profile.description}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-
-                <div
-                  role="complementary"
-                  aria-label="Persona Studio diagnostics"
-                  data-testid="persona-studio-diagnostics"
-                  data-state={utilityTab === "Diagnostics" ? "active" : "inactive"}
-                  className={
-                    utilityTab === "Diagnostics"
-                      ? "relative h-full"
-                      : "sr-only"
-                  }
-                >
-                  <DiagnosticsPanel
-                    profile={selectedProfile}
-                    config={currentConfig}
-                    isDirty={isDirty}
-                    hasSavedVersion={hasSavedVersion}
-                  />
-                </div>
+                            ? "border-2"
+                            : "border border-transparent hover:border-[var(--panel-border)]"
+                        }`}
+                        style={{
+                          background:
+                            profile.id === selectedProfileId
+                              ? "rgba(255,255,255,0.08)"
+                              : "transparent",
+                          borderColor:
+                            profile.id === selectedProfileId
+                              ? "var(--accent)"
+                              : "transparent",
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{profile.name}</span>
+                          {profile.isDefault && (
+                            <Badge
+                              variant="outline"
+                              className="px-1.5 py-0.5 text-[10px]"
+                              style={{ borderColor: "var(--panel-border)" }}
+                            >
+                              Default
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
+                          {profile.description}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    role="complementary"
+                    aria-label="Persona Studio diagnostics"
+                    data-testid="persona-studio-diagnostics"
+                    data-state="active"
+                    className="relative h-full"
+                  >
+                    <DiagnosticsPanel
+                      profile={selectedProfile}
+                      config={currentConfig}
+                      isDirty={isDirty}
+                      hasSavedVersion={hasSavedVersion}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           ) : null}
@@ -993,6 +1467,7 @@ export default function PersonaStudioPage() {
             }}
           >
             <CardHeader className="space-y-4 pb-4">
+              <EphemeralChatHarness profile={selectedProfile} />
               <div
                 className="rounded-2xl border px-4 py-4"
                 data-testid="persona-studio-active-profile-summary"
