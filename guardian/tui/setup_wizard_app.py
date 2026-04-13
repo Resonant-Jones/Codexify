@@ -23,6 +23,7 @@ from guardian.ops.setup_wizard import (
     DepStatus,
     DockerReadiness,
     InstallerBootstrapState,
+    LauncherHandoffResult,
     RuntimeReadinessResult,
     attempt_compose_bootstrap,
     default_env_target,
@@ -30,7 +31,7 @@ from guardian.ops.setup_wizard import (
     detect_core_dependencies,
     detect_docker_readiness,
     detect_runtime_readiness,
-    effective_installer_bootstrap_state,
+    resolve_launcher_startup_handoff,
     write_env_file,
     write_installer_state_file,
 )
@@ -70,6 +71,8 @@ class SetupWizardStartupDecision:
     setup_complete: bool
     runtime_profile: str
     persisted_env_path: str | None
+    handoff_target: str | None = None
+    detail: str = ""
 
 
 class SetupWizardApp(App[Optional[str]]):
@@ -847,17 +850,13 @@ class SetupWizardApp(App[Optional[str]]):
         self.state.runtime_readiness_result = None
 
         if compose_bootstrap_result.status == "skipped":
-            installer_state_path = self._persist_installer_state(
-                env_path=env_path,
-                setup_complete=True,
+            self._persist_installer_state(
+                env_path=env_path, setup_complete=True
             )
-            self.exit(
-                result=(
-                    f"Wrote {env_path}.\n"
-                    f"Saved bootstrap state to {installer_state_path}.\n"
-                    f"Compose bootstrap skipped for the external runtime profile."
-                )
+            launcher_handoff: LauncherHandoffResult = (
+                resolve_launcher_startup_handoff(self.repo_root)
             )
+            self.exit(result=launcher_handoff)
             return
 
         if not compose_bootstrap_result.ok:
@@ -887,35 +886,40 @@ class SetupWizardApp(App[Optional[str]]):
             )
             return
 
-        installer_state_path = self._persist_installer_state(
-            env_path=env_path,
-            setup_complete=True,
-        )
+        self._persist_installer_state(env_path=env_path, setup_complete=True)
 
-        self.exit(
-            result=(
-                f"Wrote {env_path}.\n"
-                f"Saved bootstrap state to {installer_state_path}.\n"
-                f"Local Compose stack started and local runtime is running "
-                f"and ready."
+        launcher_handoff: LauncherHandoffResult = (
+            resolve_launcher_startup_handoff(
+                self.repo_root,
+                runtime_readiness=runtime_readiness_result,
             )
         )
+
+        self.exit(result=launcher_handoff)
 
 
 def resolve_setup_wizard_startup_decision(
     repo_root: Path,
+    *,
+    runtime_readiness: RuntimeReadinessResult | None = None,
+    api_base: str | None = None,
 ) -> SetupWizardStartupDecision:
-    state = effective_installer_bootstrap_state(repo_root)
-    setup_complete = bool(state.setup_complete)
-    persisted_env_path = state.env_path.strip() or None
-    if not setup_complete:
-        persisted_env_path = None
+    launcher_handoff = resolve_launcher_startup_handoff(
+        repo_root,
+        runtime_readiness=runtime_readiness,
+        api_base=api_base,
+    )
+    persisted_env_path = (
+        launcher_handoff.env_path if launcher_handoff.setup_complete else None
+    )
 
     return SetupWizardStartupDecision(
-        should_run_setup_wizard=not setup_complete,
-        setup_complete=setup_complete,
-        runtime_profile=state.runtime_profile,
+        should_run_setup_wizard=launcher_handoff.should_run_wizard,
+        setup_complete=launcher_handoff.setup_complete,
+        runtime_profile=launcher_handoff.runtime_profile,
         persisted_env_path=persisted_env_path,
+        handoff_target=launcher_handoff.handoff_target,
+        detail=launcher_handoff.detail,
     )
 
 

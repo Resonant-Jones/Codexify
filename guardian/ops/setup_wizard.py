@@ -109,6 +109,16 @@ class RuntimeReadinessResult:
 
 
 @dataclass(frozen=True)
+class LauncherHandoffResult:
+    should_run_wizard: bool
+    setup_complete: bool
+    runtime_profile: str
+    env_path: str | None
+    handoff_target: str | None
+    detail: str
+
+
+@dataclass(frozen=True)
 class InstallerBootstrapState:
     setup_complete: bool = False
     runtime_profile: str = "docker"
@@ -273,6 +283,10 @@ def _resolve_runtime_api_base(api_base: str | None = None) -> str:
         or "http://127.0.0.1:8888"
     ).strip()
     return candidate.rstrip("/") or "http://127.0.0.1:8888"
+
+
+def default_local_runtime_handoff_target(api_base: str | None = None) -> str:
+    return _resolve_runtime_api_base(api_base)
 
 
 def _probe_runtime_surface(
@@ -581,6 +595,75 @@ def detect_runtime_readiness(
             f"{retrieval_summary}"
         ),
         checked_urls=checked_urls,
+    )
+
+
+def resolve_launcher_startup_handoff(
+    repo_root: Path,
+    *,
+    runtime_readiness: RuntimeReadinessResult | None = None,
+    api_base: str | None = None,
+) -> LauncherHandoffResult:
+    state = effective_installer_bootstrap_state(repo_root)
+    setup_complete = bool(state.setup_complete)
+    runtime_profile = str(state.runtime_profile or "docker").strip() or "docker"
+    env_path = state.env_path.strip() or str(default_env_target(repo_root))
+
+    if not setup_complete:
+        return LauncherHandoffResult(
+            should_run_wizard=True,
+            setup_complete=False,
+            runtime_profile=runtime_profile,
+            env_path=env_path,
+            handoff_target=None,
+            detail=(
+                "Installer bootstrap state is incomplete or unavailable; "
+                "launch the setup wizard."
+            ),
+        )
+
+    if runtime_profile != "docker":
+        return LauncherHandoffResult(
+            should_run_wizard=False,
+            setup_complete=True,
+            runtime_profile=runtime_profile,
+            env_path=env_path,
+            handoff_target=None,
+            detail=(
+                f"Installer bootstrap is complete for "
+                f"runtime_profile={runtime_profile!r}; "
+                "local runtime handoff is not required."
+            ),
+        )
+
+    readiness = runtime_readiness or detect_runtime_readiness(
+        runtime_profile=runtime_profile,
+        api_base=api_base,
+    )
+    if readiness.status != "ready":
+        return LauncherHandoffResult(
+            should_run_wizard=True,
+            setup_complete=True,
+            runtime_profile=runtime_profile,
+            env_path=env_path,
+            handoff_target=None,
+            detail=(
+                "Installer bootstrap is complete, but the local runtime "
+                f"is not ready. {readiness.detail}"
+            ),
+        )
+
+    handoff_target = default_local_runtime_handoff_target(api_base)
+    return LauncherHandoffResult(
+        should_run_wizard=False,
+        setup_complete=True,
+        runtime_profile=runtime_profile,
+        env_path=env_path,
+        handoff_target=handoff_target,
+        detail=(
+            "Installer bootstrap is complete and the local runtime is ready "
+            f"for handoff. Target: {handoff_target}."
+        ),
     )
 
 
