@@ -1617,6 +1617,34 @@ class UserSettings(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class AuthenticatedPrincipal(Base):
+    """Durable mapping from an authenticated subject to a stable account."""
+
+    __tablename__ = "authenticated_principals"
+
+    account_id: Mapped[str] = mapped_column(
+        String(255), primary_key=True, nullable=False
+    )
+    subject_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_id", name="uq_authenticated_principals_subject_id"
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Imprint Semantic Core
 # =========================
