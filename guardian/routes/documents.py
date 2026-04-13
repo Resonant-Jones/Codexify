@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 from guardian.core import event_bus
 from guardian.core.ai_router import chat_with_ai
 from guardian.core.db import GuardianDB
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import (
+    RequestUserScope,
+    get_request_user_scope,
+    get_single_user_id,
+    require_api_key,
+)
 from guardian.db import models
 
 logger = logging.getLogger(__name__)
@@ -102,6 +107,72 @@ def _normalize_optional_text(value: str | None) -> str | None:
     return trimmed or None
 
 
+def _request_account_id(request_user_scope: RequestUserScope) -> str:
+    account_id = str(request_user_scope.account_id or "").strip()
+    return account_id or get_single_user_id()
+
+
+def _resolve_document_owner_hint(
+    raw_user_id: str | None,
+    request_user_scope: RequestUserScope,
+    *,
+    fallback_user_id: str | None = None,
+) -> str:
+    requested_user_id = _normalize_optional_text(raw_user_id)
+    fallback = _normalize_optional_text(fallback_user_id)
+    account_id = _request_account_id(request_user_scope)
+
+    if request_user_scope.multi_user_enabled:
+        if requested_user_id and requested_user_id != account_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Requested user_id does not match the authenticated account"
+                ),
+            )
+        return account_id
+
+    return requested_user_id or fallback or get_single_user_id()
+
+
+def _validate_multi_user_owner_hint(
+    raw_user_id: str | None,
+    request_user_scope: RequestUserScope,
+) -> None:
+    if not request_user_scope.multi_user_enabled:
+        return
+
+    requested_user_id = _normalize_optional_text(raw_user_id)
+    account_id = _request_account_id(request_user_scope)
+    if requested_user_id and requested_user_id != account_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requested user_id does not match the authenticated account",
+        )
+
+
+def _require_thread_account_scope(
+    thread_id: int,
+    request_user_scope: RequestUserScope,
+    *,
+    thread: Any | None = None,
+) -> Any:
+    thread_record = thread
+    if thread_record is None:
+        return thread_record
+
+    if request_user_scope.multi_user_enabled:
+        account_id = _request_account_id(request_user_scope)
+        owner_id = str(getattr(thread_record, "user_id", "") or "").strip()
+        if owner_id != account_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Thread does not belong to the authenticated account",
+            )
+
+    return thread_record
+
+
 def _ensure_project_document_link(
     session: Session,
     *,
@@ -153,6 +224,7 @@ def _ensure_project_document_link(
 async def autosave_document(
     request: AutosaveRequest,
     _api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
     """
     Autosave a session document linked to a thread.
@@ -202,6 +274,14 @@ async def autosave_document(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Thread {request.thread_id} not found",
                 )
+            _require_thread_account_scope(
+                request.thread_id, request_user_scope, thread=thread
+            )
+            owner_id = _resolve_document_owner_hint(
+                None,
+                request_user_scope,
+                fallback_user_id=getattr(thread, "user_id", None),
+            )
 
             # Check if autosave document already exists for this thread
             existing_link = (
@@ -234,7 +314,7 @@ async def autosave_document(
                         id=document_id,
                         project_id=thread.project_id,
                         thread_id=request.thread_id,
-                        user_id=thread.user_id,
+                        user_id=owner_id,
                         title=f"Session notes - {thread.title}",
                         content=request.content,
                         format="md",
@@ -255,7 +335,7 @@ async def autosave_document(
                     id=document_id,
                     project_id=thread.project_id,
                     thread_id=request.thread_id,
-                    user_id=thread.user_id,
+                    user_id=owner_id,
                     title=f"Session notes - {thread.title}",
                     content=request.content,
                     format="md",
@@ -276,7 +356,7 @@ async def autosave_document(
                 project_id=getattr(thread, "project_id", None),
                 document_id=document_id,
                 document_type="generated",
-                attached_by=getattr(thread, "user_id", None),
+                attached_by=owner_id,
             )
             session.commit()
 
@@ -308,6 +388,7 @@ async def autosave_document(
 async def generate_document(
     request: DocumentGenerateRequest,
     _api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
     """Generate a document draft using the configured LLM backend."""
     prompt = _normalize_optional_text(request.prompt)
@@ -324,6 +405,7 @@ async def generate_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="thread_id is required",
         )
+    _validate_multi_user_owner_hint(request.user_id, request_user_scope)
 
     title = _normalize_optional_text(request.title)
     context = _normalize_optional_text(request.context)
@@ -399,6 +481,14 @@ async def generate_document(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Thread {request.thread_id} not found",
                 )
+            _require_thread_account_scope(
+                request.thread_id, request_user_scope, thread=thread
+            )
+            owner_id = _resolve_document_owner_hint(
+                request.user_id,
+                request_user_scope,
+                fallback_user_id=getattr(thread, "user_id", None),
+            )
 
             document_id = str(uuid.uuid4())
             resolved_title = (
@@ -410,7 +500,7 @@ async def generate_document(
                 id=document_id,
                 project_id=thread.project_id,
                 thread_id=thread.id,
-                user_id=thread.user_id or request.user_id,
+                user_id=owner_id,
                 title=resolved_title,
                 content=content,
                 format=_FORMAT_STORAGE_MAP[format_hint],
@@ -429,7 +519,7 @@ async def generate_document(
                 project_id=getattr(thread, "project_id", None),
                 document_id=document_id,
                 document_type="generated",
-                attached_by=request.user_id or getattr(thread, "user_id", None),
+                attached_by=owner_id,
             )
             session.commit()
     except HTTPException:
@@ -458,6 +548,7 @@ async def generate_document(
 async def get_thread_documents(
     thread_id: int,
     _api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
     """
     Get all documents linked to a thread.
@@ -488,6 +579,9 @@ async def get_thread_documents(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Thread {thread_id} not found",
                 )
+            _require_thread_account_scope(
+                thread_id, request_user_scope, thread=thread
+            )
 
             # Get all thread-document links
             links = (
