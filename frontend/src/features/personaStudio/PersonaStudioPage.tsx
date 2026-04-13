@@ -276,13 +276,29 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
         borderColor: "var(--panel-border)",
       }}
     >
-      <CardHeader className="space-y-3 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle className="text-base">Ephemeral Chat Harness</CardTitle>
+      <CardHeader className="space-y-4 pb-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base">Ephemeral Chat Harness</CardTitle>
+              <Badge
+                variant="outline"
+                className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                style={{ borderColor: "var(--panel-border)" }}
+              >
+                Session-local
+              </Badge>
+              <Badge
+                variant="outline"
+                className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                style={{ borderColor: "var(--panel-border)" }}
+              >
+                Non-runtime
+              </Badge>
+            </div>
             <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-              Temporary, isolated, non-runtime. Uses the current draft, including unsaved edits,
-              and clears when this Studio session is reloaded.
+              Session-scoped draft-testing surface for Persona Studio. It reflects the current
+              unsaved draft, stays isolated from Guardian runtime, and clears on reload.
             </p>
           </div>
           <Badge
@@ -290,7 +306,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
             style={{ borderColor: "var(--panel-border)" }}
           >
-            Studio-only
+            Ephemeral
           </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -306,14 +322,22 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
               {prompt}
             </Button>
           ))}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+            This stays local to the mounted Studio session. It does not create Guardian threads,
+            memory writes, artifacts, or durable runtime history.
+          </p>
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={clearEphemeralSession}
             disabled={!hasMessages && !ephemeralPrompt.trim()}
+            className="shrink-0"
+            style={{ borderColor: "var(--panel-border)" }}
           >
-            Clear Session
+            Clear ephemeral session
           </Button>
         </div>
         <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
@@ -330,15 +354,6 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             Send
           </Button>
         </form>
-        <div className="space-y-1 text-xs leading-5" style={{ color: "var(--muted)" }}>
-          <p>
-            No Guardian thread creation, no memory writes, no runtime conversation history, and
-            no artifact lineage.
-          </p>
-          <p>
-            This harness is session-local only. A full reload clears the temporary transcript.
-          </p>
-        </div>
         {draftChangedSinceLastReply ? (
           <p className="text-xs font-medium leading-5" style={{ color: "var(--accent)" }}>
             Draft changed since the last reply. New turns use the current draft; earlier replies
@@ -357,59 +372,87 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             borderColor: "var(--panel-border)",
           }}
         >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3" style={{ borderColor: "var(--panel-border)" }}>
+            <div className="space-y-1">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
+                Session transcript
+              </div>
+              <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                Ephemeral turns stay in this mounted Studio session only.
+              </p>
+            </div>
+            <Badge
+              variant="outline"
+              className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+              style={{ borderColor: "var(--panel-border)" }}
+            >
+              Session cache
+            </Badge>
+          </div>
           {hasMessages ? (
-            <>
+            <div className="space-y-3">
               {isResponding ? (
-                <div className="flex justify-start">
-                  <div
-                    className="max-w-[95%] rounded-2xl border px-3 py-3 text-sm"
-                    style={{
-                      background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
-                      borderColor: "var(--panel-border)",
-                    }}
-                  >
-                    <div
-                      className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Ephemeral chat harness
-                    </div>
-                    <p className="mt-1 leading-6">Generating a draft-aware reply…</p>
-                  </div>
-                </div>
-              ) : null}
-              {ephemeralMessages.map((entry) =>
-                entry.role === "user" ? (
-                  <div key={entry.id} className="flex justify-end">
-                    <div
-                      className="max-w-[85%] rounded-2xl border px-3 py-2 text-sm"
-                      style={{
-                        background: "color-mix(in srgb, var(--accent) 10%, var(--panel-bg))",
-                        borderColor: "color-mix(in oklab, var(--accent) 18%, var(--panel-border))",
-                      }}
-                    >
-                      <div
+                <div
+                  className="rounded-xl border px-3 py-3 text-sm"
+                  style={{
+                    background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+                    borderColor: "var(--panel-border)",
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        Draft-aware turn
+                      </Badge>
+                      <span
                         className="text-[10px] font-semibold uppercase tracking-[0.16em]"
                         style={{ color: "var(--muted)" }}
                       >
-                        You
-                      </div>
-                      <p className="mt-1 leading-6">{entry.content}</p>
+                        Generating
+                      </span>
                     </div>
                   </div>
-                ) : (
-                  <div key={entry.id} className="flex justify-start">
-                    <div
-                      className="max-w-[95%] rounded-2xl border px-3 py-3 text-sm"
-                      style={{
-                        background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
-                        borderColor: "var(--panel-border)",
-                      }}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
-                          Ephemeral assistant
+                  <p className="mt-2 leading-6">Generating a draft-aware reply…</p>
+                </div>
+              ) : null}
+              {ephemeralMessages.map((entry, index) => {
+                const isAssistant = entry.role === "assistant";
+                const turnNumber = index + 1;
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="rounded-xl border px-3 py-3 text-sm"
+                    style={{
+                      background: isAssistant
+                        ? "color-mix(in srgb, var(--panel-bg) 94%, transparent)"
+                        : "color-mix(in srgb, var(--accent) 7%, var(--panel-bg))",
+                      borderColor: isAssistant
+                        ? "var(--panel-border)"
+                        : "color-mix(in oklab, var(--accent) 18%, var(--panel-border))",
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                          style={{ borderColor: "var(--panel-border)" }}
+                        >
+                          Turn {turnNumber}
+                        </Badge>
+                        <div
+                          className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          {isAssistant ? "Ephemeral assistant" : "Draft input"}
                         </div>
+                      </div>
+                      {isAssistant ? (
                         <Badge
                           variant="outline"
                           className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
@@ -419,8 +462,17 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
                             ? "Current draft"
                             : "Earlier draft"}
                         </Badge>
-                      </div>
-                      <p className="mt-2 leading-6">{entry.content}</p>
+                      ) : (
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-[0.14em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Captured at send time
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-2 leading-6">{entry.content}</p>
+                    {isAssistant ? (
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
                           <div
@@ -507,19 +559,39 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
                           </p>
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      <p className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
+                        Captured against the draft that was active when this input was sent.
+                      </p>
+                    )}
                   </div>
-                )
-              )}
-            </>
+                );
+              })}
+            </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                  style={{ borderColor: "var(--panel-border)" }}
+                >
+                  Empty harness
+                </Badge>
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                  style={{ color: "var(--muted)" }}
+                >
+                  Local draft testing
+                </span>
+              </div>
               <p className="text-sm" style={{ color: "var(--muted)" }}>
-                No ephemeral messages yet.
+                No ephemeral turns yet. Use this session-local harness to test the active persona
+                draft before anything becomes runtime chat or durable state.
               </p>
               <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                Start a temporary conversation with the active persona draft. The transcript stays
-                local to this Studio session and is not part of runtime chat history.
+                Send a temporary message, inspect the draft snapshot, and keep iterating in this
+                mounted Studio session only.
               </p>
             </div>
           )}
