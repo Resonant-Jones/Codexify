@@ -98,6 +98,12 @@ class Settings(BaseSettings):
             "Fail-closed egress guard. When true, all outbound non-local egress is blocked."
         ),
     )
+    CODEXIFY_MULTI_USER_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Backend auth gate for multi-user deployments. When false, Guardian keeps the single-user fallback path."
+        ),
+    )
     CODEXIFY_EGRESS_ALLOWLIST: str = Field(
         default="",
         description=(
