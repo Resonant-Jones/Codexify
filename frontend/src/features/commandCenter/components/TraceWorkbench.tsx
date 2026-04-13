@@ -269,10 +269,35 @@ function describeRetrievalPostureToken(
   }
 }
 
+function serializeRetrievalPosture(posture: CommandCenterRetrievalPosture): string {
+  const snapshot: {
+    boundary_label: string;
+    conversation_only?: boolean;
+    retrieval_override_mode: string | null;
+    source_mode: string;
+    widen_reason: string;
+  } = {
+    source_mode: posture.source_mode,
+    boundary_label: posture.boundary_label,
+    retrieval_override_mode: posture.retrieval_override_mode,
+    widen_reason: posture.widen_reason,
+  };
+
+  if (typeof posture.conversation_only === "boolean") {
+    snapshot.conversation_only = posture.conversation_only;
+  }
+
+  return JSON.stringify(snapshot, null, 2);
+}
+
 function RetrievalPostureDetails({
   retrievalPosture,
+  onCopy,
+  copyStatus,
 }: {
   retrievalPosture: CommandCenterRetrievalPosture;
+  onCopy: () => void;
+  copyStatus: "idle" | "copied" | "failed";
 }) {
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
@@ -394,6 +419,26 @@ function RetrievalPostureDetails({
           ))}
         </dl>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopy}
+        >
+          Copy posture
+        </Button>
+        {copyStatus === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture
+          </span>
+        ) : copyStatus === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Copy failed
+          </span>
+        ) : null}
+      </div>
     </>
   );
 }
@@ -413,6 +458,26 @@ export function RetrievalPosturePanel({
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
+  const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "failed">("idle");
+
+  React.useEffect(() => {
+    setCopyStatus("idle");
+  }, [threadId, retrievalPosture]);
+
+  const handleCopyPosture = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      const payload = serializeRetrievalPosture(retrievalPosture);
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(payload);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }, [retrievalPosture]);
 
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
@@ -449,7 +514,11 @@ export function RetrievalPosturePanel({
           No retrieval posture evidence for this thread.
         </div>
       ) : retrievalPosture ? (
-        <RetrievalPostureDetails retrievalPosture={retrievalPosture} />
+        <RetrievalPostureDetails
+          copyStatus={copyStatus}
+          onCopy={() => void handleCopyPosture()}
+          retrievalPosture={retrievalPosture}
+        />
       ) : null}
     </div>
   );
