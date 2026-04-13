@@ -255,6 +255,16 @@ def read_installer_state_file(repo_root: Path) -> InstallerBootstrapState:
     )
 
 
+def effective_installer_bootstrap_state(
+    repo_root: Path,
+) -> InstallerBootstrapState:
+    return read_installer_state_file(repo_root)
+
+
+def installer_bootstrap_is_complete(repo_root: Path) -> bool:
+    return effective_installer_bootstrap_state(repo_root).setup_complete
+
+
 def read_env_file(env_path: Path) -> dict[str, str]:
     """
     Minimal .env parser:

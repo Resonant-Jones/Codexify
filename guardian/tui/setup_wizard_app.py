@@ -24,6 +24,7 @@ from guardian.ops.setup_wizard import (
     default_env_target,
     default_installer_state_path,
     detect_core_dependencies,
+    effective_installer_bootstrap_state,
     write_env_file,
     write_installer_state_file,
 )
@@ -52,6 +53,14 @@ class WizardState:
     neo4j_url: str = ""
 
     deps_acknowledged: bool = False
+
+
+@dataclass(frozen=True)
+class SetupWizardStartupDecision:
+    should_run_setup_wizard: bool
+    setup_complete: bool
+    runtime_profile: str
+    persisted_env_path: str | None
 
 
 class SetupWizardApp(App[Optional[str]]):
@@ -694,6 +703,23 @@ class SetupWizardApp(App[Optional[str]]):
                 f"2. Start backend and UI when ready."
             )
         )
+
+
+def resolve_setup_wizard_startup_decision(
+    repo_root: Path,
+) -> SetupWizardStartupDecision:
+    state = effective_installer_bootstrap_state(repo_root)
+    setup_complete = bool(state.setup_complete)
+    persisted_env_path = state.env_path.strip() or None
+    if not setup_complete:
+        persisted_env_path = None
+
+    return SetupWizardStartupDecision(
+        should_run_setup_wizard=not setup_complete,
+        setup_complete=setup_complete,
+        runtime_profile=state.runtime_profile,
+        persisted_env_path=persisted_env_path,
+    )
 
 
 def run_setup_wizard(repo_root: Path | None = None) -> None:
