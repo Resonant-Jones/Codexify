@@ -23,11 +23,13 @@ from guardian.ops.setup_wizard import (
     DepStatus,
     DockerReadiness,
     InstallerBootstrapState,
+    RuntimeReadinessResult,
     attempt_compose_bootstrap,
     default_env_target,
     default_installer_state_path,
     detect_core_dependencies,
     detect_docker_readiness,
+    detect_runtime_readiness,
     effective_installer_bootstrap_state,
     write_env_file,
     write_installer_state_file,
@@ -42,6 +44,7 @@ class WizardState:
     deps: dict[str, DepStatus]
     docker_readiness: DockerReadiness
     compose_bootstrap_result: ComposeBootstrapResult | None = None
+    runtime_readiness_result: RuntimeReadinessResult | None = None
     openai_api_key: str = ""
     allow_cloud_providers: bool = True
     runtime_profile: str = "docker"  # "docker" | "external"
@@ -359,6 +362,37 @@ class SetupWizardApp(App[Optional[str]]):
         }[readiness.status]
         return f"{label}. {readiness.detail}"
 
+    @staticmethod
+    def _runtime_readiness_message(
+        readiness: RuntimeReadinessResult,
+    ) -> str:
+        if readiness.status == "ready":
+            return f"the local runtime is running and ready. {readiness.detail}"
+        if readiness.status == "degraded":
+            return f"the local runtime is degraded. {readiness.detail}"
+        if readiness.status == "not_ready":
+            return f"the local runtime is not ready. {readiness.detail}"
+        if readiness.status == "unreachable":
+            return f"the local runtime is unreachable. {readiness.detail}"
+        return f"runtime readiness check was skipped. {readiness.detail}"
+
+    @staticmethod
+    def _runtime_readiness_body(
+        readiness: RuntimeReadinessResult,
+    ) -> str:
+        label = {
+            "skipped": "[muted][SKIPPED][/muted] Runtime readiness skipped",
+            "unreachable": (
+                "[danger][UNREACHABLE][/danger] Local runtime unreachable"
+            ),
+            "not_ready": (
+                "[danger][NOT READY][/danger] Local runtime not ready"
+            ),
+            "degraded": ("[danger][DEGRADED][/danger] Local runtime degraded"),
+            "ready": "[ok][READY][/ok] Local runtime is running and ready",
+        }[readiness.status]
+        return f"{label}. {readiness.detail}"
+
     def _render_deps(self) -> None:
         body = self.query_one("#deps_body", Static)
         lines = []
@@ -366,6 +400,12 @@ class SetupWizardApp(App[Optional[str]]):
         lines.append(self._docker_readiness_body(self.state.docker_readiness))
         if not self.state.docker_readiness.ok:
             missing = True
+        if self.state.runtime_readiness_result is not None:
+            lines.append(
+                self._runtime_readiness_body(
+                    self.state.runtime_readiness_result
+                )
+            )
 
         for name, dep in self.state.deps.items():
             if name == "docker":
@@ -804,6 +844,7 @@ class SetupWizardApp(App[Optional[str]]):
             docker_custom_path=self._current_custom_paths().get("docker"),
         )
         self.state.compose_bootstrap_result = compose_bootstrap_result
+        self.state.runtime_readiness_result = None
 
         if compose_bootstrap_result.status == "skipped":
             installer_state_path = self._persist_installer_state(
@@ -827,6 +868,25 @@ class SetupWizardApp(App[Optional[str]]):
             )
             return
 
+        runtime_readiness_result = detect_runtime_readiness(
+            runtime_profile=self.state.runtime_profile,
+        )
+        self.state.runtime_readiness_result = runtime_readiness_result
+
+        if not runtime_readiness_result.ok:
+            installer_state_path = self._persist_installer_state(
+                env_path=env_path,
+                setup_complete=False,
+            )
+            self._render_deps()
+            self._set_status(
+                f"Wrote {env_path} and saved bootstrap state to "
+                f"{installer_state_path}, but "
+                f"{self._runtime_readiness_message(runtime_readiness_result)} "
+                "Setup remains incomplete."
+            )
+            return
+
         installer_state_path = self._persist_installer_state(
             env_path=env_path,
             setup_complete=True,
@@ -836,7 +896,8 @@ class SetupWizardApp(App[Optional[str]]):
             result=(
                 f"Wrote {env_path}.\n"
                 f"Saved bootstrap state to {installer_state_path}.\n"
-                f"Local Compose stack started."
+                f"Local Compose stack started and local runtime is running "
+                f"and ready."
             )
         )
 

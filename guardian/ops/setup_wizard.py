@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
+import requests
+
 
 @dataclass(frozen=True)
 class DepStatus:
@@ -79,6 +81,31 @@ class ComposeBootstrapResult:
     detail: str
     command: list[str]
     returncode: int | None
+
+
+RuntimeReadinessStatus = Literal[
+    "skipped",
+    "unreachable",
+    "degraded",
+    "not_ready",
+    "ready",
+]
+
+_RUNTIME_READINESS_STATUS_VALUES = {
+    "skipped",
+    "unreachable",
+    "degraded",
+    "not_ready",
+    "ready",
+}
+
+
+@dataclass(frozen=True)
+class RuntimeReadinessResult:
+    ok: bool
+    status: RuntimeReadinessStatus
+    detail: str
+    checked_urls: list[str]
 
 
 @dataclass(frozen=True)
@@ -236,6 +263,325 @@ def _summarize_process_output(
     if len(detail) > limit:
         detail = detail[: limit - 3].rstrip() + "..."
     return detail
+
+
+def _resolve_runtime_api_base(api_base: str | None = None) -> str:
+    candidate = (
+        api_base
+        or os.getenv("GUARDIAN_API_BASE")
+        or os.getenv("API_BASE")
+        or "http://127.0.0.1:8888"
+    ).strip()
+    return candidate.rstrip("/") or "http://127.0.0.1:8888"
+
+
+def _probe_runtime_surface(
+    url: str,
+    timeout_seconds: float,
+) -> tuple[int | None, dict[str, object] | None, str]:
+    try:
+        response = requests.get(url, timeout=timeout_seconds)
+    except requests.exceptions.RequestException as exc:
+        return None, None, f"{type(exc).__name__}: {exc}"
+    except OSError as exc:
+        return None, None, f"{type(exc).__name__}: {exc}"
+
+    payload: dict[str, object] | None = None
+    try:
+        parsed = response.json()
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, dict):
+        payload = parsed
+
+    raw_text = response.text.strip()
+    detail = f"HTTP {response.status_code}"
+    if payload is None and raw_text:
+        detail = f"{detail}: {raw_text[:200]}"
+    return response.status_code, payload, detail
+
+
+def _payload_status(payload: dict[str, object] | None) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("status") or "").strip().lower()
+
+
+def _payload_detail_value(
+    payload: dict[str, object] | None,
+    *keys: str,
+) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                return text
+    return ""
+
+
+def _summarize_core_health(
+    http_status: int | None,
+    payload: dict[str, object] | None,
+    transport_detail: str,
+) -> str:
+    if http_status is None:
+        return f"/health unreachable: {transport_detail}"
+
+    parts = [f"/health HTTP {http_status}"]
+    status = _payload_status(payload)
+    if status:
+        parts.append(f"status={status}")
+    supported_profile = _payload_detail_value(
+        payload.get("details") if isinstance(payload, dict) else None,
+        "supported_profile",
+    )
+    if not supported_profile and isinstance(payload, dict):
+        supported_profile = _payload_detail_value(payload, "supported_profile")
+    if supported_profile:
+        parts.append(f"supported_profile={supported_profile}")
+    if transport_detail and transport_detail != f"HTTP {http_status}":
+        parts.append(transport_detail)
+    return ", ".join(parts)
+
+
+def _summarize_chat_health(
+    http_status: int | None,
+    payload: dict[str, object] | None,
+    transport_detail: str,
+) -> str:
+    if http_status is None:
+        return f"/health/chat unreachable: {transport_detail}"
+
+    parts = [f"/health/chat HTTP {http_status}"]
+    status = _payload_status(payload)
+    if status:
+        parts.append(f"status={status}")
+    notes = payload.get("notes") if isinstance(payload, dict) else None
+    if isinstance(notes, list):
+        note_text = "; ".join(
+            str(note).strip() for note in notes if str(note).strip()
+        )
+        if note_text:
+            parts.append(note_text)
+    worker = payload.get("worker") if isinstance(payload, dict) else None
+    if isinstance(worker, dict):
+        worker_status = str(worker.get("status") or "").strip().lower()
+        if worker_status:
+            parts.append(f"worker={worker_status}")
+        worker_reason = _payload_detail_value(worker, "reason", "detail")
+        if worker_reason:
+            parts.append(worker_reason)
+    queue = payload.get("queue") if isinstance(payload, dict) else None
+    if isinstance(queue, dict):
+        queue_status = str(queue.get("status") or "").strip().lower()
+        if queue_status:
+            parts.append(f"queue={queue_status}")
+    error = _payload_detail_value(payload, "error", "message")
+    if error:
+        parts.append(error)
+    if transport_detail and transport_detail != f"HTTP {http_status}":
+        parts.append(transport_detail)
+    return ", ".join(parts)
+
+
+def _summarize_llm_health(
+    http_status: int | None,
+    payload: dict[str, object] | None,
+    transport_detail: str,
+) -> str:
+    if http_status is None:
+        return f"/api/health/llm unreachable: {transport_detail}"
+
+    parts = [f"/api/health/llm HTTP {http_status}"]
+    status = _payload_status(payload)
+    if status:
+        parts.append(f"status={status}")
+    details = None
+    if isinstance(payload, dict):
+        details = payload.get("details")
+    if isinstance(details, dict):
+        provider = str(details.get("provider") or "").strip()
+        if provider:
+            parts.append(f"provider={provider}")
+        model = str(details.get("model") or "").strip()
+        if model:
+            parts.append(f"model={model}")
+        error = _payload_detail_value(details, "error", "message")
+        if error:
+            parts.append(error)
+        provider_runtime = details.get("provider_runtime")
+        if isinstance(provider_runtime, dict):
+            runtime_state = str(
+                provider_runtime.get("state")
+                or provider_runtime.get("status")
+                or ""
+            ).strip()
+            if runtime_state:
+                parts.append(f"runtime={runtime_state}")
+    error = _payload_detail_value(payload, "error", "message")
+    if error:
+        parts.append(error)
+    if transport_detail and transport_detail != f"HTTP {http_status}":
+        parts.append(transport_detail)
+    return ", ".join(parts)
+
+
+def _summarize_retrieval_health(
+    http_status: int | None,
+    payload: dict[str, object] | None,
+    transport_detail: str,
+) -> str:
+    if http_status is None:
+        return f"/api/health/retrieval unreachable: {transport_detail}"
+
+    parts = [f"/api/health/retrieval HTTP {http_status}"]
+    status = _payload_status(payload)
+    if status:
+        parts.append(f"status={status}")
+    reason = _payload_detail_value(payload, "reason", "error", "message")
+    if reason:
+        parts.append(reason)
+    proof_capable = None
+    if isinstance(payload, dict):
+        proof_capable = payload.get("proof_capable")
+    if proof_capable is not None:
+        parts.append(f"proof_capable={proof_capable}")
+    if transport_detail and transport_detail != f"HTTP {http_status}":
+        parts.append(transport_detail)
+    return ", ".join(parts)
+
+
+def detect_runtime_readiness(
+    *,
+    runtime_profile: str = "docker",
+    api_base: str | None = None,
+    timeout_seconds: float = 3.0,
+) -> RuntimeReadinessResult:
+    if runtime_profile != "docker":
+        return RuntimeReadinessResult(
+            ok=False,
+            status="skipped",
+            detail=(
+                "Runtime readiness check skipped for "
+                f"runtime_profile={runtime_profile!r}."
+            ),
+            checked_urls=[],
+        )
+
+    base_url = _resolve_runtime_api_base(api_base)
+    checked_urls = [
+        f"{base_url}/health",
+        f"{base_url}/health/chat",
+        f"{base_url}/api/health/llm",
+        f"{base_url}/api/health/retrieval",
+    ]
+
+    core_status, core_payload, core_detail = _probe_runtime_surface(
+        checked_urls[0],
+        timeout_seconds,
+    )
+    core_summary = _summarize_core_health(
+        core_status,
+        core_payload,
+        core_detail,
+    )
+    if core_status is None or core_status >= 400:
+        return RuntimeReadinessResult(
+            ok=False,
+            status="unreachable",
+            detail=f"Backend is not reachable. {core_summary}",
+            checked_urls=[checked_urls[0]],
+        )
+
+    chat_status, chat_payload, chat_detail = _probe_runtime_surface(
+        checked_urls[1],
+        timeout_seconds,
+    )
+    chat_summary = _summarize_chat_health(
+        chat_status,
+        chat_payload,
+        chat_detail,
+    )
+    chat_ok = (
+        chat_status is not None
+        and chat_status < 400
+        and str((chat_payload or {}).get("status") or "").strip().lower()
+        in {"healthy", "ok"}
+    )
+
+    llm_status, llm_payload, llm_detail = _probe_runtime_surface(
+        checked_urls[2],
+        timeout_seconds,
+    )
+    llm_summary = _summarize_llm_health(
+        llm_status,
+        llm_payload,
+        llm_detail,
+    )
+
+    (
+        retrieval_status,
+        retrieval_payload,
+        retrieval_detail,
+    ) = _probe_runtime_surface(
+        checked_urls[3],
+        timeout_seconds,
+    )
+    retrieval_summary = _summarize_retrieval_health(
+        retrieval_status,
+        retrieval_payload,
+        retrieval_detail,
+    )
+
+    llm_ok = (
+        llm_status is not None
+        and llm_status < 400
+        and _payload_status(llm_payload) in {"ok", "healthy", "online"}
+    )
+    retrieval_ok = (
+        retrieval_status is not None
+        and retrieval_status < 400
+        and _payload_status(retrieval_payload) in {"ready", "ok"}
+        and bool((retrieval_payload or {}).get("ok"))
+    )
+    if not chat_ok:
+        return RuntimeReadinessResult(
+            ok=False,
+            status="not_ready",
+            detail=(
+                "Backend is reachable, but chat runtime is not ready. "
+                f"{core_summary}; {chat_summary}; {llm_summary}; "
+                f"{retrieval_summary}"
+            ),
+            checked_urls=checked_urls,
+        )
+
+    if not llm_ok or not retrieval_ok:
+        return RuntimeReadinessResult(
+            ok=False,
+            status="degraded",
+            detail=(
+                "Backend and chat are ready, but provider or retrieval "
+                "is degraded. "
+                f"{core_summary}; {chat_summary}; {llm_summary}; "
+                f"{retrieval_summary}"
+            ),
+            checked_urls=checked_urls,
+        )
+
+    return RuntimeReadinessResult(
+        ok=True,
+        status="ready",
+        detail=(
+            "Local runtime is ready for handoff. "
+            f"{core_summary}; {chat_summary}; {llm_summary}; "
+            f"{retrieval_summary}"
+        ),
+        checked_urls=checked_urls,
+    )
 
 
 def attempt_compose_bootstrap(
