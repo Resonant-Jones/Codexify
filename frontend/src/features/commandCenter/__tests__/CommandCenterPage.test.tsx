@@ -788,6 +788,18 @@ const mockedPartialPosture = {
   conversation_only: true,
 } as unknown as CommandCenterRetrievalPosture;
 
+function makeHistoryItem(
+  task_id: string,
+  created_at: string,
+  retrieval_posture: CommandCenterRetrievalPosture
+): CommandCenterRetrievalPostureHistoryItem {
+  return {
+    created_at,
+    retrieval_posture,
+    task_id,
+  };
+}
+
 const mockedConversationHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
   created_at: "2026-04-01T15:58:30Z",
   retrieval_posture: mockedRetrievalPosture,
@@ -1112,6 +1124,92 @@ describe("CommandCenterPage", () => {
     expect(within(console).getByRole("button", { name: /auto-scroll/i })).toBeInTheDocument();
     expect(within(console).getByRole("button", { name: /copy visible/i })).toBeInTheDocument();
     expect(within(console).getByText("No classification yet")).toBeInTheDocument();
+  });
+
+  it("shows that retrieval posture changed when the newest two history items differ", () => {
+    mockedRetrievalPostureHistoryStateByThreadId[42] = {
+      ...mockedRetrievalPostureHistoryStateByThreadId[42],
+      items: [
+        makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+        makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedProjectPosture),
+      ],
+    };
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+    expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Changed: source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only/i
+      )
+    ).toBeInTheDocument();
+
+    const historyItems = within(historyPanel).getAllByTestId(
+      "command-center-retrieval-posture-history-item"
+    );
+    expect(historyItems).toHaveLength(2);
+    expect(historyItems[0]).toHaveTextContent(/task-newest/i);
+    expect(historyItems[1]).toHaveTextContent(/task-previous/i);
+  });
+
+  it("shows that retrieval posture is unchanged when the newest two history items match", () => {
+    mockedRetrievalPostureHistoryStateByThreadId[42] = {
+      ...mockedRetrievalPostureHistoryStateByThreadId[42],
+      items: [
+        makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+        makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedRetrievalPosture),
+        makeHistoryItem("task-older", "2026-04-01T15:57:30Z", mockedProjectPosture),
+      ],
+    };
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+    expect(within(historyPanel).getByText("Posture unchanged since previous run")).toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(/^Changed:/i)
+    ).not.toBeInTheDocument();
+
+    const historyItems = within(historyPanel).getAllByTestId(
+      "command-center-retrieval-posture-history-item"
+    );
+    expect(historyItems).toHaveLength(3);
+    expect(historyItems[0]).toHaveTextContent(/task-newest/i);
+    expect(historyItems[1]).toHaveTextContent(/task-previous/i);
+    expect(historyItems[2]).toHaveTextContent(/task-older/i);
+  });
+
+  it("shows that no previous comparison is available when only one history item exists", () => {
+    mockedRetrievalPostureHistoryStateByThreadId[42] = {
+      ...mockedRetrievalPostureHistoryStateByThreadId[42],
+      items: [
+        makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+      ],
+    };
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+    expect(within(historyPanel).getByText("No previous posture to compare")).toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(/^Changed:/i)
+    ).not.toBeInTheDocument();
+
+    const historyItems = within(historyPanel).getAllByTestId(
+      "command-center-retrieval-posture-history-item"
+    );
+    expect(historyItems).toHaveLength(1);
+    expect(historyItems[0]).toHaveTextContent(/task-newest/i);
   });
 
   it("renders the standalone thread posture panel and updates with the selected thread", async () => {

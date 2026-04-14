@@ -6,8 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import TraceWorkbench, {
+  diffRetrievalPosture,
   RetrievalPosturePanel,
   RetrievalPostureSummaryRow,
+  type RetrievalPostureDiff,
 } from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
@@ -19,6 +21,7 @@ import {
   filterCommandCenterRuns,
 } from "@/features/commandCenter/commandCenterObservability";
 import type {
+  CommandCenterRetrievalPostureHistoryItem,
   CommandCenterRun,
   CommandCenterTraceFilters,
 } from "@/features/commandCenter/types";
@@ -273,12 +276,47 @@ function DashboardSummary({
   );
 }
 
+function latestRetrievalPostureComparison(
+  items: CommandCenterRetrievalPostureHistoryItem[]
+): {
+  comparison: RetrievalPostureDiff | null;
+  label: string | null;
+  changedFields: string[] | null;
+  state: "changed" | "unchanged" | "no-previous" | "none";
+} {
+  const current = items[0] ?? null;
+  if (!current) {
+    return { comparison: null, changedFields: null, label: null, state: "none" };
+  }
+
+  const previous = items[1] ?? null;
+  if (!previous) {
+    return {
+      comparison: { changed: false, changedFields: [] },
+      changedFields: null,
+      label: "No previous posture to compare",
+      state: "no-previous",
+    };
+  }
+
+  const comparison = diffRetrievalPosture(current.retrieval_posture, previous.retrieval_posture);
+  return {
+    comparison,
+    changedFields: comparison.changed ? comparison.changedFields : null,
+    label: comparison.changed
+      ? "Posture changed since previous run"
+      : "Posture unchanged since previous run",
+    state: comparison.changed ? "changed" : "unchanged",
+  };
+}
+
 function RecentRetrievalPosturePanel({
   threadId,
 }: {
   threadId: number | null;
 }) {
   const { error, items, loading, status } = useRetrievalPostureHistory(threadId);
+  const comparison = React.useMemo(() => latestRetrievalPostureComparison(items), [items]);
 
   if (threadId === null) return null;
 
@@ -314,6 +352,28 @@ function RecentRetrievalPosturePanel({
           </div>
         ) : (
           <div className="space-y-2">
+            {comparison.label ? (
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+                style={{
+                  background: "var(--surface-soft)",
+                  borderColor: "var(--panel-border)",
+                  color: "var(--muted)",
+                }}
+              >
+                <BadgePill
+                  tone={comparison.state === "changed" ? "attention" : "subtle"}
+                  ariaLabel={comparison.label}
+                >
+                  {comparison.label}
+                </BadgePill>
+                {comparison.changedFields ? (
+                  <span>
+                    Changed: {comparison.changedFields.join(", ")}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {items.map((item) => (
               <RetrievalPostureSummaryRow
                 key={`${item.task_id}:${item.created_at}`}
