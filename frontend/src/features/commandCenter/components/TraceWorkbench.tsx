@@ -189,6 +189,9 @@ export type RetrievalPostureTrend =
   | "insufficient_history";
 
 export type RetrievalPostureHistoryFilter = "all" | "changed_only";
+export type RetrievalPostureHistoryWindowSize = 3 | 5 | 10;
+
+const RETRIEVAL_POSTURE_HISTORY_WINDOW_OPTIONS: RetrievalPostureHistoryWindowSize[] = [3, 5, 10];
 
 const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
   RetrievalPostureDiffField,
@@ -300,6 +303,17 @@ export function filterRetrievalPostureHistory(
   }
 
   return changedChronologicalItems.reverse();
+}
+
+/**
+ * Keep only the newest-first slice the operator chose. The input is already bounded
+ * history, so this helper is a pure presentation filter rather than a data source.
+ */
+export function limitRetrievalPostureHistory(
+  items: Array<RetrievalPostureHistoryItem>,
+  windowSize: RetrievalPostureHistoryWindowSize
+): Array<RetrievalPostureHistoryItem> {
+  return items.slice(0, windowSize);
 }
 
 /**
@@ -507,9 +521,11 @@ type RetrievalPostureComparison = {
 };
 
 function latestRetrievalPostureComparison(
-  current: CommandCenterRetrievalPosture | null,
-  previous: CommandCenterRetrievalPosture | null
+  items: Array<RetrievalPostureHistoryItem>
 ): RetrievalPostureComparison {
+  const current = items[0]?.retrieval_posture ?? null;
+  const previous = items[1]?.retrieval_posture ?? null;
+
   if (!current) {
     return {
       changedFields: null,
@@ -545,7 +561,9 @@ function RetrievalPostureDetails({
   comparison,
   historyFilter,
   historyItems,
+  historyWindowSize,
   onHistoryFilterChange,
+  onHistoryWindowSizeChange,
   retrievalPosture,
   trend,
   showHistorySection,
@@ -555,15 +573,20 @@ function RetrievalPostureDetails({
   comparison: RetrievalPostureComparison | null;
   historyFilter: RetrievalPostureHistoryFilter;
   historyItems: Array<RetrievalPostureHistoryItem>;
+  historyWindowSize: RetrievalPostureHistoryWindowSize;
   onHistoryFilterChange?: (next: RetrievalPostureHistoryFilter) => void;
+  onHistoryWindowSizeChange?: (next: RetrievalPostureHistoryWindowSize) => void;
   retrievalPosture: CommandCenterRetrievalPosture;
   trend: RetrievalPostureTrend;
   showHistorySection: boolean;
   showTrendBadge: boolean;
   showComparisonStrip: boolean;
 }) {
+  const limitedHistoryItems = showHistorySection
+    ? limitRetrievalPostureHistory(historyItems, historyWindowSize)
+    : [];
   const visibleHistoryItems = showHistorySection
-    ? filterRetrievalPostureHistory(historyItems, historyFilter)
+    ? filterRetrievalPostureHistory(limitedHistoryItems, historyFilter)
     : [];
 
   const glossaryRows: Array<{
@@ -667,33 +690,57 @@ function RetrievalPostureDetails({
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">
               Recent posture history
             </div>
-            <div
-              aria-label="Recent posture history filter"
-              className="inline-flex rounded-md border p-0.5"
-              role="group"
-              style={{
-                background: "var(--surface-soft)",
-                borderColor: "var(--panel-border)",
-              }}
-            >
-              <Button
-                type="button"
-                variant={historyFilter === "all" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => onHistoryFilterChange?.("all")}
-                className="h-7 px-2.5 text-[11px]"
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                aria-label="Recent posture history window size"
+                className="inline-flex rounded-md border p-0.5"
+                role="group"
+                style={{
+                  background: "var(--surface-soft)",
+                  borderColor: "var(--panel-border)",
+                }}
               >
-                All entries
-              </Button>
-              <Button
-                type="button"
-                variant={historyFilter === "changed_only" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => onHistoryFilterChange?.("changed_only")}
-                className="h-7 px-2.5 text-[11px]"
+                {RETRIEVAL_POSTURE_HISTORY_WINDOW_OPTIONS.map((option) => (
+                  <Button
+                    key={option}
+                    type="button"
+                    variant={historyWindowSize === option ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => onHistoryWindowSizeChange?.(option)}
+                    className="h-7 min-w-7 px-2.5 text-[11px]"
+                  >
+                    {option}
+                  </Button>
+                ))}
+              </div>
+              <div
+                aria-label="Recent posture history filter"
+                className="inline-flex rounded-md border p-0.5"
+                role="group"
+                style={{
+                  background: "var(--surface-soft)",
+                  borderColor: "var(--panel-border)",
+                }}
               >
-                Changed only
-              </Button>
+                <Button
+                  type="button"
+                  variant={historyFilter === "all" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => onHistoryFilterChange?.("all")}
+                  className="h-7 px-2.5 text-[11px]"
+                >
+                  All entries
+                </Button>
+                <Button
+                  type="button"
+                  variant={historyFilter === "changed_only" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => onHistoryFilterChange?.("changed_only")}
+                  className="h-7 px-2.5 text-[11px]"
+                >
+                  Changed only
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -915,7 +962,9 @@ export function RetrievalPosturePanel({
   className,
   compact = false,
   historyFilter = "all",
+  historyWindowSize = 5,
   onHistoryFilterChange,
+  onHistoryWindowSizeChange,
   showHistorySection = false,
   threadId,
   title = "Retrieval posture",
@@ -926,7 +975,9 @@ export function RetrievalPosturePanel({
   className?: string;
   compact?: boolean;
   historyFilter?: RetrievalPostureHistoryFilter;
+  historyWindowSize?: RetrievalPostureHistoryWindowSize;
   onHistoryFilterChange?: (next: RetrievalPostureHistoryFilter) => void;
+  onHistoryWindowSizeChange?: (next: RetrievalPostureHistoryWindowSize) => void;
   showHistorySection?: boolean;
   threadId: number | null;
   title?: string;
@@ -936,7 +987,6 @@ export function RetrievalPosturePanel({
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
-  const previousRetrievalPostureRef = React.useRef<CommandCenterRetrievalPosture | null>(null);
   const recentHistoryByThreadRef = React.useRef(new Map<number, RetrievalPostureHistoryItem[]>());
   const [trend, setTrend] = React.useState<RetrievalPostureTrend>("insufficient_history");
   const [comparison, setComparison] = React.useState<RetrievalPostureComparison>({
@@ -956,40 +1006,45 @@ export function RetrievalPosturePanel({
     : null;
 
   React.useEffect(() => {
-    if (threadId === null) {
-      setTrend("insufficient_history");
-      return;
-    }
-
-    setTrend(
-      classifyRetrievalPostureTrend(recentHistoryByThreadRef.current.get(threadId) ?? [])
-    );
-  }, [threadId]);
-
-  React.useEffect(() => {
     if (postureLoading || postureError || postureStatus !== "ok" || !retrievalPosture) {
       return;
     }
-
-    const nextComparison = latestRetrievalPostureComparison(
-      retrievalPosture,
-      previousRetrievalPostureRef.current
-    );
-
-    setComparison(nextComparison);
-    previousRetrievalPostureRef.current = retrievalPosture;
 
     if (threadId !== null) {
       const nextHistory = [
         { retrieval_posture: retrievalPosture },
         ...(recentHistoryByThreadRef.current.get(threadId) ?? []),
-      ].slice(0, 5);
+      ].slice(0, 10);
       recentHistoryByThreadRef.current.set(threadId, nextHistory);
-      setTrend(classifyRetrievalPostureTrend(nextHistory));
+
+      const boundedHistory = limitRetrievalPostureHistory(nextHistory, historyWindowSize);
+      setTrend(classifyRetrievalPostureTrend(boundedHistory));
+      setComparison(latestRetrievalPostureComparison(boundedHistory));
     }
   }, [comparisonSnapshot, postureError, postureLoading, postureStatus, threadId]);
 
   const historyItems = threadId !== null ? recentHistoryByThreadRef.current.get(threadId) ?? [] : [];
+
+  React.useEffect(() => {
+    if (threadId === null) {
+      setTrend("insufficient_history");
+      setComparison({
+        changedFields: null,
+        explanationLines: null,
+        label: null,
+        state: "none",
+      });
+      return;
+    }
+
+    const boundedHistory = limitRetrievalPostureHistory(
+      recentHistoryByThreadRef.current.get(threadId) ?? [],
+      historyWindowSize
+    );
+
+    setTrend(classifyRetrievalPostureTrend(boundedHistory));
+    setComparison(latestRetrievalPostureComparison(boundedHistory));
+  }, [historyWindowSize, threadId]);
 
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
@@ -1026,15 +1081,17 @@ export function RetrievalPosturePanel({
           No retrieval posture evidence for this thread.
         </div>
       ) : retrievalPosture ? (
-        <RetrievalPostureDetails
-          comparison={comparison}
-          historyFilter={historyFilter}
-          historyItems={historyItems}
-          onHistoryFilterChange={onHistoryFilterChange}
-          retrievalPosture={retrievalPosture}
-          showHistorySection={showHistorySection}
-          showComparisonStrip={showComparisonStrip}
-          showTrendBadge={showTrendBadge}
+          <RetrievalPostureDetails
+            comparison={comparison}
+            historyFilter={historyFilter}
+            historyItems={historyItems}
+            historyWindowSize={historyWindowSize}
+            onHistoryFilterChange={onHistoryFilterChange}
+            onHistoryWindowSizeChange={onHistoryWindowSizeChange}
+            retrievalPosture={retrievalPosture}
+            showHistorySection={showHistorySection}
+            showComparisonStrip={showComparisonStrip}
+            showTrendBadge={showTrendBadge}
           trend={trend}
         />
       ) : null}

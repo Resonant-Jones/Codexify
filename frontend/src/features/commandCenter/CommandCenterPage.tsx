@@ -8,6 +8,7 @@ import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import TraceWorkbench, {
   RetrievalPosturePanel,
   type RetrievalPostureHistoryFilter,
+  type RetrievalPostureHistoryWindowSize,
 } from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
@@ -289,6 +290,8 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     React.useState<CommandCenterTraceFilters>(filtersDefault);
   const [retrievalPostureHistoryFilter, setRetrievalPostureHistoryFilter] =
     React.useState<RetrievalPostureHistoryFilter>("all");
+  const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
+    React.useState<RetrievalPostureHistoryWindowSize>(5);
 
   const consoleRows = React.useMemo(() => buildCommandCenterEventConsoleRows(events), [events]);
   const visibleRuns = React.useMemo(
@@ -408,7 +411,9 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
               <RetrievalPosturePanel
                 compact
                 historyFilter={retrievalPostureHistoryFilter}
+                historyWindowSize={retrievalPostureHistoryWindowSize}
                 onHistoryFilterChange={setRetrievalPostureHistoryFilter}
+                onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
                 showHistorySection
                 showComparisonStrip
                 showTrendBadge
