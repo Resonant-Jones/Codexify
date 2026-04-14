@@ -140,6 +140,78 @@ function firstNumber(...values: unknown[]): number | null {
   return null;
 }
 
+export const RETRIEVAL_POSTURE_DIFF_FIELDS = [
+  "source_mode",
+  "boundary_label",
+  "retrieval_override_mode",
+  "widen_reason",
+  "conversation_only",
+] as const;
+
+export type RetrievalPostureDiffField =
+  (typeof RETRIEVAL_POSTURE_DIFF_FIELDS)[number];
+
+export type RetrievalPostureDiff = {
+  changed: boolean;
+  changedFields: RetrievalPostureDiffField[];
+};
+
+export function diffRetrievalPosture(
+  current: CommandCenterRetrievalPosture,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureDiff {
+  if (!previous) {
+    return { changed: false, changedFields: [] };
+  }
+
+  const changedFields = RETRIEVAL_POSTURE_DIFF_FIELDS.filter(
+    (field) => current[field] !== previous[field]
+  );
+
+  return {
+    changed: changedFields.length > 0,
+    changedFields,
+  };
+}
+
+export type RetrievalPostureChangeExplanation = {
+  lines: string[];
+};
+
+const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
+  RetrievalPostureDiffField,
+  string
+> = {
+  source_mode: "The retrieval scope changed.",
+  boundary_label: "The retrieval boundary changed.",
+  retrieval_override_mode: "An explicit retrieval override changed the posture.",
+  widen_reason: "The reason for widening changed.",
+  conversation_only: "Conversation-only retrieval changed.",
+};
+
+const RETRIEVAL_POSTURE_CHANGE_FALLBACK =
+  "Retrieval posture changed, but this combination does not yet have a tailored explanation.";
+
+export function describeRetrievalPostureChange(
+  diff: RetrievalPostureDiff,
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureChangeExplanation {
+  if (!diff.changed || !current || !previous) {
+    return { lines: [] };
+  }
+
+  if (diff.changedFields.length === 0 || diff.changedFields.length > 2) {
+    return { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+  }
+
+  const lines = diff.changedFields.map(
+    (field) => RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS[field]
+  );
+
+  return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+}
+
 /**
  * Derives a brief human-readable explanation of the retrieval posture from
  * canonical backend fields. Presentation-only — does not infer or classify.
@@ -269,10 +341,58 @@ function describeRetrievalPostureToken(
   }
 }
 
+type RetrievalPostureComparisonState = "changed" | "unchanged" | "no-previous" | "none";
+
+type RetrievalPostureComparison = {
+  changedFields: RetrievalPostureDiffField[] | null;
+  explanationLines: string[] | null;
+  label: string | null;
+  state: RetrievalPostureComparisonState;
+};
+
+function latestRetrievalPostureComparison(
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureComparison {
+  if (!current) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: null,
+      state: "none",
+    };
+  }
+
+  if (!previous) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: "No previous posture to compare",
+      state: "no-previous",
+    };
+  }
+
+  const comparison = diffRetrievalPosture(current, previous);
+  const explanation = describeRetrievalPostureChange(comparison, current, previous);
+
+  return {
+    changedFields: comparison.changed ? comparison.changedFields : null,
+    explanationLines: comparison.changed ? explanation.lines : null,
+    label: comparison.changed
+      ? "Posture changed since previous run"
+      : "Posture unchanged since previous run",
+    state: comparison.changed ? "changed" : "unchanged",
+  };
+}
+
 function RetrievalPostureDetails({
+  comparison,
   retrievalPosture,
+  showComparisonStrip,
 }: {
+  comparison: RetrievalPostureComparison | null;
   retrievalPosture: CommandCenterRetrievalPosture;
+  showComparisonStrip: boolean;
 }) {
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
@@ -303,6 +423,41 @@ function RetrievalPostureDetails({
 
   return (
     <>
+      {showComparisonStrip && comparison?.label ? (
+        <div
+          className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className="border text-[11px] font-medium leading-none"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+              }}
+            >
+              {comparison.label}
+            </Badge>
+            {comparison.changedFields ? (
+              <div className="space-y-1">
+                <span>Changed: {comparison.changedFields.join(", ")}</span>
+                {comparison.explanationLines ? (
+                  <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
+                    {comparison.explanationLines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         <Badge
           className="border text-[11px] font-medium leading-none"
@@ -404,15 +559,47 @@ export function RetrievalPosturePanel({
   threadId,
   title = "Retrieval posture",
   testId,
+  showComparisonStrip = false,
 }: {
   className?: string;
   compact?: boolean;
   threadId: number | null;
   title?: string;
   testId?: string;
+  showComparisonStrip?: boolean;
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
+  const previousRetrievalPostureRef = React.useRef<CommandCenterRetrievalPosture | null>(null);
+  const [comparison, setComparison] = React.useState<RetrievalPostureComparison>({
+    changedFields: null,
+    explanationLines: null,
+    label: null,
+    state: "none",
+  });
+  const comparisonSnapshot = retrievalPosture
+    ? [
+        retrievalPosture.source_mode,
+        retrievalPosture.boundary_label,
+        retrievalPosture.retrieval_override_mode ?? "null",
+        retrievalPosture.widen_reason,
+        String(retrievalPosture.conversation_only),
+      ].join("\u241f")
+    : null;
+
+  React.useEffect(() => {
+    if (postureLoading || postureError || postureStatus !== "ok" || !retrievalPosture) {
+      return;
+    }
+
+    const nextComparison = latestRetrievalPostureComparison(
+      retrievalPosture,
+      previousRetrievalPostureRef.current
+    );
+
+    setComparison(nextComparison);
+    previousRetrievalPostureRef.current = retrievalPosture;
+  }, [comparisonSnapshot, postureError, postureLoading, postureStatus, threadId]);
 
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
@@ -449,7 +636,11 @@ export function RetrievalPosturePanel({
           No retrieval posture evidence for this thread.
         </div>
       ) : retrievalPosture ? (
-        <RetrievalPostureDetails retrievalPosture={retrievalPosture} />
+        <RetrievalPostureDetails
+          comparison={comparison}
+          retrievalPosture={retrievalPosture}
+          showComparisonStrip={showComparisonStrip}
+        />
       ) : null}
     </div>
   );
