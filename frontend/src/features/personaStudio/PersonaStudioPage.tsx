@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -47,6 +47,8 @@ const TABS = [
 
 const UTILITY_TABS = ["Profiles", "Diagnostics"] as const;
 const EPHEMERAL_SCENARIO_CHIPS = ["Coding", "Research", "Planning", "Casual Help"] as const;
+const PERSONA_STUDIO_LEFT_LANE_FLEX = "1.62 1 0%";
+const PERSONA_STUDIO_RIGHT_LANE_FLEX = "1 1 0%";
 
 type UtilityTab = (typeof UTILITY_TABS)[number];
 
@@ -267,7 +269,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
 
   return (
     <Card
-      className="bezel-none rounded-2xl border"
+      className="bezel-none flex min-h-0 flex-1 flex-col rounded-2xl border"
       role="region"
       aria-label="Persona Studio ephemeral chat harness"
       data-testid="persona-studio-ephemeral-chat-harness"
@@ -345,7 +347,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             ref={inputRef}
             value={ephemeralPrompt}
             onChange={(event) => setEphemeralPrompt(event.target.value)}
-            placeholder="Type a temporary message"
+            placeholder="Session-local, ephemeral, non-runtime draft test"
             aria-label="Ephemeral chat prompt"
             className="min-w-0 flex-1"
             disabled={isResponding}
@@ -1538,8 +1540,7 @@ export default function PersonaStudioPage() {
               borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
             }}
           >
-            <CardHeader className="space-y-4 pb-4">
-              <EphemeralChatHarness profile={selectedProfile} />
+          <CardHeader className="space-y-4 pb-4">
               <div
                 className="rounded-2xl border px-4 py-4"
                 data-testid="persona-studio-active-profile-summary"
@@ -1642,49 +1643,67 @@ export default function PersonaStudioPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 flex-col space-y-5 pt-0">
+            <CardContent className="flex min-h-0 flex-1 pt-0">
               <div
-                className="rounded-2xl border p-5"
-                style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
-                  borderColor: "var(--panel-border)",
-                }}
+                className="flex min-h-0 w-full flex-col gap-4 lg:flex-row"
+                data-testid="persona-studio-editor-two-lane-layout"
               >
-                {renderActiveTab()}
+                <div
+                  className="flex min-h-0 min-w-0 flex-col gap-5"
+                  data-testid="persona-studio-configuration-lane"
+                  style={{ flex: PERSONA_STUDIO_LEFT_LANE_FLEX }}
+                >
+                  <div
+                    className="rounded-2xl border p-5"
+                    style={{
+                      background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                      borderColor: "var(--panel-border)",
+                    }}
+                  >
+                    {renderActiveTab()}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button type="button" onClick={handleSave} disabled={!isDirty}>
+                      Save
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleSaveAsNew}
+                      disabled={!currentConfig}
+                    >
+                      Save As New
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleReset}
+                      disabled={!isDirty}
+                    >
+                      Reset
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={resetAllLocalPersonaStudioData}
+                      className="whitespace-nowrap"
+                      aria-label="Reset All Local Persona Studio Data"
+                      title="Reset All Local Persona Studio Data"
+                    >
+                      Reset All Data
+                    </Button>
+                  </div>
+                </div>
+                <div
+                  className="flex min-h-0 min-w-0 flex-col"
+                  data-testid="persona-studio-ephemeral-chat-lane"
+                  style={{ flex: PERSONA_STUDIO_RIGHT_LANE_FLEX }}
+                >
+                  <EphemeralChatHarness profile={selectedProfile} />
+                </div>
               </div>
             </CardContent>
-            <CardFooter className="flex flex-wrap items-center gap-3 pt-0">
-              <Button type="button" onClick={handleSave} disabled={!isDirty}>
-                Save
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleSaveAsNew}
-                disabled={!currentConfig}
-              >
-                Save As New
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleReset}
-                disabled={!isDirty}
-              >
-                Reset
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={resetAllLocalPersonaStudioData}
-                className="whitespace-nowrap"
-                aria-label="Reset All Local Persona Studio Data"
-                title="Reset All Local Persona Studio Data"
-              >
-                Reset All Data
-              </Button>
-            </CardFooter>
           </Card>
         </div>
       </div>

@@ -35,15 +35,23 @@ describe("Persona Studio Page", () => {
     );
   });
 
-  it("renders the ephemeral chat harness in the main editor", () => {
+  it("renders the two-lane Persona Studio layout with the harness on the right", () => {
     renderPage();
 
+    const layout = screen.getByTestId("persona-studio-editor-two-lane-layout");
+    expect(screen.getByTestId("persona-studio-configuration-lane")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
+    expect(within(layout).getByTestId("persona-studio-configuration-lane")).toBeVisible();
+    expect(within(layout).getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
     expect(screen.getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
     expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
     expect(screen.getByText(/^session-local$/i)).toBeVisible();
     expect(screen.getByText(/^non-runtime$/i)).toBeVisible();
     expect(screen.getByText(/^ephemeral$/i)).toBeVisible();
     expect(screen.getByText(/isolated from guardian runtime/i)).toBeVisible();
+    expect(
+      screen.getByPlaceholderText(/session-local, ephemeral, non-runtime draft test/i)
+    ).toBeVisible();
   });
 
   it("supports a multi-turn ephemeral transcript", async () => {
