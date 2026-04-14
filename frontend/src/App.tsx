@@ -59,6 +59,7 @@ import { SharePage } from "./pages/SharePage";
 import {
   isTauriRuntime,
   readDesktopStartupRoutingDecision,
+  type DesktopStartupRoutingStatus,
   type DesktopStartupRoutingDecision,
 } from "./lib/runtimeConfig";
 
@@ -399,6 +400,80 @@ function DesktopStartupRoutingGate({
   );
 }
 
+function DesktopStartupRecoveryGate({
+  detail,
+  onOpenBootstrapPath,
+}: {
+  detail: string | null;
+  onOpenBootstrapPath: () => void;
+}) {
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center p-6 sm:p-8">
+      <div className="absolute inset-0 bg-black/35 backdrop-blur-xl" />
+      <div
+        className="relative z-10 w-full max-w-xl overflow-hidden rounded-[26px] border shadow-2xl"
+        style={{
+          borderColor: "var(--panel-border-strong, var(--panel-border))",
+          background:
+            "linear-gradient(155deg, rgba(12,18,30,0.95), rgba(19,29,42,0.86))",
+          color: "var(--text)",
+          boxShadow: "0 32px 110px rgba(0,0,0,0.34)",
+        }}
+      >
+        <div
+          className="border-b px-6 py-4 sm:px-8"
+          style={{ borderColor: "var(--panel-border)" }}
+        >
+          <span
+            className="inline-flex items-center rounded-full border px-3 py-1 text-xs uppercase tracking-[0.24em]"
+            style={{
+              borderColor: "var(--chip-border)",
+              background: "rgba(255,255,255,0.04)",
+              color: "var(--muted)",
+            }}
+          >
+            Desktop recovery
+          </span>
+        </div>
+
+        <div className="space-y-4 px-6 py-7 sm:px-8 sm:py-9">
+          <div className="space-y-3">
+            <h1 className="text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">
+              Configured, but the local runtime is not ready
+            </h1>
+            <p
+              className="max-w-xl text-sm leading-6 sm:text-[15px]"
+              style={{ color: "var(--muted)" }}
+            >
+              Codexify has launcher state, but it cannot hand off to a ready
+              local runtime yet.
+            </p>
+            <p
+              className="max-w-xl text-xs leading-6"
+              style={{ color: "var(--muted)" }}
+            >
+              {detail || "The desktop runtime is unavailable right now."}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              className="rounded-full px-5"
+              onClick={onOpenBootstrapPath}
+            >
+              Return to bootstrap path
+            </Button>
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              Use the existing bootstrap flow to retry setup and startup.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DevTuneGate() {
   const [Mod, setMod] = React.useState<React.ComponentType | null>(null);
   const [error, setError] = React.useState<Error | null>(null);
@@ -460,6 +535,8 @@ export default function App() {
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
     DesktopStartupRoutingDecision | null | undefined
   >(() => (desktopRuntime ? undefined : null));
+  const [desktopRecoveryRequested, setDesktopRecoveryRequested] =
+    React.useState(false);
 
   React.useEffect(() => {
     if (!desktopRuntime) return;
@@ -481,13 +558,16 @@ export default function App() {
     };
   }, [desktopRuntime]);
 
+  const desktopStartupStatus: DesktopStartupRoutingStatus | null =
+    desktopStartupRouting?.status ?? null;
   const desktopStartupPending = desktopRuntime && desktopStartupRouting === undefined;
-  const desktopStartupRequiresBootstrap =
+  const desktopStartupNeedsRecovery =
     desktopRuntime &&
-    desktopStartupRouting !== undefined &&
-    (desktopStartupRouting === null ||
-      desktopStartupRouting.shouldRunWizard ||
-      !desktopStartupRouting.handoffTarget);
+    (desktopStartupStatus === "runtime-unavailable" ||
+      desktopStartupStatus === "launcher-unavailable");
+  const desktopStartupCanBootstrap =
+    desktopRuntime &&
+    desktopStartupStatus === "setup-incomplete";
   const bootstrapEnabled =
     shouldRunRuntimeBootstrap() &&
     !tuneRoute &&
@@ -495,7 +575,7 @@ export default function App() {
     !commandCenterRoute &&
     !personaStudioRoute &&
     !(shareRoute && !!shareToken) &&
-    desktopStartupRequiresBootstrap;
+    (desktopStartupCanBootstrap || desktopRecoveryRequested);
   const [docGenOpen, setDocGenOpen] = React.useState(false);
   const [docGenDraft, setDocGenDraft] = React.useState<DocumentGenInput | null>(
     null
@@ -1143,6 +1223,11 @@ export default function App() {
     });
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
+  const handleOpenBootstrapPath = React.useCallback(() => {
+    setDesktopRecoveryRequested(true);
+    setBootstrapPhase("bootstrap");
+  }, []);
+
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
   const webRuntimeGateEnabled =
     !desktopRuntime && !bootstrapEnabled && import.meta.env.MODE !== "test";
@@ -1161,6 +1246,14 @@ export default function App() {
   }
   if (desktopStartupPending) {
     return <DesktopStartupRoutingGate detail={desktopStartupRouting?.detail ?? null} />;
+  }
+  if (desktopStartupNeedsRecovery && !desktopRecoveryRequested) {
+    return (
+      <DesktopStartupRecoveryGate
+        detail={desktopStartupRouting?.detail ?? null}
+        onOpenBootstrapPath={handleOpenBootstrapPath}
+      />
+    );
   }
   let mainContent: React.ReactNode;
   if (eventsRoute) {

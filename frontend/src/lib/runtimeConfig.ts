@@ -23,7 +23,14 @@ export type LauncherStartupHandoff = {
   detail: string;
 };
 
+export type DesktopStartupRoutingStatus =
+  | "setup-incomplete"
+  | "runtime-unavailable"
+  | "ready-handoff"
+  | "launcher-unavailable";
+
 export type DesktopStartupRoutingDecision = {
+  status: DesktopStartupRoutingStatus;
   shouldRunWizard: boolean;
   setupComplete: boolean;
   handoffTarget: string | null;
@@ -87,6 +94,35 @@ function normalizeLauncherHandoffTarget(value: unknown): string | null {
   const normalized = normalizeNullableText(value);
   if (!normalized) return null;
   return isAbsoluteUrl(normalized) ? normalized.replace(/\/+$/, "") : null;
+}
+
+function resolveDesktopStartupRoutingStatus(
+  handoff: LauncherStartupHandoff | null
+): DesktopStartupRoutingStatus {
+  if (!handoff) return "launcher-unavailable";
+  if (!handoff.setupComplete) return "setup-incomplete";
+  if (handoff.handoffTarget) return "ready-handoff";
+  return "runtime-unavailable";
+}
+
+function resolveDesktopStartupRoutingDetail(
+  status: DesktopStartupRoutingStatus,
+  handoff: LauncherStartupHandoff | null
+): string {
+  const canonicalDetailByStatus: Record<DesktopStartupRoutingStatus, string> = {
+    "setup-incomplete":
+      "desktop launcher setup is incomplete; continue through setup",
+    "runtime-unavailable":
+      "desktop launcher is configured, but the local runtime is not ready",
+    "ready-handoff": "desktop launcher handoff is ready",
+    "launcher-unavailable":
+      "desktop launcher startup state is unavailable",
+  };
+
+  return (
+    normalizeNullableText(handoff?.detail) ??
+    canonicalDetailByStatus[status]
+  );
 }
 
 export function isTauriRuntime(): boolean {
@@ -155,16 +191,26 @@ export async function readDesktopLauncherStartupHandoff(): Promise<LauncherStart
 }
 
 export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartupRoutingDecision | null> {
+  if (!isTauriRuntime()) return null;
+
   const handoff = await readDesktopLauncherStartupHandoff();
-  if (!handoff) return null;
+  const status = resolveDesktopStartupRoutingStatus(handoff);
+  if (!handoff) {
+    return {
+      status,
+      shouldRunWizard: false,
+      setupComplete: false,
+      handoffTarget: null,
+      detail: resolveDesktopStartupRoutingDetail(status, handoff),
+    };
+  }
 
   return {
-    shouldRunWizard: handoff.shouldRunWizard,
+    status,
+    shouldRunWizard: status === "setup-incomplete",
     setupComplete: handoff.setupComplete,
     handoffTarget: handoff.handoffTarget,
-    detail:
-      normalizeNullableText(handoff.detail) ??
-      "desktop launcher startup routing resolved",
+    detail: resolveDesktopStartupRoutingDetail(status, handoff),
   };
 }
 
