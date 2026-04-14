@@ -1,0 +1,31 @@
+.mobile-press-feedback {
+  transform-origin: center;
+  transition-property: transform, opacity, filter;
+  transition-duration: var(--mobile-press-release-ms, 160ms);
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity, filter;
+}
+
+.mobile-press-feedback[data-press-feedback="pressed"] {
+  transform: scale(var(--mobile-press-scale, 0.975));
+  opacity: var(--mobile-press-opacity, 0.92);
+  filter: var(--mobile-press-tone, saturate(0.985) brightness(0.99));
+}
+
+.mobile-tap-target {
+  min-height: var(--mobile-tap-target-min-height, 44px);
+  min-width: var(--mobile-tap-target-min-width, 44px);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-press-feedback {
+    transition-property: opacity, filter;
+    transition-duration: 1ms;
+  }
+
+  .mobile-press-feedback[data-press-feedback="pressed"] {
+    transform: none;
+  }
+}
