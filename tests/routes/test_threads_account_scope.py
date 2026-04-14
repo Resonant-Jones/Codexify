@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import threads as threads_routes
 
 API_KEY = "test-api-key"
@@ -93,16 +94,23 @@ def _auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOCAL_DEV", "false")
 
 
-def _make_client(db: _ThreadDB, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def _make_client(
+    db: _ThreadDB,
+    monkeypatch: pytest.MonkeyPatch,
+    request_user_scope: RequestUserScope,
+) -> TestClient:
     monkeypatch.setattr(threads_routes, "chatlog_db", db, raising=False)
     app = FastAPI()
+    app.dependency_overrides[
+        threads_routes.get_request_user_scope
+    ] = lambda: request_user_scope
     app.include_router(threads_routes.router)
     app.include_router(threads_routes.api_router)
     return TestClient(app)
 
 
-def _headers(*, user_id: str) -> dict[str, str]:
-    return {"X-API-Key": API_KEY, "X-User-Id": user_id}
+def _headers() -> dict[str, str]:
+    return {"X-API-Key": API_KEY}
 
 
 def test_single_user_mode_preserves_current_thread_behavior(
@@ -112,18 +120,25 @@ def test_single_user_mode_preserves_current_thread_behavior(
     db = _ThreadDB()
     db.seed_thread(user_id="foreign_user", title="foreign")
     db.seed_thread(user_id=SERVER_USER_ID, title="local")
-    client = _make_client(db, monkeypatch)
-
-    list_response = client.get(
-        "/threads", headers=_headers(user_id="spoofed_user")
+    client = _make_client(
+        db,
+        monkeypatch,
+        RequestUserScope(
+            user_id=SERVER_USER_ID,
+            subject_id=None,
+            account_id=None,
+            multi_user_enabled=False,
+        ),
     )
+
+    list_response = client.get("/threads", headers=_headers())
     assert list_response.status_code == 200
     list_data = list_response.json()
     assert len(list_data["threads"]) == 2
 
     create_response = client.post(
         "/threads",
-        headers=_headers(user_id="spoofed_user"),
+        headers=_headers(),
         json={
             "title": "single-user-thread",
             "project_id": "p-1",
@@ -143,12 +158,20 @@ def test_multi_user_create_persists_authenticated_principal_as_owner(
 ) -> None:
     monkeypatch.setenv("CODEXIFY_MULTI_USER_ENABLED", "true")
     db = _ThreadDB()
-    client = _make_client(db, monkeypatch)
-    headers = _headers(user_id="alice")
+    client = _make_client(
+        db,
+        monkeypatch,
+        RequestUserScope(
+            user_id="alice",
+            subject_id="subject-alice",
+            account_id="alice",
+            multi_user_enabled=True,
+        ),
+    )
 
     response = client.post(
         "/threads",
-        headers=headers,
+        headers=_headers(),
         json={"title": "alice-thread", "project_id": "p-2"},
     )
     assert response.status_code == 200, response.text
@@ -166,23 +189,33 @@ def test_multi_user_list_read_returns_only_threads_for_authenticated_principal(
     db = _ThreadDB()
     alice_thread_id = db.seed_thread(user_id="alice", title="alice-one")
     bob_thread_id = db.seed_thread(user_id="bob", title="bob-one")
-    client = _make_client(db, monkeypatch)
-    headers = _headers(user_id="alice")
+    client = _make_client(
+        db,
+        monkeypatch,
+        RequestUserScope(
+            user_id="alice",
+            subject_id="subject-alice",
+            account_id="alice",
+            multi_user_enabled=True,
+        ),
+    )
 
-    list_response = client.get("/threads", headers=headers)
+    list_response = client.get("/threads", headers=_headers())
     assert list_response.status_code == 200, list_response.text
     threads = list_response.json()["threads"]
     assert len(threads) == 1
     assert threads[0]["user_id"] == "alice"
     assert threads[0]["thread_id"] == alice_thread_id
 
-    read_response = client.get(f"/threads/{alice_thread_id}", headers=headers)
+    read_response = client.get(
+        f"/threads/{alice_thread_id}", headers=_headers()
+    )
     assert read_response.status_code == 200, read_response.text
     thread = read_response.json()["thread"]
     assert thread["user_id"] == "alice"
     assert thread["thread_id"] == alice_thread_id
 
-    foreign_read = client.get(f"/threads/{bob_thread_id}", headers=headers)
+    foreign_read = client.get(f"/threads/{bob_thread_id}", headers=_headers())
     assert foreign_read.status_code == 404
 
 
@@ -191,16 +224,24 @@ def test_conflicting_caller_supplied_user_id_is_rejected_in_multi_user_mode(
 ) -> None:
     monkeypatch.setenv("CODEXIFY_MULTI_USER_ENABLED", "true")
     db = _ThreadDB()
-    client = _make_client(db, monkeypatch)
-    headers = _headers(user_id="alice")
+    client = _make_client(
+        db,
+        monkeypatch,
+        RequestUserScope(
+            user_id="alice",
+            subject_id="subject-alice",
+            account_id="alice",
+            multi_user_enabled=True,
+        ),
+    )
 
-    list_conflict = client.get("/threads?user_id=bob", headers=headers)
+    list_conflict = client.get("/threads?user_id=bob", headers=_headers())
     assert list_conflict.status_code == 403
     assert "authenticated principal" in list_conflict.json()["detail"]
 
     create_conflict = client.post(
         "/threads",
-        headers=headers,
+        headers=_headers(),
         json={"title": "conflict", "user_id": "bob"},
     )
     assert create_conflict.status_code == 403
