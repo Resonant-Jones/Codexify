@@ -188,6 +188,8 @@ export type RetrievalPostureTrend =
   | "flapping"
   | "insufficient_history";
 
+export type RetrievalPostureHistoryFilter = "all" | "changed_only";
+
 const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
   RetrievalPostureDiffField,
   string
@@ -236,6 +238,7 @@ function postureSignature(posture: CommandCenterRetrievalPosture | null): string
   if (
     typeof source_mode !== "string" ||
     typeof boundary_label !== "string" ||
+    (retrieval_override_mode !== null && typeof retrieval_override_mode !== "string") ||
     typeof widen_reason !== "string" ||
     typeof conversation_only !== "boolean"
   ) {
@@ -249,6 +252,54 @@ function postureSignature(posture: CommandCenterRetrievalPosture | null): string
     widen_reason,
     String(conversation_only),
   ].join("\u241f");
+}
+
+function isRetrievalPostureHistoryItem(
+  item: RetrievalPostureHistoryItem
+): item is RetrievalPostureHistoryItem & {
+  retrieval_posture: CommandCenterRetrievalPosture;
+} {
+  return postureSignature(item.retrieval_posture) !== null;
+}
+
+/**
+ * Keep a bounded newest-first history view while dropping repeated identical entries.
+ * The comparison is chronological: oldest to newest, retaining only change points.
+ */
+export function filterRetrievalPostureHistory(
+  items: Array<RetrievalPostureHistoryItem>,
+  mode: RetrievalPostureHistoryFilter
+): Array<RetrievalPostureHistoryItem> {
+  const validItems = items.filter(isRetrievalPostureHistoryItem);
+
+  if (mode === "all") {
+    return validItems.slice();
+  }
+
+  const chronologicalItems = validItems.slice().reverse();
+  const changedChronologicalItems: Array<RetrievalPostureHistoryItem> = [];
+  let previousPosture: CommandCenterRetrievalPosture | null = null;
+
+  for (const item of chronologicalItems) {
+    const currentPosture = item.retrieval_posture;
+
+    if (!currentPosture) {
+      continue;
+    }
+
+    if (previousPosture === null) {
+      previousPosture = currentPosture;
+      continue;
+    }
+
+    if (diffRetrievalPosture(currentPosture, previousPosture).changed) {
+      changedChronologicalItems.push(item);
+    }
+
+    previousPosture = currentPosture;
+  }
+
+  return changedChronologicalItems.reverse();
 }
 
 /**
@@ -492,17 +543,29 @@ function latestRetrievalPostureComparison(
 
 function RetrievalPostureDetails({
   comparison,
+  historyFilter,
+  historyItems,
+  onHistoryFilterChange,
   retrievalPosture,
   trend,
+  showHistorySection,
   showComparisonStrip,
   showTrendBadge,
 }: {
   comparison: RetrievalPostureComparison | null;
+  historyFilter: RetrievalPostureHistoryFilter;
+  historyItems: Array<RetrievalPostureHistoryItem>;
+  onHistoryFilterChange?: (next: RetrievalPostureHistoryFilter) => void;
   retrievalPosture: CommandCenterRetrievalPosture;
   trend: RetrievalPostureTrend;
+  showHistorySection: boolean;
   showTrendBadge: boolean;
   showComparisonStrip: boolean;
 }) {
+  const visibleHistoryItems = showHistorySection
+    ? filterRetrievalPostureHistory(historyItems, historyFilter)
+    : [];
+
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
     label: string;
@@ -589,6 +652,168 @@ function RetrievalPostureDetails({
               </div>
             ) : null}
           </div>
+        </div>
+      ) : null}
+      {showHistorySection ? (
+        <div
+          className="mt-2 rounded-[var(--tile-radius)] border px-3 py-3 text-xs leading-5"
+          style={{
+            background: "color-mix(in oklab, var(--surface-soft) 88%, transparent)",
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">
+              Recent posture history
+            </div>
+            <div
+              aria-label="Recent posture history filter"
+              className="inline-flex rounded-md border p-0.5"
+              role="group"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+              }}
+            >
+              <Button
+                type="button"
+                variant={historyFilter === "all" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => onHistoryFilterChange?.("all")}
+                className="h-7 px-2.5 text-[11px]"
+              >
+                All entries
+              </Button>
+              <Button
+                type="button"
+                variant={historyFilter === "changed_only" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => onHistoryFilterChange?.("changed_only")}
+                className="h-7 px-2.5 text-[11px]"
+              >
+                Changed only
+              </Button>
+            </div>
+          </div>
+
+          {visibleHistoryItems.length === 0 ? (
+            <div
+              className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-sm"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--muted)",
+              }}
+            >
+              No posture changes in the recent history window.
+            </div>
+          ) : (
+            <ul aria-label="Recent posture history" className="mt-2 space-y-2">
+              {visibleHistoryItems.map((item, index) => {
+                const posture = item.retrieval_posture;
+
+                if (!posture) {
+                  return null;
+                }
+
+                return (
+                  <li
+                    key={`${posture.source_mode}-${posture.boundary_label}-${posture.retrieval_override_mode ?? "null"}-${posture.widen_reason}-${String(posture.conversation_only)}-${index}`}
+                  >
+                    <div
+                      className="rounded-[var(--tile-radius)] border px-3 py-2"
+                      style={{
+                        background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
+                        borderColor: "var(--panel-border)",
+                      }}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          className="border text-[11px] font-medium leading-none"
+                          style={{
+                            background: "var(--surface-soft)",
+                            borderColor: "var(--panel-border)",
+                            color: "var(--text)",
+                          }}
+                        >
+                          {index === 0 ? "Newest" : `Earlier ${index + 1}`}
+                        </Badge>
+                        <span style={{ color: "var(--text)" }}>Posture snapshot</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge
+                          className="border text-[11px] font-medium leading-none"
+                          style={{
+                            background: "var(--surface-soft)",
+                            borderColor: "var(--panel-border)",
+                            color: "var(--text)",
+                          }}
+                        >
+                          scope {posture.source_mode}
+                        </Badge>
+                        <Badge
+                          className="border text-[11px] font-medium leading-none"
+                          style={{
+                            background: "var(--surface-soft)",
+                            borderColor: "var(--panel-border)",
+                            color: "var(--text)",
+                          }}
+                        >
+                          limit {posture.boundary_label}
+                        </Badge>
+                        {posture.retrieval_override_mode ? (
+                          <Badge
+                            className="border text-[11px] font-medium leading-none"
+                            style={{
+                              background: "var(--surface-soft)",
+                              borderColor: "var(--panel-border)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            override {posture.retrieval_override_mode}
+                          </Badge>
+                        ) : null}
+                        <Badge
+                          className="border text-[11px] font-medium leading-none"
+                          style={{
+                            background: "var(--surface-soft)",
+                            borderColor: "var(--panel-border)",
+                            color: "var(--text)",
+                          }}
+                        >
+                          widen {posture.widen_reason}
+                        </Badge>
+                        {posture.conversation_only ? (
+                          <Badge
+                            className="border text-[11px] font-medium leading-none"
+                            style={{
+                              background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
+                              borderColor: "var(--panel-border)",
+                              color: "var(--text-on-accent)",
+                            }}
+                          >
+                            conv only yes
+                          </Badge>
+                        ) : (
+                          <Badge
+                            className="border text-[11px] font-medium leading-none"
+                            style={{
+                              background: "var(--surface-soft)",
+                              borderColor: "var(--panel-border)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            conv only no
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
@@ -689,6 +914,9 @@ function RetrievalPostureDetails({
 export function RetrievalPosturePanel({
   className,
   compact = false,
+  historyFilter = "all",
+  onHistoryFilterChange,
+  showHistorySection = false,
   threadId,
   title = "Retrieval posture",
   testId,
@@ -697,6 +925,9 @@ export function RetrievalPosturePanel({
 }: {
   className?: string;
   compact?: boolean;
+  historyFilter?: RetrievalPostureHistoryFilter;
+  onHistoryFilterChange?: (next: RetrievalPostureHistoryFilter) => void;
+  showHistorySection?: boolean;
   threadId: number | null;
   title?: string;
   testId?: string;
@@ -758,6 +989,8 @@ export function RetrievalPosturePanel({
     }
   }, [comparisonSnapshot, postureError, postureLoading, postureStatus, threadId]);
 
+  const historyItems = threadId !== null ? recentHistoryByThreadRef.current.get(threadId) ?? [] : [];
+
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
     className,
@@ -795,7 +1028,11 @@ export function RetrievalPosturePanel({
       ) : retrievalPosture ? (
         <RetrievalPostureDetails
           comparison={comparison}
+          historyFilter={historyFilter}
+          historyItems={historyItems}
+          onHistoryFilterChange={onHistoryFilterChange}
           retrievalPosture={retrievalPosture}
+          showHistorySection={showHistorySection}
           showComparisonStrip={showComparisonStrip}
           showTrendBadge={showTrendBadge}
           trend={trend}
