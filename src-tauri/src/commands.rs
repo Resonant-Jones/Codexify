@@ -1042,7 +1042,7 @@ fn desktop_media_content_type_guard(header_value: &str) -> Result<(), DesktopFet
                 if header_value.is_empty() {
                     "<missing>"
                 } else {
-                    header_value.as_str()
+                    header_value
                 }
             ),
         ))
