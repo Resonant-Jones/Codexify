@@ -371,10 +371,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
 
   return (
     <main
-      className="h-screen overflow-hidden p-[var(--card-pad)]"
+      className="flex h-screen min-h-0 flex-col overflow-hidden p-[var(--card-pad)]"
       style={{ background: "var(--panel-bg)", color: "var(--text)" }}
     >
-      <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-col gap-4">
+      <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-1 flex-col gap-4">
         <DashboardHeader
           connectionDetail={connectionDetail}
           lastEventAt={lastEventAt}
@@ -399,35 +399,40 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           onRefresh={refresh}
         />
 
-        <div className="min-h-0 flex-1">
-          {activeThreadId !== null ? (
-            <div className="mb-4">
-              <RetrievalPosturePanel
-                compact
-                testId="command-center-thread-posture-panel"
-                threadId={activeThreadId}
-                title="Thread retrieval posture"
-              />
-            </div>
-          ) : null}
-          <TraceWorkbench
-            allRuns={runs}
-            filters={traceFilters}
-            onFiltersChange={setTraceFilters}
-            onSelectRun={setSelectedRunKey}
-            selectedRun={selectedRun}
-            selectedRunKey={selectedRunKey}
-            visibleRuns={visibleRuns}
-          />
-        </div>
+        <div
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+          data-testid="command-center-root"
+        >
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {activeThreadId !== null ? (
+              <div className="mb-4">
+                <RetrievalPosturePanel
+                  compact
+                  testId="command-center-thread-posture-panel"
+                  threadId={activeThreadId}
+                  title="Thread retrieval posture"
+                />
+              </div>
+            ) : null}
+            <TraceWorkbench
+              allRuns={runs}
+              filters={traceFilters}
+              onFiltersChange={setTraceFilters}
+              onSelectRun={setSelectedRunKey}
+              selectedRun={selectedRun}
+              selectedRunKey={selectedRunKey}
+              visibleRuns={visibleRuns}
+            />
+          </div>
 
-        <div className="h-[22rem] min-h-0">
-          <EventConsole
-            connectionDetail={connectionDetail}
-            connectionState={connectionState}
-            lastEventAt={lastEventAt}
-            rows={consoleRows}
-          />
+          <div className="h-[22rem] min-h-0 overflow-hidden">
+            <EventConsole
+              connectionDetail={connectionDetail}
+              connectionState={connectionState}
+              lastEventAt={lastEventAt}
+              rows={consoleRows}
+            />
+          </div>
         </div>
       </div>
     </main>

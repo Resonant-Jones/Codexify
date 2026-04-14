@@ -887,6 +887,9 @@ describe("CommandCenterPage", () => {
   it("renders the dashboard surface with bounded diagnostics and raw telemetry", () => {
     render(<CommandCenterPage enabled />);
 
+    const root = screen.getByTestId("command-center-root");
+    expect(root).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
+
     expect(
       screen.getByRole("heading", { name: /agent command center/i })
     ).toBeInTheDocument();
@@ -912,6 +915,7 @@ describe("CommandCenterPage", () => {
     expect(screen.getByText("Raw response")).toBeInTheDocument();
 
     const workbench = screen.getByTestId("command-center-trace-workbench");
+    expect(workbench).toHaveClass("flex", "h-full", "min-h-0", "flex-col", "overflow-hidden");
     expect(within(workbench).getByText("RAG trace workbench")).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /report/i })).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /raw trace/i })).toBeInTheDocument();
@@ -928,6 +932,15 @@ describe("CommandCenterPage", () => {
       within(workbench).getByRole("heading", { name: "Payload Summary" })
     ).toBeInTheDocument();
     expect(within(workbench).getByText("Notes / Warnings")).toBeInTheDocument();
+
+    const listPane = within(workbench).getByTestId("command-center-trace-list-pane");
+    const listScroll = within(workbench).getByTestId("command-center-trace-list-scroll");
+    const viewerPane = within(workbench).getByTestId("command-center-trace-viewer-pane");
+    const viewerScroll = within(workbench).getByTestId("command-center-trace-viewer-scroll");
+    expect(listPane).toHaveClass("overflow-hidden", "min-h-0", "flex", "flex-col");
+    expect(listScroll).toHaveClass("overflow-auto", "min-h-0", "flex-1");
+    expect(viewerPane).toHaveClass("overflow-hidden", "min-h-0", "flex", "flex-col");
+    expect(viewerScroll).toHaveClass("overflow-auto", "min-h-0", "flex-1");
 
     fireEvent.click(within(workbench).getByRole("button", { name: /raw trace/i }));
     expect(

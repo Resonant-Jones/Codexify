@@ -729,7 +729,11 @@ function TraceListPane({
   selectedRunKey: string | null;
 }) {
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-list-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -745,7 +749,7 @@ function TraceListPane({
           </Badge>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div data-testid="command-center-trace-list-scroll" className="min-h-0 flex-1 overflow-auto p-2">
         {runs.length === 0 ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             No runs match the current filters.
@@ -846,7 +850,11 @@ function TraceViewerPane({
   const retrievalPostureThreadId = effectiveRun?.threadId ?? null;
 
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-viewer-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
@@ -884,7 +892,7 @@ function TraceViewerPane({
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div data-testid="command-center-trace-viewer-scroll" className="min-h-0 flex-1 overflow-auto p-4">
         {!effectiveRun ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             Select a run to inspect its trace report.
@@ -1067,7 +1075,7 @@ export default function TraceWorkbench({
 
   return (
     <Card
-      className="bezel-none border h-full min-h-0"
+      className="bezel-none border flex h-full min-h-0 flex-col overflow-hidden"
       role="region"
       aria-label="Command Center trace workbench"
       data-testid="command-center-trace-workbench"
@@ -1100,24 +1108,24 @@ export default function TraceWorkbench({
         </div>
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-[var(--card-pad)]">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-[var(--card-pad)]">
         <TraceFilterBar filters={filters} onFiltersChange={onFiltersChange} />
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
-        <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
-        <TraceViewerPane filters={filters} selectedRun={selectedRun} />
-      </div>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
+          <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
+          <TraceViewerPane filters={filters} selectedRun={selectedRun} />
+        </div>
 
-      <datalist id="command-center-provider-options">
-        {providerOptions.map((provider) => (
-          <option key={provider} value={provider} />
-        ))}
-      </datalist>
-      <datalist id="command-center-model-options">
-        {modelOptions.map((model) => (
-          <option key={model} value={model} />
-        ))}
-      </datalist>
+        <datalist id="command-center-provider-options">
+          {providerOptions.map((provider) => (
+            <option key={provider} value={provider} />
+          ))}
+        </datalist>
+        <datalist id="command-center-model-options">
+          {modelOptions.map((model) => (
+            <option key={model} value={model} />
+          ))}
+        </datalist>
       </CardContent>
     </Card>
   );
