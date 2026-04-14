@@ -445,6 +445,7 @@ async def _assemble_context_bundle(
     user_id: str,
     project_id: int | None,
     source_mode: str,
+    retrieval_override: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     try:
         return await broker.assemble(
@@ -454,11 +455,28 @@ async def _assemble_context_bundle(
             user_id=user_id,
             project_id=project_id,
             source_mode=source_mode,
+            retrieval_override=retrieval_override,
         )
     except TypeError as exc:
         error_text = str(exc)
-        if "source_mode" not in error_text and "project_id" not in error_text:
+        retrieval_override_error = "retrieval_override" in error_text
+        source_mode_error = "source_mode" in error_text
+        project_id_error = "project_id" in error_text
+        if not (
+            retrieval_override_error or source_mode_error or project_id_error
+        ):
             raise
+        if retrieval_override_error and not (
+            source_mode_error or project_id_error
+        ):
+            return await broker.assemble(
+                thread_id,
+                query=query,
+                depth_mode=depth_mode,
+                user_id=user_id,
+                project_id=project_id,
+                source_mode=source_mode,
+            )
         return await broker.assemble(
             thread_id,
             query=query,
@@ -1483,6 +1501,7 @@ async def build_messages_for_llm(
             user_id=user_for_context,
             project_id=project_id_for_prompt,
             source_mode=source_mode,
+            retrieval_override=routing_debug_metadata.get("retrieval_override"),
         )
         if thread_execution.persona_id:
             # Thread config personaId is request-scoped input, not actor
@@ -1517,6 +1536,11 @@ async def build_messages_for_llm(
         "retrieved_context": retrieved_context_messages,
     }
     completion_assembly.update(latest_turn_trace_fields)
+    identity_context = {
+        "preferred_name": getattr(task, "preferred_name", None),
+        "profession": getattr(task, "profession", None),
+        "guardian_name": getattr(task, "guardian_name", None),
+    }
 
     try:
         if build_guardian_system_prompt:
@@ -1526,6 +1550,7 @@ async def build_messages_for_llm(
                 depth=depth,
                 bundle=bundle,
                 profile=resolved_profile,
+                identity_context=identity_context,
             )
             token_est = prompt_meta.get(
                 "estimated_tokens", _estimate_tokens(system_content)
@@ -1708,8 +1733,12 @@ def run_chat_completion_task(
     trace_source_mode = (
         trace.get("source_mode") if isinstance(trace, dict) else None
     )
+    effective_policy = (
+        trace.get("effective_policy") if isinstance(trace, dict) else None
+    )
     payload_summary["source_mode"] = trace_source_mode
     payload_summary["effective_source_mode"] = trace_source_mode
+    payload_summary["effective_policy"] = effective_policy
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {

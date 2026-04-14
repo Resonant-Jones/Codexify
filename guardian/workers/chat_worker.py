@@ -1431,6 +1431,15 @@ def _run_chat_completion_task_compat(
         provider=provider,
         model=model,
     )
+    trace_source_mode = (
+        trace.get("source_mode") if isinstance(trace, dict) else None
+    )
+    effective_policy = (
+        trace.get("effective_policy") if isinstance(trace, dict) else None
+    )
+    payload_summary["source_mode"] = trace_source_mode
+    payload_summary["effective_source_mode"] = trace_source_mode
+    payload_summary["effective_policy"] = effective_policy
     if callable(state_callback):
         state_callback(
             TaskLifecycleState.AWAITING_MODEL,

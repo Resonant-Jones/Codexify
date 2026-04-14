@@ -158,6 +158,30 @@ vi.mock("@/lib/runtimeRouteCapabilities", () => ({
   }),
 }));
 
+function renderPendingDraftThread(userName?: string | null) {
+  render(
+    <GuardianChat
+      guardianName="Guardian"
+      userName={userName as any}
+      activeThread={{ id: "temp", title: "New Thread", messages: [] } as any}
+      onSendMessage={vi.fn().mockResolvedValue(undefined)}
+      onNewChat={vi.fn()}
+      sessionTabs={[
+        {
+          tabId: "tab-draft",
+          pendingThread: true,
+          title: "New Thread",
+          modelId: "default",
+          createdAt: "2026-03-06T00:00:00.000Z",
+          updatedAt: "2026-03-06T00:00:00.000Z",
+          inferenceMode: "default",
+        } as any,
+      ]}
+      activeSessionTabId={"tab-draft" as any}
+    />
+  );
+}
+
 describe("GuardianChat session-tab binding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -195,35 +219,31 @@ describe("GuardianChat session-tab binding", () => {
 
     expect(await screen.findByTestId("chat-view-stub")).toHaveTextContent("2");
     expect(chatViewSpy.mock.calls.at(-1)?.[0]?.threadId).toBe(2);
+    expect(screen.queryByText("New thread ready. Start typing below.")).not.toBeInTheDocument();
   });
 
-  it("shows a blank new-thread surface for an unsaved draft tab", async () => {
-    render(
-      <GuardianChat
-        guardianName="Guardian"
-        userName="tester"
-        activeThread={{ id: "temp", title: "New Thread", messages: [] } as any}
-        onSendMessage={vi.fn().mockResolvedValue(undefined)}
-        onNewChat={vi.fn()}
-        sessionTabs={[
-          {
-            tabId: "tab-draft",
-            pendingThread: true,
-            title: "New Thread",
-            modelId: "default",
-            createdAt: "2026-03-06T00:00:00.000Z",
-            updatedAt: "2026-03-06T00:00:00.000Z",
-            inferenceMode: "default",
-          } as any,
-        ]}
-        activeSessionTabId={"tab-draft" as any}
-      />
-    );
+  it("personalizes the empty-thread copy when a preferred name is available", async () => {
+    renderPendingDraftThread("Harbor");
+
+    expect(screen.queryByTestId("chat-view-stub")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Welcome back, Harbor. Let’s get started.")
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["blank", ""],
+    ["whitespace", "   "],
+    ["placeholder", "You"],
+  ])("falls back cleanly when the preferred name is %s", async (_label, userName) => {
+    renderPendingDraftThread(userName);
 
     expect(screen.queryByTestId("chat-view-stub")).not.toBeInTheDocument();
     expect(
       await screen.findByText("New thread ready. Start typing below.")
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Welcome back,/)).not.toBeInTheDocument();
   });
 
   it("requests the RAG trace for the active thread and refetches when the active thread changes", async () => {

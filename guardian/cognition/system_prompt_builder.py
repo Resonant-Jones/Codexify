@@ -141,6 +141,7 @@ def build_guardian_system_prompt(
     bundle: dict | None = None,
     token_cap: int | None = None,
     profile: ResolvedSystemProfile | dict[str, Any] | None = None,
+    identity_context: dict[str, Any] | None = None,
 ) -> tuple[str, dict]:
     """
     Orchestrate prompt assembly for Guardian.
@@ -181,6 +182,10 @@ def build_guardian_system_prompt(
     ):
         imprint_data = None
 
+    runtime_identity_context = (
+        identity_context if isinstance(identity_context, dict) else {}
+    )
+
     docs_block = _build_docs_block(docs)
     profile_text = _render_profile_guidance(profile)
 
@@ -199,7 +204,9 @@ def build_guardian_system_prompt(
     cap_tokens = token_cap or 2000
     system_prompt, builder_meta = build_system_prompt(
         base_system_prompt=_base_codexify_system_prompt(),
-        imprint_block=_imprint_zero_style_block(imprint_data),
+        imprint_block=_imprint_zero_style_block(
+            imprint_data, runtime_identity_context
+        ),
         persona_block=_user_persona_block(persona_body),
         system_docs_block=_system_docs_block(docs_block),
         scratchpad_block=scratchpad_block,
