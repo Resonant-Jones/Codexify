@@ -371,10 +371,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
 
   return (
     <main
-      className="flex h-screen min-h-0 flex-col overflow-hidden p-[var(--card-pad)]"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden p-[var(--card-pad)]"
       style={{ background: "var(--panel-bg)", color: "var(--text)" }}
     >
-      <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-1 flex-col gap-4">
+      <div className="mx-auto flex min-h-0 flex-1 flex-col gap-4 w-full max-w-7xl overflow-hidden">
         <DashboardHeader
           connectionDetail={connectionDetail}
           lastEventAt={lastEventAt}
@@ -400,12 +400,17 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
         />
 
         <div
-          className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden rounded-[var(--tile-radius)] border"
           data-testid="command-center-root"
+          style={{
+            background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+            borderColor: "var(--panel-border)",
+            padding: "var(--card-pad)",
+          }}
         >
           <div className="min-h-0 flex-1 overflow-hidden">
             {activeThreadId !== null ? (
-              <div className="mb-4">
+              <div className="mb-3">
                 <RetrievalPosturePanel
                   compact
                   testId="command-center-thread-posture-panel"
@@ -425,7 +430,7 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
             />
           </div>
 
-          <div className="h-[22rem] min-h-0 overflow-hidden">
+          <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
             <EventConsole
               connectionDetail={connectionDetail}
               connectionState={connectionState}
