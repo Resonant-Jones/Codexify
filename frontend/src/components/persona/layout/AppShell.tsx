@@ -2787,6 +2787,7 @@ export default function AppShell({
                         }
                         onWorkspaceToggle={toggleWorkspaceDrawer}
                         workspaceOpen={workspaceDrawerOpen}
+                        providerRuntimeState={providerRuntimeState}
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                       />
