@@ -137,6 +137,8 @@ export function describeRuntimeStatusPresentation(
 
 export const CHAT_REQUEST_STATES = {
   DISPATCHING: "dispatching",
+  AWAITING_ACK: "awaiting_ack",
+  AWAITING_MODEL: "awaiting_model",
   STREAMING: "streaming",
   COMPLETED: "completed",
   FAILED_RETRYABLE: "failed_retryable",
@@ -165,7 +167,8 @@ export function canTransitionRequestState(
 
   switch (current) {
     case CHAT_REQUEST_STATES.DISPATCHING:
-      return true;
+    case CHAT_REQUEST_STATES.AWAITING_ACK:
+    case CHAT_REQUEST_STATES.AWAITING_MODEL:
     case CHAT_REQUEST_STATES.STREAMING:
       return true;
     case CHAT_REQUEST_STATES.ORPHANED:
