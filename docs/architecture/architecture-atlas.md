@@ -14,14 +14,15 @@ This document is for:
 
 1. [`/docs/architecture/00-current-state.md`](./00-current-state.md): Read first for the short-horizon operational truth that overrides broader docs when release reality is the question.
 2. [`/docs/architecture/kb-validity-matrix.md`](./kb-validity-matrix.md): Use next to determine which docs are safe to trust as diagram inputs and which are supplementary or quarantined.
-3. [`/docs/architecture/runtime-diagrams-v1.md`](./runtime-diagrams-v1.md): Review the runtime diagram pack after the truth and validity rules are established.
-4. [`/docs/architecture/ui-diagrams-v1.md`](./ui-diagrams-v1.md): Read the UI diagram pack after runtime so presentation architecture stays distinct from system topology.
-5. [`/docs/architecture/system-overview.md`](./system-overview.md): Use this as the baseline narrative for current runtime components, boundaries, and critical paths.
-6. [`/docs/architecture/flows.md`](./flows.md): Read next for trigger-to-output runtime behavior and operational sequencing.
-7. [`/docs/architecture/data-and-storage.md`](./data-and-storage.md): Use this to understand durable state, storage roles, and persistence invariants.
-8. [`/docs/architecture/config-and-ops.md`](./config-and-ops.md): Read this for supported run paths, config precedence, and operator-facing runtime constraints.
-9. [`/docs/architecture/modules-and-ownership.md`](./modules-and-ownership.md): Use this to inspect subsystem seams, dependency edges, and ownership boundaries.
-10. [`/docs/architecture/tech-debt-and-risks.md`](./tech-debt-and-risks.md): Finish with the current risk register so caveats are interpreted after the baseline architecture is clear.
+3. [`/docs/architecture/adr/adr-index.md`](adr/adr-index.md): Read next to understand why major architectural choices were made — including queue-backed completion acceptance, provider vs request state separation, message vs request identity, and retrieval policy as a control plane.
+4. [`/docs/architecture/runtime-diagrams-v1.md`](./runtime-diagrams-v1.md): Review the runtime diagram pack after the truth, validity rules, and decision rationale are established.
+5. [`/docs/architecture/ui-diagrams-v1.md`](./ui-diagrams-v1.md): Read the UI diagram pack after runtime so presentation architecture stays distinct from system topology.
+6. [`/docs/architecture/system-overview.md`](./system-overview.md): Use this as the baseline narrative for current runtime components, boundaries, and critical paths.
+7. [`/docs/architecture/flows.md`](./flows.md): Read next for trigger-to-output runtime behavior and operational sequencing.
+8. [`/docs/architecture/data-and-storage.md`](./data-and-storage.md): Use this to understand durable state, storage roles, and persistence invariants.
+9. [`/docs/architecture/config-and-ops.md`](./config-and-ops.md): Read this for supported run paths, config precedence, and operator-facing runtime constraints.
+10. [`/docs/architecture/modules-and-ownership.md`](./modules-and-ownership.md): Use this to inspect subsystem seams, dependency edges, and ownership boundaries.
+11. [`/docs/architecture/tech-debt-and-risks.md`](./tech-debt-and-risks.md): Finish with the current risk register so caveats are interpreted after the baseline architecture is clear.
 
 ## Current-truth model
 
@@ -29,6 +30,23 @@ This document is for:
 - The KB validity matrix decides what is safe to use as diagram source material.
 - `runtime-diagrams-v1.md` and `ui-diagrams-v1.md` are scoped views over validated source sets, not replacements for the source docs.
 - Roadmap documents, supplementary deep dives, and quarantined legacy docs must not be confused with current runtime truth.
+
+## ADR lane
+
+The ADR lane (`docs/architecture/adr/`) is the architectural decision layer of the Codexify corpus.
+
+ADRs explain **why** major choices exist, specifically around:
+
+- **Queue-backed completion acceptance** — why `acceptance_status=accepted` does not mean `completed=true` and how worker execution relates to request lifecycle
+- **Provider/runtime vs request state separation** — why Codexify treats provider availability, model warmth, and request-level state as separate state machines
+- **Message identity vs request identity** — why `message_id` and `request_id` refer to different entities and why that distinction matters for transcript integrity
+- **Retrieval policy as a control plane** — why retrieval routing, source mode, and boundary labels are treated as a policy layer rather than a direct implementation detail
+
+ADRs are part of the validated architecture corpus. They are not speculative planning docs, not code walkthroughs, and not excluded by the "what this atlas intentionally excludes" section.
+
+Route readers to the ADR lane after establishing current truth and validity — before the diagram packs — so the rationale is clear before structural details are examined.
+
+See [`adr-index.md`](adr/adr-index.md) for the full ADR graph and per-document reading order.
 
 ## Two-view model
 
@@ -56,7 +74,10 @@ The runtime view explains how the system is structured and operates. The UI view
 
 ## Next documents after the atlas
 
-- Runtime debugging: [`flows.md`](./flows.md), [`config-and-ops.md`](./config-and-ops.md)
-- Storage/data understanding: [`data-and-storage.md`](./data-and-storage.md)
-- Coupling and ownership review: [`modules-and-ownership.md`](./modules-and-ownership.md)
-- Risk and release caveats: [`tech-debt-and-risks.md`](./tech-debt-and-risks.md)
+- **Current truth** (start here): [`00-current-state.md`](./00-current-state.md)
+- **Validity and trust rules**: [`kb-validity-matrix.md`](./kb-validity-matrix.md)
+- **Architectural decision rationale**: [`adr/adr-index.md`](adr/adr-index.md) — queue-backed acceptance, dual state machine model, message vs request identity, retrieval policy as control plane
+- **Runtime structure**: [`system-overview.md`](./system-overview.md), [`flows.md`](./flows.md), [`config-and-ops.md`](./config-and-ops.md)
+- **Storage and data**: [`data-and-storage.md`](./data-and-storage.md)
+- **Ownership and seams**: [`modules-and-ownership.md`](./modules-and-ownership.md)
+- **Risk and caveats**: [`tech-debt-and-risks.md`](./tech-debt-and-risks.md)
