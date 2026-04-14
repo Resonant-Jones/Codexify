@@ -402,15 +402,16 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
         <div className="min-h-0 flex-1">
           {activeThreadId !== null ? (
             <div className="mb-4">
-            <RetrievalPosturePanel
-              compact
-              testId="command-center-thread-posture-panel"
-              threadId={activeThreadId}
-              title="Thread retrieval posture"
-              showComparisonStrip
-            />
-          </div>
-        ) : null}
+              <RetrievalPosturePanel
+                compact
+                showComparisonStrip
+                showTrendBadge
+                testId="command-center-thread-posture-panel"
+                threadId={activeThreadId}
+                title="Thread retrieval posture"
+              />
+            </div>
+          ) : null}
           <TraceWorkbench
             allRuns={runs}
             filters={traceFilters}
