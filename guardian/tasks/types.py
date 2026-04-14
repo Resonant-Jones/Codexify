@@ -461,6 +461,9 @@ class ChatCompletionTask(BaseTask):
     depth_mode: str | None = "normal"
     system_override: str | None = None
     retrieval_override: dict[str, Any] | None = None
+    preferred_name: str | None = None
+    profession: str | None = None
+    guardian_name: str | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> ChatCompletionTask:
@@ -495,6 +498,9 @@ class ChatCompletionTask(BaseTask):
                 payload.get("retrieval_override")
             )
             or None,
+            preferred_name=_coerce_optional_text(payload.get("preferred_name")),
+            profession=_coerce_optional_text(payload.get("profession")),
+            guardian_name=_coerce_optional_text(payload.get("guardian_name")),
             **base,
         )
 

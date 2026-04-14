@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_CONVERSATION,
@@ -32,6 +32,58 @@ _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
 _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
 _THREAD_CANDIDATE_LIMIT = 500
 _PERSONAL_FACT_LIMIT = 100
+
+
+class EffectiveRetrievalPolicy(TypedDict):
+    source_mode: str
+    widening_enabled: bool
+    identity_scope: str
+
+
+def _identity_scope_for_source_mode(source_mode: str) -> str:
+    normalized_source_mode = normalize_source_mode(source_mode)
+    if normalized_source_mode == SOURCE_MODE_CONVERSATION:
+        return "thread"
+    return normalized_source_mode
+
+
+def derive_default_retrieval_policy(
+    source_mode: str,
+) -> EffectiveRetrievalPolicy:
+    normalized_source_mode = normalize_source_mode(source_mode)
+    return {
+        "source_mode": normalized_source_mode,
+        "widening_enabled": normalized_source_mode != SOURCE_MODE_CONVERSATION,
+        "identity_scope": _identity_scope_for_source_mode(
+            normalized_source_mode
+        ),
+    }
+
+
+def merge_retrieval_policy(
+    base_policy: EffectiveRetrievalPolicy,
+    retrieval_override: dict[str, Any] | None,
+) -> EffectiveRetrievalPolicy:
+    policy = dict(base_policy)
+
+    if not retrieval_override:
+        return policy  # type: ignore[return-value]
+
+    mode = str(retrieval_override.get("mode") or "").strip().lower()
+    if mode == "conversation":
+        policy["source_mode"] = "thread"
+        policy["widening_enabled"] = False
+        policy["identity_scope"] = "thread"
+    elif mode == "project":
+        policy["source_mode"] = SOURCE_MODE_PROJECT
+        policy["widening_enabled"] = True
+        policy["identity_scope"] = SOURCE_MODE_PROJECT
+    elif mode == "personal_knowledge":
+        policy["source_mode"] = SOURCE_MODE_PERSONAL_KNOWLEDGE
+        policy["widening_enabled"] = True
+        policy["identity_scope"] = SOURCE_MODE_PERSONAL_KNOWLEDGE
+
+    return policy  # type: ignore[return-value]
 
 
 def _thread_namespace(thread_id: int) -> str:
@@ -182,6 +234,8 @@ class ContextBroker:
     - "diagnostic": Messages + semantic + memory + sensor snapshots
     """
 
+    always_search_thread_first = True
+
     def __init__(
         self,
         chatlog_db: Any,
@@ -236,6 +290,7 @@ class ContextBroker:
         federated: bool = False,
         user_id: Optional[str] = None,
         source_mode: str = SOURCE_MODE_PROJECT,
+        retrieval_override: Optional[dict[str, Any]] = None,
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Assemble a context bundle for the given thread and query.
 
@@ -271,7 +326,22 @@ class ContextBroker:
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
-        normalized_source_mode = normalize_source_mode(source_mode)
+        base_policy = derive_default_retrieval_policy(source_mode)
+        effective_policy = merge_retrieval_policy(
+            base_policy,
+            retrieval_override,
+        )
+        policy_source_mode = (
+            str(effective_policy.get("source_mode") or SOURCE_MODE_PROJECT)
+            .strip()
+            .lower()
+        )
+        normalized_source_mode = (
+            SOURCE_MODE_CONVERSATION
+            if policy_source_mode == "thread"
+            else normalize_source_mode(policy_source_mode)
+        )
+        widening_enabled = bool(effective_policy.get("widening_enabled", True))
         conversation_only = normalized_source_mode == SOURCE_MODE_CONVERSATION
         source_mode_boundary = source_mode_boundary_label(
             normalized_source_mode
@@ -297,10 +367,12 @@ class ContextBroker:
             )
             context["messages"] = []
 
-        # Always include semantic search (for all depths except "shallow")
+        # Always include semantic search (for all depths except "shallow").
+        # Thread-first retrieval must remain active even when widening is
+        # disabled by a retrieval override.
         context["obsidian"] = []
         semantic_widen_reason = WIDEN_REASON_NONE
-        if normalized_depth != "shallow" and not conversation_only:
+        if normalized_depth != "shallow" and self.always_search_thread_first:
             try:
                 (
                     semantic_thread,
@@ -313,6 +385,7 @@ class ContextBroker:
                     user_id=resolved_user_id,
                     project_id=resolved_project_id,
                     source_mode=normalized_source_mode,
+                    widening_enabled=widening_enabled,
                     search_fn=self._search_semantic,
                 )
                 semantic_obsidian: list[dict[str, Any]] = []
@@ -477,6 +550,7 @@ class ContextBroker:
                         user_id=resolved_user_id,
                         project_id=resolved_project_id,
                         source_mode=normalized_source_mode,
+                        widening_enabled=widening_enabled,
                         search_fn=self._search_memory,
                     )
                     context["memory"] = memory
@@ -555,6 +629,7 @@ class ContextBroker:
                 for item in context.get("graph", [])
             ],
             "source_mode": normalized_source_mode,
+            "effective_policy": effective_policy,
             "widen_reason": self._merge_widen_reason(
                 semantic_widen_reason, memory_widen_reason
             ),
@@ -880,6 +955,7 @@ class ContextBroker:
         project_id: Optional[int],
         source_mode: str,
         search_fn: Any,
+        widening_enabled: bool = True,
     ) -> tuple[List[Dict[str, Any]], str, Dict[str, Any]]:
         normalized_source_mode = normalize_source_mode(source_mode)
         diagnostics: Dict[str, Any] = {
@@ -888,6 +964,7 @@ class ContextBroker:
             "reason": "not_attempted",
             "source_mode": normalized_source_mode,
             "boundary": source_mode_boundary_label(normalized_source_mode),
+            "widening_enabled": bool(widening_enabled),
             "primary_hit_count": 0,
             "candidate_thread_count": 0,
             "candidate_hit_count": 0,
@@ -896,9 +973,6 @@ class ContextBroker:
         }
         if k <= 0:
             diagnostics["reason"] = "invalid_limit"
-            return [], WIDEN_REASON_NONE, diagnostics
-        if normalized_source_mode == SOURCE_MODE_CONVERSATION:
-            diagnostics.update(reason=f"source_mode_{SOURCE_MODE_CONVERSATION}")
             return [], WIDEN_REASON_NONE, diagnostics
 
         try:
@@ -932,6 +1006,19 @@ class ContextBroker:
             return [], WIDEN_REASON_NONE, diagnostics
 
         widen_reason = self._determine_widen_reason(primary_hits, k)
+        if not widening_enabled:
+            diagnostics.update(
+                status="contributed" if primary_hits else "attempted_no_hits",
+                reason=(
+                    "local_hits"
+                    if primary_hits
+                    else search_trace.get("reason", "no_hits")
+                ),
+                result_count=len(primary_hits[:k]),
+                candidate_thread_count=0,
+                widened=False,
+            )
+            return primary_hits[:k], WIDEN_REASON_NONE, diagnostics
         if widen_reason == WIDEN_REASON_NONE:
             diagnostics.update(
                 status="contributed" if primary_hits else "attempted_no_hits",

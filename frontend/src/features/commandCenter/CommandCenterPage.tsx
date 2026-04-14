@@ -5,9 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
-import TraceWorkbench from "@/features/commandCenter/components/TraceWorkbench";
+import TraceWorkbench, {
+  diffRetrievalPosture,
+  describeRetrievalPostureChange,
+  RetrievalPosturePanel,
+  RetrievalPostureSummaryRow,
+  type RetrievalPostureDiff,
+} from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
+import useRetrievalPostureHistory from "@/features/commandCenter/hooks/useRetrievalPostureHistory";
 import {
   buildCommandCenterEventConsoleRows,
   countCommandCenterUnknownItems,
@@ -15,6 +22,7 @@ import {
   filterCommandCenterRuns,
 } from "@/features/commandCenter/commandCenterObservability";
 import type {
+  CommandCenterRetrievalPostureHistoryItem,
   CommandCenterRun,
   CommandCenterTraceFilters,
 } from "@/features/commandCenter/types";
@@ -269,6 +277,140 @@ function DashboardSummary({
   );
 }
 
+function latestRetrievalPostureComparison(
+  items: CommandCenterRetrievalPostureHistoryItem[]
+): {
+  comparison: RetrievalPostureDiff | null;
+  explanationLines: string[] | null;
+  label: string | null;
+  changedFields: string[] | null;
+  state: "changed" | "unchanged" | "no-previous" | "none";
+} {
+  const current = items[0] ?? null;
+  if (!current) {
+    return {
+      comparison: null,
+      explanationLines: null,
+      changedFields: null,
+      label: null,
+      state: "none",
+    };
+  }
+
+  const previous = items[1] ?? null;
+  if (!previous) {
+    return {
+      comparison: { changed: false, changedFields: [] },
+      explanationLines: null,
+      changedFields: null,
+      label: "No previous posture to compare",
+      state: "no-previous",
+    };
+  }
+
+  const comparison = diffRetrievalPosture(current.retrieval_posture, previous.retrieval_posture);
+  const explanation = describeRetrievalPostureChange(
+    comparison,
+    current.retrieval_posture,
+    previous.retrieval_posture
+  );
+  return {
+    comparison,
+    explanationLines: comparison.changed ? explanation.lines : null,
+    changedFields: comparison.changed ? comparison.changedFields : null,
+    label: comparison.changed
+      ? "Posture changed since previous run"
+      : "Posture unchanged since previous run",
+    state: comparison.changed ? "changed" : "unchanged",
+  };
+}
+
+function RecentRetrievalPosturePanel({
+  threadId,
+}: {
+  threadId: number | null;
+}) {
+  const { error, items, loading, status } = useRetrievalPostureHistory(threadId);
+  const comparison = React.useMemo(() => latestRetrievalPostureComparison(items), [items]);
+
+  if (threadId === null) return null;
+
+  return (
+    <Card
+      className="bezel-none border"
+      data-testid="command-center-retrieval-posture-history-panel"
+      style={{
+        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base" style={{ color: "var(--text)" }}>
+          Recent retrieval posture
+        </CardTitle>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>
+          Newest-first thread history from completed debug evidence only.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
+            Loading recent retrieval posture history…
+          </div>
+        ) : error ? (
+          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--danger-border)", color: "var(--danger-text)" }}>
+            {error}
+          </div>
+        ) : status === "empty" || items.length === 0 ? (
+          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
+            No recent retrieval posture history for this thread.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {comparison.label ? (
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+                style={{
+                  background: "var(--surface-soft)",
+                  borderColor: "var(--panel-border)",
+                  color: "var(--muted)",
+                }}
+              >
+                <BadgePill
+                  tone={comparison.state === "changed" ? "attention" : "subtle"}
+                  ariaLabel={comparison.label}
+                >
+                  {comparison.label}
+                </BadgePill>
+                {comparison.changedFields ? (
+                  <div className="space-y-1">
+                    <span>Changed: {comparison.changedFields.join(", ")}</span>
+                    {comparison.explanationLines ? (
+                      <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
+                        {comparison.explanationLines.map((line) => (
+                          <p key={line}>{line}</p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {items.map((item) => (
+              <RetrievalPostureSummaryRow
+                key={`${item.task_id}:${item.created_at}`}
+                createdAt={item.created_at}
+                posture={item.retrieval_posture}
+                taskId={item.task_id}
+              />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const {
     connectionDetail,
@@ -295,6 +437,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     if (!selectedRunKey) return null;
     return visibleRuns.find((candidate) => candidate.key === selectedRunKey) ?? null;
   }, [selectedRunKey, visibleRuns]);
+
+  const activeThreadId = React.useMemo<number | null>(() => {
+    return selectedRun?.threadId ?? visibleRuns[0]?.threadId ?? null;
+  }, [selectedRun, visibleRuns]);
 
   React.useEffect(() => {
     if (visibleRuns.length === 0) {
@@ -365,10 +511,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
 
   return (
     <main
-      className="h-screen overflow-hidden p-[var(--card-pad)]"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden p-[var(--card-pad)]"
       style={{ background: "var(--panel-bg)", color: "var(--text)" }}
     >
-      <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-col gap-4">
+      <div className="mx-auto flex min-h-0 flex-1 flex-col gap-4 w-full max-w-7xl overflow-hidden">
         <DashboardHeader
           connectionDetail={connectionDetail}
           lastEventAt={lastEventAt}
@@ -393,25 +539,50 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           onRefresh={refresh}
         />
 
-        <div className="min-h-0 flex-1">
-          <TraceWorkbench
-            allRuns={runs}
-            filters={traceFilters}
-            onFiltersChange={setTraceFilters}
-            onSelectRun={setSelectedRunKey}
-            selectedRun={selectedRun}
-            selectedRunKey={selectedRunKey}
-            visibleRuns={visibleRuns}
-          />
-        </div>
+        <div
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden rounded-[var(--tile-radius)] border"
+          data-testid="command-center-root"
+          style={{
+            background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+            borderColor: "var(--panel-border)",
+            padding: "var(--card-pad)",
+          }}
+        >
+          {activeThreadId !== null ? (
+            <div className="space-y-4">
+              <RecentRetrievalPosturePanel threadId={activeThreadId} />
+              <RetrievalPosturePanel
+                compact
+                testId="command-center-thread-posture-panel"
+                threadId={activeThreadId}
+                title="Thread retrieval posture"
+                showComparisonStrip
+              />
+            </div>
+          ) : null}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <TraceWorkbench
+              allRuns={runs}
+              filters={traceFilters}
+              onFiltersChange={setTraceFilters}
+              onSelectRun={setSelectedRunKey}
+              selectedRun={selectedRun}
+              selectedRunKey={selectedRunKey}
+              visibleRuns={visibleRuns}
+            />
+          </div>
 
-        <div className="h-[22rem] min-h-0">
-          <EventConsole
-            connectionDetail={connectionDetail}
-            connectionState={connectionState}
-            lastEventAt={lastEventAt}
-            rows={consoleRows}
-          />
+          <div
+            className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
+            <EventConsole
+              connectionDetail={connectionDetail}
+              connectionState={connectionState}
+              lastEventAt={lastEventAt}
+              rows={consoleRows}
+            />
+          </div>
         </div>
       </div>
     </main>

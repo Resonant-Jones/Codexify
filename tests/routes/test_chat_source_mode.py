@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from urllib.parse import unquote
 
 import pytest
 
+from guardian.context.broker import ContextBroker
+from guardian.context.retrieval_router_policy import (
+    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    SOURCE_MODE_PROJECT,
+)
 from guardian.tasks.types import task_from_dict
 
 
@@ -192,3 +198,135 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "retrieval_override",
+        "expected_policy",
+        "expected_widening_enabled",
+    ),
+    [
+        (
+            None,
+            {
+                "source_mode": SOURCE_MODE_PROJECT,
+                "widening_enabled": True,
+                "identity_scope": SOURCE_MODE_PROJECT,
+            },
+            True,
+        ),
+        (
+            {"mode": "project"},
+            {
+                "source_mode": SOURCE_MODE_PROJECT,
+                "widening_enabled": True,
+                "identity_scope": SOURCE_MODE_PROJECT,
+            },
+            True,
+        ),
+        (
+            {"mode": "personal_knowledge"},
+            {
+                "source_mode": SOURCE_MODE_PERSONAL_KNOWLEDGE,
+                "widening_enabled": True,
+                "identity_scope": SOURCE_MODE_PERSONAL_KNOWLEDGE,
+            },
+            True,
+        ),
+        (
+            {"mode": "conversation"},
+            {
+                "source_mode": "thread",
+                "widening_enabled": False,
+                "identity_scope": "thread",
+            },
+            False,
+        ),
+    ],
+)
+async def test_context_broker_merges_retrieval_override_without_skipping_thread_first(
+    monkeypatch, retrieval_override, expected_policy, expected_widening_enabled
+):
+    class _Chatlog:
+        def get_chat_thread(self, thread_id):
+            return {
+                "id": thread_id,
+                "user_id": "test_user",
+                "project_id": 7,
+                "archived_at": None,
+            }
+
+        def list_messages(self, thread_id, limit, offset):
+            return [{"id": 1, "role": "user", "content": "Hello"}]
+
+    broker = ContextBroker(
+        _Chatlog(),
+        None,
+        None,
+        None,
+        settings=SimpleNamespace(GUARDIAN_ENABLE_GRAPH_CONTEXT=False),
+    )
+    captured: dict[str, object] = {}
+
+    async def _fake_search_with_widening(
+        *,
+        query,
+        k,
+        thread_id,
+        user_id,
+        project_id,
+        source_mode,
+        search_fn,
+        widening_enabled=True,
+    ):
+        captured.update(
+            {
+                "called": True,
+                "query": query,
+                "k": k,
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "project_id": project_id,
+                "source_mode": source_mode,
+                "widening_enabled": widening_enabled,
+            }
+        )
+        return (
+            [{"id": "doc-1", "score": 0.9, "text": "thread hit"}],
+            "none",
+            {
+                "attempted": True,
+                "status": "contributed",
+                "reason": "local_hits",
+            },
+        )
+
+    async def _fake_get_scoped_documents(**_kwargs):
+        return {"project": [], "thread": [], "global": []}
+
+    monkeypatch.setattr(
+        broker,
+        "_search_with_widening",
+        _fake_search_with_widening,
+    )
+    monkeypatch.setattr(
+        broker,
+        "get_scoped_documents",
+        _fake_get_scoped_documents,
+    )
+
+    _context, trace = await broker.assemble(
+        1,
+        query="Hello",
+        depth_mode="normal",
+        user_id="test_user",
+        project_id=7,
+        source_mode=SOURCE_MODE_PROJECT,
+        retrieval_override=retrieval_override,
+    )
+
+    assert captured["called"] is True
+    assert captured["widening_enabled"] is expected_widening_enabled
+    assert trace["effective_policy"] == expected_policy

@@ -1,13 +1,62 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
+import pytest
+
+from guardian.core import chat_completion_service
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
 )
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat
+from guardian.tasks.types import ChatCompletionTask
+
+
+@pytest.fixture(autouse=True)
+def _stub_chatlog_db(monkeypatch):
+    monkeypatch.setattr(
+        chat,
+        "chatlog_db",
+        SimpleNamespace(
+            get_chat_thread=lambda thread_id: {
+                "id": thread_id,
+                "user_id": "local",
+            }
+        ),
+    )
+
+    request_scope = RequestUserScope(
+        user_id="local",
+        account_id="local",
+        multi_user_enabled=False,
+    )
+    for name in (
+        "get_latest_rag_trace",
+        "get_latest_rag_trace_endpoint",
+        "get_latest_retrieval_posture",
+        "get_latest_retrieval_posture_endpoint",
+        "get_retrieval_posture_history",
+        "get_retrieval_posture_history_endpoint",
+        "api_get_latest_rag_trace",
+        "api_get_latest_retrieval_posture",
+        "api_get_retrieval_posture_history",
+    ):
+        func = getattr(chat, name, None)
+        defaults = getattr(func, "__defaults__", None)
+        if not defaults:
+            continue
+        patched_defaults = list(defaults)
+        patched_defaults[-1] = request_scope
+        monkeypatch.setattr(
+            func,
+            "__defaults__",
+            tuple(patched_defaults),
+            raising=False,
+        )
 
 
 def test_rag_trace_includes_profile_debug_fields(monkeypatch):
@@ -194,6 +243,96 @@ def test_rag_trace_preserves_conversation_override_and_effective_source_mode(
     chat._rag_traces.pop(80, None)
 
 
+@pytest.mark.parametrize(
+    ("trace_payload", "expected_effective_policy"),
+    [
+        (
+            {
+                "source_mode": "personal_knowledge",
+                "retrieval_override": {
+                    "mode": "personal_knowledge",
+                    "reason": "slash_personal_knowledge_hint",
+                },
+                "effective_policy": {
+                    "source_mode": "personal_knowledge",
+                    "widening_enabled": True,
+                    "identity_scope": "personal_knowledge",
+                },
+            },
+            {
+                "source_mode": "personal_knowledge",
+                "widening_enabled": True,
+                "identity_scope": "personal_knowledge",
+            },
+        ),
+        (
+            {
+                "source_mode": "conversation",
+                "retrieval_override": {
+                    "mode": "conversation",
+                    "reason": "slash_conversation_hint",
+                },
+                "effective_policy": {
+                    "source_mode": "thread",
+                    "widening_enabled": False,
+                    "identity_scope": "thread",
+                },
+            },
+            {
+                "source_mode": "thread",
+                "widening_enabled": False,
+                "identity_scope": "thread",
+            },
+        ),
+    ],
+)
+def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
+    monkeypatch,
+    trace_payload,
+    expected_effective_policy,
+):
+    async def _fake_build_messages_for_llm(_task):
+        return (
+            [{"role": "system", "content": "SYSTEM"}],
+            "groq",
+            "mock-model",
+            {},
+            trace_payload,
+        )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_messages_for_llm",
+        _fake_build_messages_for_llm,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "assistant reply",
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="groq",
+        model="mock-model",
+        origin="api:chat.complete|turn_id=abc|source_mode=project",
+    )
+    task.retrieval_override = trace_payload["retrieval_override"]
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert result["trace"]["effective_policy"] == expected_effective_policy
+    assert result["payload_summary"]["effective_policy"] == (
+        expected_effective_policy
+    )
+    assert (
+        result["payload_summary"]["source_mode"] == trace_payload["source_mode"]
+    )
+
+
 def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
     chat._thread_latest_task[91] = "task-91"
 
@@ -346,12 +485,20 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
             {"id": "doc-a", "title": "a.md", "score": 0.8, "snippet": "a..."}
         ],
         "graph": [],
+        "slash_intent": "slash:thread-one",
+        "retrieval_override": {"mode": "project"},
+        "source_mode": "project",
+        "widen_reason": "none",
     }
     trace_two = {
         "documents": [
             {"id": "doc-b", "title": "b.md", "score": 0.7, "snippet": "b..."}
         ],
         "graph": [{"node_id": "node-b", "kind": "memory", "text": "b node"}],
+        "slash_intent": "slash:thread-two",
+        "retrieval_override": {"mode": "personal_knowledge"},
+        "source_mode": "personal_knowledge",
+        "widen_reason": "explicit_personal_knowledge",
     }
     task_one_id = str(uuid.uuid4())
     task_two_id = str(uuid.uuid4())
@@ -419,6 +566,10 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
 
     assert first["documents"] == trace_one["documents"]
     assert first["graph"] == trace_one["graph"]
+    assert first["slash_intent"] == trace_one["slash_intent"]
+    assert first["retrieval_override"] == trace_one["retrieval_override"]
+    assert first["source_mode"] == "project"
+    assert first["widen_reason"] == "none"
     assert first["payload_summary"]["slash_intent"] == slash_intent
     assert first["payload_summary"]["retrieval_override"] == retrieval_override
     assert first["payload_summary"]["source_mode"] == "personal_knowledge"
@@ -427,6 +578,10 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
     )
     assert second["documents"] == trace_two["documents"]
     assert second["graph"] == trace_two["graph"]
+    assert second["slash_intent"] == trace_two["slash_intent"]
+    assert second["retrieval_override"] == trace_two["retrieval_override"]
+    assert second["source_mode"] == "personal_knowledge"
+    assert second["widen_reason"] == "explicit_personal_knowledge"
     assert "slash_intent" not in second["payload_summary"]
     assert "retrieval_override" not in second["payload_summary"]
 
@@ -445,6 +600,8 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
         "thread_id": thread_id,
         "project_id": 11,
         "depth_mode": "normal",
+        "slash_intent": "slash:search",
+        "retrieval_override": {"mode": "personal_knowledge"},
         "documents": [
             {
                 "id": "doc-1",
@@ -456,6 +613,12 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
         "graph": [],
         "source_mode": "personal_knowledge",
         "widen_reason": "explicit_personal_knowledge",
+    }
+    payload_summary = {
+        "message_count": 2,
+        "slash_intent": "slash:search",
+        "retrieval_override": {"mode": "personal_knowledge"},
+        "effective_source_mode": "personal_knowledge",
     }
 
     monkeypatch.setattr(
@@ -473,7 +636,10 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
     monkeypatch.setattr(
         chat,
         "_get_task_completed_payload",
-        lambda _task_id: {"thread_id": thread_id},
+        lambda _task_id: {
+            "thread_id": thread_id,
+            "payload_summary": payload_summary,
+        },
     )
 
     trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
@@ -482,8 +648,568 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
     assert trace["thread_id"] == thread_id
     assert trace["project_id"] == 11
     assert trace["depth_mode"] == "normal"
+    assert trace["slash_intent"] == "slash:search"
+    assert trace["retrieval_override"] == {"mode": "personal_knowledge"}
     assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
+    assert trace["payload_summary"] == payload_summary
 
     chat._thread_latest_task.pop(thread_id, None)
     chat._rag_traces.pop(thread_id, None)
+
+
+# ------------------------------------------------------------------
+# Retrieval posture route tests
+# ------------------------------------------------------------------
+
+
+def test_retrieval_posture_returns_canonical_snapshot_when_present(monkeypatch):
+    """Route returns status=ok and the canonical retrieval_posture when emitted."""
+    chat._thread_latest_task[201] = "task-201"
+
+    canonical_posture = {
+        "source_mode": "conversation",
+        "boundary_label": "active_conversation_only",
+        "retrieval_override_mode": "conversation",
+        "widen_reason": "none",
+        "conversation_only": True,
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "message_count": 2,
+                "retrieval_posture": canonical_posture,
+            },
+        },
+    )
+
+    result = chat.get_latest_retrieval_posture(201, api_key="test-key")
+
+    assert result["thread_id"] == 201
+    assert result["status"] == "ok"
+    assert result["retrieval_posture"] == canonical_posture
+
+    chat._thread_latest_task.pop(201, None)
+    chat._rag_traces.pop(201, None)
+
+
+def test_retrieval_posture_returns_empty_state_without_completed_evidence(
+    monkeypatch,
+):
+    """Route returns status=empty when no completed trace evidence exists."""
+    thread_id = 202
+    task_id = str(uuid.uuid4())
+
+    monkeypatch.setattr(
+        chat,
+        "_fetch_thread_metadata",
+        lambda _thread_id: {
+            DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: task_id,
+            DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY: {
+                "task_id": task_id,
+                "thread_id": thread_id,
+                "trace": {
+                    "documents": [
+                        {
+                            "id": "doc-x",
+                            "title": "x.md",
+                            "score": 1.0,
+                            "snippet": "x",
+                        }
+                    ],
+                    "graph": [],
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        chat, "_get_task_completed_payload", lambda _task_id: None
+    )
+
+    result = chat.get_latest_retrieval_posture(thread_id, api_key="test-key")
+
+    assert result["thread_id"] == thread_id
+    assert result["status"] == "empty"
+    assert result["retrieval_posture"] is None
+
+    chat._thread_latest_task.pop(thread_id, None)
+    chat._rag_traces.pop(thread_id, None)
+
+
+def test_retrieval_posture_does_not_bleed_across_threads(monkeypatch):
+    """Posture evidence from one thread does not leak into another thread."""
+    thread_one = 301
+    thread_two = 302
+    task_one_id = str(uuid.uuid4())
+    task_two_id = str(uuid.uuid4())
+
+    posture_one = {
+        "source_mode": "conversation",
+        "boundary_label": "active_conversation_only",
+        "retrieval_override_mode": "conversation",
+        "widen_reason": "none",
+        "conversation_only": True,
+    }
+    posture_two = {
+        "source_mode": "personal_knowledge",
+        "boundary_label": "same_user_only",
+        "retrieval_override_mode": "personal_knowledge",
+        "widen_reason": "explicit_personal_knowledge",
+        "conversation_only": False,
+    }
+
+    metadata_by_thread = {
+        thread_one: {
+            DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: task_one_id,
+        },
+        thread_two: {
+            DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY: task_two_id,
+        },
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_fetch_thread_metadata",
+        lambda thread_id: metadata_by_thread.get(thread_id, {}),
+    )
+    chat._thread_latest_task[thread_one] = task_one_id
+    chat._thread_latest_task[thread_two] = task_two_id
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "message_count": 2,
+                "retrieval_posture": posture_one
+                if task_id == task_one_id
+                else posture_two,
+            },
+        },
+    )
+
+    result_one = chat.get_latest_retrieval_posture(
+        thread_one, api_key="test-key"
+    )
+    result_two = chat.get_latest_retrieval_posture(
+        thread_two, api_key="test-key"
+    )
+
+    assert result_one["status"] == "ok"
+    assert result_one["retrieval_posture"]["source_mode"] == "conversation"
+    assert result_two["status"] == "ok"
+    assert (
+        result_two["retrieval_posture"]["source_mode"] == "personal_knowledge"
+    )
+
+    chat._thread_latest_task.pop(thread_one, None)
+    chat._thread_latest_task.pop(thread_two, None)
+    chat._rag_traces.pop(thread_one, None)
+    chat._rag_traces.pop(thread_two, None)
+
+
+def test_retrieval_posture_fallback_synthesis_from_legacy_fields(monkeypatch):
+    """Fallback synthesis produces canonical snapshot shape from legacy trace fields."""
+    chat._thread_latest_task[401] = "task-401"
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "source_mode": "conversation",
+                "widen_reason": "none",
+            },
+            "payload_summary": {
+                "message_count": 2,
+                "retrieval_override": {
+                    "mode": "conversation",
+                    "reason": "slash_conversation_hint",
+                },
+            },
+        },
+    )
+
+    result = chat.get_latest_retrieval_posture(401, api_key="test-key")
+
+    assert result["status"] == "ok"
+    assert result["retrieval_posture"]["source_mode"] == "conversation"
+    assert result["retrieval_posture"]["boundary_label"] == (
+        "active_conversation_only"
+    )
+    assert (
+        result["retrieval_posture"]["retrieval_override_mode"] == "conversation"
+    )
+    assert result["retrieval_posture"]["widen_reason"] == "none"
+    assert result["retrieval_posture"]["conversation_only"] is True
+
+    chat._thread_latest_task.pop(401, None)
+    chat._rag_traces.pop(401, None)
+
+
+def test_retrieval_posture_fallback_synthesis_personal_knowledge(monkeypatch):
+    """Fallback synthesis for personal_knowledge source mode produces correct shape."""
+    chat._thread_latest_task[402] = "task-402"
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "source_mode": "personal_knowledge",
+                "widen_reason": "explicit_personal_knowledge",
+            },
+            "payload_summary": {
+                "message_count": 2,
+                "retrieval_override": {
+                    "mode": "personal_knowledge",
+                    "reason": "slash command",
+                },
+            },
+        },
+    )
+
+    result = chat.get_latest_retrieval_posture(402, api_key="test-key")
+
+    assert result["status"] == "ok"
+    assert result["retrieval_posture"]["source_mode"] == "personal_knowledge"
+    assert result["retrieval_posture"]["boundary_label"] == "same_user_only"
+    assert (
+        result["retrieval_posture"]["retrieval_override_mode"]
+        == "personal_knowledge"
+    )
+    assert result["retrieval_posture"]["widen_reason"] == (
+        "explicit_personal_knowledge"
+    )
+    assert result["retrieval_posture"]["conversation_only"] is False
+
+    chat._thread_latest_task.pop(402, None)
+    chat._rag_traces.pop(402, None)
+
+
+def test_retrieval_posture_fallback_returns_empty_when_no_source_mode(
+    monkeypatch,
+):
+    """Fallback returns empty state when trace lacks source_mode evidence."""
+    chat._thread_latest_task[403] = "task-403"
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {"message_count": 2},
+        },
+    )
+
+    result = chat.get_latest_retrieval_posture(403, api_key="test-key")
+
+    assert result["status"] == "empty"
+    assert result["retrieval_posture"] is None
+
+    chat._thread_latest_task.pop(403, None)
+    chat._rag_traces.pop(403, None)
+
+
+def test_retrieval_posture_history_returns_bounded_newest_first_items(
+    monkeypatch,
+):
+    thread_id = 501
+    request_scope = RequestUserScope(
+        user_id="acct-1",
+        account_id="acct-1",
+        multi_user_enabled=True,
+    )
+    canonical_posture = {
+        "source_mode": "conversation",
+        "boundary_label": "active_conversation_only",
+        "retrieval_override_mode": "conversation",
+        "widen_reason": "none",
+        "conversation_only": True,
+    }
+    events = []
+    for index in range(1, 7):
+        events.append(
+            {
+                "id": index,
+                "topic": "task.completed",
+                "created_at": f"2026-04-13T16:3{index}:00Z",
+                "payload": {
+                    "task_id": f"task-{index}",
+                    "thread_id": thread_id,
+                    "payload_summary": {
+                        "message_count": 2,
+                        "retrieval_posture": canonical_posture,
+                    },
+                    "trace": {"documents": [], "graph": []},
+                },
+            }
+        )
+
+    monkeypatch.setattr(
+        chat.chatlog_db,
+        "get_chat_thread",
+        lambda _thread_id: {"id": thread_id, "user_id": "acct-1"},
+    )
+
+    def fake_fetch_events_after(last_id, limit=100, tenant_id=None):
+        filtered = [event for event in events if event["id"] > last_id]
+        return filtered[:limit]
+
+    monkeypatch.setattr(
+        chat.event_bus, "fetch_events_after", fake_fetch_events_after
+    )
+
+    result = chat.get_retrieval_posture_history(
+        thread_id,
+        limit=5,
+        api_key="test-key",
+        request_user_scope=request_scope,
+    )
+
+    assert result["thread_id"] == thread_id
+    assert result["status"] == "ok"
+    assert len(result["items"]) == 5
+    assert [item["task_id"] for item in result["items"]] == [
+        "task-6",
+        "task-5",
+        "task-4",
+        "task-3",
+        "task-2",
+    ]
+    assert result["items"][0]["created_at"] == "2026-04-13T16:36:00Z"
+    assert result["items"][-1]["created_at"] == "2026-04-13T16:32:00Z"
+    assert result["items"][0]["retrieval_posture"] == canonical_posture
+
+
+def test_retrieval_posture_history_returns_empty_state_when_no_completed_evidence(
+    monkeypatch,
+):
+    thread_id = 502
+    request_scope = RequestUserScope(
+        user_id="acct-1",
+        account_id="acct-1",
+        multi_user_enabled=True,
+    )
+
+    monkeypatch.setattr(
+        chat.chatlog_db,
+        "get_chat_thread",
+        lambda _thread_id: {"id": thread_id, "user_id": "acct-1"},
+    )
+    monkeypatch.setattr(
+        chat.event_bus,
+        "fetch_events_after",
+        lambda _last_id, limit=100, tenant_id=None: [],
+    )
+
+    result = chat.get_retrieval_posture_history(
+        thread_id,
+        limit=5,
+        api_key="test-key",
+        request_user_scope=request_scope,
+    )
+
+    assert result["thread_id"] == thread_id
+    assert result["status"] == "empty"
+    assert result["items"] == []
+
+
+def test_retrieval_posture_history_does_not_bleed_across_threads(
+    monkeypatch,
+):
+    thread_one = 503
+    thread_two = 504
+    request_scope = RequestUserScope(
+        user_id="acct-1",
+        account_id="acct-1",
+        multi_user_enabled=True,
+    )
+    events = [
+        {
+            "id": 1,
+            "topic": "task.completed",
+            "created_at": "2026-04-13T16:31:00Z",
+            "payload": {
+                "task_id": "task-1",
+                "thread_id": thread_one,
+                "payload_summary": {
+                    "message_count": 2,
+                    "retrieval_posture": {
+                        "source_mode": "conversation",
+                        "boundary_label": "active_conversation_only",
+                        "retrieval_override_mode": "conversation",
+                        "widen_reason": "none",
+                        "conversation_only": True,
+                    },
+                },
+                "trace": {"documents": [], "graph": []},
+            },
+        },
+        {
+            "id": 2,
+            "topic": "task.completed",
+            "created_at": "2026-04-13T16:32:00Z",
+            "payload": {
+                "task_id": "task-2",
+                "thread_id": thread_two,
+                "payload_summary": {
+                    "message_count": 2,
+                    "retrieval_posture": {
+                        "source_mode": "personal_knowledge",
+                        "boundary_label": "same_user_only",
+                        "retrieval_override_mode": "personal_knowledge",
+                        "widen_reason": "explicit_personal_knowledge",
+                        "conversation_only": False,
+                    },
+                },
+                "trace": {"documents": [], "graph": []},
+            },
+        },
+        {
+            "id": 3,
+            "topic": "task.completed",
+            "created_at": "2026-04-13T16:33:00Z",
+            "payload": {
+                "task_id": "task-3",
+                "thread_id": thread_one,
+                "payload_summary": {
+                    "message_count": 2,
+                    "retrieval_posture": {
+                        "source_mode": "project",
+                        "boundary_label": "same_user_same_project",
+                        "retrieval_override_mode": "project",
+                        "widen_reason": "insufficient_thread_hits",
+                        "conversation_only": False,
+                    },
+                },
+                "trace": {"documents": [], "graph": []},
+            },
+        },
+        {
+            "id": 4,
+            "topic": "task.completed",
+            "created_at": "2026-04-13T16:34:00Z",
+            "payload": {
+                "task_id": "task-4",
+                "thread_id": thread_two,
+                "payload_summary": {
+                    "message_count": 2,
+                    "retrieval_posture": {
+                        "source_mode": "project",
+                        "boundary_label": "same_user_same_project",
+                        "retrieval_override_mode": "project",
+                        "widen_reason": "insufficient_thread_hits",
+                        "conversation_only": False,
+                    },
+                },
+                "trace": {"documents": [], "graph": []},
+            },
+        },
+    ]
+
+    monkeypatch.setattr(
+        chat.chatlog_db,
+        "get_chat_thread",
+        lambda _thread_id: {"id": _thread_id, "user_id": "acct-1"},
+    )
+
+    def fake_fetch_events_after(last_id, limit=100, tenant_id=None):
+        filtered = [event for event in events if event["id"] > last_id]
+        return filtered[:limit]
+
+    monkeypatch.setattr(
+        chat.event_bus, "fetch_events_after", fake_fetch_events_after
+    )
+
+    result = chat.get_retrieval_posture_history(
+        thread_one,
+        limit=5,
+        api_key="test-key",
+        request_user_scope=request_scope,
+    )
+
+    assert result["status"] == "ok"
+    assert [item["task_id"] for item in result["items"]] == [
+        "task-3",
+        "task-1",
+    ]
+    assert all(
+        item["retrieval_posture"]["source_mode"] != "personal_knowledge"
+        for item in result["items"]
+    )
+
+
+def test_retrieval_posture_history_falls_back_to_legacy_synthesis(
+    monkeypatch,
+):
+    thread_id = 505
+    request_scope = RequestUserScope(
+        user_id="acct-1",
+        account_id="acct-1",
+        multi_user_enabled=True,
+    )
+
+    monkeypatch.setattr(
+        chat.chatlog_db,
+        "get_chat_thread",
+        lambda _thread_id: {"id": thread_id, "user_id": "acct-1"},
+    )
+    monkeypatch.setattr(
+        chat.event_bus,
+        "fetch_events_after",
+        lambda _last_id, limit=100, tenant_id=None: [
+            {
+                "id": 9,
+                "topic": "task.completed",
+                "created_at": "2026-04-13T16:39:00Z",
+                "payload": {
+                    "task_id": "task-legacy",
+                    "thread_id": thread_id,
+                    "payload_summary": {
+                        "message_count": 2,
+                        "retrieval_override": {
+                            "mode": "conversation",
+                            "reason": "slash_conversation_hint",
+                        },
+                    },
+                    "trace": {
+                        "documents": [],
+                        "graph": [],
+                        "source_mode": "conversation",
+                        "widen_reason": "none",
+                    },
+                },
+            }
+        ],
+    )
+
+    result = chat.get_retrieval_posture_history(
+        thread_id,
+        limit=5,
+        api_key="test-key",
+        request_user_scope=request_scope,
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"] == [
+        {
+            "task_id": "task-legacy",
+            "created_at": "2026-04-13T16:39:00Z",
+            "retrieval_posture": {
+                "source_mode": "conversation",
+                "boundary_label": "active_conversation_only",
+                "retrieval_override_mode": "conversation",
+                "widen_reason": "none",
+                "conversation_only": True,
+            },
+        }
+    ]

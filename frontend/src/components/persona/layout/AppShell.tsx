@@ -38,6 +38,10 @@ import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
+import {
+  MOBILE_MOTION,
+  getMobileWorkspaceMotionState,
+} from "@/components/persona/layout/mobileMotionContract";
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
 import { useBreakpoint } from "./useBreakpoint";
 import { useShellViewportProfile } from "./shellBreakpointContract";
@@ -82,9 +86,15 @@ import {
 } from "@/lib/documentContext";
 import {
   getMobileTopNavDockStyle,
+  getMobileNavigationControlStyle,
   getMobileTopNavRailStyle,
   getMobileWorkspaceSummonCopy,
+  getMobileNavPillFeedbackStyle,
+  getMobileWorkspaceSummonFeedbackStyle,
+  type MobileNavPillFeedbackContext,
 } from "./mobileNavigationContract";
+import { usePressFeedback } from "@/hooks/usePressFeedback";
+import { cn } from "@/lib/utils";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -1446,6 +1456,7 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const mobilePressFeedback = usePressFeedback({ enabled: isPhoneShell });
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
@@ -1454,6 +1465,21 @@ export default function AppShell({
   const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavRailStyle(mobileShellProfile),
     [mobileShellProfile]
+  );
+  const getMobilePressProps = useCallback(
+    (
+      className: string,
+      style?: React.CSSProperties,
+      options: { square?: boolean } = {}
+    ) =>
+      mobilePressFeedback.getPressFeedbackProps({
+        className: cn(className),
+        style: {
+          ...getMobileNavigationControlStyle(isPhoneShell, options),
+          ...style,
+        },
+      }),
+    [isPhoneShell, mobilePressFeedback]
   );
 
   /* ─────────────────────────────────────────────────────────────────────────────
@@ -1818,6 +1844,32 @@ export default function AppShell({
     }
     openWorkspaceDrawer();
   }, [closeWorkspaceDrawer, openWorkspaceDrawer, workspaceDrawerOpen]);
+  const [workspaceDrawerMotionPhase, setWorkspaceDrawerMotionPhase] = useState<
+    "closed" | "open" | "closing"
+  >(workspaceDrawerOpen ? "open" : "closed");
+  useEffect(() => {
+    if (!isPhoneShell) {
+      setWorkspaceDrawerMotionPhase(workspaceDrawerOpen ? "open" : "closed");
+      return;
+    }
+
+    if (workspaceDrawerOpen) {
+      setWorkspaceDrawerMotionPhase("open");
+      return;
+    }
+
+    setWorkspaceDrawerMotionPhase((current) =>
+      current === "open" ? "closing" : current
+    );
+
+    const timer = window.setTimeout(() => {
+      setWorkspaceDrawerMotionPhase("closed");
+    }, MOBILE_MOTION.workspaceSheetExitMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isPhoneShell, workspaceDrawerOpen]);
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
@@ -1974,7 +2026,18 @@ export default function AppShell({
       }) as React.CSSProperties,
     [bp],
   );
-  const showWorkspaceDrawer = workspaceShellEnabled && workspaceDrawerOpen;
+  const showWorkspaceDrawer =
+    workspaceShellEnabled &&
+    (workspaceDrawerOpen || (isPhoneShell && workspaceDrawerMotionPhase === "closing"));
+  const workspaceDrawerMotionState = isPhoneShell
+    ? getMobileWorkspaceMotionState(
+        isPhoneShell,
+        workspaceDrawerOpen || workspaceDrawerMotionPhase === "closing",
+        workspaceLayoutMode
+      )
+    : workspaceDrawerOpen
+      ? "open"
+      : "collapsed";
   const workspacePrimaryPaneStyle: React.CSSProperties = showWorkspaceDrawer
     ? isPhoneShell
       ? {
@@ -2042,6 +2105,8 @@ export default function AppShell({
       <div
         data-testid="workspace-drawer-overlay"
         data-overlay-mode="mobile"
+        data-workspace-motion-state={workspaceDrawerMotionState}
+        data-workspace-motion-phase={workspaceDrawerMotionPhase}
         className="absolute inset-0 z-20 flex items-stretch justify-end bg-black/35 backdrop-blur-sm"
       >
         <button
@@ -2142,10 +2207,18 @@ export default function AppShell({
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
   const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
+
+  // Mobile micro-interaction feedback styles
+  const mobileWorkspaceSummonFeedbackStyle = useMemo<React.CSSProperties>(
+    () =>
+      getMobilePressFeedbackStyle(mobileInteractionContext, workspaceDrawerOpen ? "idle" : "idle"),
+    [mobileInteractionContext, workspaceDrawerOpen]
+  );
+
   const workspaceDrawerToggle = workspaceShellEnabled ? (
     <button
       type="button"
-      className="pill-tab shrink-0 whitespace-nowrap"
+      {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
       data-state={workspaceDrawerOpen ? "active" : "inactive"}
       data-testid="workspace-drawer-toggle"
       aria-pressed={workspaceDrawerOpen}
@@ -2162,6 +2235,7 @@ export default function AppShell({
             : "Open workspace drawer"
       }
       onClick={toggleWorkspaceDrawer}
+      style={isPhoneShell ? mobileWorkspaceSummonFeedbackStyle : undefined}
     >
       {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
     </button>
@@ -2169,7 +2243,9 @@ export default function AppShell({
   const settingsUtilityAction = (
     <button
       type="button"
-      className="pill-tab h-9 w-9 shrink-0 p-0"
+      {...getMobilePressProps("pill-tab h-9 w-9 shrink-0 p-0", undefined, {
+        square: true,
+      })}
       data-state={view === "settings" ? "active" : "inactive"}
       data-testid="settings-utility-toggle"
       aria-label="Settings"
@@ -2185,6 +2261,7 @@ export default function AppShell({
       targetId={activeRouteThreadId}
       className="pill-tab shrink-0 whitespace-nowrap"
       dataState="inactive"
+      isPhoneShell={isPhoneShell}
       style={{
         borderRadius: 999,
         border: "1px solid var(--chip-border)",
@@ -2313,9 +2390,28 @@ export default function AppShell({
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
       <div
-        className={`relative z-10 flex w-full items-start gap-3 ${isPhoneShell ? "flex-col" : "flex-row"}`}
+        data-testid="app-shell-top-chrome"
+        className={`relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
+        style={
+          isPhoneShell
+            ? undefined
+            : {
+                gridTemplateColumns: "auto minmax(var(--shell-gap), 1fr) auto",
+              }
+        }
       >
-        <div className="min-w-0 shrink-0">
+        <div
+          data-testid="app-shell-nav-anchor"
+          className="min-w-0 shrink-0"
+          style={
+            isPhoneShell
+              ? undefined
+              : {
+                  gridColumn: "1",
+                  justifySelf: "start",
+                }
+          }
+        >
           <div
             className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
             data-testid="app-shell-top-nav"
@@ -2342,8 +2438,10 @@ export default function AppShell({
               {/* brand badge — doubles as layout mode toggle */}
               <button
                 type="button"
-                className="pill-tab brand-tab shrink-0 whitespace-nowrap"
-                style={{ color: "var(--text-on-accent)" }}
+                {...getMobilePressProps(
+                  "pill-tab brand-tab shrink-0 whitespace-nowrap",
+                  { color: "var(--text-on-accent)" }
+                )}
                 title={
                   layoutMode === "zen"
                     ? "Zen layout — click to switch to Focus"
@@ -2372,37 +2470,42 @@ export default function AppShell({
 
               {/* nav tabs */}
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "guardian" ? "active" : "inactive"}
                 onClick={() => navigateToView("guardian")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "guardian") : undefined}
               >
                 Guardian
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "dashboard" ? "active" : "inactive"}
                 onClick={() => navigateToView("dashboard")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "dashboard") : undefined}
               >
                 Dashboard
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "documents" ? "active" : "inactive"}
                 onClick={() => navigateToView("documents")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "documents") : undefined}
               >
                 Documents
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "gallery" ? "active" : "inactive"}
                 onClick={() => navigateToView("gallery")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "gallery") : undefined}
               >
                 Gallery
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 onClick={() => navigateToView("personaStudio")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "personaStudio") : undefined}
               >
                 Persona Studio
               </button>
@@ -2410,7 +2513,16 @@ export default function AppShell({
           </div>
         </div>
         <div
+          data-testid="app-shell-utility-cluster"
           className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
+          style={
+            isPhoneShell
+              ? undefined
+              : {
+                  gridColumn: "3",
+                  justifySelf: "end",
+                }
+          }
         >
           {isPhoneShell ? mobileHeaderUtilityActions : desktopHeaderUtilityActions}
         </div>
@@ -2666,6 +2778,7 @@ export default function AppShell({
                         key={`guardian-surface-${guardianSurfaceEpoch}`}
                         guardianName={guardianName}
                         userName={userName}
+                        userProfession={role}
                         prefill={prefill}
                         onPrefillConsumed={() => setPrefill(undefined)}
                         pendingDocumentTiles={pendingComposerDocumentTiles}

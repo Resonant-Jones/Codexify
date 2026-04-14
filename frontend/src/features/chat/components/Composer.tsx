@@ -11,6 +11,7 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
+import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
@@ -37,6 +38,7 @@ import type { DocumentContextTile } from "@/lib/documentContext";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
 } from "@/features/chat/chatLane";
+import { usePressFeedback } from "@/hooks/usePressFeedback";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -1293,6 +1295,7 @@ export function Composer({
             >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
+                isPhoneShell={isPhoneShell}
                 depthMode={depthMode}
                 depthOptions={depthOptions}
                 onAttach={() => {
@@ -1321,6 +1324,7 @@ export function Composer({
                 menuLabel="Provider"
                 valueLabel={providerLabel}
                 options={providerOptions}
+                isPhoneShell={isPhoneShell}
                 selectedValue={activeProviderId}
                 openSignal={providerOpenSignal}
                 disabled={draftControlsDisabled || providerOptions.length === 0}
@@ -1331,6 +1335,7 @@ export function Composer({
                 menuLabel="Model"
                 valueLabel={modelLabel}
                 options={modelOptions}
+                isPhoneShell={isPhoneShell}
                 selectedValue={activeModelId}
                 disabled={draftControlsDisabled || modelOptions.length === 0}
                 onSelect={onModelChange ?? (() => {})}
@@ -1340,6 +1345,7 @@ export function Composer({
                 menuLabel="Mode"
                 valueLabel={inferenceModeLabel}
                 options={inferenceModeOptions}
+                isPhoneShell={isPhoneShell}
                 selectedValue={activeInferenceMode}
                 disabled={draftControlsDisabled || inferenceModeOptions.length === 0}
                 onSelect={(value) =>
@@ -1351,6 +1357,7 @@ export function Composer({
                 menuLabel="Source"
                 valueLabel={`${sourceLabel}`}
                 options={sourceOptions}
+                isPhoneShell={isPhoneShell}
                 selectedValue={sourceMode}
                 disabled={draftControlsDisabled || sourceOptions.length === 0}
                 onSelect={(value) => onSourceModeChange?.(value as SourceMode)}
@@ -1363,6 +1370,27 @@ export function Composer({
             >
               <button
                 type="button"
+                {...composerPressFeedback.getPressFeedbackProps({
+                  className:
+                    cn(
+                      "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
+                      sendTransportDisabled
+                        ? "cursor-not-allowed opacity-50"
+                        : sendBlockedByTurnLock
+                          ? "opacity-75"
+                          : ""
+                    ),
+                  style: {
+                    ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+                    width: "var(--composer-control-size, 2rem)",
+                    height: "var(--composer-control-size, 2rem)",
+                    background:
+                      "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+                    color: "var(--text-on-accent, #111827)",
+                    boxShadow: "none",
+                    borderRadius: "9999px",
+                  },
+                })}
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
                 className={cn(

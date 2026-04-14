@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
@@ -93,7 +93,9 @@ function setViewportWidth(width: number) {
     writable: true,
     value: width,
   });
-  window.dispatchEvent(new Event("resize"));
+  act(() => {
+    window.dispatchEvent(new Event("resize"));
+  });
 }
 
 const EXT_COLORS = {
@@ -204,11 +206,8 @@ describe("DashboardView demo content", () => {
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });
 
-  it("uses the mobile stacked layout at phone widths and opens recent documents explicitly", async () => {
-    act(() => {
-      setViewportWidth(390);
-    });
-
+  it("switches Dashboard into a mobile stack and opens recent documents explicitly", async () => {
+    setViewportWidth(390);
     authState.allowGate = true;
     apiState.get.mockImplementation(async (url: string) => {
       if (url === "/chat/threads") {
