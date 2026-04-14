@@ -549,27 +549,26 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           }}
         >
           {activeThreadId !== null ? (
-            <div className="space-y-4">
-              <RecentRetrievalPosturePanel threadId={activeThreadId} />
-              <RetrievalPosturePanel
-                compact
-                testId="command-center-thread-posture-panel"
-                threadId={activeThreadId}
-                title="Thread retrieval posture"
-              />
-            </div>
-          ) : null}
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <TraceWorkbench
-              allRuns={runs}
-              filters={traceFilters}
-              onFiltersChange={setTraceFilters}
-              onSelectRun={setSelectedRunKey}
-              selectedRun={selectedRun}
-              selectedRunKey={selectedRunKey}
-              visibleRuns={visibleRuns}
+            <div className="mb-4">
+            <RetrievalPosturePanel
+              compact
+              testId="command-center-thread-posture-panel"
+              threadId={activeThreadId}
+              title="Thread retrieval posture"
+              showComparisonStrip
             />
           </div>
+        ) : null}
+          <TraceWorkbench
+            allRuns={runs}
+            filters={traceFilters}
+            onFiltersChange={setTraceFilters}
+            onSelectRun={setSelectedRunKey}
+            selectedRun={selectedRun}
+            selectedRunKey={selectedRunKey}
+            visibleRuns={visibleRuns}
+          />
+        </div>
 
           <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
             <EventConsole

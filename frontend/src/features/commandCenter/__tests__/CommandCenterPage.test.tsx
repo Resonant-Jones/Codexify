@@ -691,13 +691,66 @@ const mockedRuns: CommandCenterRun[] = [
   },
 ];
 
+const mockedComparisonRuns: CommandCenterRun[] = [
+  makeComparisonRun({
+    eventId: "evt-12",
+    key: "task-source-mode",
+    receivedAt: "2026-04-01T15:57:00Z",
+    threadId: 800,
+  }),
+  makeComparisonRun({
+    eventId: "evt-13",
+    key: "task-boundary-label",
+    receivedAt: "2026-04-01T15:56:50Z",
+    threadId: 810,
+  }),
+  makeComparisonRun({
+    eventId: "evt-14",
+    key: "task-override-mode",
+    receivedAt: "2026-04-01T15:56:40Z",
+    threadId: 820,
+  }),
+  makeComparisonRun({
+    eventId: "evt-15",
+    key: "task-widen-reason",
+    receivedAt: "2026-04-01T15:56:30Z",
+    threadId: 830,
+  }),
+  makeComparisonRun({
+    eventId: "evt-16",
+    key: "task-conversation-only",
+    receivedAt: "2026-04-01T15:56:20Z",
+    threadId: 840,
+  }),
+  makeComparisonRun({
+    eventId: "evt-17",
+    key: "task-multi-change",
+    receivedAt: "2026-04-01T15:56:10Z",
+    threadId: 850,
+  }),
+  makeComparisonRun({
+    eventId: "evt-18",
+    key: "task-unsupported-change",
+    receivedAt: "2026-04-01T15:56:00Z",
+    threadId: 860,
+  }),
+  makeComparisonRun({
+    eventId: "evt-19",
+    key: "task-unchanged",
+    receivedAt: "2026-04-01T15:55:50Z",
+    threadId: 870,
+  }),
+];
+
+const allMockedRuns = [...mockedRuns, ...mockedComparisonRuns];
+
 vi.mock("../hooks/useCommandCenterEvents", () => ({
   default: () => ({
     connectionDetail: "Listening to /api/events",
     connectionState: "open",
     events: mockedEvents,
     lastEventAt: Date.parse("2026-04-01T15:58:45Z"),
-    runs: mockedRuns,
+    runs: allMockedRuns,
     unauthorized: false,
   }),
 }));
@@ -788,98 +841,59 @@ const mockedPartialPosture = {
   conversation_only: true,
 } as unknown as CommandCenterRetrievalPosture;
 
-function makeHistoryItem(
-  task_id: string,
-  created_at: string,
-  retrieval_posture: CommandCenterRetrievalPosture
-): CommandCenterRetrievalPostureHistoryItem {
+function makeComparisonRun({
+  eventId,
+  key,
+  receivedAt,
+  threadId,
+}: {
+  eventId: string;
+  key: string;
+  receivedAt: string;
+  threadId: number;
+}): CommandCenterRun {
+  const timestamp = Date.parse(receivedAt);
+
   return {
-    created_at,
-    retrieval_posture,
-    task_id,
+    eventCount: 1,
+    identityKind: "task",
+    key,
+    lastEvent: makeEvent({
+      eventId,
+      json: { thread_id: threadId, type: "chat.completion" },
+      kind: null,
+      raw: `{"thread_id":${threadId},"type":"chat.completion"}`,
+      receivedAt: timestamp,
+      runId: `run-${key}`,
+      sseType: "task.completed",
+      state: "completed",
+      status: null,
+      summary: "chat completion completed",
+      taskId: key,
+      taskType: "chat.completion",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+      threadId,
+      turnId: `turn-${key}`,
+      type: "task.completed",
+    }),
+    lastEventAt: timestamp,
+    lastKind: null,
+    lastType: "task.completed",
+    requestId: null,
+    runId: `run-${key}`,
+    runKind: "chat_completion",
+    runType: "chat completion",
+    state: "completed",
+    status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+    summary: "chat completion · completed",
+    taskId: key,
+    terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    threadId,
+    traceEvidence: null,
+    traceUrl: null,
+    turnId: `turn-${key}`,
   };
 }
-
-function setThread42HistoryItems(
-  items: CommandCenterRetrievalPostureHistoryItem[]
-): void {
-  mockedRetrievalPostureHistoryStateByThreadId[42] = {
-    ...mockedRetrievalPostureHistoryStateByThreadId[42],
-    items,
-  };
-}
-
-function renderActiveThreadHistoryPanel(): HTMLElement {
-  render(<CommandCenterPage enabled />);
-
-  const workbench = screen.getByTestId("command-center-trace-workbench");
-  fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
-
-  return screen.getByTestId("command-center-retrieval-posture-history-panel");
-}
-
-const mockedConversationHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
-  created_at: "2026-04-01T15:58:30Z",
-  retrieval_posture: mockedRetrievalPosture,
-  task_id: "task-alpha",
-};
-
-const mockedProjectHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
-  created_at: "2026-04-01T15:57:30Z",
-  retrieval_posture: mockedProjectPosture,
-  task_id: "task-bravo",
-};
-
-const mockedPersonalKnowledgeHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
-  created_at: "2026-04-01T15:56:30Z",
-  retrieval_posture: mockedPersonalKnowledgePosture,
-  task_id: "task-charlie",
-};
-
-function cloneHistoryState<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-const defaultRetrievalPostureHistoryState = {
-  42: {
-    error: null,
-    items: [
-      mockedConversationHistoryItem,
-      mockedProjectHistoryItem,
-      mockedPersonalKnowledgeHistoryItem,
-    ],
-    loading: false,
-    status: "ok" as const,
-  },
-  84: {
-    error: null,
-    items: [],
-    loading: false,
-    status: "empty" as const,
-  },
-  500: {
-    error: null,
-    items: [],
-    loading: true,
-    status: null,
-  },
-  600: {
-    error: "Retrieval posture history unavailable",
-    items: [],
-    loading: false,
-    status: null,
-  },
-  700: {
-    error: null,
-    items: [],
-    loading: false,
-    status: "empty" as const,
-  },
-};
-
-let mockedRetrievalPostureHistoryStateByThreadId = cloneHistoryState(
-  defaultRetrievalPostureHistoryState
-);
 
 vi.mock("../hooks/useRetrievalPosture", () => ({
   default: (threadId: number | null) => {
@@ -953,6 +967,112 @@ vi.mock("../hooks/useRetrievalPosture", () => ({
         loading: false,
         retrievalPosture: null,
         status: "empty",
+      };
+    }
+    if (threadId === 800) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: {
+          source_mode: "project",
+          boundary_label: "active_conversation_only",
+          retrieval_override_mode: "conversation",
+          widen_reason: "none",
+          conversation_only: true,
+        },
+        status: "ok",
+      };
+    }
+    if (threadId === 810) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: {
+          source_mode: "conversation",
+          boundary_label: "same_user_same_project",
+          retrieval_override_mode: "conversation",
+          widen_reason: "none",
+          conversation_only: true,
+        },
+        status: "ok",
+      };
+    }
+    if (threadId === 820) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: {
+          source_mode: "conversation",
+          boundary_label: "active_conversation_only",
+          retrieval_override_mode: null,
+          widen_reason: "none",
+          conversation_only: true,
+        },
+        status: "ok",
+      };
+    }
+    if (threadId === 830) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: {
+          source_mode: "conversation",
+          boundary_label: "active_conversation_only",
+          retrieval_override_mode: "conversation",
+          widen_reason: "insufficient_thread_hits",
+          conversation_only: true,
+        },
+        status: "ok",
+      };
+    }
+    if (threadId === 840) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: {
+          source_mode: "conversation",
+          boundary_label: "active_conversation_only",
+          retrieval_override_mode: "conversation",
+          widen_reason: "none",
+          conversation_only: false,
+        },
+        status: "ok",
+      };
+    }
+    if (threadId === 850) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: {
+          source_mode: "project",
+          boundary_label: "active_conversation_only",
+          retrieval_override_mode: "conversation",
+          widen_reason: "insufficient_thread_hits",
+          conversation_only: true,
+        },
+        status: "ok",
+      };
+    }
+    if (threadId === 860) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: {
+          source_mode: "project",
+          boundary_label: "same_user_same_project",
+          retrieval_override_mode: null,
+          widen_reason: "insufficient_thread_hits",
+          conversation_only: false,
+        },
+        status: "ok",
+      };
+    }
+    if (threadId === 870) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: mockedRetrievalPosture,
+        status: "ok",
       };
     }
     return {
@@ -1356,7 +1476,7 @@ describe("CommandCenterPage", () => {
     expect(within(threadPanel).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/override: conversation/i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/widen: none/i)).toBeInTheDocument();
-    expect(within(threadPanel).getByText(/conversation-only/i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/^conversation-only$/i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/This run stayed inside the active conversation\./i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/No widening occurred\./i)).toBeInTheDocument();
     expect(within(threadPanel).getByText("What these fields mean")).toBeInTheDocument();
@@ -1467,6 +1587,148 @@ describe("CommandCenterPage", () => {
     });
   });
 
+  it.each([
+    [
+      "source_mode",
+      "task-source-mode",
+      "The retrieval scope changed.",
+    ],
+    [
+      "boundary_label",
+      "task-boundary-label",
+      "The retrieval boundary changed.",
+    ],
+    [
+      "retrieval_override_mode",
+      "task-override-mode",
+      "An explicit retrieval override changed the posture.",
+    ],
+    [
+      "widen_reason",
+      "task-widen-reason",
+      "The reason for widening changed.",
+    ],
+    [
+      "conversation_only",
+      "task-conversation-only",
+      "Conversation-only retrieval changed.",
+    ],
+  ] as const)(
+    "renders a bounded explanation when %s changes",
+    async (field, taskKey, expectedLine) => {
+      render(<CommandCenterPage enabled />);
+
+      const workbench = screen.getByTestId("command-center-trace-workbench");
+      const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+
+      fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+      await waitFor(() =>
+        expect(within(threadPanel).getByText("No previous posture to compare")).toBeInTheDocument()
+      );
+
+      fireEvent.click(within(workbench).getByRole("button", { name: new RegExp(taskKey, "i") }));
+
+      await waitFor(() =>
+        expect(within(threadPanel).getByText("Posture changed since previous run")).toBeInTheDocument()
+      );
+
+      expect(within(threadPanel).getByText(`Changed: ${field}`)).toBeInTheDocument();
+      expect(within(threadPanel).getByText(expectedLine)).toBeInTheDocument();
+      expect(
+        within(threadPanel).queryByText(
+          /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+        )
+      ).not.toBeInTheDocument();
+    }
+  );
+
+  it("renders multiple bounded explanation lines when multiple fields change", async () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("No previous posture to compare")).toBeInTheDocument()
+    );
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-multi-change/i }));
+
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("Posture changed since previous run")).toBeInTheDocument()
+    );
+
+    expect(within(threadPanel).getByText("Changed: source_mode, widen_reason")).toBeInTheDocument();
+    expect(within(threadPanel).getByText("The retrieval scope changed.")).toBeInTheDocument();
+    expect(within(threadPanel).getByText("The reason for widening changed.")).toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it("falls back when the changed-field combination is unsupported", async () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("No previous posture to compare")).toBeInTheDocument()
+    );
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-unsupported-change/i }));
+
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("Posture changed since previous run")).toBeInTheDocument()
+    );
+
+    expect(
+      within(threadPanel).getByText(
+        "Changed: source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only"
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(threadPanel).getByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).toBeInTheDocument();
+    expect(within(threadPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
+    expect(within(threadPanel).queryByText("The retrieval boundary changed.")).not.toBeInTheDocument();
+  });
+
+  it("does not render the explainer for unchanged and no-previous states", async () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+
+    expect(within(threadPanel).queryByText(/The retrieval scope changed\./i)).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("No previous posture to compare")).toBeInTheDocument()
+    );
+    expect(within(threadPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
+    expect(within(threadPanel).queryByText("Changed: source_mode")).not.toBeInTheDocument();
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-unchanged/i }));
+
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("Posture unchanged since previous run")).toBeInTheDocument()
+    );
+    expect(within(threadPanel).queryByText(/^Changed:/i)).not.toBeInTheDocument();
+    expect(within(threadPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
+  });
+
   it("renders retrieval posture section for active thread with status ok", () => {
     render(<CommandCenterPage enabled />);
 
@@ -1484,7 +1746,7 @@ describe("CommandCenterPage", () => {
     expect(within(workbench).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
     expect(within(workbench).getByText(/override: conversation/i)).toBeInTheDocument();
     expect(within(workbench).getByText(/widen: none/i)).toBeInTheDocument();
-    expect(within(workbench).getByText(/conversation-only/i)).toBeInTheDocument();
+    expect(within(workbench).getByText(/^conversation-only$/i)).toBeInTheDocument();
 
     // Verify explainer text is also present
     expect(within(workbench).getByText(/This run stayed inside the active conversation\./i)).toBeInTheDocument();
