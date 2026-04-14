@@ -209,6 +209,7 @@ function getOrCreateDeviceId(): string {
 type GuardianChatWithSidebarProps = {
   guardianName: string;
   userName: string;
+  userProfession?: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
   pendingDocumentTiles?: DocumentContextTile[];
@@ -223,6 +224,7 @@ type GuardianChatWithSidebarProps = {
 export default function GuardianChatWithSidebar({
   guardianName,
   userName,
+  userProfession = "",
   prefill,
   onPrefillConsumed,
   pendingDocumentTiles,
@@ -1662,6 +1664,7 @@ export default function GuardianChatWithSidebar({
               <GuardianChat
                 guardianName={guardianName}
                 userName={userName}
+                userProfession={userProfession}
                 prefill={prefill}
                 onPrefillConsumed={onPrefillConsumed}
                 pendingDocumentTiles={pendingDocumentTiles}

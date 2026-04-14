@@ -87,7 +87,9 @@ import {
 import {
   getMobileTopNavDockStyle,
   getMobileNavigationControlStyle,
+  type MobileNavPillFeedbackContext,
   getMobileTopNavRailStyle,
+  getMobileNavPillFeedbackStyle,
 } from "./mobileNavigationContract";
 import {
   getWorkspaceAffordanceCopy,
@@ -164,6 +166,47 @@ function PhonePressButton({
     >
       {children}
     </button>
+  );
+}
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
+    const media = window.matchMedia(query);
+    const syncMatches = () => setMatches(media.matches);
+
+    syncMatches();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", syncMatches);
+      return () => media.removeEventListener("change", syncMatches);
+    }
+
+    media.addListener(syncMatches);
+    return () => media.removeListener(syncMatches);
+  }, [query]);
+
+  return matches;
+}
+
+function useMobileNavFeedbackContext(
+  isPhoneShell: boolean
+): MobileNavPillFeedbackContext {
+  const isCoarsePointer = useMediaQuery("(pointer: coarse)");
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+
+  return useMemo(
+    () => ({
+      isPhoneShell,
+      isCoarsePointer,
+      prefersReducedMotion,
+    }),
+    [isCoarsePointer, isPhoneShell, prefersReducedMotion]
   );
 }
 
@@ -1497,6 +1540,7 @@ export default function AppShell({
     () => getMobileTopNavRailStyle(mobileShellProfile),
     [mobileShellProfile]
   );
+  const mobileInteractionContext = useMobileNavFeedbackContext(isPhoneShell);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🏗️ SECTION: Modular Design Token Setup
@@ -2507,6 +2551,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "guardian" ? "active" : "inactive"}
                 onClick={() => navigateToView("guardian")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "guardian") : undefined}
               >
                 Guardian
               </PhonePressButton>
@@ -2515,6 +2560,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "dashboard" ? "active" : "inactive"}
                 onClick={() => navigateToView("dashboard")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "dashboard") : undefined}
               >
                 Dashboard
               </PhonePressButton>
@@ -2523,6 +2569,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
                 onClick={() => navigateToView("documents")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "documents") : undefined}
               >
                 Documents
               </PhonePressButton>
@@ -2531,6 +2578,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "gallery" ? "active" : "inactive"}
                 onClick={() => navigateToView("gallery")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "gallery") : undefined}
               >
                 Gallery
               </PhonePressButton>
@@ -2539,6 +2587,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 onClick={() => navigateToView("personaStudio")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "personaStudio") : undefined}
               >
                 Persona Studio
               </PhonePressButton>
@@ -2811,6 +2860,7 @@ export default function AppShell({
                         key={`guardian-surface-${guardianSurfaceEpoch}`}
                         guardianName={guardianName}
                         userName={userName}
+                        userProfession={role}
                         prefill={prefill}
                         onPrefillConsumed={() => setPrefill(undefined)}
                         pendingDocumentTiles={pendingComposerDocumentTiles}
