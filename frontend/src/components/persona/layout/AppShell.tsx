@@ -86,9 +86,12 @@ import {
 } from "@/lib/documentContext";
 import {
   getMobileTopNavDockStyle,
+  getMobileNavigationControlStyle,
   getMobileTopNavRailStyle,
   getMobileWorkspaceSummonCopy,
 } from "./mobileNavigationContract";
+import { usePressFeedback } from "@/hooks/usePressFeedback";
+import { cn } from "@/lib/utils";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -1450,6 +1453,7 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const mobilePressFeedback = usePressFeedback({ enabled: isPhoneShell });
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
@@ -1458,6 +1462,21 @@ export default function AppShell({
   const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavRailStyle(mobileShellProfile),
     [mobileShellProfile]
+  );
+  const getMobilePressProps = useCallback(
+    (
+      className: string,
+      style?: React.CSSProperties,
+      options: { square?: boolean } = {}
+    ) =>
+      mobilePressFeedback.getPressFeedbackProps({
+        className: cn(className),
+        style: {
+          ...getMobileNavigationControlStyle(isPhoneShell, options),
+          ...style,
+        },
+      }),
+    [isPhoneShell, mobilePressFeedback]
   );
 
   /* ─────────────────────────────────────────────────────────────────────────────
@@ -2188,7 +2207,7 @@ export default function AppShell({
   const workspaceDrawerToggle = workspaceShellEnabled ? (
     <button
       type="button"
-      className="pill-tab shrink-0 whitespace-nowrap"
+      {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
       data-state={workspaceDrawerOpen ? "active" : "inactive"}
       data-testid="workspace-drawer-toggle"
       aria-pressed={workspaceDrawerOpen}
@@ -2212,7 +2231,9 @@ export default function AppShell({
   const settingsUtilityAction = (
     <button
       type="button"
-      className="pill-tab h-9 w-9 shrink-0 p-0"
+      {...getMobilePressProps("pill-tab h-9 w-9 shrink-0 p-0", undefined, {
+        square: true,
+      })}
       data-state={view === "settings" ? "active" : "inactive"}
       data-testid="settings-utility-toggle"
       aria-label="Settings"
@@ -2228,6 +2249,7 @@ export default function AppShell({
       targetId={activeRouteThreadId}
       className="pill-tab shrink-0 whitespace-nowrap"
       dataState="inactive"
+      isPhoneShell={isPhoneShell}
       style={{
         borderRadius: 999,
         border: "1px solid var(--chip-border)",
@@ -2404,8 +2426,10 @@ export default function AppShell({
               {/* brand badge — doubles as layout mode toggle */}
               <button
                 type="button"
-                className="pill-tab brand-tab shrink-0 whitespace-nowrap"
-                style={{ color: "var(--text-on-accent)" }}
+                {...getMobilePressProps(
+                  "pill-tab brand-tab shrink-0 whitespace-nowrap",
+                  { color: "var(--text-on-accent)" }
+                )}
                 title={
                   layoutMode === "zen"
                     ? "Zen layout — click to switch to Focus"
@@ -2434,35 +2458,35 @@ export default function AppShell({
 
               {/* nav tabs */}
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "guardian" ? "active" : "inactive"}
                 onClick={() => navigateToView("guardian")}
               >
                 Guardian
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "dashboard" ? "active" : "inactive"}
                 onClick={() => navigateToView("dashboard")}
               >
                 Dashboard
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "documents" ? "active" : "inactive"}
                 onClick={() => navigateToView("documents")}
               >
                 Documents
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "gallery" ? "active" : "inactive"}
                 onClick={() => navigateToView("gallery")}
               >
                 Gallery
               </button>
               <button
-                className="pill-tab shrink-0 whitespace-nowrap"
+                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 onClick={() => navigateToView("personaStudio")}
               >
