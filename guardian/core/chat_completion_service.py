@@ -169,9 +169,11 @@ def _retrieval_override_from_origin(origin: Any) -> dict[str, Any] | None:
 
 def _retrieval_override_from_task(task: Any) -> dict[str, Any] | None:
     raw_override = getattr(task, "retrieval_override", None)
-    if isinstance(raw_override, dict):
-        return raw_override
-    return _retrieval_override_from_origin(getattr(task, "origin", None))
+    if raw_override is None:
+        raw_override = _retrieval_override_from_origin(
+            getattr(task, "origin", None)
+        )
+    return _normalize_retrieval_override(raw_override)
 
 
 def _effective_source_mode_for_broker_assembly(
@@ -200,6 +202,62 @@ def _effective_source_mode_for_broker_assembly(
         return effective_source_mode
 
     return effective_source_mode
+
+
+def _normalize_retrieval_override(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        override = dict(value)
+    else:
+        try:
+            override = dict(vars(value))
+        except Exception:
+            return None
+    if not override:
+        return None
+    mode = _clean_thread_config_text(override.get("mode"))
+    if mode is not None:
+        override["mode"] = mode.lower()
+    return override
+
+
+def _retrieval_override_mode(value: Any) -> str | None:
+    override = _normalize_retrieval_override(value)
+    if not override:
+        return None
+    mode = _clean_thread_config_text(override.get("mode"))
+    return mode.lower() if mode else None
+
+
+def _resolve_effective_source_mode_for_assembly(
+    source_mode: Any,
+    retrieval_override: Any,
+) -> str:
+    normalized_source_mode = _normalize_source_mode(source_mode)
+    override_mode = _retrieval_override_mode(retrieval_override)
+    if override_mode == "project":
+        return "project"
+    if override_mode == "personal_knowledge":
+        return "personal_knowledge"
+    if override_mode in {"none", "conversation"}:
+        return normalized_source_mode
+    return normalized_source_mode
+
+
+def _task_routing_debug_metadata(task: Any) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    slash_intent = getattr(task, "slash_intent", None)
+    if slash_intent is None:
+        slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
+    elif isinstance(slash_intent, str):
+        slash_intent = _clean_thread_config_text(slash_intent)
+    if slash_intent is not None:
+        metadata["slash_intent"] = slash_intent
+    retrieval_override = _retrieval_override_from_task(task)
+    if retrieval_override is not None:
+        metadata["retrieval_override"] = retrieval_override
+    return metadata
 
 
 @dataclass(frozen=True)
@@ -387,6 +445,7 @@ async def _assemble_context_bundle(
     user_id: str,
     project_id: int | None,
     source_mode: str,
+    retrieval_override: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     try:
         return await broker.assemble(
@@ -396,11 +455,28 @@ async def _assemble_context_bundle(
             user_id=user_id,
             project_id=project_id,
             source_mode=source_mode,
+            retrieval_override=retrieval_override,
         )
     except TypeError as exc:
         error_text = str(exc)
-        if "source_mode" not in error_text and "project_id" not in error_text:
+        retrieval_override_error = "retrieval_override" in error_text
+        source_mode_error = "source_mode" in error_text
+        project_id_error = "project_id" in error_text
+        if not (
+            retrieval_override_error or source_mode_error or project_id_error
+        ):
             raise
+        if retrieval_override_error and not (
+            source_mode_error or project_id_error
+        ):
+            return await broker.assemble(
+                thread_id,
+                query=query,
+                depth_mode=depth_mode,
+                user_id=user_id,
+                project_id=project_id,
+                source_mode=source_mode,
+            )
         return await broker.assemble(
             thread_id,
             query=query,
@@ -1259,7 +1335,11 @@ async def build_messages_for_llm(
         settings=settings,
     )
     provider = thread_execution.provider
-    retrieval_override = _retrieval_override_from_task(task)
+    routing_debug_metadata = _task_routing_debug_metadata(task)
+    effective_source_mode = _effective_source_mode_for_broker_assembly(
+        thread_execution.source_mode,
+        routing_debug_metadata.get("retrieval_override"),
+    )
 
     user_system_override = task.system_override
     if isinstance(user_system_override, str):
@@ -1391,10 +1471,7 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     user_for_context = (thread_info or {}).get("user_id", "default")
-    source_mode = _effective_source_mode_for_broker_assembly(
-        thread_execution.source_mode,
-        retrieval_override,
-    )
+    source_mode = effective_source_mode
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -1407,6 +1484,7 @@ async def build_messages_for_llm(
 
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
+    trace_candidate: dict[str, Any] | None = None
     try:
         broker = ContextBroker(
             dependencies.chatlog_db,
@@ -1423,6 +1501,7 @@ async def build_messages_for_llm(
             user_id=user_for_context,
             project_id=project_id_for_prompt,
             source_mode=source_mode,
+            retrieval_override=routing_debug_metadata.get("retrieval_override"),
         )
         if thread_execution.persona_id:
             # Thread config personaId is request-scoped input, not actor
@@ -1437,6 +1516,8 @@ async def build_messages_for_llm(
             exc,
         )
         bundle = {}
+    else:
+        trace_candidate = trace
 
     if isinstance(bundle, dict):
         if thread_execution.persona_id:
@@ -1455,6 +1536,11 @@ async def build_messages_for_llm(
         "retrieved_context": retrieved_context_messages,
     }
     completion_assembly.update(latest_turn_trace_fields)
+    identity_context = {
+        "preferred_name": getattr(task, "preferred_name", None),
+        "profession": getattr(task, "profession", None),
+        "guardian_name": getattr(task, "guardian_name", None),
+    }
 
     try:
         if build_guardian_system_prompt:
@@ -1464,6 +1550,7 @@ async def build_messages_for_llm(
                 depth=depth,
                 bundle=bundle,
                 profile=resolved_profile,
+                identity_context=identity_context,
             )
             token_est = prompt_meta.get(
                 "estimated_tokens", _estimate_tokens(system_content)
@@ -1545,6 +1632,8 @@ async def build_messages_for_llm(
     if isinstance(trace, dict):
         trace = dict(trace)
         trace.update(latest_turn_trace_fields)
+        trace.update(routing_debug_metadata)
+        trace.setdefault("source_mode", effective_source_mode)
 
     try:
         retrieval_plan = resolve_retrieval_plan(
@@ -1569,7 +1658,8 @@ async def build_messages_for_llm(
             exc,
         )
 
-    _persist_thread_trace_candidate(task, trace)
+    if isinstance(trace_candidate, dict):
+        _persist_thread_trace_candidate(task, trace)
 
     messages_for_llm.extend(retrieved_context_messages)
     messages_for_llm.extend(context)
@@ -1620,6 +1710,7 @@ def run_chat_completion_task(
         model=model,
         settings=settings,
     )
+    routing_debug_metadata = _task_routing_debug_metadata(task)
 
     payload_summary = build_sanitized_payload_summary(
         messages_for_llm,
@@ -1638,20 +1729,16 @@ def run_chat_completion_task(
             ),
         }
     )
-    slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
-    if slash_intent is not None:
-        payload_summary["slash_intent"] = slash_intent
-    retrieval_override = _retrieval_override_from_task(task)
-    if retrieval_override is not None:
-        payload_summary["retrieval_override"] = retrieval_override
-    payload_summary["source_mode"] = (
+    payload_summary.update(routing_debug_metadata)
+    trace_source_mode = (
         trace.get("source_mode") if isinstance(trace, dict) else None
     )
-    payload_summary[
-        "effective_source_mode"
-    ] = _effective_source_mode_for_broker_assembly(
-        payload_summary["source_mode"], retrieval_override
+    effective_policy = (
+        trace.get("effective_policy") if isinstance(trace, dict) else None
     )
+    payload_summary["source_mode"] = trace_source_mode
+    payload_summary["effective_source_mode"] = trace_source_mode
+    payload_summary["effective_policy"] = effective_policy
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {

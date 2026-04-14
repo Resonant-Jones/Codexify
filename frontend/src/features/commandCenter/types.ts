@@ -369,6 +369,32 @@ export interface CommandCenterRagTracePayload {
   semantic: CommandCenterRagTraceItem[];
 }
 
+export interface CommandCenterRetrievalPosture {
+  source_mode: string;
+  boundary_label: string;
+  retrieval_override_mode: string | null;
+  widen_reason: string;
+  conversation_only: boolean;
+}
+
+export interface CommandCenterRetrievalPostureResponse {
+  thread_id: number;
+  status: "ok" | "empty";
+  retrieval_posture: CommandCenterRetrievalPosture | null;
+}
+
+export interface CommandCenterRetrievalPostureHistoryItem {
+  created_at: string;
+  retrieval_posture: CommandCenterRetrievalPosture;
+  task_id: string;
+}
+
+export interface CommandCenterRetrievalPostureHistoryResponse {
+  items: CommandCenterRetrievalPostureHistoryItem[];
+  status: "ok" | "empty";
+  thread_id: number;
+}
+
 function normalizeCommandCenterToken(value: string | null | undefined): string {
   return String(value ?? "")
     .trim()

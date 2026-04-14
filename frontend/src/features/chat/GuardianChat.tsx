@@ -12,6 +12,7 @@ import {
   useRef,
   useLayoutEffect,
 } from "react";
+import type { CSSProperties } from "react";
 import { debounce } from "lodash-es";
 import {
   DropdownMenu,
@@ -22,9 +23,7 @@ import {
 import {
   ChevronRight,
   MoreVertical,
-  SquareStack,
   Zap,
-  Volume2,
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
 import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
@@ -46,6 +45,11 @@ import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
+import {
+  getMobileChromeMotionStyle,
+  getMobileTouchTargetStyle,
+} from "@/components/persona/layout/mobileMotionContract";
+import { useMobileGestureState } from "@/hooks/useMobileGestureState";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
@@ -105,6 +109,18 @@ const TURN_LOCK_TOAST =
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
+const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
+
+function normalizePreferredName(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (UNSET_PREFERRED_NAME_VALUES.has(trimmed.toLowerCase())) {
+    return null;
+  }
+  return trimmed;
+}
 
 export function flattenChatEventPayload(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -617,6 +633,7 @@ function dedupeDocumentContextTiles(
 export function GuardianChat({
   guardianName,
   userName,
+  userProfession = "",
   prefill,
   onPrefillConsumed,
   pendingDocumentTiles,
@@ -650,6 +667,7 @@ export function GuardianChat({
 }: {
   guardianName: string;
   userName: string;
+  userProfession?: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
   pendingDocumentTiles?: DocumentContextTile[];
@@ -697,6 +715,7 @@ export function GuardianChat({
     })
   );
   const [ragTraceOpen, setRagTraceOpen] = useState(false);
+  const preferredName = normalizePreferredName(userName);
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   const [documentTilesByScope, setDocumentTilesByScope] = useState<
@@ -1175,12 +1194,25 @@ export function GuardianChat({
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
   const mobileShellProfile = useMobileShellProfile();
+  const mobileGestureState = useMobileGestureState(mobileShellProfile.active);
   const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
     const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
     composer?.focus();
   }, []);
+  const mobileComposerShellMotionStyle = useMemo<CSSProperties>(
+    () => getMobileChromeMotionStyle(mobileGestureState),
+    [
+      mobileGestureState.isKeyboardOpen,
+      mobileGestureState.prefersReducedMotion,
+      mobileGestureState.isPhoneShell,
+    ]
+  );
+  const mobileHeaderIconTouchTargetStyle = useMemo<CSSProperties>(
+    () => getMobileTouchTargetStyle(mobileGestureState, { square: true }),
+    [mobileGestureState.isPhoneShell]
+  );
   const handleTellGuardianWhatToDoInstead = useCallback(
     ({ suggestedPrompt }: { suggestedPrompt: string }) => {
       const normalizedPrompt = suggestedPrompt.trim() || "Guardian, do this instead: ";
@@ -1462,6 +1494,9 @@ export function GuardianChat({
         providerId: selection.providerId,
         modelId: selection.modelId,
         reasoningMode: selection.reasoningMode,
+        preferredName: userName,
+        profession: userProfession,
+        guardianName,
       }),
       source_mode: sourceMode,
       ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),
@@ -2880,7 +2915,10 @@ export function GuardianChat({
           aria-expanded={promptCostPopoverOpen}
           aria-controls="prompt-cost-popover"
           onClick={handlePromptCostToggle}
-          style={{ borderRadius: "var(--radius-micro)" }}
+          style={{
+            borderRadius: "var(--radius-micro)",
+            ...mobileHeaderIconTouchTargetStyle,
+          }}
           data-testid="prompt-cost-trigger"
         >
           <Zap className="h-5 w-5" />
@@ -2910,54 +2948,17 @@ export function GuardianChat({
           </div>
         ) : null}
       </div>
-      <button
-        type="button"
-        className="icon-inline"
-        aria-label={
-          voiceReadAloudEnabled
-            ? autoReadEnabled
-              ? "Disable auto read aloud"
-              : "Enable auto read aloud"
-            : "Auto read aloud unavailable"
-        }
-        title={
-          voiceReadAloudEnabled
-            ? autoReadEnabled
-              ? "Auto read aloud: On"
-              : "Auto read aloud: Off"
-            : "Read-aloud unavailable"
-        }
-        onClick={() => {
-          if (!voiceReadAloudEnabled) return;
-          setAutoReadEnabled((v) => !v);
-        }}
-        disabled={!voiceReadAloudEnabled}
-        style={{
-          borderRadius: "var(--radius-micro)",
-          opacity: voiceReadAloudEnabled ? (autoReadEnabled ? 1 : 0.65) : 0.45,
-        }}
-      >
-        <Volume2 className="h-5 w-5" />
-      </button>
-      <button
-        type="button"
-        className="icon-inline"
-        aria-label="Toggle workspace"
-        aria-pressed={workspaceOpen}
-        onClick={onWorkspaceToggle}
-        style={{
-          borderRadius: "var(--radius-micro)",
-          opacity: workspaceOpen ? 1 : 0.72,
-          background: workspaceOpen
-            ? "color-mix(in oklab, var(--panel-bg), var(--accent) 18%)"
-            : "transparent",
-        }}
-      >
-        <SquareStack className="h-5 w-5" />
-      </button>
-          <DropdownMenu>
+        <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className="icon-inline" aria-label="Thread actions" style={{ borderRadius: "var(--radius-micro)" }}>
+          <button
+            type="button"
+            className="icon-inline"
+            aria-label="Thread actions"
+            style={{
+              borderRadius: "var(--radius-micro)",
+              ...mobileHeaderIconTouchTargetStyle,
+            }}
+          >
             <MoreVertical className="h-5 w-5" />
           </button>
         </DropdownMenuTrigger>
@@ -3258,7 +3259,9 @@ export function GuardianChat({
             className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
             style={{ color: "var(--muted)" }}
           >
-            New thread ready. Start typing below.
+            {preferredName
+              ? `Welcome back, ${preferredName}. Let’s get started.`
+              : "New thread ready. Start typing below."}
           </div>
         )}
       </div>
@@ -3267,8 +3270,9 @@ export function GuardianChat({
         <div
           ref={composerShellRef}
           data-testid="composer-shell"
-          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden transition-all duration-200`}
+          className={`mx-auto w-full max-w-full ${CHAT_LANE_MAX_WIDTH_CLASS} rounded-[24px] border shadow-2xl backdrop-blur-xl flex flex-col overflow-hidden`}
           style={{
+            ...mobileComposerShellMotionStyle,
             maxWidth: CHAT_LANE_MAX_WIDTH,
             borderColor: "var(--panel-border)",
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass

@@ -7,10 +7,8 @@ import {
   act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-
-import AppShell from "../AppShell";
 import {
   personaStudioApiMock,
   resetPersonaStudioApiMock,
@@ -235,6 +233,12 @@ vi.mock("@/theme", () => ({
   injectCssVars: vi.fn(),
 }));
 
+let AppShell: typeof import("../AppShell").default;
+
+beforeAll(async () => {
+  AppShell = (await import("../AppShell")).default;
+});
+
 const mockApi = api as {
   get: ReturnType<typeof vi.fn>;
   post: ReturnType<typeof vi.fn>;
@@ -403,6 +407,17 @@ describe("AppShell settings utility trigger", () => {
 
     render(<AppShell />);
 
+    expect(screen.getByTestId("app-shell-top-chrome")).toHaveStyle(
+      "grid-template-columns: auto minmax(var(--shell-gap), 1fr) auto"
+    );
+    expect(screen.getByTestId("app-shell-nav-anchor")).toHaveStyle({
+      gridColumn: "1",
+      justifySelf: "start",
+    });
+    expect(screen.getByTestId("app-shell-utility-cluster")).toHaveStyle({
+      gridColumn: "3",
+      justifySelf: "end",
+    });
     expect(screen.getByTestId("app-shell-top-nav")).toHaveClass(
       "glass-pill",
       "inline-flex",
@@ -675,7 +690,9 @@ describe("AppShell workspace drawer shell", () => {
       expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
 
       fireEvent.click(toggle);
-      expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+      });
     }
   );
 
@@ -704,10 +721,28 @@ describe("AppShell workspace drawer shell", () => {
       "data-overlay-mode",
       "mobile"
     );
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-workspace-motion-state",
+      "peek"
+    );
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-workspace-motion-phase",
+      "open"
+    );
     expect(screen.getByTestId("workspace-drawer-pane")).toHaveAttribute(
       "data-overlay",
       "true"
     );
+
+    await user.click(screen.getByRole("button", { name: "Close Workspace" }));
+
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-workspace-motion-phase",
+      "closing"
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("workspace-drawer-overlay")).not.toBeInTheDocument();
+    });
   });
 
   it("tracks the phone shell height from the visual viewport instead of plain 100vh", () => {

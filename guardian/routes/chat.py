@@ -44,6 +44,8 @@ from pydantic import (
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.context.retrieval_router_policy import source_mode_boundary_label
+from guardian.core import event_bus
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -52,7 +54,11 @@ from guardian.core.chat_completion_service import (
     resolve_thread_completion_settings,
     split_history_and_latest_turn,
 )
-from guardian.core.dependencies import get_request_user_id
+from guardian.core.dependencies import (
+    RequestUserScope,
+    get_request_user_scope,
+    get_single_user_id,
+)
 from guardian.core.event_graph import get_event_writer
 from guardian.depth import (
     DepthDowngradeReason,
@@ -127,6 +133,83 @@ def _run_completion_redis_op(fn, *, reason: str, log_message: str):
     except (RedisOperationTimeout, Exception) as exc:
         logger.warning(log_message, exc)
         raise _completion_service_unavailable(reason)
+
+
+def _request_account_id(request_user_scope: RequestUserScope) -> str:
+    account_id = str(request_user_scope.account_id or "").strip()
+    return account_id or get_single_user_id()
+
+
+def _resolve_thread_owner_hint(
+    raw_user_id: Any,
+    request_user_scope: RequestUserScope,
+) -> str:
+    requested_user_id = str(raw_user_id or "").strip()
+    account_id = _request_account_id(request_user_scope)
+    if request_user_scope.multi_user_enabled:
+        if requested_user_id and requested_user_id != account_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Requested user_id does not match the authenticated account",
+            )
+        return account_id
+    return requested_user_id or "default"
+
+
+def _scope_query_user_id(
+    requested_user_id: Optional[str],
+    request_user_scope: RequestUserScope,
+) -> Optional[str]:
+    if not request_user_scope.multi_user_enabled:
+        return requested_user_id
+    account_id = _request_account_id(request_user_scope)
+    if requested_user_id and requested_user_id != account_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Requested user_id does not match the authenticated account",
+        )
+    return account_id
+
+
+def _require_thread_account_scope(
+    thread_id: int,
+    request_user_scope: RequestUserScope,
+    *,
+    thread: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    thread_record = thread or _get_thread_or_404(thread_id)
+    if request_user_scope.multi_user_enabled:
+        account_id = _request_account_id(request_user_scope)
+        owner_id = str(thread_record.get("user_id") or "").strip()
+        if owner_id != account_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Thread does not belong to the authenticated account",
+            )
+    return thread_record
+
+
+def _require_existing_thread_account_scope(
+    thread_id: int,
+    request_user_scope: RequestUserScope,
+    *,
+    thread: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    thread_record = thread
+    if thread_record is None:
+        getter = getattr(chatlog_db, "get_chat_thread", None)
+        if callable(getter):
+            try:
+                thread_record = getter(thread_id)
+            except Exception:
+                thread_record = None
+    if thread_record is None:
+        return None
+    return _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread_record,
+    )
 
 
 def _best_effort_release_turn_lock(
@@ -661,6 +744,9 @@ class ChatCompletionRequest(BaseModel):
     provider: Optional[str] = None
     reasoning_mode: Optional[str] = None
     system_override: Optional[str] = None
+    preferred_name: Optional[str] = None
+    profession: Optional[str] = None
+    guardian_name: Optional[str] = None
     turn_id: Optional[str] = None
     source_mode: Optional[str] = "project"
     slash_intent: Optional["SlashIntentRequest"] = Field(
@@ -1387,12 +1473,13 @@ def chat_move_thread(
     thread_id: int,
     body: ThreadMoveRequest = Body(...),
     api_key: str = Depends(require_api_key),
-    user_id: str = Depends(get_request_user_id),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Explicitly move a thread to a new project."""
     thread = _get_thread_or_404(thread_id)
     current_owner = str(thread.get("user_id") or "").strip()
-    if current_owner and current_owner != user_id:
+    user_id = _request_account_id(request_user_scope)
+    if request_user_scope.multi_user_enabled and current_owner != user_id:
         raise HTTPException(
             status_code=403, detail="Not allowed to move this thread"
         )
@@ -2071,27 +2158,29 @@ def normalize_source_mode(raw: Any) -> str:
 
 @router.post("/threads")
 def chat_create_thread(
-    body: dict = Body(...), api_key: str = Depends(require_api_key)
+    body: dict = Body(...),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Create a chat thread and return identifier metadata."""
-    try:
-        payload = body or {}
-        raw_title = payload.get("title")
-        title = (
-            str(raw_title).strip() if raw_title is not None else "New Chat"
-        ) or "New Chat"
-        raw_user = payload.get("user_id")
-        user_id = str(raw_user) if raw_user not in (None, "") else "default"
-        raw_summary = payload.get("summary")
-        summary = str(raw_summary).strip() if raw_summary is not None else ""
-        project_id = payload.get("project_id")
-        normalized_project = _coerce_project_id(project_id)
-        metadata = (
-            payload.get("metadata")
-            if isinstance(payload.get("metadata"), dict)
-            else None
-        )
+    payload = body or {}
+    raw_title = payload.get("title")
+    title = (
+        str(raw_title).strip() if raw_title is not None else "New Chat"
+    ) or "New Chat"
+    raw_user = payload.get("user_id")
+    user_id = _resolve_thread_owner_hint(raw_user, request_user_scope)
+    raw_summary = payload.get("summary")
+    summary = str(raw_summary).strip() if raw_summary is not None else ""
+    project_id = payload.get("project_id")
+    normalized_project = _coerce_project_id(project_id)
+    metadata = (
+        payload.get("metadata")
+        if isinstance(payload.get("metadata"), dict)
+        else None
+    )
 
+    try:
         # Idempotency guard: check for recent empty thread from same user
         recent_thread = chatlog_db.get_recent_thread(user_id)
         if recent_thread:
@@ -2138,13 +2227,15 @@ def chat_list_threads(
     user_id: Optional[str] = Query(default=None),
     project_id: Optional[int] = Query(default=None),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Return the list of persisted chat threads."""
+    scoped_user_id = _scope_query_user_id(user_id, request_user_scope)
     try:
         threads = chatlog_db.list_chat_threads(
             limit=limit,
             offset=offset,
-            user_id=user_id,
+            user_id=scoped_user_id,
             project_id=project_id,
         )
         return {
@@ -2171,11 +2262,17 @@ def chat_list_threads(
 def chat_get_thread(
     thread_id: int,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Return the authoritative thread snapshot."""
     thread = chatlog_db.get_chat_thread(thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
     return {"ok": True, "thread": thread}
 
 
@@ -2189,6 +2286,7 @@ def chat_post_message(
     thread_id: int,
     body: Dict[str, Any] = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Post a new message to a chat thread."""
     role = body.get("role")
@@ -2198,7 +2296,11 @@ def chat_post_message(
             status_code=400,
             content={"ok": False, "error": "role and content required"},
         )
-    owner = body.get("user_id") or "default"
+    _require_existing_thread_account_scope(thread_id, request_user_scope)
+    owner = _resolve_thread_owner_hint(
+        body.get("user_id"),
+        request_user_scope,
+    )
     try:
         result = _persist_message_to_thread(
             thread_id=thread_id,
@@ -2221,6 +2323,7 @@ def chat_post_message(
 def chat_post_message_create_on_send(
     body: ChatMessageCreateRequest = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
     Post a message to an existing thread or create a thread on first send.
@@ -2236,7 +2339,7 @@ def chat_post_message_create_on_send(
             status_code=400,
             content={"ok": False, "error": "role and content required"},
         )
-    owner = str(body.user_id or "default")
+    owner = _resolve_thread_owner_hint(body.user_id, request_user_scope)
     requested_thread_id = _coerce_positive_int(body.thread_id)
     created_thread = False
     created_thread_id: Optional[int] = None
@@ -2284,6 +2387,11 @@ def chat_post_message_create_on_send(
             raise HTTPException(
                 status_code=500, detail="Failed to create chat thread"
             )
+    else:
+        _require_existing_thread_account_scope(
+            requested_thread_id,
+            request_user_scope,
+        )
 
     assert requested_thread_id is not None
     try:
@@ -2339,8 +2447,10 @@ def chat_list_messages(
     offset: int = 0,
     include_fact_evidence: bool = False,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """List messages for a chat thread."""
+    _require_thread_account_scope(thread_id, request_user_scope)
     exclude_kinds = None if include_fact_evidence else ["fact_evidence"]
     items = chatlog_db.list_messages(
         thread_id,
@@ -2409,6 +2519,7 @@ async def chat_complete(
     request: Request = None,
     api_key: str = Depends(require_api_key),
     request_id: str | None = Header(None, alias="X-Request-ID"),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
     Enqueue an assistant reply for the given thread and return a task id.
@@ -2432,6 +2543,11 @@ async def chat_complete(
     )
     if not thread_exists:
         raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread_exists if isinstance(thread_exists, dict) else None,
+    )
 
     thread_execution = resolve_thread_completion_settings(
         thread_exists if isinstance(thread_exists, dict) else None,
@@ -2606,6 +2722,9 @@ async def chat_complete(
         depth_mode=internal_depth_mode,
         system_override=merged_system_override,
         retrieval_override=retrieval_override,
+        preferred_name=body.preferred_name,
+        profession=body.profession,
+        guardian_name=body.guardian_name,
         # Temporary transport bridge: carry turn_id, source_mode, and
         # bounded slash intent metadata via origin until ChatCompletionTask
         # gains typed fields for those values.
@@ -2805,12 +2924,19 @@ async def chat_complete(
 
 @router.get("/{thread_id}/profile")
 def chat_get_thread_profile(
-    thread_id: int, api_key: str = Depends(require_api_key)
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Return resolved profile state + available profile catalog for a thread."""
     thread = chatlog_db.get_chat_thread(thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
 
     resolved_profile: dict[str, Any] | None = None
     if resolve_thread_system_profile:
@@ -2867,8 +2993,10 @@ def chat_delete_message(
     thread_id: int,
     message_id: int,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Delete a message from a chat thread."""
+    _require_thread_account_scope(thread_id, request_user_scope)
     chatlog_db.delete_message(thread_id, message_id)
     chatlog_db.write_audit_log(
         "delete", "chat_message", str(message_id), user_id="default"
@@ -2886,12 +3014,14 @@ def branch_thread(
     thread_id: int,
     body: Optional[ThreadBranchRequest] = Body(default=None),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Create a branch (child thread) from an existing thread."""
     payload = body or ThreadBranchRequest()
     parent = chatlog_db.get_chat_thread(thread_id)
     if not parent:
         raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(thread_id, request_user_scope, thread=parent)
 
     title = _normalize_thread_title(payload.title)
     if title is None:
@@ -2909,7 +3039,11 @@ def branch_thread(
         project_id = _coerce_project_id(parent.get("project_id"))
 
     child = chatlog_db.create_chat_thread(
-        user_id=parent.get("user_id", "default"),
+        user_id=(
+            _request_account_id(request_user_scope)
+            if request_user_scope.multi_user_enabled
+            else parent.get("user_id", "default")
+        ),
         title=title,
         summary=summary,
         project_id=project_id,
@@ -2944,8 +3078,10 @@ def update_thread(
     thread_id: int,
     payload: ThreadUpdate,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Update thread metadata (title, summary, project, archive status)."""
+    _require_thread_account_scope(thread_id, request_user_scope)
     updated = _apply_thread_update(thread_id, payload)
     return updated
 
@@ -2955,9 +3091,11 @@ def patch_thread(
     thread_id: int,
     body: Dict[str, object] = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Alternative PATCH endpoint for thread updates (less strict validation)."""
     try:
+        _require_thread_account_scope(thread_id, request_user_scope)
         update = ThreadUpdate(**(body or {}))
         refreshed = _apply_thread_update(thread_id, update)
         return {"ok": True, "thread": refreshed}
@@ -2982,11 +3120,15 @@ def patch_thread_config(
     thread_id: int,
     body: ThreadConfigUpdate = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Update the durable thread execution contract without starting a run."""
     existing = chatlog_db.get_chat_thread(thread_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id, request_user_scope, thread=existing
+    )
 
     updated_config = _merge_thread_config_update(
         existing.get("thread_config"), body
@@ -3004,8 +3146,10 @@ def delete_thread(
     thread_id: int,
     force: bool = Query(False),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Hard delete a thread regardless of archived state."""
+    _require_thread_account_scope(thread_id, request_user_scope)
     deleted = chatlog_db.delete_thread(thread_id, force=force)
     if not deleted:
         raise HTTPException(
@@ -3032,10 +3176,14 @@ def list_threads(
     user_id: str = Query(None, description="Filter by user_id"),
     project_id: str = Query(None, description="Filter by project_id"),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """List all threads. Optionally filter by user or project."""
+    scoped_user_id = _scope_query_user_id(user_id, request_user_scope)
     try:
-        items = chatlog_db.list_threads(user_id=user_id, project_id=project_id)
+        items = chatlog_db.list_threads(
+            user_id=scoped_user_id, project_id=project_id
+        )
         return {"threads": items}
     except Exception as exc:
         if (
@@ -3049,14 +3197,16 @@ def list_threads(
 
 @threads_router.post("")
 def create_thread_alias(
-    req: ThreadCreateRequest, api_key: str = Depends(require_api_key)
+    req: ThreadCreateRequest,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Create a new thread (alias endpoint)."""
     thread_id = chatlog_db.create_thread(
         parent_thread_id=req.parent_thread_id,
         session_id=req.session_id,
         summary=req.summary,
-        user_id=req.user_id,
+        user_id=_resolve_thread_owner_hint(req.user_id, request_user_scope),
         project_id=req.project_id,
     )
     return {"thread_id": thread_id}
@@ -3067,7 +3217,11 @@ thread_router = APIRouter(prefix="/thread", tags=["Threads"])
 
 
 @thread_router.get("/{thread_id}")
-def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
+def get_thread(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """Get details for a specific thread by thread_id."""
     thread_payload = None
     get_chat_thread = getattr(chatlog_db, "get_chat_thread", None)
@@ -3078,6 +3232,11 @@ def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
             thread_payload = None
 
     if isinstance(thread_payload, dict):
+        _require_thread_account_scope(
+            thread_id,
+            request_user_scope,
+            thread=thread_payload,
+        )
         return {
             "thread_id": thread_payload.get("id"),
             "parent_thread_id": thread_payload.get("parent_id"),
@@ -3092,6 +3251,12 @@ def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
     row = getattr(chatlog_db, "get_thread", lambda _thread_id: None)(thread_id)
     if not row:
         raise HTTPException(status_code=404, detail="Thread not found")
+    thread_user_id = row[5] if len(row) > 5 else None
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread={"user_id": thread_user_id},
+    )
     return {
         "thread_id": row[0],
         "parent_thread_id": row[1],
@@ -3105,8 +3270,20 @@ def get_thread(thread_id: int, api_key: str = Depends(require_api_key)):
 
 
 @thread_router.get("/{thread_id}/children")
-def get_child_threads(thread_id: int, api_key: str = Depends(require_api_key)):
+def get_child_threads(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """List all child threads for a parent thread."""
+    parent = chatlog_db.get_chat_thread(thread_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=parent,
+    )
     rows = chatlog_db.get_child_threads(thread_id)
     results = [
         {
@@ -3127,22 +3304,36 @@ def get_child_threads(thread_id: int, api_key: str = Depends(require_api_key)):
 
 
 @thread_router.get("/{thread_id}/summary")
-def get_thread_summary(thread_id: int, api_key: str = Depends(require_api_key)):
+def get_thread_summary(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """Get the summary for a thread."""
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
     summary = chatlog_db.get_thread_summary(thread_id)
     return {"thread_id": thread_id, "summary": summary}
 
 
 @thread_router.post("")
 def create_thread(
-    req: ThreadCreateRequest, api_key: str = Depends(require_api_key)
+    req: ThreadCreateRequest,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Create a new thread with optional parent, summary, session, user, and project."""
     thread_id = chatlog_db.create_thread(
         parent_thread_id=req.parent_thread_id,
         session_id=req.session_id,
         summary=req.summary,
-        user_id=req.user_id,
+        user_id=_resolve_thread_owner_hint(req.user_id, request_user_scope),
         project_id=req.project_id,
     )
     return {"thread_id": thread_id}
@@ -3241,7 +3432,9 @@ def _get_task_completed_payload(
 
 @router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
 def get_latest_rag_trace(
-    thread_id: int, api_key: str = Depends(require_api_key)
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
     [DEV ONLY] Get the RAG trace for the last completion in this thread.
@@ -3252,6 +3445,14 @@ def get_latest_rag_trace(
     """
     trace: Dict[str, Any] | None = None
     payload_summary: Dict[str, Any] | None = None
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
     metadata = _fetch_thread_metadata(thread_id)
     profile_debug: Dict[str, Any] = {
         "active_profile_id": None,
@@ -3364,6 +3565,273 @@ def get_latest_rag_trace(
     return trace
 
 
+def _synthesize_retrieval_posture(
+    trace: Dict[str, Any],
+    payload_summary: Dict[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Build a canonical retrieval posture snapshot from legacy trace fields.
+
+    Used as fallback when the completion-service seam has not yet emitted
+    payload_summary["retrieval_posture"].  Produces the same shape as the
+    canonical snapshot so callers receive a consistent contract.
+    """
+    if trace is None:
+        return None
+
+    source_mode = trace.get("source_mode")
+    if not source_mode:
+        # No posture evidence in the trace itself
+        return None
+
+    widen_reason = str(trace.get("widen_reason") or "none")
+    retrieval_override = (
+        payload_summary.get("retrieval_override")
+        if isinstance(payload_summary, dict)
+        else None
+    )
+    retrieval_override_mode: str | None = None
+    if isinstance(retrieval_override, dict):
+        retrieval_override_mode = retrieval_override.get("mode")
+
+    return {
+        "source_mode": source_mode,
+        "boundary_label": source_mode_boundary_label(source_mode),
+        "retrieval_override_mode": retrieval_override_mode,
+        "widen_reason": widen_reason,
+        "conversation_only": source_mode == "conversation",
+    }
+
+
+def _canonical_retrieval_posture_from_completed_payload(
+    completed_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(completed_payload, dict):
+        return None
+
+    payload_summary = completed_payload.get("payload_summary")
+    if isinstance(payload_summary, dict):
+        posture = payload_summary.get("retrieval_posture")
+        if isinstance(posture, dict):
+            return dict(posture)
+
+    trace = completed_payload.get("trace")
+    if isinstance(trace, dict):
+        return _synthesize_retrieval_posture(
+            trace,
+            payload_summary if isinstance(payload_summary, dict) else None,
+        )
+    return None
+
+
+def _event_payload_from_record(
+    event: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(event, dict):
+        return None
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        return payload
+    payload = event.get("data")
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
+def _retrieval_posture_history_items(
+    thread_id: int,
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+
+    items: list[dict[str, Any]] = []
+    last_id = 0
+    chunk_limit = max(limit * 20, 100)
+
+    while True:
+        try:
+            events = event_bus.fetch_events_after(last_id, limit=chunk_limit)
+        except Exception as exc:
+            logger.debug(
+                "[chat.trace] failed to read retrieval posture history thread_id=%s: %s",
+                thread_id,
+                exc,
+            )
+            break
+
+        if not events:
+            break
+
+        for event in events:
+            event_id = _coerce_positive_int(event.get("id"))
+            if event_id is not None and event_id > last_id:
+                last_id = event_id
+
+            topic = str(event.get("topic") or event.get("type") or "").strip()
+            if topic != "task.completed":
+                continue
+
+            payload = _event_payload_from_record(event)
+            if not isinstance(payload, dict):
+                continue
+
+            payload_thread_id = _coerce_positive_int(payload.get("thread_id"))
+            if payload_thread_id != thread_id:
+                continue
+
+            posture = _canonical_retrieval_posture_from_completed_payload(
+                payload
+            )
+            if posture is None:
+                continue
+
+            task_ref = str(
+                payload.get("task_id")
+                or event.get("task_id")
+                or event.get("id")
+                or ""
+            ).strip()
+            created_at = (
+                event.get("created_at")
+                or payload.get("completed_at")
+                or payload.get("created_at")
+            )
+            items.append(
+                {
+                    "task_id": task_ref or str(event.get("id") or ""),
+                    "created_at": created_at,
+                    "retrieval_posture": posture,
+                }
+            )
+
+        if len(events) < chunk_limit:
+            break
+
+    if not items:
+        return []
+
+    recent_items = items[-limit:]
+    recent_items.reverse()
+    return recent_items
+
+
+def get_latest_retrieval_posture(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Dict[str, Any]:
+    """
+    [DEV ONLY] Get the latest canonical retrieval posture snapshot for this thread.
+
+    Uses the same latest-trace evidence path as get_latest_rag_trace.
+    Returns the posture directly from payload_summary["retrieval_posture"] if
+    present, otherwise synthesizes from legacy trace fields.
+    Returns an empty-state response when no completed trace evidence exists.
+    """
+    metadata = _fetch_thread_metadata(thread_id)
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+    task_id = _thread_latest_task_id(thread_id, metadata)
+
+    posture: Dict[str, Any] | None = None
+
+    if task_id:
+        completed_payload = _get_task_completed_payload(task_id)
+        posture = _canonical_retrieval_posture_from_completed_payload(
+            completed_payload
+        )
+
+    # Empty state when no posture evidence exists
+    if posture is None:
+        return {
+            "thread_id": thread_id,
+            "status": "empty",
+            "retrieval_posture": None,
+        }
+
+    return {
+        "thread_id": thread_id,
+        "status": "ok",
+        "retrieval_posture": posture,
+    }
+
+
+@router.get("/debug/retrieval-posture/{thread_id}/latest", tags=["Debug"])
+def get_latest_retrieval_posture_endpoint(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """
+    [DEV ONLY] Get the latest canonical retrieval posture snapshot for this thread.
+
+    See get_latest_retrieval_posture for full documentation.
+    """
+    return get_latest_retrieval_posture(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+def get_retrieval_posture_history(
+    thread_id: int,
+    limit: int = 5,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Dict[str, Any]:
+    """
+    [DEV ONLY] Get a bounded history of canonical retrieval posture snapshots
+    for this thread from completed trace evidence.
+    """
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    items = _retrieval_posture_history_items(thread_id, limit=limit)
+    if not items:
+        return {
+            "thread_id": thread_id,
+            "status": "empty",
+            "items": [],
+        }
+
+    return {
+        "thread_id": thread_id,
+        "status": "ok",
+        "items": items,
+    }
+
+
+@router.get("/{thread_id}/debug/retrieval-posture/history", tags=["Debug"])
+def get_retrieval_posture_history_endpoint(
+    thread_id: int,
+    limit: int = Query(default=5, ge=1, le=20),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """[DEV ONLY] Get posture history for a thread."""
+    return get_retrieval_posture_history(
+        thread_id,
+        limit=limit,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
 @simple_chat_router.get("/chat/stream")
 async def simple_chat_stream(
     prompt: str = Query(..., description="Prompt text"),
@@ -3410,10 +3878,16 @@ async def api_chat_root(
 
 @api_chat_router.post("/threads")
 def api_chat_create_thread(
-    body: dict = Body(...), api_key: str = Depends(require_api_key)
+    body: dict = Body(...),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/threads used in tests."""
-    return chat_create_thread(body, api_key=api_key)
+    return chat_create_thread(
+        body,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.get("/threads")
@@ -3423,6 +3897,7 @@ def api_chat_list_threads(
     user_id: Optional[str] = Query(default=None),
     project_id: Optional[int] = Query(default=None),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for GET /chat/threads used in tests."""
     return chat_list_threads(
@@ -3431,6 +3906,7 @@ def api_chat_list_threads(
         user_id=user_id,
         project_id=project_id,
         api_key=api_key,
+        request_user_scope=request_user_scope,
     )
 
 
@@ -3439,27 +3915,43 @@ def api_chat_post_message(
     thread_id: int,
     body: Dict[str, Any] = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/{thread_id}/messages used in tests."""
-    return chat_post_message(thread_id, body, api_key=api_key)
+    return chat_post_message(
+        thread_id,
+        body,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.get("/threads/{thread_id}")
 def api_chat_get_thread(
     thread_id: int,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for GET /chat/threads/{thread_id}."""
-    return chat_get_thread(thread_id, api_key=api_key)
+    return chat_get_thread(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.post("/messages")
 def api_chat_post_message_create_on_send(
     body: ChatMessageCreateRequest = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/messages used by draft tabs."""
-    return chat_post_message_create_on_send(body, api_key=api_key)
+    return chat_post_message_create_on_send(
+        body,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.get("/{thread_id}/messages")
@@ -3468,6 +3960,7 @@ def api_chat_list_messages(
     limit: int = 50,
     offset: int = 0,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for GET /chat/{thread_id}/messages used in tests."""
     return chat_list_messages(
@@ -3476,6 +3969,7 @@ def api_chat_list_messages(
         offset,
         include_fact_evidence=False,
         api_key=api_key,
+        request_user_scope=request_user_scope,
     )
 
 
@@ -3486,6 +3980,7 @@ async def api_chat_complete(
     request: Request = None,
     api_key: str = Depends(require_api_key),
     request_id: str | None = Header(None, alias="X-Request-ID"),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
     return await chat_complete(
@@ -3494,23 +3989,70 @@ async def api_chat_complete(
         request=request,
         api_key=api_key,
         request_id=request_id,
+        request_user_scope=request_user_scope,
     )
 
 
 @api_chat_router.get("/{thread_id}/profile")
 def api_chat_get_thread_profile(
-    thread_id: int, api_key: str = Depends(require_api_key)
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for GET /chat/{thread_id}/profile."""
-    return chat_get_thread_profile(thread_id, api_key=api_key)
+    return chat_get_thread_profile(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
 def api_get_latest_rag_trace(
-    thread_id: int, api_key: str = Depends(require_api_key)
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for GET /chat/debug/rag-trace/{thread_id}/latest."""
-    return get_latest_rag_trace(thread_id, api_key=api_key)
+    return get_latest_rag_trace(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get(
+    "/debug/retrieval-posture/{thread_id}/latest", tags=["Debug"]
+)
+def api_get_latest_retrieval_posture(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Compat alias for GET /chat/debug/retrieval-posture/{thread_id}/latest."""
+    return get_latest_retrieval_posture(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get(
+    "/{thread_id}/debug/retrieval-posture/history", tags=["Debug"]
+)
+def api_get_retrieval_posture_history(
+    thread_id: int,
+    limit: int = Query(default=5, ge=1, le=20),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Compat alias for GET /chat/{thread_id}/debug/retrieval-posture/history."""
+    return get_retrieval_posture_history(
+        thread_id,
+        limit=limit,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.delete("/{thread_id}/messages/{message_id}")
@@ -3518,9 +4060,15 @@ def api_chat_delete_message(
     thread_id: int,
     message_id: int,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for DELETE /chat/{thread_id}/messages/{message_id} used in tests."""
-    return chat_delete_message(thread_id, message_id, api_key=api_key)
+    return chat_delete_message(
+        thread_id,
+        message_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.post("/{thread_id}/branch", response_model=ThreadDTO)
@@ -3528,9 +4076,15 @@ def api_branch_thread(
     thread_id: int,
     body: Optional[ThreadBranchRequest] = Body(default=None),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/{thread_id}/branch used in tests."""
-    return branch_thread(thread_id, body, api_key=api_key)
+    return branch_thread(
+        thread_id,
+        body,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.patch("/{thread_id}", response_model=ThreadDTO)
@@ -3538,9 +4092,15 @@ def api_update_thread(
     thread_id: int,
     payload: ThreadUpdate,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for PATCH /chat/{thread_id} used in tests."""
-    return update_thread(thread_id, payload, api_key=api_key)
+    return update_thread(
+        thread_id,
+        payload,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.patch("/threads/{thread_id}")
@@ -3548,9 +4108,15 @@ def api_patch_thread(
     thread_id: int,
     body: Dict[str, object] = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for PATCH /chat/threads/{thread_id} used in tests."""
-    return patch_thread(thread_id, body, api_key=api_key)
+    return patch_thread(
+        thread_id,
+        body,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.patch("/threads/{thread_id}/config")
@@ -3558,9 +4124,15 @@ def api_patch_thread_config(
     thread_id: int,
     body: ThreadConfigUpdate = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for PATCH /chat/threads/{thread_id}/config."""
-    return patch_thread_config(thread_id, body, api_key=api_key)
+    return patch_thread_config(
+        thread_id,
+        body,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.post("/threads/{thread_id}/move")
@@ -3568,9 +4140,15 @@ def api_chat_move_thread(
     thread_id: int,
     body: ThreadMoveRequest = Body(...),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/threads/{thread_id}/move."""
-    return chat_move_thread(thread_id, body, api_key=api_key)
+    return chat_move_thread(
+        thread_id,
+        body,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
 
 
 @api_chat_router.delete("/threads/{thread_id}")
@@ -3578,6 +4156,12 @@ def api_delete_thread(
     thread_id: int,
     force: bool = Query(False),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for DELETE /chat/threads/{thread_id} used in tests."""
-    return delete_thread(thread_id, force, api_key=api_key)
+    return delete_thread(
+        thread_id,
+        force,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
