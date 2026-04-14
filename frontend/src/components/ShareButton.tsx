@@ -1,6 +1,8 @@
 import { CSSProperties, useState } from "react";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
 import { resolveApiUrl, resolveSharePublicUrl } from "@/lib/runtimeConfig";
+import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
+import { usePressFeedback } from "@/hooks/usePressFeedback";
 
 type ShareButtonProps = {
   targetType: "thread" | "document";
@@ -8,6 +10,7 @@ type ShareButtonProps = {
   className?: string;
   style?: CSSProperties;
   dataState?: "active" | "inactive";
+  isPhoneShell?: boolean;
 };
 
 type CopyMethod = "clipboard" | "execCommand" | "prompt" | "none";
@@ -59,10 +62,12 @@ export function ShareButton({
   className,
   style,
   dataState,
+  isPhoneShell = false,
 }: ShareButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
+  const pressFeedback = usePressFeedback({ enabled: isPhoneShell && !isLoading });
 
   const handleShare = async () => {
     setIsLoading(true);
@@ -119,21 +124,24 @@ export function ShareButton({
       <button
         onClick={handleShare}
         disabled={isLoading}
-        className={className}
+        {...pressFeedback.getPressFeedbackProps({
+          className,
+          style: {
+            ...getMobileTapTargetStyle(isPhoneShell),
+            padding: "6px 12px",
+            borderRadius: 6,
+            border: "1px solid var(--panel-border)",
+            backgroundColor: "var(--panel-bg)",
+            cursor: isLoading ? "not-allowed" : "pointer",
+            fontSize: 13,
+            fontWeight: 500,
+            color: isLoading ? "var(--text-subtle)" : "var(--text)",
+            transition: "all 200ms",
+            opacity: isLoading ? 0.6 : 1,
+            ...style,
+          },
+        })}
         data-state={dataState}
-        style={{
-          padding: "6px 12px",
-          borderRadius: 6,
-          border: "1px solid var(--panel-border)",
-          backgroundColor: "var(--panel-bg)",
-          cursor: isLoading ? "not-allowed" : "pointer",
-          fontSize: 13,
-          fontWeight: 500,
-          color: isLoading ? "var(--text-subtle)" : "var(--text)",
-          transition: "all 200ms",
-          opacity: isLoading ? 0.6 : 1,
-          ...style,
-        }}
       >
         {isLoading ? "Creating..." : "Share"}
       </button>

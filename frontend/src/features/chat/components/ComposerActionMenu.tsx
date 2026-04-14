@@ -7,6 +7,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
+import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { cn } from "@/lib/utils";
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -19,6 +21,7 @@ type DepthOption = {
 
 type ComposerActionMenuProps = {
   disabled?: boolean;
+  isPhoneShell?: boolean;
   depthMode: DepthMode;
   depthOptions: DepthOption[];
   onAttach: () => void;
@@ -31,6 +34,7 @@ type ComposerActionMenuProps = {
 
 export function ComposerActionMenu({
   disabled = false,
+  isPhoneShell = false,
   depthMode,
   depthOptions,
   onAttach,
@@ -41,6 +45,7 @@ export function ComposerActionMenu({
   voiceTurnLabel = "Upload voice turn",
 }: ComposerActionMenuProps) {
   const [open, setOpen] = useState(false);
+  const pressFeedback = usePressFeedback({ enabled: isPhoneShell && !disabled });
 
   const closeAndRun = (action: () => void) => {
     setOpen(false);
@@ -52,20 +57,23 @@ export function ComposerActionMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          {...pressFeedback.getPressFeedbackProps({
+            className: cn(
+              "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-[11px] leading-none transition-colors",
+              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
+              disabled
+                ? "cursor-not-allowed opacity-35"
+                : "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
+            ),
+            style: {
+              ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+              color: "var(--text)",
+              width: "var(--composer-control-size, 2rem)",
+              height: "var(--composer-control-size, 2rem)",
+            },
+          })}
           aria-label="Open composer actions"
           disabled={disabled}
-          className={cn(
-            "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-[11px] leading-none transition-colors",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
-            disabled
-              ? "cursor-not-allowed opacity-35"
-              : "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
-          )}
-          style={{
-            color: "var(--text)",
-            width: "var(--composer-control-size, 2rem)",
-            height: "var(--composer-control-size, 2rem)",
-          }}
         >
           <span className="text-[22px] leading-none">+</span>
         </button>

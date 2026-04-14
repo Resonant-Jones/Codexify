@@ -1,122 +1,180 @@
-/**
- * usePressFeedback Hook
- *
- * Manages press/release state for mobile touch controls.
- * Provides a consistent interaction experience that is:
- * - reduced-motion safe
- * - centralized (avoids scattered timing literals)
- * - React-idiomatic (uses useState/useCallback)
- */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  CSSProperties,
+  FocusEventHandler,
+  KeyboardEventHandler,
+  PointerEventHandler,
+} from "react";
 
-import { useCallback, useRef, useState } from "react";
-import { MOBILE_INTERACTION } from "@/components/persona/layout/mobileInteractionContract";
+import { cn } from "@/lib/utils";
 
-export type PressFeedbackPhase = "idle" | "pressed" | "submitting" | "submitted";
+import {
+  MOBILE_INTERACTION_CLASS,
+  getMobilePressFeedbackStyle,
+} from "@/components/persona/layout/mobileInteractionContract";
 
-/**
- * Configuration for the press feedback hook.
- */
-export type UsePressFeedbackOptions = {
-  /** Time in ms before automatically releasing (default: 800ms for submit feedback) */
-  autoReleaseMs?: number;
-  /** Whether this control is disabled */
-  disabled?: boolean;
+type PressFeedbackBindOptions = {
+  className?: string;
+  style?: CSSProperties;
 };
 
-/**
- * Returns press feedback state and handlers for a touch control.
- *
- * @example
- * ```tsx
- * const { phase, pressProps, release } = usePressFeedback();
- * <button {...pressProps}>Press me</button>
- * ```
- */
-export function usePressFeedback(options: UsePressFeedbackOptions = {}) {
-  const { autoReleaseMs, disabled = false } = options;
-  const [phase, setPhase] = useState<PressFeedbackPhase>("idle");
-  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isActiveRef = useRef(false);
+type PressFeedbackButtonProps = {
+  className?: string;
+  style?: CSSProperties;
+  "data-press-feedback"?: "idle" | "pressed";
+  "data-press-feedback-motion"?: "normal" | "reduced";
+  onPointerDown?: PointerEventHandler<HTMLButtonElement>;
+  onPointerUp?: PointerEventHandler<HTMLButtonElement>;
+  onPointerCancel?: PointerEventHandler<HTMLButtonElement>;
+  onPointerLeave?: PointerEventHandler<HTMLButtonElement>;
+  onBlur?: FocusEventHandler<HTMLButtonElement>;
+  onKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
+  onKeyUp?: KeyboardEventHandler<HTMLButtonElement>;
+};
 
-  /**
-   * Call when touch/pointer down begins.
-   */
-  const onPressStart = useCallback(() => {
-    if (disabled) return;
-    isActiveRef.current = true;
-    setPhase("pressed");
-  }, [disabled]);
+type UsePressFeedbackOptions = {
+  enabled: boolean;
+};
 
-  /**
-   * Call when touch/pointer up ends (releases naturally).
-   */
-  const onPressEnd = useCallback(() => {
-    if (disabled || !isActiveRef.current) return;
-    isActiveRef.current = false;
-    setPhase("idle");
-  }, [disabled]);
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
 
-  /**
-   * Call to initiate a submit sequence (e.g., composer send).
-   * Automatically transitions through submitting -> submitted -> idle.
-   */
-  const onSubmit = useCallback(() => {
-    if (disabled) return;
-    isActiveRef.current = true;
-
-    // Clear any existing timer
-    if (releaseTimerRef.current) {
-      clearTimeout(releaseTimerRef.current);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
     }
 
-    setPhase("submitting");
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => {
+      setPrefersReducedMotion(media.matches);
+    };
 
-    // Brief confirmation state
-    releaseTimerRef.current = setTimeout(() => {
-      if (!isActiveRef.current) return;
-      setPhase("submitted");
-
-      // Return to idle
-      releaseTimerRef.current = setTimeout(() => {
-        isActiveRef.current = false;
-        setPhase("idle");
-      }, MOBILE_INTERACTION.settleMs);
-    }, MOBILE_INTERACTION.pressScaleDownMs);
-  }, [disabled]);
-
-  /**
-   * Force-release back to idle state.
-   */
-  const release = useCallback(() => {
-    if (releaseTimerRef.current) {
-      clearTimeout(releaseTimerRef.current);
-      releaseTimerRef.current = null;
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", updatePreference);
+      return () => media.removeEventListener("change", updatePreference);
     }
-    isActiveRef.current = false;
-    setPhase("idle");
+
+    media.addListener(updatePreference);
+    return () => media.removeListener(updatePreference);
   }, []);
 
-  /**
-   * Props to spread onto the interactive element.
-   * Handles pointer events for touch/click feedback.
-   */
-  const pressProps = {
-    onPointerDown: onPressStart,
-    onPointerUp: onPressEnd,
-    onPointerLeave: onPressEnd,
-    onPointerCancel: onPressEnd,
-  };
-
-  return {
-    /** Current phase: 'idle' | 'pressed' | 'submitting' | 'submitted' */
-    phase,
-    /** Whether the element should appear pressed */
-    isPressed: phase === "pressed" || phase === "submitting",
-    /** Props to spread onto the interactive element */
-    pressProps,
-    /** Initiate a submit sequence */
-    onSubmit,
-    /** Force release to idle */
-    release,
-  };
+  return prefersReducedMotion;
 }
+
+export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [pressed, setPressed] = useState(false);
+
+  useEffect(() => {
+    if (!enabled && pressed) {
+      setPressed(false);
+    }
+  }, [enabled, pressed]);
+
+  const clearPressed = useCallback(() => {
+    setPressed(false);
+  }, []);
+
+  const handlePointerDown = useCallback<
+    NonNullable<PressFeedbackButtonProps["onPointerDown"]>
+  >((event) => {
+    if (!enabled) return;
+    if (event.button != null && event.button !== 0) return;
+    setPressed(true);
+  }, [enabled]);
+
+  const handlePointerUp = useCallback<
+    NonNullable<PressFeedbackButtonProps["onPointerUp"]>
+  >(() => {
+    if (!enabled) return;
+    clearPressed();
+  }, [clearPressed, enabled]);
+
+  const handlePointerCancel = useCallback<
+    NonNullable<PressFeedbackButtonProps["onPointerCancel"]>
+  >(() => {
+    if (!enabled) return;
+    clearPressed();
+  }, [clearPressed, enabled]);
+
+  const handlePointerLeave = useCallback<
+    NonNullable<PressFeedbackButtonProps["onPointerLeave"]>
+  >(() => {
+    if (!enabled) return;
+    clearPressed();
+  }, [clearPressed, enabled]);
+
+  const handleBlur = useCallback<NonNullable<PressFeedbackButtonProps["onBlur"]>>(() => {
+    if (!enabled) return;
+    clearPressed();
+  }, [clearPressed, enabled]);
+
+  const handleKeyDown = useCallback<
+    NonNullable<PressFeedbackButtonProps["onKeyDown"]>
+  >((event) => {
+    if (!enabled || event.repeat) return;
+    if (event.key !== " " && event.key !== "Enter") return;
+    setPressed(true);
+  }, [enabled]);
+
+  const handleKeyUp = useCallback<NonNullable<PressFeedbackButtonProps["onKeyUp"]>>(
+    (event) => {
+      if (!enabled) return;
+      if (event.key !== " " && event.key !== "Enter") return;
+      clearPressed();
+    },
+    [clearPressed, enabled]
+  );
+
+  return useMemo(() => {
+    const baseProps: PressFeedbackButtonProps = enabled
+      ? {
+          className: MOBILE_INTERACTION_CLASS.pressFeedback,
+          style: getMobilePressFeedbackStyle(prefersReducedMotion),
+          "data-press-feedback": pressed ? "pressed" : "idle",
+          "data-press-feedback-motion": prefersReducedMotion ? "reduced" : "normal",
+          onPointerDown: handlePointerDown,
+          onPointerUp: handlePointerUp,
+          onPointerCancel: handlePointerCancel,
+          onPointerLeave: handlePointerLeave,
+          onBlur: handleBlur,
+          onKeyDown: handleKeyDown,
+          onKeyUp: handleKeyUp,
+        }
+      : {};
+
+    return {
+      pressed,
+      prefersReducedMotion,
+      getPressFeedbackProps: ({
+        className,
+        style,
+      }: PressFeedbackBindOptions = {}) => ({
+        ...baseProps,
+        className: cn(baseProps.className, className) || undefined,
+        style: {
+          ...baseProps.style,
+          ...style,
+        },
+      }),
+    };
+  }, [
+    enabled,
+    handleBlur,
+    handleKeyDown,
+    handleKeyUp,
+    handlePointerCancel,
+    handlePointerDown,
+    handlePointerLeave,
+    handlePointerUp,
+    prefersReducedMotion,
+    pressed,
+  ]);
+}
+
+export type PressFeedbackResult = ReturnType<typeof usePressFeedback>;
