@@ -430,15 +430,15 @@ function renderRetrievalPostureBadges(
       boundary: {posture.boundary_label}
     </Badge>,
     posture.retrieval_override_mode ? (
-      <Badge
-        key="retrieval_override_mode"
-        className="border text-[11px] font-medium leading-none"
-        style={{
-          background: "var(--surface-soft)",
-          borderColor: "var(--panel-border)",
-          color: "var(--text)",
-        }}
-      >
+    <Badge
+      key="retrieval_override_mode"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
         override: {posture.retrieval_override_mode}
       </Badge>
     ) : null,
@@ -476,18 +476,66 @@ function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
   return new Date(parsed).toLocaleString();
 }
 
+type RetrievalPostureComparisonState = "changed" | "unchanged" | "no-previous" | "none";
+
+type RetrievalPostureComparison = {
+  changedFields: RetrievalPostureDiffField[] | null;
+  explanationLines: string[] | null;
+  label: string | null;
+  state: RetrievalPostureComparisonState;
+};
+
+function latestRetrievalPostureComparison(
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureComparison {
+  if (!current) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: null,
+      state: "none",
+    };
+  }
+
+  if (!previous) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: "No previous posture to compare",
+      state: "no-previous",
+    };
+  }
+
+  const comparison = diffRetrievalPosture(current, previous);
+  const explanation = describeRetrievalPostureChange(comparison, current, previous);
+
+  return {
+    changedFields: comparison.changed ? comparison.changedFields : null,
+    explanationLines: comparison.changed ? explanation.lines : null,
+    label: comparison.changed
+      ? "Posture changed since previous run"
+      : "Posture unchanged since previous run",
+    state: comparison.changed ? "changed" : "unchanged",
+  };
+}
+
 function RetrievalPostureDetails({
-  retrievalPosture,
-  onCopyPosture,
+  comparison,
+  copyFeedback,
   onCopyAuditNote,
   onCopyBundle,
-  copyFeedback,
+  onCopyPosture,
+  retrievalPosture,
+  showComparisonStrip,
 }: {
-  retrievalPosture: CommandCenterRetrievalPosture;
-  onCopyPosture: () => void;
+  comparison: RetrievalPostureComparison | null;
+  copyFeedback: RetrievalPostureCopyFeedback;
   onCopyAuditNote: () => void;
   onCopyBundle: () => void;
-  copyFeedback: RetrievalPostureCopyFeedback;
+  onCopyPosture: () => void;
+  retrievalPosture: CommandCenterRetrievalPosture;
+  showComparisonStrip: boolean;
 }) {
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
@@ -518,6 +566,41 @@ function RetrievalPostureDetails({
 
   return (
     <>
+      {showComparisonStrip && comparison?.label ? (
+        <div
+          className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className="border text-[11px] font-medium leading-none"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+              }}
+            >
+              {comparison.label}
+            </Badge>
+            {comparison.changedFields ? (
+              <div className="space-y-1">
+                <span>Changed: {comparison.changedFields.join(", ")}</span>
+                {comparison.explanationLines ? (
+                  <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
+                    {comparison.explanationLines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         <Badge
           className="border text-[11px] font-medium leading-none"
@@ -718,16 +801,25 @@ export function RetrievalPosturePanel({
   threadId,
   title = "Retrieval posture",
   testId,
+  showComparisonStrip = false,
 }: {
   className?: string;
   compact?: boolean;
   threadId: number | null;
   title?: string;
   testId?: string;
+  showComparisonStrip?: boolean;
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
+  const previousRetrievalPostureRef = React.useRef<CommandCenterRetrievalPosture | null>(null);
   const [copyFeedback, setCopyFeedback] = React.useState<RetrievalPostureCopyFeedback>(null);
+  const [comparison, setComparison] = React.useState<RetrievalPostureComparison>({
+    changedFields: null,
+    explanationLines: null,
+    label: null,
+    state: "none",
+  });
 
   React.useEffect(() => {
     setCopyFeedback(null);
@@ -774,6 +866,30 @@ export function RetrievalPosturePanel({
     }
   }, [retrievalPosture, writeRetrievalPostureToClipboard]);
 
+  const comparisonSnapshot = retrievalPosture
+    ? [
+        retrievalPosture.source_mode,
+        retrievalPosture.boundary_label,
+        retrievalPosture.retrieval_override_mode ?? "null",
+        retrievalPosture.widen_reason,
+        String(retrievalPosture.conversation_only),
+      ].join("\u241f")
+    : null;
+
+  React.useEffect(() => {
+    if (postureLoading || postureError || postureStatus !== "ok" || !retrievalPosture) {
+      return;
+    }
+
+    const nextComparison = latestRetrievalPostureComparison(
+      retrievalPosture,
+      previousRetrievalPostureRef.current
+    );
+
+    setComparison(nextComparison);
+    previousRetrievalPostureRef.current = retrievalPosture;
+  }, [comparisonSnapshot, postureError, postureLoading, postureStatus, threadId]);
+
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
     className,
@@ -810,11 +926,13 @@ export function RetrievalPosturePanel({
         </div>
       ) : retrievalPosture ? (
         <RetrievalPostureDetails
+          comparison={comparison}
           copyFeedback={copyFeedback}
           onCopyAuditNote={() => void handleCopyAuditNote()}
           onCopyBundle={() => void handleCopyBundle()}
           onCopyPosture={() => void handleCopyPosture()}
           retrievalPosture={retrievalPosture}
+          showComparisonStrip={showComparisonStrip}
         />
       ) : null}
     </div>

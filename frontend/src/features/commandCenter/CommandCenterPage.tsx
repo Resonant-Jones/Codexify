@@ -556,6 +556,7 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
                 testId="command-center-thread-posture-panel"
                 threadId={activeThreadId}
                 title="Thread retrieval posture"
+                showComparisonStrip
               />
             </div>
           ) : null}
@@ -571,7 +572,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
             />
           </div>
 
-          <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
+          <div
+            className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
             <EventConsole
               connectionDetail={connectionDetail}
               connectionState={connectionState}
