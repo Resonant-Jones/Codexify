@@ -82,6 +82,44 @@ export function diffRetrievalPosture(
   };
 }
 
+export type RetrievalPostureChangeExplanation = {
+  lines: string[];
+};
+
+const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
+  RetrievalPostureDiffField,
+  string
+> = {
+  source_mode: "The retrieval scope changed.",
+  boundary_label: "The retrieval boundary changed.",
+  retrieval_override_mode: "An explicit retrieval override changed the posture.",
+  widen_reason: "The reason for widening changed.",
+  conversation_only: "Conversation-only retrieval changed.",
+};
+
+const RETRIEVAL_POSTURE_CHANGE_FALLBACK =
+  "Retrieval posture changed, but this combination does not yet have a tailored explanation.";
+
+export function describeRetrievalPostureChange(
+  diff: RetrievalPostureDiff,
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureChangeExplanation {
+  if (!diff.changed || !current || !previous) {
+    return { lines: [] };
+  }
+
+  if (diff.changedFields.length === 0 || diff.changedFields.length > 2) {
+    return { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+  }
+
+  const lines = diff.changedFields.map(
+    (field) => RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS[field]
+  );
+
+  return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+}
+
 function toneStyle(tone: CommandCenterStatusTone): React.CSSProperties {
   switch (tone) {
     case "active":
