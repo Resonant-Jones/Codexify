@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 
+def _clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).strip()
+
+
 def _base_codexify_system_prompt() -> str:
     """
     Immutable core: liability-bearing, non-user-editable rules.
@@ -54,31 +60,45 @@ Preferred response posture:
 """
 
 
-def _imprint_zero_style_block(imprint: Optional[Dict[str, Any]]) -> str:
+def _imprint_zero_style_block(
+    imprint: Optional[Dict[str, Any]],
+    identity_context: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Optional: pull from Imprint_Zero memory (grammar, tone, name, etc.).
     Caller provides the imprint object; this function is pure string assembly.
     """
-    if not imprint:
+    if not imprint and not identity_context:
         return ""
 
     parts = []
 
-    name = imprint.get("guardian_name")
-    if name:
-        parts.append(f"Present yourself as '{name}', the user's Guardian.")
+    identity = identity_context if isinstance(identity_context, dict) else {}
+    imprint_data = imprint if isinstance(imprint, dict) else {}
 
-    preferred_name = imprint.get("preferred_name")
+    preferred_name = _clean_text(identity.get("preferred_name"))
+    if not preferred_name:
+        preferred_name = _clean_text(imprint_data.get("preferred_name"))
     if preferred_name:
-        parts.append(f"Address the user as '{preferred_name}'.")
+        parts.append(f"User preferred name: {preferred_name}")
 
-    style = imprint.get("style")
+    profession = _clean_text(identity.get("profession"))
+    if profession:
+        parts.append(f"User profession: {profession}")
+
+    name = _clean_text(identity.get("guardian_name"))
+    if not name:
+        name = _clean_text(imprint_data.get("guardian_name"))
+    if name:
+        parts.append(f"Assistant name: {name}")
+
+    style = imprint_data.get("style")
     if style == "playful-dry":
         parts.append("Use a dry, lightly playful tone when appropriate.")
     elif style == "clinical":
         parts.append("Prefer a clinical, highly-structured tone.")
 
-    grammar_prefs = imprint.get("grammar_prefs") or {}
+    grammar_prefs = imprint_data.get("grammar_prefs") or {}
     if grammar_prefs.get("oxfordComma"):
         parts.append("Prefer the Oxford comma when enumerating items.")
 

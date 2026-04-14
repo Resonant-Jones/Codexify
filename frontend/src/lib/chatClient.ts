@@ -18,6 +18,18 @@ function normalizeValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function normalizeIdentityValue(
+  value: unknown,
+  placeholder?: string
+): string | undefined {
+  const trimmed = normalizeValue(value);
+  if (!trimmed) return undefined;
+  if (placeholder && trimmed.toLowerCase() === placeholder.toLowerCase()) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 type ProviderModelPayload = {
   provider?: string;
   model?: string;
@@ -28,6 +40,9 @@ type ChatCompletionSelection = {
   modelId?: string | null;
   reasoningMode?: ComposerInferenceMode;
   preferredSelection?: ProviderModelSelection | null;
+  preferredName?: string | null;
+  profession?: string | null;
+  guardianName?: string | null;
 };
 
 function resolveProviderModelPayload(
@@ -60,6 +75,9 @@ export function buildChatCompletionPayload(
   provider?: string;
   model?: string;
   reasoning_mode?: ComposerInferenceMode;
+  preferred_name?: string;
+  profession?: string;
+  guardian_name?: string;
 } {
   const selection =
     typeof selectionOrModelId === "string"
@@ -89,11 +107,23 @@ export function buildChatCompletionPayload(
         );
 
   const reasoningMode = selection?.reasoningMode;
+  const preferredName = normalizeIdentityValue(
+    selection?.preferredName,
+    "You"
+  );
+  const profession = normalizeValue(selection?.profession);
+  const guardianName = normalizeIdentityValue(
+    selection?.guardianName,
+    "Guardian"
+  );
   return {
     depth_mode: depthMode,
     ...providerModelPayload,
     ...(reasoningMode && reasoningMode !== "default"
       ? { reasoning_mode: reasoningMode }
       : {}),
+    ...(preferredName ? { preferred_name: preferredName } : {}),
+    ...(profession ? { profession } : {}),
+    ...(guardianName ? { guardian_name: guardianName } : {}),
   };
 }

@@ -51,4 +51,31 @@ describe("buildChatCompletionPayload", () => {
       reasoning_mode: "think",
     });
   });
+
+  it("includes identity fields when provided", () => {
+    expect(
+      buildChatCompletionPayload("normal", {
+        preferredName: "Harbor",
+        profession: "Engineer",
+        guardianName: "Aurelia",
+      })
+    ).toEqual({
+      depth_mode: "normal",
+      preferred_name: "Harbor",
+      profession: "Engineer",
+      guardian_name: "Aurelia",
+    });
+  });
+
+  it("omits blank identity fields cleanly", () => {
+    expect(
+      buildChatCompletionPayload("normal", {
+        preferredName: " ",
+        profession: "",
+        guardianName: null,
+      })
+    ).toEqual({
+      depth_mode: "normal",
+    });
+  });
 });

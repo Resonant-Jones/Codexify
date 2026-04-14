@@ -13,9 +13,9 @@ import logging
 import os
 from importlib import import_module
 from types import ModuleType
-from typing import Optional
 
 _logger = logging.getLogger(__name__)
+_db_module: ModuleType | None = None
 
 
 def _detect_database_url() -> str:
@@ -57,6 +57,22 @@ def _load_db_module() -> ModuleType:
     return import_module("guardian.core.db")  # type: ignore[return-value]
 
 
-db: ModuleType = _load_db_module()
+def _get_db_module() -> ModuleType:
+    global _db_module
+    if _db_module is None:
+        _db_module = _load_db_module()
+        globals()["db"] = _db_module
+    return _db_module
+
+
+def __getattr__(name: str) -> ModuleType:
+    if name == "db":
+        return _get_db_module()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals().keys(), "db"})
+
 
 __all__ = ["db"]

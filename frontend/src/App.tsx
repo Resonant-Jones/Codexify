@@ -1072,7 +1072,12 @@ export default function App() {
     );
   } else if (commandCenterRoute) {
     mainContent = (
-      <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} />
+      <div className="flex h-screen min-h-0 flex-col overflow-hidden">
+        <TopBar />
+        <main className="min-h-0 flex-1 overflow-hidden">
+          <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} />
+        </main>
+      </div>
     );
   } else if (personaStudioRoute) {
     mainContent = <AppShell />;
