@@ -710,13 +710,13 @@ describe("AppShell workspace drawer shell", () => {
     );
     expect(
       screen.getByRole("button", { name: "Open Workspace" })
-    ).toBeInTheDocument();
+    ).toHaveAttribute("data-workspace-affordance-state", "collapsed");
 
     await user.click(screen.getByRole("button", { name: "Open Workspace" }));
 
     expect(
       await screen.findByRole("button", { name: "Close Workspace" })
-    ).toBeInTheDocument();
+    ).toHaveAttribute("data-workspace-affordance-state", "open");
     expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
       "data-overlay-mode",
       "mobile"
@@ -736,11 +736,18 @@ describe("AppShell workspace drawer shell", () => {
 
     await user.click(screen.getByRole("button", { name: "Close Workspace" }));
 
+    expect(
+      screen.getByRole("button", { name: "Close Workspace" })
+    ).toHaveAttribute("data-workspace-affordance-state", "open");
+
     expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
       "data-workspace-motion-phase",
       "closing"
     );
     await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Open Workspace" })
+      ).toHaveAttribute("data-workspace-affordance-state", "collapsed");
       expect(screen.queryByTestId("workspace-drawer-overlay")).not.toBeInTheDocument();
     });
   });

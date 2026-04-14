@@ -9,6 +9,8 @@ export type MobileWorkspaceSummonCopy = {
   title: string;
 };
 
+export type MobileCompanionSurfaceState = "collapsed" | "open";
+
 export const MOBILE_INTERACTION = {
   pressScale: 0.975,
   pressOpacity: 0.92,
@@ -52,6 +54,23 @@ export function getMobileTapTargetStyle(
     minWidth: options.square ? MOBILE_INTERACTION.tapTargetMinWidth : undefined,
     touchAction: "manipulation",
     WebkitTapHighlightColor: "transparent",
+  };
+}
+
+export function getMobileCompanionSurfaceStyle(
+  isPhoneShell: boolean,
+  state: MobileCompanionSurfaceState
+): CSSProperties {
+  if (!isPhoneShell) {
+    return {};
+  }
+
+  return {
+    color: "var(--text)",
+    background: state === "open" ? "var(--panel-bg)" : "var(--chip-bg)",
+    borderColor:
+      state === "open" ? "var(--panel-border-strong)" : "var(--chip-border)",
+    boxShadow: "none",
   };
 }
 
