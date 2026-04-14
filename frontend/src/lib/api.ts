@@ -275,6 +275,21 @@ export async function fetchLatestRetrievalPosture(
   return response.data;
 }
 
+export function buildRetrievalPostureHistoryPath(
+  threadId: string | number
+): string {
+  return `/api/chat/${normalizePathSegment(threadId)}/debug/retrieval-posture/history`;
+}
+
+export async function fetchRetrievalPostureHistory(
+  threadId: number
+): Promise<Record<string, unknown>> {
+  const response = await api.get<Record<string, unknown>>(
+    buildRetrievalPostureHistoryPath(threadId)
+  );
+  return response.data;
+}
+
 export type ThreadConfigUpdate = {
   providerId?: string;
   modelId?: string;

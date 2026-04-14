@@ -7,9 +7,11 @@ import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import TraceWorkbench, {
   RetrievalPosturePanel,
+  RetrievalPostureSummaryRow,
 } from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
+import useRetrievalPostureHistory from "@/features/commandCenter/hooks/useRetrievalPostureHistory";
 import {
   buildCommandCenterEventConsoleRows,
   countCommandCenterUnknownItems,
@@ -271,6 +273,62 @@ function DashboardSummary({
   );
 }
 
+function RecentRetrievalPosturePanel({
+  threadId,
+}: {
+  threadId: number | null;
+}) {
+  const { error, items, loading, status } = useRetrievalPostureHistory(threadId);
+
+  if (threadId === null) return null;
+
+  return (
+    <Card
+      className="bezel-none border"
+      data-testid="command-center-retrieval-posture-history-panel"
+      style={{
+        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base" style={{ color: "var(--text)" }}>
+          Recent retrieval posture
+        </CardTitle>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>
+          Newest-first thread history from completed debug evidence only.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
+            Loading recent retrieval posture history…
+          </div>
+        ) : error ? (
+          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--danger-border)", color: "var(--danger-text)" }}>
+            {error}
+          </div>
+        ) : status === "empty" || items.length === 0 ? (
+          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
+            No recent retrieval posture history for this thread.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {items.map((item) => (
+              <RetrievalPostureSummaryRow
+                key={`${item.task_id}:${item.created_at}`}
+                createdAt={item.created_at}
+                posture={item.retrieval_posture}
+                taskId={item.task_id}
+              />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const {
     connectionDetail,
@@ -408,17 +466,18 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
             padding: "var(--card-pad)",
           }}
         >
+          {activeThreadId !== null ? (
+            <div className="space-y-4">
+              <RecentRetrievalPosturePanel threadId={activeThreadId} />
+              <RetrievalPosturePanel
+                compact
+                testId="command-center-thread-posture-panel"
+                threadId={activeThreadId}
+                title="Thread retrieval posture"
+              />
+            </div>
+          ) : null}
           <div className="min-h-0 flex-1 overflow-hidden">
-            {activeThreadId !== null ? (
-              <div className="mb-3">
-                <RetrievalPosturePanel
-                  compact
-                  testId="command-center-thread-posture-panel"
-                  threadId={activeThreadId}
-                  title="Thread retrieval posture"
-                />
-              </div>
-            ) : null}
             <TraceWorkbench
               allRuns={runs}
               filters={traceFilters}
