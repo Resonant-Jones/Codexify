@@ -7,6 +7,7 @@ import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import TraceWorkbench, {
   diffRetrievalPosture,
+  describeRetrievalPostureChange,
   RetrievalPosturePanel,
   RetrievalPostureSummaryRow,
   type RetrievalPostureDiff,
@@ -280,19 +281,27 @@ function latestRetrievalPostureComparison(
   items: CommandCenterRetrievalPostureHistoryItem[]
 ): {
   comparison: RetrievalPostureDiff | null;
+  explanationLines: string[] | null;
   label: string | null;
   changedFields: string[] | null;
   state: "changed" | "unchanged" | "no-previous" | "none";
 } {
   const current = items[0] ?? null;
   if (!current) {
-    return { comparison: null, changedFields: null, label: null, state: "none" };
+    return {
+      comparison: null,
+      explanationLines: null,
+      changedFields: null,
+      label: null,
+      state: "none",
+    };
   }
 
   const previous = items[1] ?? null;
   if (!previous) {
     return {
       comparison: { changed: false, changedFields: [] },
+      explanationLines: null,
       changedFields: null,
       label: "No previous posture to compare",
       state: "no-previous",
@@ -300,8 +309,14 @@ function latestRetrievalPostureComparison(
   }
 
   const comparison = diffRetrievalPosture(current.retrieval_posture, previous.retrieval_posture);
+  const explanation = describeRetrievalPostureChange(
+    comparison,
+    current.retrieval_posture,
+    previous.retrieval_posture
+  );
   return {
     comparison,
+    explanationLines: comparison.changed ? explanation.lines : null,
     changedFields: comparison.changed ? comparison.changedFields : null,
     label: comparison.changed
       ? "Posture changed since previous run"
@@ -368,9 +383,16 @@ function RecentRetrievalPosturePanel({
                   {comparison.label}
                 </BadgePill>
                 {comparison.changedFields ? (
-                  <span>
-                    Changed: {comparison.changedFields.join(", ")}
-                  </span>
+                  <div className="space-y-1">
+                    <span>Changed: {comparison.changedFields.join(", ")}</span>
+                    {comparison.explanationLines ? (
+                      <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
+                        {comparison.explanationLines.map((line) => (
+                          <p key={line}>{line}</p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ) : null}

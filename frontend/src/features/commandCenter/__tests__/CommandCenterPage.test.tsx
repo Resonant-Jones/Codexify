@@ -800,6 +800,24 @@ function makeHistoryItem(
   };
 }
 
+function setThread42HistoryItems(
+  items: CommandCenterRetrievalPostureHistoryItem[]
+): void {
+  mockedRetrievalPostureHistoryStateByThreadId[42] = {
+    ...mockedRetrievalPostureHistoryStateByThreadId[42],
+    items,
+  };
+}
+
+function renderActiveThreadHistoryPanel(): HTMLElement {
+  render(<CommandCenterPage enabled />);
+
+  const workbench = screen.getByTestId("command-center-trace-workbench");
+  fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+  return screen.getByTestId("command-center-retrieval-posture-history-panel");
+}
+
 const mockedConversationHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
   created_at: "2026-04-01T15:58:30Z",
   retrieval_posture: mockedRetrievalPosture,
@@ -1126,25 +1144,23 @@ describe("CommandCenterPage", () => {
     expect(within(console).getByText("No classification yet")).toBeInTheDocument();
   });
 
-  it("shows that retrieval posture changed when the newest two history items differ", () => {
-    mockedRetrievalPostureHistoryStateByThreadId[42] = {
-      ...mockedRetrievalPostureHistoryStateByThreadId[42],
-      items: [
-        makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
-        makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedProjectPosture),
-      ],
-    };
+  it("shows a generic fallback when the newest two history items differ in an unsupported combination", () => {
+    setThread42HistoryItems([
+      makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+      makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedProjectPosture),
+    ]);
 
-    render(<CommandCenterPage enabled />);
+    const historyPanel = renderActiveThreadHistoryPanel();
 
-    const workbench = screen.getByTestId("command-center-trace-workbench");
-    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
-
-    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
     expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
     expect(
       within(historyPanel).getByText(
         /Changed: source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
       )
     ).toBeInTheDocument();
 
@@ -1156,26 +1172,109 @@ describe("CommandCenterPage", () => {
     expect(historyItems[1]).toHaveTextContent(/task-previous/i);
   });
 
-  it("shows that retrieval posture is unchanged when the newest two history items match", () => {
-    mockedRetrievalPostureHistoryStateByThreadId[42] = {
-      ...mockedRetrievalPostureHistoryStateByThreadId[42],
-      items: [
-        makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+  it.each([
+    [
+      "source_mode",
+      { source_mode: "project" as const },
+      "The retrieval scope changed.",
+    ],
+    [
+      "boundary_label",
+      { boundary_label: "same_user_same_project" as const },
+      "The retrieval boundary changed.",
+    ],
+    [
+      "retrieval_override_mode",
+      { retrieval_override_mode: null as const },
+      "An explicit retrieval override changed the posture.",
+    ],
+    [
+      "widen_reason",
+      { widen_reason: "insufficient_thread_hits" as const },
+      "The reason for widening changed.",
+    ],
+    [
+      "conversation_only",
+      { conversation_only: false as const },
+      "Conversation-only retrieval changed.",
+    ],
+  ] as const)(
+    "shows a bounded explanation when %s changes",
+    (
+      field,
+      patch,
+      expectedLine
+    ) => {
+      setThread42HistoryItems([
+        makeHistoryItem(
+          "task-newest",
+          "2026-04-01T15:59:30Z",
+          {
+            ...mockedRetrievalPosture,
+            ...patch,
+          } as CommandCenterRetrievalPosture
+        ),
         makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedRetrievalPosture),
-        makeHistoryItem("task-older", "2026-04-01T15:57:30Z", mockedProjectPosture),
-      ],
-    };
+      ]);
 
-    render(<CommandCenterPage enabled />);
+      const historyPanel = renderActiveThreadHistoryPanel();
 
-    const workbench = screen.getByTestId("command-center-trace-workbench");
-    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+      expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+      expect(within(historyPanel).getByText(`Changed: ${field}`)).toBeInTheDocument();
+      expect(within(historyPanel).getByText(expectedLine)).toBeInTheDocument();
+      expect(
+        within(historyPanel).queryByText(
+          /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+        )
+      ).not.toBeInTheDocument();
+    }
+  );
 
-    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+  it("shows multiple bounded explanation lines when multiple fields change", () => {
+    setThread42HistoryItems([
+      makeHistoryItem(
+        "task-newest",
+        "2026-04-01T15:59:30Z",
+        {
+          ...mockedRetrievalPosture,
+          source_mode: "project",
+          widen_reason: "insufficient_thread_hits",
+        } as CommandCenterRetrievalPosture
+      ),
+      makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedRetrievalPosture),
+    ]);
+
+    const historyPanel = renderActiveThreadHistoryPanel();
+
+    expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Changed: source_mode, widen_reason")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("The retrieval scope changed.")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("The reason for widening changed.")).toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows that retrieval posture is unchanged when the newest two history items match", () => {
+    setThread42HistoryItems([
+      makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+      makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedRetrievalPosture),
+      makeHistoryItem("task-older", "2026-04-01T15:57:30Z", mockedProjectPosture),
+    ]);
+
+    const historyPanel = renderActiveThreadHistoryPanel();
     expect(within(historyPanel).getByText("Posture unchanged since previous run")).toBeInTheDocument();
     expect(
       within(historyPanel).queryByText(/^Changed:/i)
     ).not.toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+    expect(within(historyPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
 
     const historyItems = within(historyPanel).getAllByTestId(
       "command-center-retrieval-posture-history-item"
@@ -1187,23 +1286,21 @@ describe("CommandCenterPage", () => {
   });
 
   it("shows that no previous comparison is available when only one history item exists", () => {
-    mockedRetrievalPostureHistoryStateByThreadId[42] = {
-      ...mockedRetrievalPostureHistoryStateByThreadId[42],
-      items: [
-        makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
-      ],
-    };
+    setThread42HistoryItems([
+      makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+    ]);
 
-    render(<CommandCenterPage enabled />);
-
-    const workbench = screen.getByTestId("command-center-trace-workbench");
-    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
-
-    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+    const historyPanel = renderActiveThreadHistoryPanel();
     expect(within(historyPanel).getByText("No previous posture to compare")).toBeInTheDocument();
     expect(
       within(historyPanel).queryByText(/^Changed:/i)
     ).not.toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+    expect(within(historyPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
 
     const historyItems = within(historyPanel).getAllByTestId(
       "command-center-retrieval-posture-history-item"
@@ -1243,6 +1340,17 @@ describe("CommandCenterPage", () => {
     expect(historyItems[1]).toHaveTextContent(/widen: insufficient_thread_hits/i);
     expect(historyItems[2]).toHaveTextContent(/task-charlie/i);
     expect(historyItems[2]).toHaveTextContent(/source: personal_knowledge/i);
+    expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Changed: source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).toBeInTheDocument();
 
     expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
