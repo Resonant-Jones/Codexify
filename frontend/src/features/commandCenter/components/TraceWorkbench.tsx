@@ -212,6 +212,78 @@ function firstNumber(...values: unknown[]): number | null {
   return null;
 }
 
+export const RETRIEVAL_POSTURE_DIFF_FIELDS = [
+  "source_mode",
+  "boundary_label",
+  "retrieval_override_mode",
+  "widen_reason",
+  "conversation_only",
+] as const;
+
+export type RetrievalPostureDiffField =
+  (typeof RETRIEVAL_POSTURE_DIFF_FIELDS)[number];
+
+export type RetrievalPostureDiff = {
+  changed: boolean;
+  changedFields: RetrievalPostureDiffField[];
+};
+
+export function diffRetrievalPosture(
+  current: CommandCenterRetrievalPosture,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureDiff {
+  if (!previous) {
+    return { changed: false, changedFields: [] };
+  }
+
+  const changedFields = RETRIEVAL_POSTURE_DIFF_FIELDS.filter(
+    (field) => current[field] !== previous[field]
+  );
+
+  return {
+    changed: changedFields.length > 0,
+    changedFields,
+  };
+}
+
+export type RetrievalPostureChangeExplanation = {
+  lines: string[];
+};
+
+const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
+  RetrievalPostureDiffField,
+  string
+> = {
+  source_mode: "The retrieval scope changed.",
+  boundary_label: "The retrieval boundary changed.",
+  retrieval_override_mode: "An explicit retrieval override changed the posture.",
+  widen_reason: "The reason for widening changed.",
+  conversation_only: "Conversation-only retrieval changed.",
+};
+
+const RETRIEVAL_POSTURE_CHANGE_FALLBACK =
+  "Retrieval posture changed, but this combination does not yet have a tailored explanation.";
+
+export function describeRetrievalPostureChange(
+  diff: RetrievalPostureDiff,
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureChangeExplanation {
+  if (!diff.changed || !current || !previous) {
+    return { lines: [] };
+  }
+
+  if (diff.changedFields.length === 0 || diff.changedFields.length > 2) {
+    return { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+  }
+
+  const lines = diff.changedFields.map(
+    (field) => RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS[field]
+  );
+
+  return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+}
+
 /**
  * Derives a brief human-readable explanation of the retrieval posture from
  * canonical backend fields. Presentation-only — does not infer or classify.
@@ -341,153 +413,58 @@ function describeRetrievalPostureToken(
   }
 }
 
-function serializeRetrievalPosture(posture: CommandCenterRetrievalPosture): string {
-  const snapshot: {
-    boundary_label: string;
-    conversation_only?: boolean;
-    retrieval_override_mode: string | null;
-    source_mode: string;
-    widen_reason: string;
-  } = {
-    source_mode: posture.source_mode,
-    boundary_label: posture.boundary_label,
-    retrieval_override_mode: posture.retrieval_override_mode,
-    widen_reason: posture.widen_reason,
+type RetrievalPostureComparisonState = "changed" | "unchanged" | "no-previous" | "none";
+
+type RetrievalPostureComparison = {
+  changedFields: RetrievalPostureDiffField[] | null;
+  explanationLines: string[] | null;
+  label: string | null;
+  state: RetrievalPostureComparisonState;
+};
+
+function latestRetrievalPostureComparison(
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureComparison {
+  if (!current) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: null,
+      state: "none",
+    };
+  }
+
+  if (!previous) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: "No previous posture to compare",
+      state: "no-previous",
+    };
+  }
+
+  const comparison = diffRetrievalPosture(current, previous);
+  const explanation = describeRetrievalPostureChange(comparison, current, previous);
+
+  return {
+    changedFields: comparison.changed ? comparison.changedFields : null,
+    explanationLines: comparison.changed ? explanation.lines : null,
+    label: comparison.changed
+      ? "Posture changed since previous run"
+      : "Posture unchanged since previous run",
+    state: comparison.changed ? "changed" : "unchanged",
   };
-
-  if (typeof posture.conversation_only === "boolean") {
-    snapshot.conversation_only = posture.conversation_only;
-  }
-
-  return JSON.stringify(snapshot, null, 2);
-}
-
-function formatRetrievalPostureAuditNote(posture: CommandCenterRetrievalPosture): string {
-  const summaryLines = describeRetrievalPosture(posture);
-  const compactSummaryLines =
-    summaryLines.length > 1 ? [summaryLines[0], summaryLines[summaryLines.length - 1]] : summaryLines;
-
-  const lines = [
-    "Retrieval posture",
-    `- source_mode: ${posture.source_mode}`,
-    `- boundary_label: ${posture.boundary_label}`,
-    `- retrieval_override_mode: ${posture.retrieval_override_mode ?? "null"}`,
-    `- widen_reason: ${posture.widen_reason}`,
-  ];
-
-  if (typeof posture.conversation_only === "boolean") {
-    lines.push(`- conversation_only: ${posture.conversation_only}`);
-  }
-
-  lines.push("", "Summary");
-  compactSummaryLines.forEach((line) => {
-    lines.push(`- ${line}`);
-  });
-
-  return lines.join("\n");
-}
-
-function formatRetrievalPostureBundle(posture: CommandCenterRetrievalPosture): string {
-  return [
-    "Retrieval posture JSON",
-    serializeRetrievalPosture(posture),
-    "",
-    "Audit note",
-    formatRetrievalPostureAuditNote(posture),
-  ].join("\n");
-}
-
-type RetrievalPostureCopyFeedback =
-  | { action: "posture"; status: "copied" | "failed" }
-  | { action: "audit-note"; status: "copied" | "failed" }
-  | { action: "bundle"; status: "copied" | "failed" }
-  | null;
-
-function renderRetrievalPostureBadges(
-  posture: CommandCenterRetrievalPosture
-): React.ReactNode[] {
-  return [
-    <Badge
-      key="source_mode"
-      className="border text-[11px] font-medium leading-none"
-      style={{
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      }}
-    >
-      source: {posture.source_mode}
-    </Badge>,
-    <Badge
-      key="boundary_label"
-      className="border text-[11px] font-medium leading-none"
-      style={{
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      }}
-    >
-      boundary: {posture.boundary_label}
-    </Badge>,
-    posture.retrieval_override_mode ? (
-      <Badge
-        key="retrieval_override_mode"
-        className="border text-[11px] font-medium leading-none"
-        style={{
-          background: "var(--surface-soft)",
-          borderColor: "var(--panel-border)",
-          color: "var(--text)",
-        }}
-      >
-        override: {posture.retrieval_override_mode}
-      </Badge>
-    ) : null,
-    <Badge
-      key="widen_reason"
-      className="border text-[11px] font-medium leading-none"
-      style={{
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      }}
-    >
-      widen: {posture.widen_reason}
-    </Badge>,
-    posture.conversation_only ? (
-      <Badge
-        key="conversation_only"
-        className="border text-[11px] font-medium leading-none"
-        style={{
-          background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
-          borderColor: "var(--panel-border)",
-          color: "var(--text-on-accent)",
-        }}
-      >
-        conversation-only
-      </Badge>
-    ) : null,
-  ].filter((value): value is React.ReactNode => Boolean(value));
-}
-
-function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
-  if (!value) return "Not yet";
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Date(parsed).toLocaleString();
 }
 
 function RetrievalPostureDetails({
+  comparison,
   retrievalPosture,
-  onCopyPosture,
-  onCopyAuditNote,
-  onCopyBundle,
-  copyFeedback,
+  showComparisonStrip,
 }: {
+  comparison: RetrievalPostureComparison | null;
   retrievalPosture: CommandCenterRetrievalPosture;
-  onCopyPosture: () => void;
-  onCopyAuditNote: () => void;
-  onCopyBundle: () => void;
-  copyFeedback: RetrievalPostureCopyFeedback;
+  showComparisonStrip: boolean;
 }) {
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
@@ -518,6 +495,41 @@ function RetrievalPostureDetails({
 
   return (
     <>
+      {showComparisonStrip && comparison?.label ? (
+        <div
+          className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className="border text-[11px] font-medium leading-none"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+              }}
+            >
+              {comparison.label}
+            </Badge>
+            {comparison.changedFields ? (
+              <div className="space-y-1">
+                <span>Changed: {comparison.changedFields.join(", ")}</span>
+                {comparison.explanationLines ? (
+                  <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
+                    {comparison.explanationLines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         <Badge
           className="border text-[11px] font-medium leading-none"
@@ -718,61 +730,47 @@ export function RetrievalPosturePanel({
   threadId,
   title = "Retrieval posture",
   testId,
+  showComparisonStrip = false,
 }: {
   className?: string;
   compact?: boolean;
   threadId: number | null;
   title?: string;
   testId?: string;
+  showComparisonStrip?: boolean;
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
-  const [copyFeedback, setCopyFeedback] = React.useState<RetrievalPostureCopyFeedback>(null);
+  const previousRetrievalPostureRef = React.useRef<CommandCenterRetrievalPosture | null>(null);
+  const [comparison, setComparison] = React.useState<RetrievalPostureComparison>({
+    changedFields: null,
+    explanationLines: null,
+    label: null,
+    state: "none",
+  });
+  const comparisonSnapshot = retrievalPosture
+    ? [
+        retrievalPosture.source_mode,
+        retrievalPosture.boundary_label,
+        retrievalPosture.retrieval_override_mode ?? "null",
+        retrievalPosture.widen_reason,
+        String(retrievalPosture.conversation_only),
+      ].join("\u241f")
+    : null;
 
   React.useEffect(() => {
-    setCopyFeedback(null);
-  }, [threadId, retrievalPosture]);
-
-  const writeRetrievalPostureToClipboard = React.useCallback(async (payload: string) => {
-    if (!navigator.clipboard?.writeText) {
-      throw new Error("Clipboard unavailable");
+    if (postureLoading || postureError || postureStatus !== "ok" || !retrievalPosture) {
+      return;
     }
 
-    await navigator.clipboard.writeText(payload);
-  }, []);
+    const nextComparison = latestRetrievalPostureComparison(
+      retrievalPosture,
+      previousRetrievalPostureRef.current
+    );
 
-  const handleCopyPosture = React.useCallback(async () => {
-    if (!retrievalPosture) return;
-
-    try {
-      await writeRetrievalPostureToClipboard(serializeRetrievalPosture(retrievalPosture));
-      setCopyFeedback({ action: "posture", status: "copied" });
-    } catch {
-      setCopyFeedback({ action: "posture", status: "failed" });
-    }
-  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
-
-  const handleCopyAuditNote = React.useCallback(async () => {
-    if (!retrievalPosture) return;
-
-    try {
-      await writeRetrievalPostureToClipboard(formatRetrievalPostureAuditNote(retrievalPosture));
-      setCopyFeedback({ action: "audit-note", status: "copied" });
-    } catch {
-      setCopyFeedback({ action: "audit-note", status: "failed" });
-    }
-  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
-
-  const handleCopyBundle = React.useCallback(async () => {
-    if (!retrievalPosture) return;
-
-    try {
-      await writeRetrievalPostureToClipboard(formatRetrievalPostureBundle(retrievalPosture));
-      setCopyFeedback({ action: "bundle", status: "copied" });
-    } catch {
-      setCopyFeedback({ action: "bundle", status: "failed" });
-    }
-  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+    setComparison(nextComparison);
+    previousRetrievalPostureRef.current = retrievalPosture;
+  }, [comparisonSnapshot, postureError, postureLoading, postureStatus, threadId]);
 
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
@@ -810,11 +808,9 @@ export function RetrievalPosturePanel({
         </div>
       ) : retrievalPosture ? (
         <RetrievalPostureDetails
-          copyFeedback={copyFeedback}
-          onCopyAuditNote={() => void handleCopyAuditNote()}
-          onCopyBundle={() => void handleCopyBundle()}
-          onCopyPosture={() => void handleCopyPosture()}
+          comparison={comparison}
           retrievalPosture={retrievalPosture}
+          showComparisonStrip={showComparisonStrip}
         />
       ) : null}
     </div>
