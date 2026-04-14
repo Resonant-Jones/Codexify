@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Composer } from "@/features/chat/components/Composer";
+import { Composer, deriveComposerState } from "@/features/chat/components/Composer";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
 } from "@/features/chat/chatLane";
@@ -130,6 +130,17 @@ describe("Composer draft sync", () => {
     it("produces null for empty input", () => {
       expect(buildSlashCommandIntentPayload("")).toBeNull();
       expect(buildSlashCommandIntentPayload("/")).toBeNull();
+    });
+  });
+
+  describe("deriveComposerState", () => {
+    it("maps runtime request states into the token-compliant composer interaction states", () => {
+      expect(deriveComposerState("dispatching", "offline", "draft")).toBe("submitting");
+      expect(deriveComposerState("awaiting_ack", "online", "draft")).toBe("submitting");
+      expect(deriveComposerState("awaiting_model", "degraded", "draft")).toBe("awaiting_model");
+      expect(deriveComposerState("streaming", "online", "draft")).toBe("streaming");
+      expect(deriveComposerState(undefined, "online", "   ")).toBe("idle");
+      expect(deriveComposerState(undefined, "online", "hello")).toBe("typing");
     });
   });
 
@@ -398,7 +409,7 @@ describe("Composer draft sync", () => {
   });
 
   it("keeps the textarea on the content plane and gives the control row its own padding contract", () => {
-    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="hello" />);
 
     const contentPlane = screen.getByTestId("composer-content-plane");
     const controlsRow = screen.getByTestId("composer-control-row");
@@ -427,7 +438,6 @@ describe("Composer draft sync", () => {
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass(
       "flex",
-      "w-8",
       "shrink-0",
       "items-center",
       "justify-center"
@@ -438,22 +448,27 @@ describe("Composer draft sync", () => {
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
     expect(sendButton).toHaveClass(
-      "h-8",
-      "w-8",
-      "min-w-0",
-      "rounded-full",
-      "p-0"
+      "rounded-[var(--radius-micro)]",
+      "px-3",
+      "py-2",
+      "transition-all"
     );
-    expect(sendButton.className).not.toMatch(/\brounded-md\b/);
-    expect(sendSlot.style.width).toBe("var(--composer-control-size, 2rem)");
-    expect(sendButton.style.width).toBe("var(--composer-control-size, 2rem)");
-    expect(sendButton.style.height).toBe("var(--composer-control-size, 2rem)");
+    expect(sendButton).toHaveTextContent("Send");
+    expect(sendButton.className).toContain("bg-[var(--accent)]");
+    expect(sendButton.className).toContain("text-[var(--pill-active-text)]");
+    expect(sendButton.className).not.toContain("rounded-full");
 
     const textarea = screen.getByPlaceholderText("Write a message…");
+    expect(textarea).toHaveClass(
+      "rounded-[var(--radius-micro)]",
+      "bg-[var(--panel-bg)]",
+      "border",
+      "border-[var(--panel-border)]"
+    );
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
-    expect(composerSource).not.toContain('size="icon"');
-    expect(composerSource).not.toContain("rounded-[var(--tile-radius,19px)]");
+    expect(composerSource).toContain("rounded-[var(--radius-micro)]");
+    expect(composerSource).toContain("bg-[var(--panel-bg)]");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
@@ -677,16 +692,16 @@ describe("Composer draft sync", () => {
     ).toBe("seed-b");
   });
 
-  it("keeps the draft workspace interactive during an in-flight turn but blocks send", () => {
+  it("locks the composer while dispatching a request", () => {
     const onSend = vi.fn();
-    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
 
-    const { container } = render(
+    render(
       <Composer
         onSend={onSend}
         draftScopeKey="tab-1"
-        draftValue=""
-        isTurnInFlight
+        draftValue="next thought"
+        currentRequestState="dispatching"
+        providerRuntimeState="degraded"
         activeProviderId="local"
         providerOptions={[{ value: "local", label: "Local" }]}
         activeModelId="model-a"
@@ -702,9 +717,11 @@ describe("Composer draft sync", () => {
     const textarea = screen.getByPlaceholderText(
       "Write a message…"
     ) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "next thought" } });
-    expect(textarea.value).toBe("next thought");
+    expect(textarea).toBeDisabled();
 
+    expect(
+      screen.getByRole("button", { name: "Sending…" })
+    ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Select provider" })
     ).not.toBeDisabled();
@@ -714,27 +731,49 @@ describe("Composer draft sync", () => {
     expect(
       screen.getByRole("button", { name: "Select inference mode" })
     ).not.toBeDisabled();
-
-    const fileInput = container.querySelector(
-      'input[type="file"]'
-    ) as HTMLInputElement;
-    const file = new File(["hello world"], "notes.txt", {
-      type: "text/plain",
-    });
-    fireEvent.change(fileInput, { target: { files: [file] } });
-    expect(screen.getByLabelText("Remove attachment")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    expect(onSend).not.toHaveBeenCalled();
-    expect(dispatchSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "cfy:toast",
-      })
-    );
   });
 
-  it("keeps voice-turn submission unavailable while a turn is in flight", () => {
+  it("shows streaming as a live state without disabling the composer", () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue="follow up"
+        currentRequestState="streaming"
+        providerRuntimeState="online"
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      "Write a message…"
+    ) as HTMLTextAreaElement;
+    expect(textarea).not.toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Streaming…" })
+    ).not.toBeDisabled();
+  });
+
+  it("shows warming while waiting for the model", () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue="hold"
+        currentRequestState="awaiting_model"
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      "Write a message…"
+    ) as HTMLTextAreaElement;
+    expect(textarea).toBeDisabled();
+    expect(textarea).toHaveClass("opacity-60", "cursor-not-allowed");
+    expect(
+      screen.getByRole("button", { name: "Warming…" })
+    ).toBeDisabled();
+  });
+
+  it("keeps voice-turn submission unavailable while dispatching", () => {
     const onVoiceTurn = vi.fn();
 
     render(
@@ -742,7 +781,7 @@ describe("Composer draft sync", () => {
         onSend={vi.fn()}
         draftScopeKey="tab-1"
         draftValue=""
-        isTurnInFlight
+        currentRequestState="dispatching"
         onVoiceTurn={onVoiceTurn}
       />
     );
