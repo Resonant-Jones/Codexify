@@ -290,14 +290,132 @@ function serializeRetrievalPosture(posture: CommandCenterRetrievalPosture): stri
   return JSON.stringify(snapshot, null, 2);
 }
 
+function formatRetrievalPostureAuditNote(posture: CommandCenterRetrievalPosture): string {
+  const summaryLines = describeRetrievalPosture(posture);
+  const compactSummaryLines =
+    summaryLines.length > 1 ? [summaryLines[0], summaryLines[summaryLines.length - 1]] : summaryLines;
+
+  const lines = [
+    "Retrieval posture",
+    `- source_mode: ${posture.source_mode}`,
+    `- boundary_label: ${posture.boundary_label}`,
+    `- retrieval_override_mode: ${posture.retrieval_override_mode ?? "null"}`,
+    `- widen_reason: ${posture.widen_reason}`,
+  ];
+
+  if (typeof posture.conversation_only === "boolean") {
+    lines.push(`- conversation_only: ${posture.conversation_only}`);
+  }
+
+  lines.push("", "Summary");
+  compactSummaryLines.forEach((line) => {
+    lines.push(`- ${line}`);
+  });
+
+  return lines.join("\n");
+}
+
+function formatRetrievalPostureBundle(posture: CommandCenterRetrievalPosture): string {
+  return [
+    "Retrieval posture JSON",
+    serializeRetrievalPosture(posture),
+    "",
+    "Audit note",
+    formatRetrievalPostureAuditNote(posture),
+  ].join("\n");
+}
+
+type RetrievalPostureCopyFeedback =
+  | { action: "posture"; status: "copied" | "failed" }
+  | { action: "audit-note"; status: "copied" | "failed" }
+  | { action: "bundle"; status: "copied" | "failed" }
+  | null;
+
+function renderRetrievalPostureBadges(
+  posture: CommandCenterRetrievalPosture
+): React.ReactNode[] {
+  return [
+    <Badge
+      key="source_mode"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      source: {posture.source_mode}
+    </Badge>,
+    <Badge
+      key="boundary_label"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      boundary: {posture.boundary_label}
+    </Badge>,
+    posture.retrieval_override_mode ? (
+      <Badge
+        key="retrieval_override_mode"
+        className="border text-[11px] font-medium leading-none"
+        style={{
+          background: "var(--surface-soft)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text)",
+        }}
+      >
+        override: {posture.retrieval_override_mode}
+      </Badge>
+    ) : null,
+    <Badge
+      key="widen_reason"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      widen: {posture.widen_reason}
+    </Badge>,
+    posture.conversation_only ? (
+      <Badge
+        key="conversation_only"
+        className="border text-[11px] font-medium leading-none"
+        style={{
+          background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text-on-accent)",
+        }}
+      >
+        conversation-only
+      </Badge>
+    ) : null,
+  ].filter((value): value is React.ReactNode => Boolean(value));
+}
+
+function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
+  if (!value) return "Not yet";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed).toLocaleString();
+}
+
 function RetrievalPostureDetails({
   retrievalPosture,
-  onCopy,
-  copyStatus,
+  onCopyPosture,
+  onCopyAuditNote,
+  onCopyBundle,
+  copyFeedback,
 }: {
   retrievalPosture: CommandCenterRetrievalPosture;
-  onCopy: () => void;
-  copyStatus: "idle" | "copied" | "failed";
+  onCopyPosture: () => void;
+  onCopyAuditNote: () => void;
+  onCopyBundle: () => void;
+  copyFeedback: RetrievalPostureCopyFeedback;
 }) {
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
@@ -425,21 +543,100 @@ function RetrievalPostureDetails({
           variant="ghost"
           size="sm"
           className="border border-[var(--panel-border)]"
-          onClick={onCopy}
+          onClick={onCopyPosture}
         >
           Copy posture
         </Button>
-        {copyStatus === "copied" ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyAuditNote}
+        >
+          Copy audit note
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyBundle}
+        >
+          Copy posture bundle
+        </Button>
+        {copyFeedback?.action === "posture" && copyFeedback.status === "copied" ? (
           <span className="text-xs" style={{ color: "var(--muted)" }}>
             Copied posture
           </span>
-        ) : copyStatus === "failed" ? (
+        ) : copyFeedback?.action === "posture" && copyFeedback.status === "failed" ? (
           <span className="text-xs" style={{ color: "var(--danger-text)" }}>
             Copy failed
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied audit note
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Audit note copy failed
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture bundle
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Posture bundle copy failed
           </span>
         ) : null}
       </div>
     </>
+  );
+}
+
+export function RetrievalPostureSummaryRow({
+  createdAt,
+  posture,
+  taskId,
+}: {
+  createdAt: string | null;
+  posture: CommandCenterRetrievalPosture;
+  taskId: string;
+}) {
+  const summaryLines = describeRetrievalPosture(posture);
+  const summary = summaryLines[0] ?? "Retrieval posture metadata is present.";
+
+  return (
+    <div
+      className="space-y-2 rounded-[var(--tile-radius)] border px-3 py-2"
+      data-testid="command-center-retrieval-posture-history-item"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          {formatRetrievalPostureHistoryTimestamp(createdAt)}
+        </span>
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          Task: {taskId}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">{renderRetrievalPostureBadges(posture)}</div>
+
+      <div className="text-sm leading-5" style={{ color: "var(--text)" }}>
+        {summary}
+      </div>
+    </div>
   );
 }
 
@@ -458,26 +655,52 @@ export function RetrievalPosturePanel({
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
-  const [copyStatus, setCopyStatus] = React.useState<"idle" | "copied" | "failed">("idle");
+  const [copyFeedback, setCopyFeedback] = React.useState<RetrievalPostureCopyFeedback>(null);
 
   React.useEffect(() => {
-    setCopyStatus("idle");
+    setCopyFeedback(null);
   }, [threadId, retrievalPosture]);
+
+  const writeRetrievalPostureToClipboard = React.useCallback(async (payload: string) => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard unavailable");
+    }
+
+    await navigator.clipboard.writeText(payload);
+  }, []);
 
   const handleCopyPosture = React.useCallback(async () => {
     if (!retrievalPosture) return;
 
     try {
-      const payload = serializeRetrievalPosture(retrievalPosture);
-      if (!navigator.clipboard?.writeText) {
-        throw new Error("Clipboard unavailable");
-      }
-      await navigator.clipboard.writeText(payload);
-      setCopyStatus("copied");
+      await writeRetrievalPostureToClipboard(serializeRetrievalPosture(retrievalPosture));
+      setCopyFeedback({ action: "posture", status: "copied" });
     } catch {
-      setCopyStatus("failed");
+      setCopyFeedback({ action: "posture", status: "failed" });
     }
-  }, [retrievalPosture]);
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
+  const handleCopyAuditNote = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(formatRetrievalPostureAuditNote(retrievalPosture));
+      setCopyFeedback({ action: "audit-note", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "audit-note", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
+  const handleCopyBundle = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(formatRetrievalPostureBundle(retrievalPosture));
+      setCopyFeedback({ action: "bundle", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "bundle", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
 
   const rootClassName = [
     compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
@@ -515,8 +738,10 @@ export function RetrievalPosturePanel({
         </div>
       ) : retrievalPosture ? (
         <RetrievalPostureDetails
-          copyStatus={copyStatus}
-          onCopy={() => void handleCopyPosture()}
+          copyFeedback={copyFeedback}
+          onCopyAuditNote={() => void handleCopyAuditNote()}
+          onCopyBundle={() => void handleCopyBundle()}
+          onCopyPosture={() => void handleCopyPosture()}
           retrievalPosture={retrievalPosture}
         />
       ) : null}
