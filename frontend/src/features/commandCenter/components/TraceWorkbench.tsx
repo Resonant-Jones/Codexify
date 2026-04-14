@@ -331,6 +331,79 @@ type RetrievalPostureCopyFeedback =
   | { action: "bundle"; status: "copied" | "failed" }
   | null;
 
+function renderRetrievalPostureBadges(
+  posture: CommandCenterRetrievalPosture
+): React.ReactNode[] {
+  return [
+    <Badge
+      key="source_mode"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      source: {posture.source_mode}
+    </Badge>,
+    <Badge
+      key="boundary_label"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      boundary: {posture.boundary_label}
+    </Badge>,
+    posture.retrieval_override_mode ? (
+      <Badge
+        key="retrieval_override_mode"
+        className="border text-[11px] font-medium leading-none"
+        style={{
+          background: "var(--surface-soft)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text)",
+        }}
+      >
+        override: {posture.retrieval_override_mode}
+      </Badge>
+    ) : null,
+    <Badge
+      key="widen_reason"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      widen: {posture.widen_reason}
+    </Badge>,
+    posture.conversation_only ? (
+      <Badge
+        key="conversation_only"
+        className="border text-[11px] font-medium leading-none"
+        style={{
+          background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text-on-accent)",
+        }}
+      >
+        conversation-only
+      </Badge>
+    ) : null,
+  ].filter((value): value is React.ReactNode => Boolean(value));
+}
+
+function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
+  if (!value) return "Not yet";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed).toLocaleString();
+}
+
 function RetrievalPostureDetails({
   retrievalPosture,
   onCopyPosture,
@@ -519,6 +592,51 @@ function RetrievalPostureDetails({
         ) : null}
       </div>
     </>
+  );
+}
+
+export function RetrievalPostureSummaryRow({
+  createdAt,
+  posture,
+  taskId,
+}: {
+  createdAt: string | null;
+  posture: CommandCenterRetrievalPosture;
+  taskId: string;
+}) {
+  const summaryLines = describeRetrievalPosture(posture);
+  const summary = summaryLines[0] ?? "Retrieval posture metadata is present.";
+
+  return (
+    <div
+      className="space-y-2 rounded-[var(--tile-radius)] border px-3 py-2"
+      data-testid="command-center-retrieval-posture-history-item"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          {formatRetrievalPostureHistoryTimestamp(createdAt)}
+        </span>
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          Task: {taskId}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">{renderRetrievalPostureBadges(posture)}</div>
+
+      <div className="text-sm leading-5" style={{ color: "var(--text)" }}>
+        {summary}
+      </div>
+    </div>
   );
 }
 
