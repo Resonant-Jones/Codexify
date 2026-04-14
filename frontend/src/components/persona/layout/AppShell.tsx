@@ -88,8 +88,14 @@ import {
   getMobileTopNavDockStyle,
   getMobileNavigationControlStyle,
   getMobileTopNavRailStyle,
-  getMobileWorkspaceSummonCopy,
 } from "./mobileNavigationContract";
+import {
+  getWorkspaceAffordanceCopy,
+  getWorkspaceAffordanceIcon,
+  getWorkspaceAffordanceState,
+  getWorkspaceAffordanceSurfaceStyle,
+  WORKSPACE_AFFORDANCE,
+} from "./workspaceAffordanceContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
 
 // TEMPORARY: inject static design tokens until full migration is done.
@@ -2216,15 +2222,28 @@ export default function AppShell({
   const runtimeLastHealthy = runtimeHealth.lastSuccessAt
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
-  const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
+  const workspaceAffordanceState = getWorkspaceAffordanceState({
+    isPhoneShell,
+    isOpen: workspaceDrawerOpen,
+    isClosing: workspaceDrawerMotionPhase === "closing",
+  });
+  const workspaceSummonCopy = getWorkspaceAffordanceCopy(workspaceAffordanceState);
+  const WorkspaceAffordanceGlyph = getWorkspaceAffordanceIcon(
+    workspaceAffordanceState
+  );
   const workspaceDrawerToggle = workspaceShellEnabled ? (
     <PhonePressButton
       type="button"
       isPhoneShell={isPhoneShell}
       className="pill-tab shrink-0 whitespace-nowrap"
-      data-state={workspaceDrawerOpen ? "active" : "inactive"}
+      style={getWorkspaceAffordanceSurfaceStyle(
+        isPhoneShell,
+        workspaceAffordanceState
+      )}
+      data-state={workspaceAffordanceState === "open" ? "active" : "inactive"}
+      data-workspace-affordance-state={workspaceAffordanceState}
       data-testid="workspace-drawer-toggle"
-      aria-pressed={workspaceDrawerOpen}
+      aria-pressed={workspaceAffordanceState === "open"}
       aria-label={
         isPhoneShell
           ? workspaceSummonCopy.ariaLabel
@@ -2239,7 +2258,20 @@ export default function AppShell({
       }
       onClick={toggleWorkspaceDrawer}
     >
-      {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
+      {isPhoneShell ? (
+        <span
+          className="inline-flex items-center"
+          style={{ gap: WORKSPACE_AFFORDANCE.labelGap }}
+        >
+          <WorkspaceAffordanceGlyph
+            className={WORKSPACE_AFFORDANCE.iconClassName}
+            aria-hidden="true"
+          />
+          <span>{workspaceSummonCopy.label}</span>
+        </span>
+      ) : (
+        "Workspace"
+      )}
     </PhonePressButton>
   ) : null;
   const settingsUtilityAction = (
