@@ -106,6 +106,18 @@ const TURN_LOCK_TOAST =
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
+const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
+
+function normalizePreferredName(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (UNSET_PREFERRED_NAME_VALUES.has(trimmed.toLowerCase())) {
+    return null;
+  }
+  return trimmed;
+}
 
 export function flattenChatEventPayload(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -618,6 +630,7 @@ function dedupeDocumentContextTiles(
 export function GuardianChat({
   guardianName,
   userName,
+  userProfession = "",
   prefill,
   onPrefillConsumed,
   pendingDocumentTiles,
@@ -650,6 +663,7 @@ export function GuardianChat({
 }: {
   guardianName: string;
   userName: string;
+  userProfession?: string;
   prefill?: string;
   onPrefillConsumed?: () => void;
   pendingDocumentTiles?: DocumentContextTile[];
@@ -696,6 +710,7 @@ export function GuardianChat({
     })
   );
   const [ragTraceOpen, setRagTraceOpen] = useState(false);
+  const preferredName = normalizePreferredName(userName);
 
   const [externalPrefill, setExternalPrefill] = useState<string | undefined>(undefined);
   const [documentTilesByScope, setDocumentTilesByScope] = useState<
@@ -1474,6 +1489,9 @@ export function GuardianChat({
         providerId: selection.providerId,
         modelId: selection.modelId,
         reasoningMode: selection.reasoningMode,
+        preferredName: userName,
+        profession: userProfession,
+        guardianName,
       }),
       source_mode: sourceMode,
       ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),
@@ -3236,7 +3254,9 @@ export function GuardianChat({
             className="flex flex-1 items-center justify-center px-[var(--card-pad)] text-sm opacity-70"
             style={{ color: "var(--muted)" }}
           >
-            New thread ready. Start typing below.
+            {preferredName
+              ? `Welcome back, ${preferredName}. Let’s get started.`
+              : "New thread ready. Start typing below."}
           </div>
         )}
       </div>

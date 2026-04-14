@@ -89,6 +89,9 @@ import {
   getMobileNavigationControlStyle,
   getMobileTopNavRailStyle,
   getMobileWorkspaceSummonCopy,
+  getMobileNavPillFeedbackStyle,
+  getMobileWorkspaceSummonFeedbackStyle,
+  type MobileNavPillFeedbackContext,
 } from "./mobileNavigationContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { cn } from "@/lib/utils";
@@ -2204,6 +2207,14 @@ export default function AppShell({
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
   const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
+
+  // Mobile micro-interaction feedback styles
+  const mobileWorkspaceSummonFeedbackStyle = useMemo<React.CSSProperties>(
+    () =>
+      getMobilePressFeedbackStyle(mobileInteractionContext, workspaceDrawerOpen ? "idle" : "idle"),
+    [mobileInteractionContext, workspaceDrawerOpen]
+  );
+
   const workspaceDrawerToggle = workspaceShellEnabled ? (
     <button
       type="button"
@@ -2224,6 +2235,7 @@ export default function AppShell({
             : "Open workspace drawer"
       }
       onClick={toggleWorkspaceDrawer}
+      style={isPhoneShell ? mobileWorkspaceSummonFeedbackStyle : undefined}
     >
       {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
     </button>
@@ -2461,6 +2473,7 @@ export default function AppShell({
                 {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "guardian" ? "active" : "inactive"}
                 onClick={() => navigateToView("guardian")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "guardian") : undefined}
               >
                 Guardian
               </button>
@@ -2468,6 +2481,7 @@ export default function AppShell({
                 {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "dashboard" ? "active" : "inactive"}
                 onClick={() => navigateToView("dashboard")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "dashboard") : undefined}
               >
                 Dashboard
               </button>
@@ -2475,6 +2489,7 @@ export default function AppShell({
                 {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "documents" ? "active" : "inactive"}
                 onClick={() => navigateToView("documents")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "documents") : undefined}
               >
                 Documents
               </button>
@@ -2482,6 +2497,7 @@ export default function AppShell({
                 {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "gallery" ? "active" : "inactive"}
                 onClick={() => navigateToView("gallery")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "gallery") : undefined}
               >
                 Gallery
               </button>
@@ -2489,6 +2505,7 @@ export default function AppShell({
                 {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 onClick={() => navigateToView("personaStudio")}
+                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "personaStudio") : undefined}
               >
                 Persona Studio
               </button>
@@ -2761,6 +2778,7 @@ export default function AppShell({
                         key={`guardian-surface-${guardianSurfaceEpoch}`}
                         guardianName={guardianName}
                         userName={userName}
+                        userProfession={role}
                         prefill={prefill}
                         onPrefillConsumed={() => setPrefill(undefined)}
                         pendingDocumentTiles={pendingComposerDocumentTiles}

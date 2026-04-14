@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 import useRagTrace from "@/features/commandCenter/hooks/useRagTrace";
+import useRetrievalPosture from "@/features/commandCenter/hooks/useRetrievalPosture";
 import {
   buildCommandCenterTraceListItem,
   buildCommandCenterTraceReportModel,
@@ -21,6 +22,7 @@ import type {
 import {
   COMMAND_CENTER_RUN_STATUSES,
   describeCommandCenterRunStatusPresentation,
+  type CommandCenterRetrievalPosture,
   type CommandCenterStatusTone,
 } from "@/features/commandCenter/types";
 
@@ -45,6 +47,78 @@ const STATUS_OPTIONS: Array<{ label: string; value: string }> = [
 ];
 
 type TraceTab = "report" | "raw-trace" | "payload-summary";
+
+export const RETRIEVAL_POSTURE_DIFF_FIELDS = [
+  "source_mode",
+  "boundary_label",
+  "retrieval_override_mode",
+  "widen_reason",
+  "conversation_only",
+] as const;
+
+export type RetrievalPostureDiffField =
+  (typeof RETRIEVAL_POSTURE_DIFF_FIELDS)[number];
+
+export type RetrievalPostureDiff = {
+  changed: boolean;
+  changedFields: RetrievalPostureDiffField[];
+};
+
+export function diffRetrievalPosture(
+  current: CommandCenterRetrievalPosture,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureDiff {
+  if (!previous) {
+    return { changed: false, changedFields: [] };
+  }
+
+  const changedFields = RETRIEVAL_POSTURE_DIFF_FIELDS.filter(
+    (field) => current[field] !== previous[field]
+  );
+
+  return {
+    changed: changedFields.length > 0,
+    changedFields,
+  };
+}
+
+export type RetrievalPostureChangeExplanation = {
+  lines: string[];
+};
+
+const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
+  RetrievalPostureDiffField,
+  string
+> = {
+  source_mode: "The retrieval scope changed.",
+  boundary_label: "The retrieval boundary changed.",
+  retrieval_override_mode: "An explicit retrieval override changed the posture.",
+  widen_reason: "The reason for widening changed.",
+  conversation_only: "Conversation-only retrieval changed.",
+};
+
+const RETRIEVAL_POSTURE_CHANGE_FALLBACK =
+  "Retrieval posture changed, but this combination does not yet have a tailored explanation.";
+
+export function describeRetrievalPostureChange(
+  diff: RetrievalPostureDiff,
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureChangeExplanation {
+  if (!diff.changed || !current || !previous) {
+    return { lines: [] };
+  }
+
+  if (diff.changedFields.length === 0 || diff.changedFields.length > 2) {
+    return { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+  }
+
+  const lines = diff.changedFields.map(
+    (field) => RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS[field]
+  );
+
+  return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+}
 
 function toneStyle(tone: CommandCenterStatusTone): React.CSSProperties {
   switch (tone) {
@@ -136,6 +210,611 @@ function firstNumber(...values: unknown[]): number | null {
     }
   }
   return null;
+}
+
+export const RETRIEVAL_POSTURE_DIFF_FIELDS = [
+  "source_mode",
+  "boundary_label",
+  "retrieval_override_mode",
+  "widen_reason",
+  "conversation_only",
+] as const;
+
+export type RetrievalPostureDiffField =
+  (typeof RETRIEVAL_POSTURE_DIFF_FIELDS)[number];
+
+export type RetrievalPostureDiff = {
+  changed: boolean;
+  changedFields: RetrievalPostureDiffField[];
+};
+
+export function diffRetrievalPosture(
+  current: CommandCenterRetrievalPosture,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureDiff {
+  if (!previous) {
+    return { changed: false, changedFields: [] };
+  }
+
+  const changedFields = RETRIEVAL_POSTURE_DIFF_FIELDS.filter(
+    (field) => current[field] !== previous[field]
+  );
+
+  return {
+    changed: changedFields.length > 0,
+    changedFields,
+  };
+}
+
+export type RetrievalPostureChangeExplanation = {
+  lines: string[];
+};
+
+const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
+  RetrievalPostureDiffField,
+  string
+> = {
+  source_mode: "The retrieval scope changed.",
+  boundary_label: "The retrieval boundary changed.",
+  retrieval_override_mode: "An explicit retrieval override changed the posture.",
+  widen_reason: "The reason for widening changed.",
+  conversation_only: "Conversation-only retrieval changed.",
+};
+
+const RETRIEVAL_POSTURE_CHANGE_FALLBACK =
+  "Retrieval posture changed, but this combination does not yet have a tailored explanation.";
+
+export function describeRetrievalPostureChange(
+  diff: RetrievalPostureDiff,
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureChangeExplanation {
+  if (!diff.changed || !current || !previous) {
+    return { lines: [] };
+  }
+
+  if (diff.changedFields.length === 0 || diff.changedFields.length > 2) {
+    return { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+  }
+
+  const lines = diff.changedFields.map(
+    (field) => RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS[field]
+  );
+
+  return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+}
+
+/**
+ * Derives a brief human-readable explanation of the retrieval posture from
+ * canonical backend fields. Presentation-only — does not infer or classify.
+ */
+export function describeRetrievalPosture(posture: CommandCenterRetrievalPosture): string[] {
+  const {
+    source_mode,
+    boundary_label,
+    retrieval_override_mode,
+    widen_reason,
+    conversation_only,
+  } = posture;
+
+  const genericFallback = [
+    "Retrieval posture metadata is present, but this combination does not yet have a tailored explanation.",
+  ];
+
+  if (retrieval_override_mode !== null && retrieval_override_mode !== source_mode) {
+    return genericFallback;
+  }
+
+  if (
+    source_mode === "conversation" &&
+    boundary_label === "active_conversation_only" &&
+    widen_reason === "none" &&
+    conversation_only
+  ) {
+    return [
+      "This run stayed inside the active conversation.",
+      "Evidence was constrained to the active conversation.",
+      "No widening occurred.",
+    ];
+  }
+
+  if (
+    source_mode === "project" &&
+    boundary_label === "same_user_same_project" &&
+    widen_reason === "insufficient_thread_hits" &&
+    !conversation_only
+  ) {
+    return [
+      "This run operated within the current project scope.",
+      "Evidence was drawn from the current project.",
+      "This run widened within the current project when thread-local evidence was insufficient.",
+    ];
+  }
+
+  if (
+    source_mode === "personal_knowledge" &&
+    boundary_label === "same_user_only" &&
+    widen_reason === "explicit_personal_knowledge" &&
+    !conversation_only
+  ) {
+    return [
+      "This run was allowed to use the user's personal knowledge scope.",
+      "Evidence was drawn from the same user's broader knowledge.",
+      "This run was allowed to widen across the same user's knowledge scope.",
+    ];
+  }
+
+  return genericFallback;
+}
+
+type RetrievalPostureTokenField =
+  | "source_mode"
+  | "boundary_label"
+  | "retrieval_override_mode"
+  | "widen_reason";
+
+const GENERIC_GLOSSARY_LINE =
+  "This token is present but does not yet have a tailored glossary entry.";
+
+function describeRetrievalPostureToken(
+  field: RetrievalPostureTokenField,
+  value: string | null
+): string {
+  switch (field) {
+    case "source_mode":
+      switch (value) {
+        case "conversation":
+          return "Retrieval began inside the active conversation.";
+        case "project":
+          return "Retrieval began in the current project scope.";
+        case "personal_knowledge":
+          return "Retrieval began in the same user's personal knowledge scope.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    case "boundary_label":
+      switch (value) {
+        case "active_conversation_only":
+          return "Retrieval stayed inside the active conversation.";
+        case "same_user_same_project":
+          return "Retrieval could move within the current project.";
+        case "same_user_only":
+          return "Retrieval could move within the same user's broader knowledge.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    case "retrieval_override_mode":
+      if (value === null) {
+        return "No explicit override was applied.";
+      }
+      switch (value) {
+        case "conversation":
+          return "Explicit command intent kept retrieval in conversation scope.";
+        case "project":
+          return "Explicit command intent kept retrieval in project scope.";
+        case "personal_knowledge":
+          return "Explicit command intent widened retrieval into personal knowledge.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    case "widen_reason":
+      switch (value) {
+        case "none":
+          return "Retrieval did not widen.";
+        case "insufficient_thread_hits":
+          return "Thread-local evidence was thin, so retrieval widened within the project.";
+        case "explicit_personal_knowledge":
+          return "Explicit personal-knowledge intent allowed retrieval to widen.";
+        default:
+          return GENERIC_GLOSSARY_LINE;
+      }
+    default:
+      return GENERIC_GLOSSARY_LINE;
+  }
+}
+
+type RetrievalPostureComparisonState = "changed" | "unchanged" | "no-previous" | "none";
+
+type RetrievalPostureComparison = {
+  changedFields: RetrievalPostureDiffField[] | null;
+  explanationLines: string[] | null;
+  label: string | null;
+  state: RetrievalPostureComparisonState;
+};
+
+function latestRetrievalPostureComparison(
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureComparison {
+  if (!current) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: null,
+      state: "none",
+    };
+  }
+
+  if (!previous) {
+    return {
+      changedFields: null,
+      explanationLines: null,
+      label: "No previous posture to compare",
+      state: "no-previous",
+    };
+  }
+
+  const comparison = diffRetrievalPosture(current, previous);
+  const explanation = describeRetrievalPostureChange(comparison, current, previous);
+
+  return {
+    changedFields: comparison.changed ? comparison.changedFields : null,
+    explanationLines: comparison.changed ? explanation.lines : null,
+    label: comparison.changed
+      ? "Posture changed since previous run"
+      : "Posture unchanged since previous run",
+    state: comparison.changed ? "changed" : "unchanged",
+  };
+}
+
+function RetrievalPostureDetails({
+  comparison,
+  retrievalPosture,
+  showComparisonStrip,
+}: {
+  comparison: RetrievalPostureComparison | null;
+  retrievalPosture: CommandCenterRetrievalPosture;
+  showComparisonStrip: boolean;
+}) {
+  const glossaryRows: Array<{
+    field: RetrievalPostureTokenField;
+    label: string;
+    value: string | null;
+  }> = [
+    {
+      field: "source_mode",
+      label: "source_mode",
+      value: retrievalPosture.source_mode,
+    },
+    {
+      field: "boundary_label",
+      label: "boundary_label",
+      value: retrievalPosture.boundary_label,
+    },
+    {
+      field: "retrieval_override_mode",
+      label: "retrieval_override_mode",
+      value: retrievalPosture.retrieval_override_mode,
+    },
+    {
+      field: "widen_reason",
+      label: "widen_reason",
+      value: retrievalPosture.widen_reason,
+    },
+  ];
+
+  return (
+    <>
+      {showComparisonStrip && comparison?.label ? (
+        <div
+          className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className="border text-[11px] font-medium leading-none"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+              }}
+            >
+              {comparison.label}
+            </Badge>
+            {comparison.changedFields ? (
+              <div className="space-y-1">
+                <span>Changed: {comparison.changedFields.join(", ")}</span>
+                {comparison.explanationLines ? (
+                  <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
+                    {comparison.explanationLines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Badge
+          className="border text-[11px] font-medium leading-none"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+          }}
+        >
+          source: {retrievalPosture.source_mode}
+        </Badge>
+        <Badge
+          className="border text-[11px] font-medium leading-none"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+          }}
+        >
+          boundary: {retrievalPosture.boundary_label}
+        </Badge>
+        {retrievalPosture.retrieval_override_mode ? (
+          <Badge
+            className="border text-[11px] font-medium leading-none"
+            style={{
+              background: "var(--surface-soft)",
+              borderColor: "var(--panel-border)",
+              color: "var(--text)",
+            }}
+          >
+            override: {retrievalPosture.retrieval_override_mode}
+          </Badge>
+        ) : null}
+        <Badge
+          className="border text-[11px] font-medium leading-none"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+          }}
+        >
+          widen: {retrievalPosture.widen_reason}
+        </Badge>
+        {retrievalPosture.conversation_only && (
+          <Badge
+            className="border text-[11px] font-medium leading-none"
+            style={{
+              background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
+              borderColor: "var(--panel-border)",
+              color: "var(--text-on-accent)",
+            }}
+          >
+            conversation-only
+          </Badge>
+        )}
+      </div>
+      <div
+        className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+        style={{
+          background: "var(--surface-soft)",
+          borderColor: "var(--panel-border)",
+          color: "var(--muted)",
+        }}
+      >
+        {describeRetrievalPosture(retrievalPosture).map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
+      <div
+        className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2"
+        style={{
+          background: "color-mix(in oklab, var(--surface-soft) 84%, transparent)",
+          borderColor: "var(--panel-border)",
+        }}
+      >
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+          What these fields mean
+        </div>
+        <dl className="mt-2 grid gap-2 md:grid-cols-2">
+          {glossaryRows.map((row) => (
+            <div key={row.field} className="space-y-0.5">
+              <dt className="text-[11px] font-semibold tracking-[0.12em]" style={{ color: "var(--text)" }}>
+                {row.label}
+              </dt>
+              <dd className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                {describeRetrievalPostureToken(row.field, row.value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyPosture}
+        >
+          Copy posture
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyAuditNote}
+        >
+          Copy audit note
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyBundle}
+        >
+          Copy posture bundle
+        </Button>
+        {copyFeedback?.action === "posture" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture
+          </span>
+        ) : copyFeedback?.action === "posture" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Copy failed
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied audit note
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Audit note copy failed
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture bundle
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Posture bundle copy failed
+          </span>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+export function RetrievalPostureSummaryRow({
+  createdAt,
+  posture,
+  taskId,
+}: {
+  createdAt: string | null;
+  posture: CommandCenterRetrievalPosture;
+  taskId: string;
+}) {
+  const summaryLines = describeRetrievalPosture(posture);
+  const summary = summaryLines[0] ?? "Retrieval posture metadata is present.";
+
+  return (
+    <div
+      className="space-y-2 rounded-[var(--tile-radius)] border px-3 py-2"
+      data-testid="command-center-retrieval-posture-history-item"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          {formatRetrievalPostureHistoryTimestamp(createdAt)}
+        </span>
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          Task: {taskId}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">{renderRetrievalPostureBadges(posture)}</div>
+
+      <div className="text-sm leading-5" style={{ color: "var(--text)" }}>
+        {summary}
+      </div>
+    </div>
+  );
+}
+
+export function RetrievalPosturePanel({
+  className,
+  compact = false,
+  threadId,
+  title = "Retrieval posture",
+  testId,
+  showComparisonStrip = false,
+}: {
+  className?: string;
+  compact?: boolean;
+  threadId: number | null;
+  title?: string;
+  testId?: string;
+  showComparisonStrip?: boolean;
+}) {
+  const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
+    useRetrievalPosture(threadId);
+  const previousRetrievalPostureRef = React.useRef<CommandCenterRetrievalPosture | null>(null);
+  const [comparison, setComparison] = React.useState<RetrievalPostureComparison>({
+    changedFields: null,
+    explanationLines: null,
+    label: null,
+    state: "none",
+  });
+  const comparisonSnapshot = retrievalPosture
+    ? [
+        retrievalPosture.source_mode,
+        retrievalPosture.boundary_label,
+        retrievalPosture.retrieval_override_mode ?? "null",
+        retrievalPosture.widen_reason,
+        String(retrievalPosture.conversation_only),
+      ].join("\u241f")
+    : null;
+
+  React.useEffect(() => {
+    if (postureLoading || postureError || postureStatus !== "ok" || !retrievalPosture) {
+      return;
+    }
+
+    const nextComparison = latestRetrievalPostureComparison(
+      retrievalPosture,
+      previousRetrievalPostureRef.current
+    );
+
+    setComparison(nextComparison);
+    previousRetrievalPostureRef.current = retrievalPosture;
+  }, [comparisonSnapshot, postureError, postureLoading, postureStatus, threadId]);
+
+  const rootClassName = [
+    compact ? "rounded-[var(--tile-radius)] border p-2.5" : "rounded-[var(--tile-radius)] border p-3",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      data-testid={testId}
+      className={rootClassName}
+      style={{
+        background: "color-mix(in oklab, var(--surface-soft) 60%, transparent)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <div
+        className={compact ? "text-[10px] font-semibold uppercase tracking-[0.16em]" : "text-[11px] font-semibold uppercase tracking-[0.18em]"}
+        style={{ color: "var(--muted)" }}
+      >
+        {title}
+      </div>
+      {postureLoading ? (
+        <div className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+          Loading retrieval posture…
+        </div>
+      ) : postureError ? (
+        <div className="mt-2 text-sm" style={{ color: "var(--danger-text)" }}>
+          {postureError}
+        </div>
+      ) : postureStatus === "empty" ? (
+        <div className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+          No retrieval posture evidence for this thread.
+        </div>
+      ) : retrievalPosture ? (
+        <RetrievalPostureDetails
+          comparison={comparison}
+          retrievalPosture={retrievalPosture}
+          showComparisonStrip={showComparisonStrip}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function resolveSelectedRunThreadId(run: CommandCenterRun): number | null {
@@ -343,7 +1022,11 @@ function TraceListPane({
   selectedRunKey: string | null;
 }) {
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-list-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -359,7 +1042,7 @@ function TraceListPane({
           </Badge>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div data-testid="command-center-trace-list-scroll" className="min-h-0 flex-1 overflow-auto p-2">
         {runs.length === 0 ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             No runs match the current filters.
@@ -457,8 +1140,14 @@ function TraceViewerPane({
     }
   }, [rawTrace]);
 
+  const retrievalPostureThreadId = effectiveRun?.threadId ?? null;
+
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-viewer-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
@@ -496,7 +1185,7 @@ function TraceViewerPane({
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div data-testid="command-center-trace-viewer-scroll" className="min-h-0 flex-1 overflow-auto p-4">
         {!effectiveRun ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             Select a run to inspect its trace report.
@@ -555,6 +1244,7 @@ function TraceViewerPane({
             ) : null}
           </div>
         )}
+        {effectiveRun ? <RetrievalPosturePanel threadId={retrievalPostureThreadId} /> : null}
       </div>
     </section>
   );
@@ -678,7 +1368,7 @@ export default function TraceWorkbench({
 
   return (
     <Card
-      className="bezel-none border h-full min-h-0"
+      className="bezel-none border flex h-full min-h-0 flex-col overflow-hidden"
       role="region"
       aria-label="Command Center trace workbench"
       data-testid="command-center-trace-workbench"
@@ -711,24 +1401,24 @@ export default function TraceWorkbench({
         </div>
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-[var(--card-pad)]">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-[var(--card-pad)]">
         <TraceFilterBar filters={filters} onFiltersChange={onFiltersChange} />
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
-        <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
-        <TraceViewerPane filters={filters} selectedRun={selectedRun} />
-      </div>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
+          <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
+          <TraceViewerPane filters={filters} selectedRun={selectedRun} />
+        </div>
 
-      <datalist id="command-center-provider-options">
-        {providerOptions.map((provider) => (
-          <option key={provider} value={provider} />
-        ))}
-      </datalist>
-      <datalist id="command-center-model-options">
-        {modelOptions.map((model) => (
-          <option key={model} value={model} />
-        ))}
-      </datalist>
+        <datalist id="command-center-provider-options">
+          {providerOptions.map((provider) => (
+            <option key={provider} value={provider} />
+          ))}
+        </datalist>
+        <datalist id="command-center-model-options">
+          {modelOptions.map((model) => (
+            <option key={model} value={model} />
+          ))}
+        </datalist>
       </CardContent>
     </Card>
   );
