@@ -23,6 +23,13 @@ export type LauncherStartupHandoff = {
   detail: string;
 };
 
+export type DesktopStartupRoutingDecision = {
+  shouldRunWizard: boolean;
+  setupComplete: boolean;
+  handoffTarget: string | null;
+  detail: string;
+};
+
 const DESKTOP_BACKEND_STORAGE_KEY = "cfy.desktop.backendBaseUrl";
 const DESKTOP_SHARE_STORAGE_KEY = "cfy.desktop.sharePublicBaseUrl";
 
@@ -145,6 +152,20 @@ export async function readDesktopLauncherStartupHandoff(): Promise<LauncherStart
   } catch {
     return null;
   }
+}
+
+export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartupRoutingDecision | null> {
+  const handoff = await readDesktopLauncherStartupHandoff();
+  if (!handoff) return null;
+
+  return {
+    shouldRunWizard: handoff.shouldRunWizard,
+    setupComplete: handoff.setupComplete,
+    handoffTarget: handoff.handoffTarget,
+    detail:
+      normalizeNullableText(handoff.detail) ??
+      "desktop launcher startup routing resolved",
+  };
 }
 
 function readDesktopStorage(key: string): string {

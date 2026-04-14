@@ -56,6 +56,11 @@ import {
 } from "./lib/runtimeBootstrap";
 import EventsConsole from "./pages/EventsConsole";
 import { SharePage } from "./pages/SharePage";
+import {
+  isTauriRuntime,
+  readDesktopStartupRoutingDecision,
+  type DesktopStartupRoutingDecision,
+} from "./lib/runtimeConfig";
 
 /**
  * App entry with a gated UI Playground ("Tune Rack").
@@ -335,6 +340,65 @@ function WorkspaceRecursionGuard() {
   );
 }
 
+function DesktopStartupRoutingGate({
+  detail,
+}: {
+  detail: string | null;
+}) {
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center p-6 sm:p-8">
+      <div className="absolute inset-0 bg-black/35 backdrop-blur-xl" />
+      <div
+        className="relative z-10 w-full max-w-xl overflow-hidden rounded-[26px] border shadow-2xl"
+        style={{
+          borderColor: "var(--panel-border-strong, var(--panel-border))",
+          background:
+            "linear-gradient(155deg, rgba(12,18,30,0.95), rgba(19,29,42,0.86))",
+          color: "var(--text)",
+          boxShadow: "0 32px 110px rgba(0,0,0,0.34)",
+        }}
+      >
+        <div
+          className="border-b px-6 py-4 sm:px-8"
+          style={{ borderColor: "var(--panel-border)" }}
+        >
+          <span
+            className="inline-flex items-center rounded-full border px-3 py-1 text-xs uppercase tracking-[0.24em]"
+            style={{
+              borderColor: "var(--chip-border)",
+              background: "rgba(255,255,255,0.04)",
+              color: "var(--muted)",
+            }}
+          >
+            Desktop startup
+          </span>
+        </div>
+
+        <div className="space-y-4 px-6 py-7 sm:px-8 sm:py-9">
+          <div className="space-y-3">
+            <h1 className="text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">
+              Resolving launcher handoff
+            </h1>
+            <p
+              className="max-w-xl text-sm leading-6 sm:text-[15px]"
+              style={{ color: "var(--muted)" }}
+            >
+              Codexify is checking the persisted desktop launcher state before
+              it chooses the startup path.
+            </p>
+            <p
+              className="max-w-xl text-xs leading-6"
+              style={{ color: "var(--muted)" }}
+            >
+              {detail || "Waiting for the launcher handoff decision."}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DevTuneGate() {
   const [Mod, setMod] = React.useState<React.ComponentType | null>(null);
   const [error, setError] = React.useState<Error | null>(null);
@@ -392,13 +456,46 @@ export default function App() {
   const personaStudioRoute = isPersonaStudioRoute();
   const shareRoute = isShareRoute();
   const shareToken = shareRoute ? getShareToken() : null;
+  const desktopRuntime = isTauriRuntime();
+  const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
+    DesktopStartupRoutingDecision | null | undefined
+  >(() => (desktopRuntime ? undefined : null));
+
+  React.useEffect(() => {
+    if (!desktopRuntime) return;
+
+    let cancelled = false;
+
+    void readDesktopStartupRoutingDecision()
+      .then((decision) => {
+        if (cancelled) return;
+        setDesktopStartupRouting(decision);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDesktopStartupRouting(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopRuntime]);
+
+  const desktopStartupPending = desktopRuntime && desktopStartupRouting === undefined;
+  const desktopStartupRequiresBootstrap =
+    desktopRuntime &&
+    desktopStartupRouting !== undefined &&
+    (desktopStartupRouting === null ||
+      desktopStartupRouting.shouldRunWizard ||
+      !desktopStartupRouting.handoffTarget);
   const bootstrapEnabled =
     shouldRunRuntimeBootstrap() &&
     !tuneRoute &&
     !eventsRoute &&
     !commandCenterRoute &&
     !personaStudioRoute &&
-    !(shareRoute && !!shareToken);
+    !(shareRoute && !!shareToken) &&
+    desktopStartupRequiresBootstrap;
   const [docGenOpen, setDocGenOpen] = React.useState(false);
   const [docGenDraft, setDocGenDraft] = React.useState<DocumentGenInput | null>(
     null
@@ -406,7 +503,7 @@ export default function App() {
   const [bootstrapState, setBootstrapState] =
     React.useState<RuntimeBootstrapState>(createCheckingRuntimeBootstrapState);
   const [bootstrapPhase, setBootstrapPhase] = React.useState<BootstrapPhase>(
-    () => (bootstrapEnabled ? "bootstrap" : "unlocked")
+    () => (desktopRuntime ? "bootstrap" : "unlocked")
   );
   const bootstrapRunRef = React.useRef(0);
   const autoBootstrapStartedRef = React.useRef(false);
@@ -844,6 +941,7 @@ export default function App() {
 
   React.useEffect(() => {
     if (!bootstrapEnabled) {
+      if (desktopStartupPending) return;
       autoBootstrapStartedRef.current = false;
       latestPreflightRef.current = null;
       bootstrapLogsRequestRef.current += 1;
@@ -864,7 +962,7 @@ export default function App() {
 
     autoBootstrapStartedRef.current = true;
     void runBootstrapFlow("preflight");
-  }, [bootstrapEnabled, runBootstrapFlow]);
+  }, [bootstrapEnabled, desktopStartupPending, runBootstrapFlow]);
 
   const loadBootstrapLogs = React.useCallback(
     async (service: BootstrapLogService) => {
@@ -1046,7 +1144,8 @@ export default function App() {
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
-  const webRuntimeGateEnabled = !bootstrapEnabled && import.meta.env.MODE !== "test";
+  const webRuntimeGateEnabled =
+    !desktopRuntime && !bootstrapEnabled && import.meta.env.MODE !== "test";
 
   // Mobile bottom-edge contract: suppress ambient bottom chrome when keyboard is open
   // on phone-class widths to keep the keyboard flush against the active input surface.
@@ -1059,6 +1158,9 @@ export default function App() {
 
   if (tuneRoute) {
     return <DevTuneGate />;
+  }
+  if (desktopStartupPending) {
+    return <DesktopStartupRoutingGate detail={desktopStartupRouting?.detail ?? null} />;
   }
   let mainContent: React.ReactNode;
   if (eventsRoute) {
