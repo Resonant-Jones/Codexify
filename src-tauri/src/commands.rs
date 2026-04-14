@@ -2,7 +2,7 @@ use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_P
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use reqwest::header::CONTENT_TYPE;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
 use std::collections::{BTreeMap, HashSet};
@@ -53,6 +53,7 @@ const PACKAGED_RUNTIME_ROOT_DIRNAME: &str = "Codexify";
 const PACKAGED_RUNTIME_HOME_DIRNAME: &str = PACKAGED_RUNTIME_METADATA_DIRNAME;
 const PACKAGED_RUNTIME_MANIFEST_FILENAME: &str = ".codexify-runtime-manifest.json";
 const PACKAGED_RUNTIME_MARKER_FILENAME: &str = ".codexify-packaged-runtime";
+const LAUNCHER_STARTUP_STATE_FILENAME: &str = ".codexify-launcher-startup-state.json";
 const PACKAGED_SETUP_DEFAULT_NEO4J_USER: &str = "neo4j";
 const PACKAGED_SETUP_DEFAULT_NEO4J_PASS: &str = "codexify";
 const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 12] = [
@@ -91,6 +92,34 @@ pub struct DesktopRuntimeConfig {
     pub sse_url: String,
     pub share_public_base_url: String,
     pub auth_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherStartupHandoff {
+    pub should_run_wizard: bool,
+    pub setup_complete: bool,
+    pub runtime_profile: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handoff_target: Option<String>,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LauncherStartupStateFile {
+    #[serde(default)]
+    setup_complete: bool,
+    #[serde(default)]
+    runtime_profile: Option<String>,
+    #[serde(default)]
+    env_path: Option<String>,
+    #[serde(default)]
+    handoff_target: Option<String>,
+    #[serde(default)]
+    detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2656,6 +2685,161 @@ fn delete_keychain_password() -> Result<(), String> {
     Ok(())
 }
 
+fn launcher_startup_state_candidates(runtime: &BootstrapRuntime) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(runtime_home) = runtime.runtime_home.as_ref() {
+        candidates.push(runtime_home.join(LAUNCHER_STARTUP_STATE_FILENAME));
+    }
+
+    if let Some(runtime_root) = runtime.runtime_root_path() {
+        candidates.push(runtime_root.join(LAUNCHER_STARTUP_STATE_FILENAME));
+    }
+
+    candidates.dedup();
+    candidates
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|text| {
+        let trimmed = text.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+fn normalize_handoff_target(value: Option<String>) -> Option<String> {
+    let target = normalize_optional_text(value)?;
+    if target.starts_with("http://") || target.starts_with("https://") {
+        Some(target.trim_end_matches('/').to_string())
+    } else {
+        None
+    }
+}
+
+fn launcher_startup_handoff_result(
+    setup_complete: bool,
+    runtime_profile: String,
+    env_path: Option<String>,
+    handoff_target: Option<String>,
+    detail: String,
+) -> LauncherStartupHandoff {
+    let should_run_wizard = !setup_complete || handoff_target.is_none();
+
+    LauncherStartupHandoff {
+        should_run_wizard,
+        setup_complete,
+        runtime_profile,
+        env_path,
+        handoff_target,
+        detail,
+    }
+}
+
+fn read_launcher_startup_handoff(runtime: &BootstrapRuntime) -> LauncherStartupHandoff {
+    let candidates = launcher_startup_state_candidates(runtime);
+    let fallback_profile = "unknown".to_string();
+    let runtime_context = format!("runtimeContext={}", runtime.runtime_context.as_str());
+    let runtime_root = runtime
+        .runtime_root_display()
+        .unwrap_or_else(|| "<unavailable>".to_string());
+    let runtime_home = runtime
+        .runtime_home_display()
+        .unwrap_or_else(|| "<unavailable>".to_string());
+
+    let Some(state_path) = candidates.into_iter().find(|path| path.is_file()) else {
+        return launcher_startup_handoff_result(
+            false,
+            fallback_profile,
+            None,
+            None,
+            format!(
+                "launcher startup state missing; run setup. {runtime_context}; runtimeHome={runtime_home}; runtimeRoot={runtime_root}"
+            ),
+        );
+    };
+
+    let contents = match fs::read_to_string(&state_path) {
+        Ok(contents) => contents,
+        Err(err) => {
+            return launcher_startup_handoff_result(
+                false,
+                fallback_profile,
+                None,
+                None,
+                format!(
+                "failed to read launcher startup state at {}: {err}; run setup. {runtime_context}",
+                state_path.display()
+            ),
+            )
+        }
+    };
+
+    let state = match serde_json::from_str::<LauncherStartupStateFile>(&contents) {
+        Ok(state) => state,
+        Err(err) => {
+            return launcher_startup_handoff_result(
+                false,
+                fallback_profile,
+                None,
+                None,
+                format!(
+                    "launcher startup state malformed at {}: {err}; run setup. {runtime_context}",
+                    state_path.display()
+                ),
+            )
+        }
+    };
+
+    let runtime_profile =
+        normalize_optional_text(state.runtime_profile).unwrap_or_else(|| fallback_profile.clone());
+    let env_path = normalize_optional_text(state.env_path);
+    let handoff_target = normalize_handoff_target(state.handoff_target);
+
+    let should_run_wizard = !state.setup_complete || handoff_target.is_none();
+    let status_detail = if should_run_wizard {
+        if !state.setup_complete {
+            format!(
+                "launcher startup state loaded from {}; setup is incomplete; favor wizard/recovery. {runtime_context}; runtimeProfile={runtime_profile}; envPath={}; handoffTarget={}",
+                state_path.display(),
+                env_path.as_deref().unwrap_or("<none>"),
+                handoff_target.as_deref().unwrap_or("<none>")
+            )
+        } else {
+            format!(
+                "launcher startup state loaded from {}; setupComplete=true but no valid runtime handoff target was present; favor wizard/recovery. {runtime_context}; runtimeProfile={runtime_profile}; envPath={}; handoffTarget=<none>",
+                state_path.display(),
+                env_path.as_deref().unwrap_or("<none>")
+            )
+        }
+    } else {
+        let state_detail = normalize_optional_text(state.detail).unwrap_or_else(|| {
+            "launcher startup state indicates a ready local runtime handoff target.".to_string()
+        });
+        format!(
+            "{state_detail} Loaded from {}; {runtime_context}; runtimeProfile={runtime_profile}; envPath={}; handoffTarget={}",
+            state_path.display(),
+            env_path.as_deref().unwrap_or("<none>"),
+            handoff_target.as_deref().unwrap_or("<none>")
+        )
+    };
+
+    launcher_startup_handoff_result(
+        state.setup_complete,
+        runtime_profile,
+        env_path,
+        if should_run_wizard {
+            None
+        } else {
+            handoff_target
+        },
+        status_detail,
+    )
+}
+
 #[tauri::command]
 pub fn desktop_get_runtime_config() -> DesktopRuntimeConfig {
     let backend_base_url = desktop_backend_base_url();
@@ -2672,6 +2856,13 @@ pub fn desktop_get_runtime_config() -> DesktopRuntimeConfig {
         share_public_base_url,
         auth_mode,
     }
+}
+
+#[tauri::command]
+pub fn desktop_get_launcher_startup_handoff(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> LauncherStartupHandoff {
+    read_launcher_startup_handoff(&runtime)
 }
 
 #[tauri::command]
