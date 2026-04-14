@@ -48,6 +48,78 @@ const STATUS_OPTIONS: Array<{ label: string; value: string }> = [
 
 type TraceTab = "report" | "raw-trace" | "payload-summary";
 
+export const RETRIEVAL_POSTURE_DIFF_FIELDS = [
+  "source_mode",
+  "boundary_label",
+  "retrieval_override_mode",
+  "widen_reason",
+  "conversation_only",
+] as const;
+
+export type RetrievalPostureDiffField =
+  (typeof RETRIEVAL_POSTURE_DIFF_FIELDS)[number];
+
+export type RetrievalPostureDiff = {
+  changed: boolean;
+  changedFields: RetrievalPostureDiffField[];
+};
+
+export function diffRetrievalPosture(
+  current: CommandCenterRetrievalPosture,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureDiff {
+  if (!previous) {
+    return { changed: false, changedFields: [] };
+  }
+
+  const changedFields = RETRIEVAL_POSTURE_DIFF_FIELDS.filter(
+    (field) => current[field] !== previous[field]
+  );
+
+  return {
+    changed: changedFields.length > 0,
+    changedFields,
+  };
+}
+
+export type RetrievalPostureChangeExplanation = {
+  lines: string[];
+};
+
+const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
+  RetrievalPostureDiffField,
+  string
+> = {
+  source_mode: "The retrieval scope changed.",
+  boundary_label: "The retrieval boundary changed.",
+  retrieval_override_mode: "An explicit retrieval override changed the posture.",
+  widen_reason: "The reason for widening changed.",
+  conversation_only: "Conversation-only retrieval changed.",
+};
+
+const RETRIEVAL_POSTURE_CHANGE_FALLBACK =
+  "Retrieval posture changed, but this combination does not yet have a tailored explanation.";
+
+export function describeRetrievalPostureChange(
+  diff: RetrievalPostureDiff,
+  current: CommandCenterRetrievalPosture | null,
+  previous: CommandCenterRetrievalPosture | null
+): RetrievalPostureChangeExplanation {
+  if (!diff.changed || !current || !previous) {
+    return { lines: [] };
+  }
+
+  if (diff.changedFields.length === 0 || diff.changedFields.length > 2) {
+    return { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+  }
+
+  const lines = diff.changedFields.map(
+    (field) => RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS[field]
+  );
+
+  return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
+}
+
 function toneStyle(tone: CommandCenterStatusTone): React.CSSProperties {
   switch (tone) {
     case "active":
@@ -549,7 +621,106 @@ function RetrievalPostureDetails({
           ))}
         </dl>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyPosture}
+        >
+          Copy posture
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyAuditNote}
+        >
+          Copy audit note
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyBundle}
+        >
+          Copy posture bundle
+        </Button>
+        {copyFeedback?.action === "posture" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture
+          </span>
+        ) : copyFeedback?.action === "posture" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Copy failed
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied audit note
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Audit note copy failed
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture bundle
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Posture bundle copy failed
+          </span>
+        ) : null}
+      </div>
     </>
+  );
+}
+
+export function RetrievalPostureSummaryRow({
+  createdAt,
+  posture,
+  taskId,
+}: {
+  createdAt: string | null;
+  posture: CommandCenterRetrievalPosture;
+  taskId: string;
+}) {
+  const summaryLines = describeRetrievalPosture(posture);
+  const summary = summaryLines[0] ?? "Retrieval posture metadata is present.";
+
+  return (
+    <div
+      className="space-y-2 rounded-[var(--tile-radius)] border px-3 py-2"
+      data-testid="command-center-retrieval-posture-history-item"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          {formatRetrievalPostureHistoryTimestamp(createdAt)}
+        </span>
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          Task: {taskId}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">{renderRetrievalPostureBadges(posture)}</div>
+
+      <div className="text-sm leading-5" style={{ color: "var(--text)" }}>
+        {summary}
+      </div>
+    </div>
   );
 }
 
@@ -851,7 +1022,11 @@ function TraceListPane({
   selectedRunKey: string | null;
 }) {
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-list-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -867,7 +1042,7 @@ function TraceListPane({
           </Badge>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div data-testid="command-center-trace-list-scroll" className="min-h-0 flex-1 overflow-auto p-2">
         {runs.length === 0 ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             No runs match the current filters.
@@ -968,7 +1143,11 @@ function TraceViewerPane({
   const retrievalPostureThreadId = effectiveRun?.threadId ?? null;
 
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-viewer-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
@@ -1006,7 +1185,7 @@ function TraceViewerPane({
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div data-testid="command-center-trace-viewer-scroll" className="min-h-0 flex-1 overflow-auto p-4">
         {!effectiveRun ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             Select a run to inspect its trace report.
@@ -1189,7 +1368,7 @@ export default function TraceWorkbench({
 
   return (
     <Card
-      className="bezel-none border h-full min-h-0"
+      className="bezel-none border flex h-full min-h-0 flex-col overflow-hidden"
       role="region"
       aria-label="Command Center trace workbench"
       data-testid="command-center-trace-workbench"
@@ -1222,24 +1401,24 @@ export default function TraceWorkbench({
         </div>
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-[var(--card-pad)]">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-[var(--card-pad)]">
         <TraceFilterBar filters={filters} onFiltersChange={onFiltersChange} />
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
-        <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
-        <TraceViewerPane filters={filters} selectedRun={selectedRun} />
-      </div>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
+          <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
+          <TraceViewerPane filters={filters} selectedRun={selectedRun} />
+        </div>
 
-      <datalist id="command-center-provider-options">
-        {providerOptions.map((provider) => (
-          <option key={provider} value={provider} />
-        ))}
-      </datalist>
-      <datalist id="command-center-model-options">
-        {modelOptions.map((model) => (
-          <option key={model} value={model} />
-        ))}
-      </datalist>
+        <datalist id="command-center-provider-options">
+          {providerOptions.map((provider) => (
+            <option key={provider} value={provider} />
+          ))}
+        </datalist>
+        <datalist id="command-center-model-options">
+          {modelOptions.map((model) => (
+            <option key={model} value={model} />
+          ))}
+        </datalist>
       </CardContent>
     </Card>
   );
