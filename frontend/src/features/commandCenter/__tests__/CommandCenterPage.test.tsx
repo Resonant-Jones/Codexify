@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import CommandCenterPage from "../CommandCenterPage";
+import {
+  classifyRetrievalPostureTrend,
+  RetrievalPosturePanel,
+} from "../components/TraceWorkbench";
 import { describeRuntimeStatusPresentation } from "@/contracts/runtimeTokens";
 
 import type {
@@ -800,6 +804,56 @@ const mockedPartialPosture = {
   conversation_only: true,
 } as unknown as CommandCenterRetrievalPosture;
 
+const mockedRetrievalPostureSequences = new Map<
+  number,
+  CommandCenterRetrievalPosture[]
+>();
+const mockedRetrievalPostureNextIndices = new Map<number, number>();
+const mockedRetrievalPostureCurrentIndices = new Map<number, number>();
+let mockedRetrievalPostureLastThreadId: number | null = null;
+
+function setRetrievalPostureSequence(
+  threadId: number,
+  sequence: CommandCenterRetrievalPosture[]
+): void {
+  mockedRetrievalPostureSequences.set(threadId, sequence);
+  mockedRetrievalPostureNextIndices.delete(threadId);
+  mockedRetrievalPostureCurrentIndices.delete(threadId);
+  mockedRetrievalPostureLastThreadId = null;
+}
+
+function clearRetrievalPostureSequences(): void {
+  mockedRetrievalPostureSequences.clear();
+  mockedRetrievalPostureNextIndices.clear();
+  mockedRetrievalPostureCurrentIndices.clear();
+  mockedRetrievalPostureLastThreadId = null;
+}
+
+function resolveMockedRetrievalPosture(
+  threadId: number | null
+): CommandCenterRetrievalPosture | null {
+  if (threadId === null) return null;
+
+  const previousThreadId = mockedRetrievalPostureLastThreadId;
+  mockedRetrievalPostureLastThreadId = threadId;
+
+  const sequence = mockedRetrievalPostureSequences.get(threadId);
+  if (!sequence || sequence.length === 0) {
+    if (threadId === 42) return mockedRetrievalPosture;
+    return null;
+  }
+
+  if (threadId !== previousThreadId) {
+    const nextIndex = mockedRetrievalPostureNextIndices.get(threadId) ?? 0;
+    const boundedIndex = Math.min(nextIndex, sequence.length - 1);
+    mockedRetrievalPostureCurrentIndices.set(threadId, boundedIndex);
+    mockedRetrievalPostureNextIndices.set(threadId, boundedIndex + 1);
+  }
+
+  const currentIndex = mockedRetrievalPostureCurrentIndices.get(threadId) ?? 0;
+  return sequence[Math.min(currentIndex, sequence.length - 1)] ?? null;
+}
+
 function makeComparisonRun({
   eventId,
   key,
@@ -856,6 +910,16 @@ function makeComparisonRun({
 
 vi.mock("../hooks/useRetrievalPosture", () => ({
   default: (threadId: number | null) => {
+    const sequencePosture = resolveMockedRetrievalPosture(threadId);
+    if (sequencePosture) {
+      return {
+        error: null,
+        loading: false,
+        retrievalPosture: sequencePosture,
+        status: "ok",
+      };
+    }
+
     if (threadId === 42) {
       return {
         error: null,
@@ -1045,6 +1109,7 @@ vi.mock("../hooks/useRetrievalPosture", () => ({
 
 beforeEach(() => {
   mockRefresh.mockClear();
+  clearRetrievalPostureSequences();
 });
 
 describe("CommandCenterPage", () => {
@@ -1191,6 +1256,10 @@ describe("CommandCenterPage", () => {
     ).toBeInTheDocument();
     expect(within(threadPanel).getByText("widen_reason")).toBeInTheDocument();
     expect(within(threadPanel).getByText(/Retrieval did not widen\./i)).toBeInTheDocument();
+    expect(within(threadPanel).getByText("Posture trend: Insufficient history")).toBeInTheDocument();
+    expect(
+      within(threadPanel).getByText(/Not enough completed posture history is available yet\./i)
+    ).toBeInTheDocument();
   });
 
   it.each([
@@ -1333,6 +1402,212 @@ describe("CommandCenterPage", () => {
     );
     expect(within(threadPanel).queryByText(/^Changed:/i)).not.toBeInTheDocument();
     expect(within(threadPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
+  });
+
+  it("renders a stable posture trend when the recent window repeats the same posture", async () => {
+    setRetrievalPostureSequence(42, [
+      mockedRetrievalPosture,
+      mockedRetrievalPosture,
+      mockedRetrievalPosture,
+    ]);
+
+    const { rerender } = render(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={42}
+        title="Thread retrieval posture"
+      />
+    );
+
+    const threadPanel = screen.getByTestId("trend-panel");
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={100}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: project/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={42}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={100}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: project/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={42}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument()
+    );
+
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("Posture trend: Stable")).toBeInTheDocument()
+    );
+    expect(
+      within(threadPanel).getByText(/Recent runs used the same retrieval posture\./i)
+    ).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument();
+  });
+
+  it("renders a stabilizing posture trend when the newest posture matches the previous run", async () => {
+    setRetrievalPostureSequence(42, [
+      mockedRetrievalPosture,
+      mockedProjectPosture,
+      mockedProjectPosture,
+    ]);
+
+    const { rerender } = render(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={42}
+        title="Thread retrieval posture"
+      />
+    );
+
+    const threadPanel = screen.getByTestId("trend-panel");
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={100}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: project/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={42}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: project/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={100}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: project/i)).toBeInTheDocument()
+    );
+    rerender(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={42}
+        title="Thread retrieval posture"
+      />
+    );
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: project/i)).toBeInTheDocument()
+    );
+
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("Posture trend: Stabilizing")).toBeInTheDocument()
+    );
+    expect(
+      within(threadPanel).getByText(
+        /The newest posture matches the previous run, but differs from older recent runs\./i
+      )
+    ).toBeInTheDocument();
+    expect(within(threadPanel).getByText(/source: project/i)).toBeInTheDocument();
+  });
+
+  it("classifies a flapping posture trend when recent items alternate repeatedly", () => {
+    expect(
+      classifyRetrievalPostureTrend([
+        { retrieval_posture: mockedRetrievalPosture },
+        { retrieval_posture: mockedProjectPosture },
+        { retrieval_posture: mockedRetrievalPosture },
+        { retrieval_posture: mockedProjectPosture },
+      ])
+    ).toBe("flapping");
+  });
+
+  it("renders an insufficient-history trend when fewer than two posture items are available", async () => {
+    render(
+      <RetrievalPosturePanel
+        compact
+        showComparisonStrip
+        showTrendBadge
+        testId="trend-panel"
+        threadId={42}
+        title="Thread retrieval posture"
+      />
+    );
+
+    const threadPanel = screen.getByTestId("trend-panel");
+    await waitFor(() =>
+      expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument()
+    );
+
+    await waitFor(() =>
+      expect(within(threadPanel).getByText("Posture trend: Insufficient history")).toBeInTheDocument()
+    );
+    expect(
+      within(threadPanel).getByText(/Not enough completed posture history is available yet\./i)
+    ).toBeInTheDocument();
   });
 
   it("renders retrieval posture section for active thread with status ok", () => {

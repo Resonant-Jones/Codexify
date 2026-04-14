@@ -178,6 +178,16 @@ export type RetrievalPostureChangeExplanation = {
   lines: string[];
 };
 
+type RetrievalPostureHistoryItem = {
+  retrieval_posture: CommandCenterRetrievalPosture | null;
+};
+
+export type RetrievalPostureTrend =
+  | "stable"
+  | "stabilizing"
+  | "flapping"
+  | "insufficient_history";
+
 const RETRIEVAL_POSTURE_CHANGE_EXPLANATIONS: Record<
   RetrievalPostureDiffField,
   string
@@ -211,6 +221,101 @@ export function describeRetrievalPostureChange(
 
   return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
 }
+
+function postureSignature(posture: CommandCenterRetrievalPosture | null): string | null {
+  if (!posture) return null;
+
+  const {
+    source_mode,
+    boundary_label,
+    retrieval_override_mode,
+    widen_reason,
+    conversation_only,
+  } = posture;
+
+  if (
+    typeof source_mode !== "string" ||
+    typeof boundary_label !== "string" ||
+    typeof widen_reason !== "string" ||
+    typeof conversation_only !== "boolean"
+  ) {
+    return null;
+  }
+
+  return [
+    source_mode,
+    boundary_label,
+    retrieval_override_mode ?? "null",
+    widen_reason,
+    String(conversation_only),
+  ].join("\u241f");
+}
+
+/**
+ * Classify a bounded newest-first posture window using only canonical posture fields.
+ * The window is capped at five items and the rule stays explicit: stable if the
+ * newest three match, stabilizing if the newest two match but an older one differs,
+ * flapping if the recent window contains repeated transitions, otherwise insufficient.
+ */
+export function classifyRetrievalPostureTrend(
+  items: Array<RetrievalPostureHistoryItem>
+): RetrievalPostureTrend {
+  const signatures = items
+    .slice(0, 5)
+    .map((item) => postureSignature(item.retrieval_posture))
+    .filter((signature): signature is string => Boolean(signature));
+
+  if (signatures.length < 2) {
+    return "insufficient_history";
+  }
+
+  if (
+    signatures.length >= 3 &&
+    signatures[0] === signatures[1] &&
+    signatures[1] === signatures[2]
+  ) {
+    return "stable";
+  }
+
+  if (
+    signatures.length >= 3 &&
+    signatures[0] === signatures[1] &&
+    signatures.some((signature) => signature !== signatures[0])
+  ) {
+    return "stabilizing";
+  }
+
+  let transitions = 0;
+  for (let index = 1; index < signatures.length; index += 1) {
+    if (signatures[index] !== signatures[index - 1]) {
+      transitions += 1;
+    }
+  }
+
+  return transitions >= 2 ? "flapping" : "insufficient_history";
+}
+
+const RETRIEVAL_POSTURE_TREND_PRESENTATIONS: Record<
+  RetrievalPostureTrend,
+  { explanation: string; label: string }
+> = {
+  stable: {
+    explanation: "Recent runs used the same retrieval posture.",
+    label: "Stable",
+  },
+  stabilizing: {
+    explanation: "The newest posture matches the previous run, but differs from older recent runs.",
+    label: "Stabilizing",
+  },
+  flapping: {
+    explanation: "Recent runs changed posture multiple times.",
+    label: "Flapping",
+  },
+  insufficient_history: {
+    explanation: "Not enough completed posture history is available yet.",
+    label: "Insufficient history",
+  },
+};
 
 /**
  * Derives a brief human-readable explanation of the retrieval posture from
@@ -388,10 +493,14 @@ function latestRetrievalPostureComparison(
 function RetrievalPostureDetails({
   comparison,
   retrievalPosture,
+  trend,
   showComparisonStrip,
+  showTrendBadge,
 }: {
   comparison: RetrievalPostureComparison | null;
   retrievalPosture: CommandCenterRetrievalPosture;
+  trend: RetrievalPostureTrend;
+  showTrendBadge: boolean;
   showComparisonStrip: boolean;
 }) {
   const glossaryRows: Array<{
@@ -423,6 +532,30 @@ function RetrievalPostureDetails({
 
   return (
     <>
+      {showTrendBadge ? (
+        <div
+          className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+          style={{
+            background: "color-mix(in oklab, var(--surface-soft) 88%, transparent)",
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className="border text-[11px] font-medium leading-none"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+              }}
+            >
+              Posture trend: {RETRIEVAL_POSTURE_TREND_PRESENTATIONS[trend].label}
+            </Badge>
+          </div>
+          <p className="mt-1">{RETRIEVAL_POSTURE_TREND_PRESENTATIONS[trend].explanation}</p>
+        </div>
+      ) : null}
       {showComparisonStrip && comparison?.label ? (
         <div
           className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
@@ -560,6 +693,7 @@ export function RetrievalPosturePanel({
   title = "Retrieval posture",
   testId,
   showComparisonStrip = false,
+  showTrendBadge = false,
 }: {
   className?: string;
   compact?: boolean;
@@ -567,10 +701,13 @@ export function RetrievalPosturePanel({
   title?: string;
   testId?: string;
   showComparisonStrip?: boolean;
+  showTrendBadge?: boolean;
 }) {
   const { error: postureError, loading: postureLoading, retrievalPosture, status: postureStatus } =
     useRetrievalPosture(threadId);
   const previousRetrievalPostureRef = React.useRef<CommandCenterRetrievalPosture | null>(null);
+  const recentHistoryByThreadRef = React.useRef(new Map<number, RetrievalPostureHistoryItem[]>());
+  const [trend, setTrend] = React.useState<RetrievalPostureTrend>("insufficient_history");
   const [comparison, setComparison] = React.useState<RetrievalPostureComparison>({
     changedFields: null,
     explanationLines: null,
@@ -588,6 +725,17 @@ export function RetrievalPosturePanel({
     : null;
 
   React.useEffect(() => {
+    if (threadId === null) {
+      setTrend("insufficient_history");
+      return;
+    }
+
+    setTrend(
+      classifyRetrievalPostureTrend(recentHistoryByThreadRef.current.get(threadId) ?? [])
+    );
+  }, [threadId]);
+
+  React.useEffect(() => {
     if (postureLoading || postureError || postureStatus !== "ok" || !retrievalPosture) {
       return;
     }
@@ -599,6 +747,15 @@ export function RetrievalPosturePanel({
 
     setComparison(nextComparison);
     previousRetrievalPostureRef.current = retrievalPosture;
+
+    if (threadId !== null) {
+      const nextHistory = [
+        { retrieval_posture: retrievalPosture },
+        ...(recentHistoryByThreadRef.current.get(threadId) ?? []),
+      ].slice(0, 5);
+      recentHistoryByThreadRef.current.set(threadId, nextHistory);
+      setTrend(classifyRetrievalPostureTrend(nextHistory));
+    }
   }, [comparisonSnapshot, postureError, postureLoading, postureStatus, threadId]);
 
   const rootClassName = [
@@ -640,6 +797,8 @@ export function RetrievalPosturePanel({
           comparison={comparison}
           retrievalPosture={retrievalPosture}
           showComparisonStrip={showComparisonStrip}
+          showTrendBadge={showTrendBadge}
+          trend={trend}
         />
       ) : null}
     </div>
