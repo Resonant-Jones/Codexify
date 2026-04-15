@@ -1659,6 +1659,9 @@ describe("CommandCenterPage", () => {
         /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
       )
     ).toBeInTheDocument();
+    expect(
+      within(historyPanel).getAllByRole("button", { name: /pin this posture/i })
+    ).toHaveLength(3);
 
     expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
@@ -1712,8 +1715,9 @@ describe("CommandCenterPage", () => {
 
     const pinnedPanel = screen.getByTestId("command-center-pinned-retrieval-posture-panel");
     expect(pinnedPanel).toHaveClass("border-dashed");
-    expect(within(pinnedPanel).getByText("Pinned posture")).toBeInTheDocument();
-    expect(within(pinnedPanel).getByText("Pinned snapshot")).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText("Pinned posture (current)")).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText("Live snapshot")).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText("Current live posture")).toBeInTheDocument();
     expect(within(pinnedPanel).getByText(/source: conversation/i)).toBeInTheDocument();
     expect(within(pinnedPanel).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
     expect(within(pinnedPanel).getByText(/override: conversation/i)).toBeInTheDocument();
@@ -1724,6 +1728,47 @@ describe("CommandCenterPage", () => {
     expect(within(pinnedPanel).getByRole("button", { name: /clear pin/i })).toBeInTheDocument();
     expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
     expect(within(threadPanel).getByRole("button", { name: /pin current posture/i })).toBeInTheDocument();
+
+    fireEvent.click(within(pinnedPanel).getByRole("button", { name: /clear pin/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("command-center-pinned-retrieval-posture-panel")).not.toBeInTheDocument();
+    });
+  });
+
+  it("pins a history posture entry and replaces an existing current-live pin", async () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /pin current posture/i }));
+
+    expect(
+      within(screen.getByTestId("command-center-pinned-retrieval-posture-panel")).getByText(
+        "Pinned posture (current)"
+      )
+    ).toBeInTheDocument();
+
+    const historyPinButtons = within(historyPanel).getAllByRole("button", {
+      name: /pin this posture/i,
+    });
+    expect(historyPinButtons).toHaveLength(3);
+
+    fireEvent.click(historyPinButtons[1]);
+
+    const pinnedPanel = screen.getByTestId("command-center-pinned-retrieval-posture-panel");
+    expect(within(pinnedPanel).getByText("Pinned posture (history)")).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText("History snapshot")).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText(/Task: task-bravo/i)).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText(/Captured:/i)).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText(/source: project/i)).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText(/boundary: same_user_same_project/i)).toBeInTheDocument();
+    expect(within(pinnedPanel).getByText(/widen: insufficient_thread_hits/i)).toBeInTheDocument();
+    expect(within(pinnedPanel).queryByText("Current live posture")).not.toBeInTheDocument();
 
     fireEvent.click(within(pinnedPanel).getByRole("button", { name: /clear pin/i }));
 
@@ -2462,6 +2507,9 @@ describe("CommandCenterPage", () => {
       within(threadPanel).queryByRole("button", { name: /^copy posture$/i })
     ).not.toBeInTheDocument();
     expect(
+      within(historyPanel).queryByRole("button", { name: /pin this posture/i })
+    ).not.toBeInTheDocument();
+    expect(
       within(threadPanel).queryByRole("button", { name: /pin current posture/i })
     ).not.toBeInTheDocument();
     expect(
@@ -2490,6 +2538,9 @@ describe("CommandCenterPage", () => {
       within(threadPanel).queryByRole("button", { name: /^copy posture$/i })
     ).not.toBeInTheDocument();
     expect(
+      within(historyPanel).queryByRole("button", { name: /pin this posture/i })
+    ).not.toBeInTheDocument();
+    expect(
       within(threadPanel).queryByRole("button", { name: /pin current posture/i })
     ).not.toBeInTheDocument();
     expect(
@@ -2516,6 +2567,9 @@ describe("CommandCenterPage", () => {
     ).toBeInTheDocument();
     expect(
       within(threadPanel).queryByRole("button", { name: /^copy posture$/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByRole("button", { name: /pin this posture/i })
     ).not.toBeInTheDocument();
     expect(
       within(threadPanel).queryByRole("button", { name: /pin current posture/i })

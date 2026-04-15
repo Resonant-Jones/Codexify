@@ -10,6 +10,7 @@ import TraceWorkbench, {
   describeRetrievalPostureChange,
   RetrievalPosturePanel,
   RetrievalPostureSummaryRow,
+  type PinnedRetrievalPostureState,
   type RetrievalPostureDiff,
   type RetrievalPostureHistoryFilter,
   type RetrievalPostureHistoryWindowSize,
@@ -39,7 +40,6 @@ type CommandCenterPageProps = {
 };
 
 type BadgeTone = RuntimeStatusTone | "danger";
-type PinnedRetrievalPosture = CommandCenterRetrievalPosture | null;
 
 const filtersDefault: CommandCenterTraceFilters = {
   model: "",
@@ -330,8 +330,10 @@ function latestRetrievalPostureComparison(
 }
 
 function RecentRetrievalPosturePanel({
+  onPinHistoryPosture,
   threadId,
 }: {
+  onPinHistoryPosture?: (item: CommandCenterRetrievalPostureHistoryItem) => void;
   threadId: number | null;
 }) {
   const { error, items, loading, status } = useRetrievalPostureHistory(threadId);
@@ -404,6 +406,7 @@ function RecentRetrievalPosturePanel({
               <RetrievalPostureSummaryRow
                 key={`${item.task_id}:${item.created_at}`}
                 createdAt={item.created_at}
+                onPinPosture={onPinHistoryPosture ? () => onPinHistoryPosture(item) : undefined}
                 posture={item.retrieval_posture}
                 taskId={item.task_id}
               />
@@ -435,7 +438,7 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
     React.useState<RetrievalPostureHistoryWindowSize>(5);
   const [pinnedRetrievalPosture, setPinnedRetrievalPosture] =
-    React.useState<PinnedRetrievalPosture>(null);
+    React.useState<PinnedRetrievalPostureState>(null);
 
   const consoleRows = React.useMemo(() => buildCommandCenterEventConsoleRows(events), [events]);
   const visibleRuns = React.useMemo(
@@ -455,6 +458,27 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   React.useEffect(() => {
     setPinnedRetrievalPosture(null);
   }, [activeThreadId]);
+
+  const onPinCurrentRetrievalPosture = React.useCallback((posture: CommandCenterRetrievalPosture) => {
+    setPinnedRetrievalPosture({
+      createdAt: null,
+      posture: { ...posture },
+      source: "current",
+      taskId: null,
+    });
+  }, []);
+
+  const onPinHistoryRetrievalPosture = React.useCallback(
+    (item: CommandCenterRetrievalPostureHistoryItem) => {
+      setPinnedRetrievalPosture({
+        createdAt: item.created_at,
+        posture: { ...item.retrieval_posture },
+        source: "history",
+        taskId: item.task_id,
+      });
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (visibleRuns.length === 0) {
@@ -571,9 +595,8 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
                 onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
                 onHistoryFilterChange={setRetrievalPostureHistoryFilter}
                 onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
-                onPinCurrentPosture={(posture) =>
-                  setPinnedRetrievalPosture({ ...posture })
-                }
+                onPinCurrentPosture={onPinCurrentRetrievalPosture}
+                onPinHistoryPosture={onPinHistoryRetrievalPosture}
                 pinnedRetrievalPosture={pinnedRetrievalPosture}
                 showHistorySection
                 showComparisonStrip
@@ -595,7 +618,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           />
         </div>
 
-        <RecentRetrievalPosturePanel threadId={activeThreadId} />
+        <RecentRetrievalPosturePanel
+          onPinHistoryPosture={onPinHistoryRetrievalPosture}
+          threadId={activeThreadId}
+        />
 
           <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
             <EventConsole
