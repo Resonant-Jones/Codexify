@@ -10,6 +10,7 @@ import TraceWorkbench, {
   describeRetrievalPostureChange,
   RetrievalPosturePanel,
   RetrievalPostureSummaryRow,
+  type PinnedRetrievalPostureState,
   type RetrievalPostureDiff,
   type RetrievalPostureHistoryFilter,
   type RetrievalPostureHistoryWindowSize,
@@ -24,6 +25,7 @@ import {
   filterCommandCenterRuns,
 } from "@/features/commandCenter/commandCenterObservability";
 import type {
+  CommandCenterRetrievalPosture,
   CommandCenterRetrievalPostureHistoryItem,
   CommandCenterRun,
   CommandCenterTraceFilters,
@@ -328,8 +330,10 @@ function latestRetrievalPostureComparison(
 }
 
 function RecentRetrievalPosturePanel({
+  onPinHistoryPosture,
   threadId,
 }: {
+  onPinHistoryPosture?: (item: CommandCenterRetrievalPostureHistoryItem) => void;
   threadId: number | null;
 }) {
   const { error, items, loading, status } = useRetrievalPostureHistory(threadId);
@@ -402,6 +406,7 @@ function RecentRetrievalPosturePanel({
               <RetrievalPostureSummaryRow
                 key={`${item.task_id}:${item.created_at}`}
                 createdAt={item.created_at}
+                onPinPosture={onPinHistoryPosture ? () => onPinHistoryPosture(item) : undefined}
                 posture={item.retrieval_posture}
                 taskId={item.task_id}
               />
@@ -432,6 +437,8 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     React.useState<RetrievalPostureHistoryFilter>("all");
   const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
     React.useState<RetrievalPostureHistoryWindowSize>(5);
+  const [pinnedRetrievalPosture, setPinnedRetrievalPosture] =
+    React.useState<PinnedRetrievalPostureState>(null);
 
   const consoleRows = React.useMemo(() => buildCommandCenterEventConsoleRows(events), [events]);
   const visibleRuns = React.useMemo(
@@ -447,6 +454,31 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const activeThreadId = React.useMemo<number | null>(() => {
     return selectedRun?.threadId ?? visibleRuns[0]?.threadId ?? null;
   }, [selectedRun, visibleRuns]);
+
+  React.useEffect(() => {
+    setPinnedRetrievalPosture(null);
+  }, [activeThreadId]);
+
+  const onPinCurrentRetrievalPosture = React.useCallback((posture: CommandCenterRetrievalPosture) => {
+    setPinnedRetrievalPosture({
+      createdAt: null,
+      posture: { ...posture },
+      source: "current",
+      taskId: null,
+    });
+  }, []);
+
+  const onPinHistoryRetrievalPosture = React.useCallback(
+    (item: CommandCenterRetrievalPostureHistoryItem) => {
+      setPinnedRetrievalPosture({
+        createdAt: item.created_at,
+        posture: { ...item.retrieval_posture },
+        source: "history",
+        taskId: item.task_id,
+      });
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (visibleRuns.length === 0) {
@@ -560,8 +592,12 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
                 compact
                 historyFilter={retrievalPostureHistoryFilter}
                 historyWindowSize={retrievalPostureHistoryWindowSize}
+                onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
                 onHistoryFilterChange={setRetrievalPostureHistoryFilter}
                 onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
+                onPinCurrentPosture={onPinCurrentRetrievalPosture}
+                onPinHistoryPosture={onPinHistoryRetrievalPosture}
+                pinnedRetrievalPosture={pinnedRetrievalPosture}
                 showHistorySection
                 showComparisonStrip
                 showTrendBadge
@@ -582,7 +618,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           />
         </div>
 
-        <RecentRetrievalPosturePanel threadId={activeThreadId} />
+        <RecentRetrievalPosturePanel
+          onPinHistoryPosture={onPinHistoryRetrievalPosture}
+          threadId={activeThreadId}
+        />
 
           <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
             <EventConsole
