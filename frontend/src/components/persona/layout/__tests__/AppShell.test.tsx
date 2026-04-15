@@ -708,6 +708,10 @@ describe("AppShell workspace drawer shell", () => {
       "data-shell-nav-mode",
       "scroll_rail"
     );
+    expect(screen.getByRole("button", { name: "Guardian" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
     expect(
       screen.getByRole("button", { name: "Open Workspace" })
     ).toHaveAttribute("data-workspace-affordance-state", "collapsed");
