@@ -24,6 +24,8 @@ from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, Header, HTTPException
 from fastapi.security.api_key import APIKeyHeader
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
 from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
@@ -32,7 +34,9 @@ from guardian.core.auth import verify_session_token
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.core.config import get_settings as get_core_settings
+from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+from guardian.db.models import AuthenticatedPrincipal
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
 from guardian.vector.store import VectorStore
@@ -212,21 +216,124 @@ def get_single_user_id() -> str:
     return configured or _DEFAULT_SINGLE_USER_ID
 
 
-@dataclass(frozen=True, slots=True)
+def _coerce_text(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _multi_user_mode_enabled() -> bool:
+    try:
+        settings = get_core_settings()
+        return bool(getattr(settings, "CODEXIFY_MULTI_USER_ENABLED", False))
+    except Exception:
+        return _env_bool(_MULTI_USER_ENABLED_ENV, default=False)
+
+
+@dataclass(frozen=True)
 class RequestUserScope:
-    """
-    Effective request identity scope.
+    """Resolved request identity with legacy and durable principal fields."""
 
-    account_id is the owner boundary that routes should use for data access.
-    """
-
-    account_id: str
-    principal_id: str
-    multi_user_enabled: bool
+    user_id: str = ""
+    subject_id: str | None = None
+    account_id: str | None = None
+    multi_user_enabled: bool = False
 
 
-def _multi_user_enabled() -> bool:
-    return _env_bool(_MULTI_USER_ENABLED_ENV, default=False)
+_PRINCIPAL_SESSION_FACTORY: Any = None
+_PRINCIPAL_SESSION_DSN: str | None = None
+
+
+def _principal_database_url() -> str | None:
+    settings = get_core_settings()
+    configured = (
+        getattr(settings, "GUARDIAN_DATABASE_URL", None)
+        or os.getenv("GUARDIAN_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+    )
+    candidate = (configured or "").strip()
+    return candidate or None
+
+
+def _principal_session_factory() -> Any:
+    global _PRINCIPAL_SESSION_DSN
+    global _PRINCIPAL_SESSION_FACTORY
+
+    dsn = _principal_database_url()
+    if not dsn:
+        raise RuntimeError(
+            "Stable principal mapping requires GUARDIAN_DATABASE_URL or DATABASE_URL"
+        )
+
+    if _PRINCIPAL_SESSION_FACTORY is None or _PRINCIPAL_SESSION_DSN != dsn:
+        engine = create_engine(dsn, future=True)
+        _PRINCIPAL_SESSION_FACTORY = sessionmaker(
+            bind=engine,
+            autocommit=False,
+            autoflush=False,
+        )
+        _PRINCIPAL_SESSION_DSN = dsn
+
+    return _PRINCIPAL_SESSION_FACTORY
+
+
+def _resolve_authenticated_subject(
+    authorization: object = None,
+    gc_session: object = None,
+) -> str | None:
+    auth = _coerce_text(authorization)
+    token = ""
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+    if token:
+        ok, subject = verify_session_token(token)
+        if ok:
+            return subject
+
+    cookie_token = _coerce_text(gc_session)
+    if cookie_token:
+        ok, subject = verify_session_token(cookie_token)
+        if ok:
+            return subject
+    return None
+
+
+def _resolve_account_id_for_subject(subject_id: str) -> str | None:
+    subject = (subject_id or "").strip()
+    if not subject:
+        return None
+
+    try:
+        Session = _principal_session_factory()
+        with Session() as session:
+            account_id = session.scalar(
+                select(AuthenticatedPrincipal.account_id).where(
+                    AuthenticatedPrincipal.subject_id == subject
+                )
+            )
+    except RuntimeError as exc:
+        logger.error(
+            "[auth] stable principal mapping unavailable: %s", str(exc)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Server misconfigured: stable principal mapping database is not configured"
+            ),
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            "[auth] stable principal lookup failed for subject=%s", subject
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Server misconfigured: stable principal lookup failed",
+        ) from exc
+
+    if account_id is None:
+        return None
+    cleaned = str(account_id).strip()
+    return cleaned or None
 
 
 def get_request_user_id(
@@ -253,7 +360,9 @@ def get_request_user_id(
         )
         raise HTTPException(
             status_code=401,
-            detail="Multi-user mode requires an authenticated session/JWT subject",
+            detail=(
+                "Multi-user mode requires an authenticated session/JWT subject"
+            ),
         )
 
     candidate = _coerce_text(x_user_id)
@@ -272,35 +381,53 @@ def get_request_user_id(
 
 def get_request_user_scope(
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    gc_session: Optional[str] = Cookie(None, alias="gc_session"),
 ) -> RequestUserScope:
     """
-    Resolve the authenticated request scope for ownership-sensitive routes.
+    Resolve the current request identity scope.
 
-    In single-user mode we preserve existing behavior by delegating to the
-    server-side single-user identity resolver. In multi-user mode we require
-    an explicit request principal and treat it as the effective account owner.
+    Single-user mode preserves the legacy `user_id` fallback behavior.
+    Multi-user mode exposes the authenticated subject and stable account id.
     """
-    multi_user_enabled = _multi_user_enabled()
-    principal_id = ""
-    if multi_user_enabled:
-        principal_id = (x_user_id or "").strip()
-        if not principal_id:
-            raise HTTPException(
-                status_code=403, detail="current user could not be resolved"
+    if _multi_user_mode_enabled():
+        subject_id = _resolve_authenticated_subject(authorization, gc_session)
+        if not subject_id:
+            logger.warning(
+                "Rejected request without authenticated subject in multi-user mode"
             )
-    else:
-        principal_id = get_request_user_id(x_user_id)
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Multi-user mode requires an authenticated session/JWT subject"
+                ),
+            )
 
-    principal_id = str(principal_id or "").strip()
-    if not principal_id:
-        raise HTTPException(
-            status_code=403, detail="current user could not be resolved"
+        account_id = _resolve_account_id_for_subject(subject_id)
+        if not account_id:
+            logger.warning(
+                "Rejected request without stable principal mapping subject=%s",
+                subject_id,
+            )
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Multi-user mode requires a stable account_id mapping for the authenticated subject"
+                ),
+            )
+
+        return RequestUserScope(
+            user_id=account_id,
+            subject_id=subject_id,
+            account_id=account_id,
+            multi_user_enabled=True,
         )
 
     return RequestUserScope(
-        account_id=principal_id,
-        principal_id=principal_id,
-        multi_user_enabled=multi_user_enabled,
+        user_id=get_request_user_id(x_user_id, authorization, gc_session),
+        subject_id=None,
+        account_id=None,
+        multi_user_enabled=False,
     )
 
 
@@ -523,7 +650,7 @@ def get_current_user(
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
 ) -> str:
     """
-    Resolve current user from server-side single-user identity.
+    Resolve current user from the effective request scope.
     """
     _ = api_key
     return get_request_user_id(x_user_id, authorization, gc_session)
@@ -576,6 +703,23 @@ def get_database_dsn() -> Optional[str]:
     if PG_DSN:
         return PG_DSN
     return os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
+
+
+def get_capability_issuance_db() -> GuardianDB:
+    """Return a GuardianDB instance suitable for capability issuance tooling."""
+    resolved = load_guardian_db_from_env()
+    if resolved is not None:
+        if isinstance(resolved, GuardianDB):
+            return resolved
+        if hasattr(resolved, "get_session"):
+            return resolved  # type: ignore[return-value]
+
+    db_url = get_database_dsn()
+    if not db_url:
+        raise RuntimeError(
+            "Capability issuance requires GUARDIAN_DATABASE_URL or DATABASE_URL"
+        )
+    return GuardianDB(db_url)
 
 
 # =========================
@@ -898,8 +1042,8 @@ __all__ = [
     "get_current_user",
     "get_request_user_scope",
     "get_request_user_id",
-    "get_single_user_id",
     "RequestUserScope",
+    "get_single_user_id",
     "API_KEY",
     # Database
     "chatlog_db",
@@ -907,6 +1051,7 @@ __all__ = [
     "DB_BACKEND",
     "PG_DSN",
     "get_database_dsn",
+    "get_capability_issuance_db",
     # Services
     "_vector_store",
     "_sensors",
