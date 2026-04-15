@@ -1457,6 +1457,17 @@ export default function AppShell({
   );
   const isPhoneShell = mobileShellProfile.active;
   const mobilePressFeedback = usePressFeedback({ enabled: isPhoneShell });
+  const mobileInteractionContext = useMemo<MobileNavPillFeedbackContext>(
+    () => ({
+      isPhoneShell,
+      prefersReducedMotion: mobilePressFeedback.prefersReducedMotion,
+      isCoarsePointer:
+        typeof window !== "undefined" && typeof window.matchMedia === "function"
+          ? window.matchMedia("(pointer: coarse)").matches
+          : false,
+    }),
+    [isPhoneShell, mobilePressFeedback.prefersReducedMotion]
+  );
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
@@ -2211,7 +2222,7 @@ export default function AppShell({
   // Mobile micro-interaction feedback styles
   const mobileWorkspaceSummonFeedbackStyle = useMemo<React.CSSProperties>(
     () =>
-      getMobilePressFeedbackStyle(mobileInteractionContext, workspaceDrawerOpen ? "idle" : "idle"),
+      getMobileWorkspaceSummonFeedbackStyle(mobileInteractionContext, workspaceDrawerOpen),
     [mobileInteractionContext, workspaceDrawerOpen]
   );
 

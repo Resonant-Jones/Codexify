@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 
+import type { MobileGestureState } from "./mobileMotionContract";
 import {
   getMobileTapTargetStyle,
   getMobileTopNavDockStyle,
@@ -8,6 +9,17 @@ import {
 } from "./mobileInteractionContract";
 
 export { getMobileTopNavDockStyle, getMobileTopNavRailStyle, getMobileWorkspaceSummonCopy };
+
+export type MobileNavPillFeedbackContext = Pick<
+  MobileGestureState,
+  "isPhoneShell" | "isCoarsePointer" | "prefersReducedMotion"
+>;
+
+const MOBILE_NAV_FEEDBACK = {
+  activeDurationMs: 180,
+  inactiveDurationMs: 120,
+  reducedMotionDurationMs: 80,
+} as const;
 
 export function getMobileNavigationControlStyle(
   isPhoneShell: boolean,
@@ -33,7 +45,7 @@ export function getMobileNavPillFeedbackStyle(
   // Reduced motion: preserve clarity through opacity only
   if (prefersReducedMotion) {
     return {
-      transitionDuration: "80ms",
+      transitionDuration: `${MOBILE_NAV_FEEDBACK.reducedMotionDurationMs}ms`,
       transitionTimingFunction: "ease",
       opacity: isActive ? 1 : 0.75,
     };
@@ -41,9 +53,10 @@ export function getMobileNavPillFeedbackStyle(
 
   // Full motion: spring-like transition for active state
   return {
+    transitionProperty: "transform, opacity",
     transitionDuration: isActive
-      ? `${MOBILE_INTERACTION.pressReleaseMs + MOBILE_INTERACTION.settleMs}ms`
-      : `${MOBILE_INTERACTION.pressScaleDownMs}ms`,
+      ? `${MOBILE_NAV_FEEDBACK.activeDurationMs}ms`
+      : `${MOBILE_NAV_FEEDBACK.inactiveDurationMs}ms`,
     transitionTimingFunction: isActive
       ? "cubic-bezier(0.34, 1.2, 0.64, 1)"
       : "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
@@ -67,14 +80,15 @@ export function getMobileWorkspaceSummonFeedbackStyle(
 
   if (prefersReducedMotion) {
     return {
-      transitionDuration: "80ms",
+      transitionDuration: `${MOBILE_NAV_FEEDBACK.reducedMotionDurationMs}ms`,
       transitionTimingFunction: "ease",
       opacity: isOpen ? 0.9 : 0.8,
     };
   }
 
   return {
-    transitionDuration: `${MOBILE_INTERACTION.pressScaleDownMs}ms`,
+    transitionProperty: "transform, opacity",
+    transitionDuration: `${MOBILE_NAV_FEEDBACK.inactiveDurationMs}ms`,
     transitionTimingFunction: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
     transform: isOpen ? "scale(1)" : "scale(1)",
   };
