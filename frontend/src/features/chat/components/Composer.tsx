@@ -12,7 +12,10 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
-import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
+import {
+  getComposerControlSurfaceStyle,
+  getMobileTapTargetStyle,
+} from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
@@ -396,7 +399,6 @@ export function Composer({
   const [showImgGen, setShowImgGen] = useState(false);
   const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
-  const composerPressFeedback = usePressFeedback({ enabled: isPhoneShell });
   const effectiveSending = Boolean(isSending) || internalSending;
 
   // Submit feedback phase for mobile micro-interaction
@@ -438,6 +440,10 @@ export function Composer({
     Boolean(value.trim()) || draftAttachments.length > 0 || documentTiles.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
+  const composerPressFeedback = usePressFeedback({
+    enabled: !sendTransportDisabled,
+    visualMode: isPhoneShell ? "mobile" : "none",
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
     try {
@@ -1280,8 +1286,17 @@ export function Composer({
           >
             <div
               data-testid="composer-controls-strip"
-              className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
-              style={{ gap: "var(--composer-control-gap, 12px)" }}
+              className={cn(
+                "flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto",
+                !isPhoneShell &&
+                  "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
+              )}
+              style={{
+                gap: "var(--composer-control-gap, 12px)",
+                ...getComposerControlSurfaceStyle(isPhoneShell, {
+                  variant: "rail",
+                }),
+              }}
             >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
@@ -1375,9 +1390,13 @@ export function Composer({
                     ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
                     width: "var(--composer-control-size, 2rem)",
                     height: "var(--composer-control-size, 2rem)",
+                    transform:
+                      !isPhoneShell && composerPressFeedback.pressed
+                        ? "translateY(1px)"
+                        : undefined,
                     background:
-                      "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
-                    color: "var(--text-on-accent, #111827)",
+                      "color-mix(in oklab, var(--accent-strong) 82%, var(--panel-bg) 18%)",
+                    color: "var(--text-on-accent)",
                     boxShadow: "none",
                     borderRadius: "9999px",
                   },
