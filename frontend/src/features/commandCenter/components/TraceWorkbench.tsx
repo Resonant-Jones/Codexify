@@ -580,6 +580,141 @@ function describeRetrievalPostureToken(
   }
 }
 
+function serializeRetrievalPosture(posture: CommandCenterRetrievalPosture): string {
+  const snapshot: {
+    boundary_label: string;
+    conversation_only?: boolean;
+    retrieval_override_mode: string | null;
+    source_mode: string;
+    widen_reason: string;
+  } = {
+    source_mode: posture.source_mode,
+    boundary_label: posture.boundary_label,
+    retrieval_override_mode: posture.retrieval_override_mode,
+    widen_reason: posture.widen_reason,
+  };
+
+  if (typeof posture.conversation_only === "boolean") {
+    snapshot.conversation_only = posture.conversation_only;
+  }
+
+  return JSON.stringify(snapshot, null, 2);
+}
+
+function formatRetrievalPostureAuditNote(posture: CommandCenterRetrievalPosture): string {
+  const summaryLines = describeRetrievalPosture(posture);
+  const compactSummaryLines =
+    summaryLines.length > 1 ? [summaryLines[0], summaryLines[summaryLines.length - 1]] : summaryLines;
+
+  const lines = [
+    "Retrieval posture",
+    `- source_mode: ${posture.source_mode}`,
+    `- boundary_label: ${posture.boundary_label}`,
+    `- retrieval_override_mode: ${posture.retrieval_override_mode ?? "null"}`,
+    `- widen_reason: ${posture.widen_reason}`,
+  ];
+
+  if (typeof posture.conversation_only === "boolean") {
+    lines.push(`- conversation_only: ${posture.conversation_only}`);
+  }
+
+  lines.push("", "Summary");
+  compactSummaryLines.forEach((line) => {
+    lines.push(`- ${line}`);
+  });
+
+  return lines.join("\n");
+}
+
+function formatRetrievalPostureBundle(posture: CommandCenterRetrievalPosture): string {
+  return [
+    "Retrieval posture JSON",
+    serializeRetrievalPosture(posture),
+    "",
+    "Audit note",
+    formatRetrievalPostureAuditNote(posture),
+  ].join("\n");
+}
+
+type RetrievalPostureCopyFeedback =
+  | { action: "posture"; status: "copied" | "failed" }
+  | { action: "audit-note"; status: "copied" | "failed" }
+  | { action: "bundle"; status: "copied" | "failed" }
+  | null;
+
+function renderRetrievalPostureBadges(
+  posture: CommandCenterRetrievalPosture
+): React.ReactNode[] {
+  return [
+    <Badge
+      key="source_mode"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      source: {posture.source_mode}
+    </Badge>,
+    <Badge
+      key="boundary_label"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      boundary: {posture.boundary_label}
+    </Badge>,
+    posture.retrieval_override_mode ? (
+    <Badge
+      key="retrieval_override_mode"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+        override: {posture.retrieval_override_mode}
+      </Badge>
+    ) : null,
+    <Badge
+      key="widen_reason"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      widen: {posture.widen_reason}
+    </Badge>,
+    posture.conversation_only ? (
+      <Badge
+        key="conversation_only"
+        className="border text-[11px] font-medium leading-none"
+        style={{
+          background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text-on-accent)",
+        }}
+      >
+        conversation-only
+      </Badge>
+    ) : null,
+  ].filter((value): value is React.ReactNode => Boolean(value));
+}
+
+function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
+  if (!value) return "Not yet";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed).toLocaleString();
+}
+
 type RetrievalPostureComparisonState = "changed" | "unchanged" | "no-previous" | "none";
 
 type RetrievalPostureComparison = {
@@ -1228,6 +1363,52 @@ export function RetrievalPosturePanel({
     label: null,
     state: "none",
   });
+
+  React.useEffect(() => {
+    setCopyFeedback(null);
+  }, [threadId, retrievalPosture]);
+
+  const writeRetrievalPostureToClipboard = React.useCallback(async (payload: string) => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard unavailable");
+    }
+
+    await navigator.clipboard.writeText(payload);
+  }, []);
+
+  const handleCopyPosture = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(serializeRetrievalPosture(retrievalPosture));
+      setCopyFeedback({ action: "posture", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "posture", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
+  const handleCopyAuditNote = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(formatRetrievalPostureAuditNote(retrievalPosture));
+      setCopyFeedback({ action: "audit-note", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "audit-note", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
+  const handleCopyBundle = React.useCallback(async () => {
+    if (!retrievalPosture) return;
+
+    try {
+      await writeRetrievalPostureToClipboard(formatRetrievalPostureBundle(retrievalPosture));
+      setCopyFeedback({ action: "bundle", status: "copied" });
+    } catch {
+      setCopyFeedback({ action: "bundle", status: "failed" });
+    }
+  }, [retrievalPosture, writeRetrievalPostureToClipboard]);
+
   const comparisonSnapshot = retrievalPosture
     ? [
         retrievalPosture.source_mode,

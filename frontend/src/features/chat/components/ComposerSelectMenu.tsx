@@ -7,6 +7,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
+import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { cn } from "@/lib/utils";
 
 export type ComposerSelectOption = {
@@ -26,6 +28,7 @@ type ComposerSelectMenuProps = {
   menuLabel: string;
   valueLabel: string;
   options: ComposerSelectOption[];
+  isPhoneShell?: boolean;
   selectedValue?: string | null;
   disabled?: boolean;
   emptyLabel?: string;
@@ -43,6 +46,7 @@ export function ComposerSelectMenu({
   menuLabel,
   valueLabel,
   options,
+  isPhoneShell = false,
   selectedValue,
   disabled = false,
   emptyLabel = "No options available.",
@@ -50,6 +54,7 @@ export function ComposerSelectMenu({
   onSelect,
 }: ComposerSelectMenuProps) {
   const [open, setOpen] = useState(false);
+  const pressFeedback = usePressFeedback({ enabled: isPhoneShell && !disabled });
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const menuSurface =
@@ -196,21 +201,24 @@ export function ComposerSelectMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          {...pressFeedback.getPressFeedbackProps({
+            className: cn(
+              "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
+              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
+              disabled
+                ? "cursor-not-allowed opacity-45"
+                : "hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]"
+            ),
+            style: {
+              ...getMobileTapTargetStyle(isPhoneShell),
+              borderColor: "transparent",
+              background: "transparent",
+              color: "color-mix(in oklab, var(--text) 86%, var(--muted) 14%)",
+              height: "var(--composer-control-size, 2rem)",
+            },
+          })}
           aria-label={ariaLabel}
           disabled={disabled}
-          className={cn(
-            "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
-            disabled
-              ? "cursor-not-allowed opacity-45"
-              : "hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]"
-          )}
-          style={{
-            borderColor: "transparent",
-            background: "transparent",
-            color: "color-mix(in oklab, var(--text) 86%, var(--muted) 14%)",
-            height: "var(--composer-control-size, 2rem)",
-          }}
         >
           <span className="truncate">{valueLabel}</span>
           <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />

@@ -14,6 +14,29 @@ export interface RuntimeConfig {
 
 type TauriRuntimeConfig = Partial<RuntimeConfig>;
 
+export type LauncherStartupHandoff = {
+  shouldRunWizard: boolean;
+  setupComplete: boolean;
+  runtimeProfile: string;
+  envPath: string | null;
+  handoffTarget: string | null;
+  detail: string;
+};
+
+export type DesktopStartupRoutingStatus =
+  | "setup-incomplete"
+  | "runtime-unavailable"
+  | "ready-handoff"
+  | "launcher-unavailable";
+
+export type DesktopStartupRoutingDecision = {
+  status: DesktopStartupRoutingStatus;
+  shouldRunWizard: boolean;
+  setupComplete: boolean;
+  handoffTarget: string | null;
+  detail: string;
+};
+
 const DESKTOP_BACKEND_STORAGE_KEY = "cfy.desktop.backendBaseUrl";
 const DESKTOP_SHARE_STORAGE_KEY = "cfy.desktop.sharePublicBaseUrl";
 
@@ -58,6 +81,50 @@ function coerceAuthMode(value: string): AuthMode {
   return value.trim().toLowerCase() === "remote" ? "remote" : "local";
 }
 
+function normalizeNullableText(value: unknown): string | null {
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
+}
+
+function normalizeRuntimeProfile(value: unknown): string {
+  return normalizeNullableText(value) ?? "unknown";
+}
+
+function normalizeLauncherHandoffTarget(value: unknown): string | null {
+  const normalized = normalizeNullableText(value);
+  if (!normalized) return null;
+  return isAbsoluteUrl(normalized) ? normalized.replace(/\/+$/, "") : null;
+}
+
+function resolveDesktopStartupRoutingStatus(
+  handoff: LauncherStartupHandoff | null
+): DesktopStartupRoutingStatus {
+  if (!handoff) return "launcher-unavailable";
+  if (!handoff.setupComplete) return "setup-incomplete";
+  if (handoff.handoffTarget) return "ready-handoff";
+  return "runtime-unavailable";
+}
+
+function resolveDesktopStartupRoutingDetail(
+  status: DesktopStartupRoutingStatus,
+  handoff: LauncherStartupHandoff | null
+): string {
+  const canonicalDetailByStatus: Record<DesktopStartupRoutingStatus, string> = {
+    "setup-incomplete":
+      "desktop launcher setup is incomplete; continue through setup",
+    "runtime-unavailable":
+      "desktop launcher is configured, but the local runtime is not ready",
+    "ready-handoff": "desktop launcher handoff is ready",
+    "launcher-unavailable":
+      "desktop launcher startup state is unavailable",
+  };
+
+  return (
+    normalizeNullableText(handoff?.detail) ??
+    canonicalDetailByStatus[status]
+  );
+}
+
 export function isTauriRuntime(): boolean {
   if (typeof window === "undefined") return false;
   return (
@@ -80,6 +147,71 @@ async function loadTauriCore(): Promise<TauriCoreApi> {
     'return import("@tauri-apps/api/core")'
   )()) as TauriCoreApi;
   return imported;
+}
+
+function normalizeLauncherStartupHandoff(
+  payload: unknown
+): LauncherStartupHandoff | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const source = payload as Record<string, unknown>;
+  const setupComplete = asBoolean(source.setupComplete);
+  const handoffTarget = normalizeLauncherHandoffTarget(source.handoffTarget);
+  const shouldRunWizard =
+    asBoolean(source.shouldRunWizard) || !setupComplete || !handoffTarget;
+  const detail = normalizeNullableText(source.detail);
+
+  return {
+    shouldRunWizard,
+    setupComplete,
+    runtimeProfile: normalizeRuntimeProfile(source.runtimeProfile),
+    envPath: normalizeNullableText(source.envPath),
+    handoffTarget,
+    detail:
+      detail ??
+      (shouldRunWizard
+        ? "launcher startup state favors wizard/recovery"
+        : "launcher startup state resolved"),
+  };
+}
+
+export async function readDesktopLauncherStartupHandoff(): Promise<LauncherStartupHandoff | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    const core = await loadTauriCore();
+    const payload = await core.invoke<unknown>(
+      "desktop_get_launcher_startup_handoff"
+    );
+    return normalizeLauncherStartupHandoff(payload);
+  } catch {
+    return null;
+  }
+}
+
+export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartupRoutingDecision | null> {
+  if (!isTauriRuntime()) return null;
+
+  const handoff = await readDesktopLauncherStartupHandoff();
+  const status = resolveDesktopStartupRoutingStatus(handoff);
+  if (!handoff) {
+    return {
+      status,
+      shouldRunWizard: false,
+      setupComplete: false,
+      handoffTarget: null,
+      detail: resolveDesktopStartupRoutingDetail(status, handoff),
+    };
+  }
+
+  return {
+    status,
+    shouldRunWizard: status === "setup-incomplete",
+    setupComplete: handoff.setupComplete,
+    handoffTarget: handoff.handoffTarget,
+    detail: resolveDesktopStartupRoutingDetail(status, handoff),
+  };
 }
 
 function readDesktopStorage(key: string): string {
@@ -119,6 +251,30 @@ function defaultBackendBaseUrl(mode: RuntimeMode): string {
   return envBackend || "";
 }
 
+function resolveDesktopBackendBaseUrl(
+  mode: RuntimeMode,
+  tauriConfig: TauriRuntimeConfig | null,
+  launcherStartup: LauncherStartupHandoff | null
+): string {
+  const launcherTarget = launcherStartup?.handoffTarget ?? null;
+  if (mode === "tauri" && launcherTarget) {
+    return normalizeBase(launcherTarget, "");
+  }
+
+  const desktopBackendOverride =
+    mode === "tauri" ? readDesktopStorage(DESKTOP_BACKEND_STORAGE_KEY) : "";
+  if (desktopBackendOverride) {
+    return normalizeBase(desktopBackendOverride, "");
+  }
+
+  const tauriBackend = tauriConfig?.backendBaseUrl?.trim() || "";
+  if (tauriBackend) {
+    return normalizeBase(tauriBackend, mode === "tauri" ? "" : defaultBackendBaseUrl(mode));
+  }
+
+  return mode === "tauri" ? "" : defaultBackendBaseUrl(mode);
+}
+
 function resolveApiBaseUrl(mode: RuntimeMode, backendBaseUrl: string, explicit: string): string {
   const candidate = explicit.trim();
   if (isAbsoluteUrl(candidate)) {
@@ -129,6 +285,9 @@ function resolveApiBaseUrl(mode: RuntimeMode, backendBaseUrl: string, explicit: 
   }
   if (candidate) {
     return normalizeBase(`/${candidate}`, "/api");
+  }
+  if (mode === "tauri" && !backendBaseUrl) {
+    return "/api";
   }
   if (mode === "tauri") {
     return normalizeBase(combineBaseAndPath(backendBaseUrl, "/api"), "http://127.0.0.1:8888/api");
@@ -190,25 +349,26 @@ async function readTauriRuntimeConfig(): Promise<TauriRuntimeConfig | null> {
   }
 }
 
-function buildRuntimeConfig(mode: RuntimeMode, tauriConfig: TauriRuntimeConfig | null): RuntimeConfig {
+function buildRuntimeConfig(
+  mode: RuntimeMode,
+  tauriConfig: TauriRuntimeConfig | null,
+  launcherStartup: LauncherStartupHandoff | null
+): RuntimeConfig {
   const desktopBackendOverride = mode === "tauri" ? readDesktopStorage(DESKTOP_BACKEND_STORAGE_KEY) : "";
   const desktopShareOverride = mode === "tauri" ? readDesktopStorage(DESKTOP_SHARE_STORAGE_KEY) : "";
 
-  const backendBaseUrl = normalizeBase(
-    desktopBackendOverride || tauriConfig?.backendBaseUrl || defaultBackendBaseUrl(mode),
-    mode === "tauri" ? "http://127.0.0.1:8888" : ""
-  );
+  const backendBaseUrl = resolveDesktopBackendBaseUrl(mode, tauriConfig, launcherStartup);
 
   // If a desktop backend override is present, derive API/SSE from it unless explicitly overridden in env.
   const explicitApiBase =
-    desktopBackendOverride
+    launcherStartup?.handoffTarget || desktopBackendOverride
       ? readRuntimeEnv("VITE_API_BASE_URL")
       : tauriConfig?.apiBaseUrl || readRuntimeEnv("VITE_API_BASE_URL") || readRuntimeEnv("VITE_API_BASE");
 
   const apiBaseUrl = resolveApiBaseUrl(mode, backendBaseUrl, explicitApiBase || "");
 
   const explicitSse =
-    desktopBackendOverride
+    launcherStartup?.handoffTarget || desktopBackendOverride
       ? readRuntimeEnv("VITE_SSE_PATH")
       : tauriConfig?.sseUrl || readRuntimeEnv("VITE_SSE_PATH");
 
@@ -234,7 +394,7 @@ function buildRuntimeConfig(mode: RuntimeMode, tauriConfig: TauriRuntimeConfig |
 }
 
 function buildSyncRuntimeConfig(): RuntimeConfig {
-  return buildRuntimeConfig(defaultMode(), null);
+  return buildRuntimeConfig(defaultMode(), null, null);
 }
 
 export function getRuntimeConfigSync(): RuntimeConfig {
@@ -252,8 +412,11 @@ export async function initRuntimeConfig(options: { force?: boolean } = {}): Prom
 
   const mode = defaultMode();
   runtimeConfigPromise = (async () => {
-    const tauriConfig = await readTauriRuntimeConfig();
-    const config = buildRuntimeConfig(mode, tauriConfig);
+    const [launcherStartup, tauriConfig] = await Promise.all([
+      readDesktopLauncherStartupHandoff(),
+      readTauriRuntimeConfig(),
+    ]);
+    const config = buildRuntimeConfig(mode, tauriConfig, launcherStartup);
     runtimeConfigCache = config;
     runtimeConfigPromise = null;
     return config;

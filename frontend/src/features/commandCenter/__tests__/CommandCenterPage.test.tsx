@@ -1090,6 +1090,99 @@ function makeComparisonRun({
   };
 }
 
+function makeHistoryItem(
+  taskId: string,
+  createdAt: string,
+  retrievalPosture: CommandCenterRetrievalPosture
+): CommandCenterRetrievalPostureHistoryItem {
+  return {
+    created_at: createdAt,
+    retrieval_posture: retrievalPosture,
+    task_id: taskId,
+  };
+}
+
+function setThread42HistoryItems(
+  items: CommandCenterRetrievalPostureHistoryItem[]
+): void {
+  mockedRetrievalPostureHistoryStateByThreadId[42] = {
+    ...mockedRetrievalPostureHistoryStateByThreadId[42],
+    items,
+  };
+}
+
+function renderActiveThreadHistoryPanel(): HTMLElement {
+  render(<CommandCenterPage enabled />);
+
+  const workbench = screen.getByTestId("command-center-trace-workbench");
+  fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+  return screen.getByTestId("command-center-retrieval-posture-history-panel");
+}
+
+const mockedConversationHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
+  created_at: "2026-04-01T15:58:30Z",
+  retrieval_posture: mockedRetrievalPosture,
+  task_id: "task-alpha",
+};
+
+const mockedProjectHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
+  created_at: "2026-04-01T15:57:30Z",
+  retrieval_posture: mockedProjectPosture,
+  task_id: "task-bravo",
+};
+
+const mockedPersonalKnowledgeHistoryItem: CommandCenterRetrievalPostureHistoryItem = {
+  created_at: "2026-04-01T15:56:30Z",
+  retrieval_posture: mockedPersonalKnowledgePosture,
+  task_id: "task-charlie",
+};
+
+function cloneHistoryState<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+const defaultRetrievalPostureHistoryState = {
+  42: {
+    error: null,
+    items: [
+      mockedConversationHistoryItem,
+      mockedProjectHistoryItem,
+      mockedPersonalKnowledgeHistoryItem,
+    ],
+    loading: false,
+    status: "ok" as const,
+  },
+  84: {
+    error: null,
+    items: [],
+    loading: false,
+    status: "empty" as const,
+  },
+  500: {
+    error: null,
+    items: [],
+    loading: true,
+    status: null,
+  },
+  600: {
+    error: "Retrieval posture history unavailable",
+    items: [],
+    loading: false,
+    status: null,
+  },
+  700: {
+    error: null,
+    items: [],
+    loading: false,
+    status: "empty" as const,
+  },
+};
+
+let mockedRetrievalPostureHistoryStateByThreadId = cloneHistoryState(
+  defaultRetrievalPostureHistoryState
+);
+
 vi.mock("../hooks/useRetrievalPosture", () => ({
   default: (threadId: number | null) => {
     const sequencePosture = resolveMockedRetrievalPosture(threadId);
