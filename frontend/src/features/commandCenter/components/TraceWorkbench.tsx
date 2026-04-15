@@ -383,6 +383,38 @@ function PinnedRetrievalPostureCard({
   );
 }
 
+type PinnedRetrievalPostureComparison = {
+  changedFields: RetrievalPostureDiffField[] | null;
+  explanationLines: string[] | null;
+  label: string;
+  state: "changed" | "unchanged";
+};
+
+function comparePinnedRetrievalPosture(
+  pinnedRetrievalPosture: PinnedRetrievalPostureState,
+  currentRetrievalPosture: CommandCenterRetrievalPosture | null
+): PinnedRetrievalPostureComparison | null {
+  if (!pinnedRetrievalPosture || !currentRetrievalPosture) {
+    return null;
+  }
+
+  const comparison = diffRetrievalPosture(currentRetrievalPosture, pinnedRetrievalPosture.posture);
+  const explanation = describeRetrievalPostureChange(
+    comparison,
+    currentRetrievalPosture,
+    pinnedRetrievalPosture.posture
+  );
+
+  return {
+    changedFields: comparison.changed ? comparison.changedFields : null,
+    explanationLines: comparison.changed ? explanation.lines : null,
+    label: comparison.changed
+      ? "Pinned posture differs from current"
+      : "Pinned posture matches current",
+    state: comparison.changed ? "changed" : "unchanged",
+  };
+}
+
 function postureSignature(posture: CommandCenterRetrievalPosture | null): string | null {
   if (!posture) return null;
 
@@ -814,6 +846,10 @@ function RetrievalPostureDetails({
   const visibleHistoryItems = showHistorySection
     ? filterRetrievalPostureHistory(limitedHistoryItems, historyFilter)
     : [];
+  const pinnedComparison = React.useMemo(
+    () => comparePinnedRetrievalPosture(pinnedRetrievalPosture, retrievalPosture),
+    [pinnedRetrievalPosture, retrievalPosture]
+  );
 
   const glossaryRows: Array<{
     field: RetrievalPostureTokenField;
@@ -1331,6 +1367,41 @@ function RetrievalPostureDetails({
           source={pinnedRetrievalPosture.source}
           taskId={pinnedRetrievalPosture.taskId}
         />
+      ) : null}
+      {pinnedComparison ? (
+        <div
+          className="mt-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs leading-5"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className="border text-[11px] font-medium leading-none"
+              style={{
+                background: "var(--surface-soft)",
+                borderColor: "var(--panel-border)",
+                color: "var(--text)",
+              }}
+            >
+              {pinnedComparison.label}
+            </Badge>
+            {pinnedComparison.changedFields ? (
+              <div className="space-y-1">
+                <span>Changed: {pinnedComparison.changedFields.join(", ")}</span>
+                {pinnedComparison.explanationLines ? (
+                  <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
+                    {pinnedComparison.explanationLines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </>
   );
