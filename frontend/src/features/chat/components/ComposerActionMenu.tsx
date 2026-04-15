@@ -99,26 +99,14 @@ export function ComposerActionMenu({
         >
           Composer actions
         </div>
-        {/* Beta-disabled: document upload is broken in this build */}
         <DropdownMenuItem
-          onClick={() => {
-            setOpen(false);
-            // Show toast for beta limitation
-            try {
-              window.dispatchEvent(new CustomEvent("cfy:toast", {
-                detail: { message: "Document upload is not available in this beta build", duration: 4000 }
-              }));
-            } catch {}
-          }}
-          className="cursor-not-allowed px-2 py-2 opacity-50"
+          onClick={() => closeAndRun(onAttach)}
+          className="cursor-pointer px-2 py-2"
           style={{ borderRadius: "0.8rem" }}
         >
           <span className="flex items-center gap-2">
             <Paperclip className="h-3.5 w-3.5" />
             <span>Attach file</span>
-            <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--accent)] text-[var(--text-on-accent)] opacity-80">
-              Beta
-            </span>
           </span>
         </DropdownMenuItem>
         <DropdownMenuItem
