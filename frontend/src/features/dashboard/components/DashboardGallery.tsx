@@ -4,8 +4,17 @@ import MediaGrid from "@/components/media/MediaGrid";
 import TileShell from "@/components/surface/TileShell";
 import { Button } from "@/components/ui/button";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
+import {
+  getMobilePressSurfaceStyle,
+  getMobileTapTargetStyle,
+} from "@/components/persona/layout/mobileInteractionContract";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
+import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import {
+  getDashboardGalleryBadgeStyle,
+  getDashboardGalleryTileActiveStyle,
+} from "./galleryInteractionContract";
 import "@/components/media/media.css";
 import "./DashboardGallery.css";
 
@@ -23,6 +32,7 @@ type DashboardGalleryProps = {
   items: DashboardGalleryItem[];
   onOpenPreview: (item: DashboardGalleryItem) => void;
   onAddToThread?: (item: DashboardGalleryItem) => void;
+  activeItemSrc?: string | null;
 };
 
 function emitToast(message: string): void {
@@ -68,6 +78,7 @@ function DashboardGalleryImageTile({
   alt,
   provenance,
   provenanceClass,
+  activeItemSrc,
   isPhoneShell,
   onOpenPreview,
   onOpenContextMenu,
@@ -76,12 +87,22 @@ function DashboardGalleryImageTile({
   alt: string;
   provenance: string;
   provenanceClass: string;
+  activeItemSrc?: string | null;
   isPhoneShell: boolean;
   onOpenPreview: (item: DashboardGalleryItem) => void;
   onOpenContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
+  const pressFeedback = usePressFeedback({ enabled: isPhoneShell });
+  const {
+    className: pressFeedbackClassName,
+    style: pressFeedbackStyle,
+    ...pressFeedbackProps
+  } = pressFeedback.getPressFeedbackProps({
+    className: "dashboardGalleryTilePressSurface",
+  });
   const renderableSrc = useRenderableMediaSrc(item.src);
   const [hasLoadError, setHasLoadError] = React.useState(false);
+  const normalizedSrc = React.useMemo(() => normalizeMediaUrl(item.src), [item.src]);
 
   React.useEffect(() => {
     setHasLoadError(false);
@@ -91,29 +112,54 @@ function DashboardGalleryImageTile({
     renderableSrc.status === "ready" &&
     !!renderableSrc.src &&
     !hasLoadError;
+  const isActiveItem = Boolean(
+    isPhoneShell && activeItemSrc && normalizedSrc === activeItemSrc
+  );
+
+  const handleOpenPreview = React.useCallback(() => {
+    pressFeedback.releasePressed();
+    onOpenPreview(item);
+  }, [item, onOpenPreview, pressFeedback]);
+
+  const handleContextMenu = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      pressFeedback.releasePressed();
+      onOpenContextMenu(event);
+    },
+    [onOpenContextMenu, pressFeedback]
+  );
 
   return (
     <TileShell
       as="button"
       type="button"
       sizeVariant={isPhoneShell ? undefined : "dashboard-image"}
-      className={`codexifyMediaTile dashboardGalleryTile cursor-pointer ${
+      className={`${pressFeedbackClassName ?? ""} codexifyMediaTile dashboardGalleryTile cursor-pointer ${
         isPhoneShell ? "dashboardGalleryTile--mobile" : ""
       }`.trim()}
-      style={
-        isPhoneShell
+      style={{
+        ...pressFeedbackStyle,
+        padding: 0,
+        ...(isPhoneShell
           ? {
-              padding: 0,
               width: "100%",
               minWidth: 0,
               height: "auto",
               aspectRatio: "4 / 3",
               flex: "0 0 auto",
             }
-          : { padding: 0 }
-      }
-      onClick={() => onOpenPreview(item)}
-      onContextMenu={onOpenContextMenu}
+          : {}),
+        ...getMobileTapTargetStyle(isPhoneShell),
+        ...getMobilePressSurfaceStyle(
+          isPhoneShell,
+          pressFeedback.prefersReducedMotion
+        ),
+        ...getDashboardGalleryTileActiveStyle(isPhoneShell, isActiveItem),
+      }}
+      {...pressFeedbackProps}
+      data-state={isActiveItem ? "active" : undefined}
+      onClick={handleOpenPreview}
+      onContextMenu={handleContextMenu}
       aria-label={alt}
     >
       {showImage ? (
@@ -134,6 +180,9 @@ function DashboardGalleryImageTile({
       <span
         className={`dashboardGalleryBadge ${provenanceClass}`}
         aria-hidden="true"
+        style={getDashboardGalleryBadgeStyle(
+          provenance === "Generated" ? "generated" : "uploaded"
+        )}
       >
         {provenance}
       </span>
@@ -145,9 +194,18 @@ export default function DashboardGallery({
   items,
   onOpenPreview,
   onAddToThread,
+  activeItemSrc,
 }: DashboardGalleryProps) {
   const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
+  const overflowPressFeedback = usePressFeedback({ enabled: isPhoneShell });
+  const {
+    className: overflowPressFeedbackClassName,
+    style: overflowPressFeedbackStyle,
+    ...overflowPressFeedbackProps
+  } = overflowPressFeedback.getPressFeedbackProps({
+    className: "dashboardGalleryOverflowButton",
+  });
   const INITIAL_VISIBLE = 4;
   const [menu, setMenu] = React.useState<{
     x: number;
@@ -274,6 +332,7 @@ export default function DashboardGallery({
                 alt={alt}
                 provenance={provenance}
                 provenanceClass={provenanceClass}
+                activeItemSrc={activeItemSrc}
                 isPhoneShell={isPhoneShell}
                 onOpenPreview={onOpenPreview}
                 onOpenContextMenu={(event) => {
@@ -309,6 +368,7 @@ export default function DashboardGallery({
                 alt={alt}
                 provenance={provenance}
                 provenanceClass={provenanceClass}
+                activeItemSrc={activeItemSrc}
                 isPhoneShell={isPhoneShell}
                 onOpenPreview={onOpenPreview}
                 onOpenContextMenu={(event) => {
@@ -332,8 +392,20 @@ export default function DashboardGallery({
           type="button"
           variant="ghost"
           size="sm"
-          className="self-start"
-          onClick={() => setShowAll((prev) => !prev)}
+          className={`${overflowPressFeedbackClassName ?? ""} self-start`.trim()}
+          style={{
+            ...overflowPressFeedbackStyle,
+            ...getMobileTapTargetStyle(isPhoneShell),
+            ...getMobilePressSurfaceStyle(
+              isPhoneShell,
+              overflowPressFeedback.prefersReducedMotion
+            ),
+          }}
+          {...overflowPressFeedbackProps}
+          onClick={() => {
+            overflowPressFeedback.releasePressed();
+            setShowAll((prev) => !prev);
+          }}
         >
           {showAll
             ? "Show fewer images"

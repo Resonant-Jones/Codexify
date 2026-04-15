@@ -538,6 +538,7 @@ export default function DashboardView({
                 ) : (
                   <DashboardGallery
                     items={galleryToRender}
+                    activeItemSrc={previewImage?.src ?? null}
                     onOpenPreview={(item) =>
                       setPreviewImage({
                         src: normalizeMediaUrl(item.src),
