@@ -2550,6 +2550,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "guardian" ? "active" : "inactive"}
+                aria-current={view === "guardian" ? "page" : undefined}
                 onClick={() => navigateToView("guardian")}
                 style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "guardian") : undefined}
               >
@@ -2559,6 +2560,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "dashboard" ? "active" : "inactive"}
+                aria-current={view === "dashboard" ? "page" : undefined}
                 onClick={() => navigateToView("dashboard")}
                 style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "dashboard") : undefined}
               >
@@ -2568,6 +2570,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
+                aria-current={view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
                 style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "documents") : undefined}
               >
@@ -2577,6 +2580,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "gallery" ? "active" : "inactive"}
+                aria-current={view === "gallery" ? "page" : undefined}
                 onClick={() => navigateToView("gallery")}
                 style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "gallery") : undefined}
               >
@@ -2586,6 +2590,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
+                aria-current={view === "personaStudio" ? "page" : undefined}
                 onClick={() => navigateToView("personaStudio")}
                 style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "personaStudio") : undefined}
               >
