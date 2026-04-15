@@ -227,6 +227,75 @@ export function describeRetrievalPostureChange(
   return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
 }
 
+function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
+  if (!value) return "Not yet";
+  return new Date(value).toLocaleString();
+}
+
+function renderRetrievalPostureBadges(posture: CommandCenterRetrievalPosture): React.ReactNode[] {
+  return [
+    <Badge
+      key="source"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      source: {posture.source_mode}
+    </Badge>,
+    <Badge
+      key="boundary"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      boundary: {posture.boundary_label}
+    </Badge>,
+    posture.retrieval_override_mode ? (
+      <Badge
+        key="override"
+        className="border text-[11px] font-medium leading-none"
+        style={{
+          background: "var(--surface-soft)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text)",
+        }}
+      >
+        override: {posture.retrieval_override_mode}
+      </Badge>
+    ) : null,
+    <Badge
+      key="widen"
+      className="border text-[11px] font-medium leading-none"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+        color: "var(--text)",
+      }}
+    >
+      widen: {posture.widen_reason}
+    </Badge>,
+    posture.conversation_only ? (
+      <Badge
+        key="conversation-only"
+        className="border text-[11px] font-medium leading-none"
+        style={{
+          background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text-on-accent)",
+        }}
+      >
+        conversation-only
+      </Badge>
+    ) : null,
+  ].filter((node): node is React.ReactNode => node !== null);
+}
+
 function postureSignature(posture: CommandCenterRetrievalPosture | null): string | null {
   if (!posture) return null;
 
@@ -616,6 +685,71 @@ function RetrievalPostureDetails({
     },
   ];
 
+  type CopyAction = "posture" | "audit-note" | "bundle";
+  type CopyFeedback = { action: CopyAction; status: "copied" | "failed" } | null;
+
+  const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback>(null);
+
+  async function writeClipboardText(action: CopyAction, text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyFeedback({ action, status: "copied" });
+    } catch {
+      setCopyFeedback({ action, status: "failed" });
+    }
+  }
+
+  function buildRetrievalPostureJson(): string {
+    return JSON.stringify(
+      {
+        source_mode: retrievalPosture.source_mode,
+        boundary_label: retrievalPosture.boundary_label,
+        retrieval_override_mode: retrievalPosture.retrieval_override_mode,
+        widen_reason: retrievalPosture.widen_reason,
+        conversation_only: retrievalPosture.conversation_only,
+      },
+      null,
+      2
+    );
+  }
+
+  function buildRetrievalPostureAuditNote(): string {
+    const summaryLines = describeRetrievalPosture(retrievalPosture);
+    return [
+      "Retrieval posture",
+      `- source_mode: ${retrievalPosture.source_mode}`,
+      `- boundary_label: ${retrievalPosture.boundary_label}`,
+      `- retrieval_override_mode: ${retrievalPosture.retrieval_override_mode ?? "null"}`,
+      `- widen_reason: ${retrievalPosture.widen_reason}`,
+      `- conversation_only: ${String(retrievalPosture.conversation_only)}`,
+      "",
+      "Summary",
+      ...summaryLines.map((line) => `- ${line}`),
+    ].join("\n");
+  }
+
+  function buildRetrievalPostureBundle(): string {
+    return [
+      "Retrieval posture JSON",
+      buildRetrievalPostureJson(),
+      "",
+      "Audit note",
+      buildRetrievalPostureAuditNote(),
+    ].join("\n");
+  }
+
+  function onCopyPosture(): void {
+    void writeClipboardText("posture", buildRetrievalPostureJson());
+  }
+
+  function onCopyAuditNote(): void {
+    void writeClipboardText("audit-note", buildRetrievalPostureAuditNote());
+  }
+
+  function onCopyBundle(): void {
+    void writeClipboardText("bundle", buildRetrievalPostureBundle());
+  }
+
   return (
     <>
       {showTrendBadge ? (
@@ -954,7 +1088,106 @@ function RetrievalPostureDetails({
           ))}
         </dl>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyPosture}
+        >
+          Copy posture
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyAuditNote}
+        >
+          Copy audit note
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="border border-[var(--panel-border)]"
+          onClick={onCopyBundle}
+        >
+          Copy posture bundle
+        </Button>
+        {copyFeedback?.action === "posture" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture
+          </span>
+        ) : copyFeedback?.action === "posture" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Copy failed
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied audit note
+          </span>
+        ) : copyFeedback?.action === "audit-note" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Audit note copy failed
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "copied" ? (
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Copied posture bundle
+          </span>
+        ) : copyFeedback?.action === "bundle" && copyFeedback.status === "failed" ? (
+          <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+            Posture bundle copy failed
+          </span>
+        ) : null}
+      </div>
     </>
+  );
+}
+
+export function RetrievalPostureSummaryRow({
+  createdAt,
+  posture,
+  taskId,
+}: {
+  createdAt: string | null;
+  posture: CommandCenterRetrievalPosture;
+  taskId: string;
+}) {
+  const summaryLines = describeRetrievalPosture(posture);
+  const summary = summaryLines[0] ?? "Retrieval posture metadata is present.";
+
+  return (
+    <div
+      className="space-y-2 rounded-[var(--tile-radius)] border px-3 py-2"
+      data-testid="command-center-retrieval-posture-history-item"
+      style={{
+        background: "var(--surface-soft)",
+        borderColor: "var(--panel-border)",
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          {formatRetrievalPostureHistoryTimestamp(createdAt)}
+        </span>
+        <span
+          className="rounded-full border px-2 py-1"
+          style={{ borderColor: "var(--panel-border)", color: "var(--muted)" }}
+        >
+          Task: {taskId}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">{renderRetrievalPostureBadges(posture)}</div>
+
+      <div className="text-sm leading-5" style={{ color: "var(--text)" }}>
+        {summary}
+      </div>
+    </div>
   );
 }
 
@@ -1304,7 +1537,11 @@ function TraceListPane({
   selectedRunKey: string | null;
 }) {
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-list-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1320,7 +1557,7 @@ function TraceListPane({
           </Badge>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div data-testid="command-center-trace-list-scroll" className="min-h-0 flex-1 overflow-auto p-2">
         {runs.length === 0 ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             No runs match the current filters.
@@ -1421,7 +1658,11 @@ function TraceViewerPane({
   const retrievalPostureThreadId = effectiveRun?.threadId ?? null;
 
   return (
-    <section className="flex min-h-0 flex-col rounded-[var(--tile-radius)] border" style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}>
+    <section
+      data-testid="command-center-trace-viewer-pane"
+      className="flex min-h-0 flex-col overflow-hidden rounded-[var(--tile-radius)] border"
+      style={{ background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)", borderColor: "var(--panel-border)" }}
+    >
       <div className="border-b border-[var(--panel-border)] p-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
@@ -1459,7 +1700,7 @@ function TraceViewerPane({
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div data-testid="command-center-trace-viewer-scroll" className="min-h-0 flex-1 overflow-auto p-4">
         {!effectiveRun ? (
           <div className="rounded-[var(--tile-radius)] border p-4 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
             Select a run to inspect its trace report.
@@ -1642,7 +1883,7 @@ export default function TraceWorkbench({
 
   return (
     <Card
-      className="bezel-none border h-full min-h-0"
+      className="bezel-none border flex h-full min-h-0 flex-col overflow-hidden"
       role="region"
       aria-label="Command Center trace workbench"
       data-testid="command-center-trace-workbench"
@@ -1675,24 +1916,24 @@ export default function TraceWorkbench({
         </div>
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-[var(--card-pad)]">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-[var(--card-pad)]">
         <TraceFilterBar filters={filters} onFiltersChange={onFiltersChange} />
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
-        <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
-        <TraceViewerPane filters={filters} selectedRun={selectedRun} />
-      </div>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(18rem,0.36fr)_minmax(0,0.64fr)]">
+          <TraceListPane onSelectRun={onSelectRun} runs={visibleRuns} selectedRunKey={selectedRunKey} />
+          <TraceViewerPane filters={filters} selectedRun={selectedRun} />
+        </div>
 
-      <datalist id="command-center-provider-options">
-        {providerOptions.map((provider) => (
-          <option key={provider} value={provider} />
-        ))}
-      </datalist>
-      <datalist id="command-center-model-options">
-        {modelOptions.map((model) => (
-          <option key={model} value={model} />
-        ))}
-      </datalist>
+        <datalist id="command-center-provider-options">
+          {providerOptions.map((provider) => (
+            <option key={provider} value={provider} />
+          ))}
+        </datalist>
+        <datalist id="command-center-model-options">
+          {modelOptions.map((model) => (
+            <option key={model} value={model} />
+          ))}
+        </datalist>
       </CardContent>
     </Card>
   );

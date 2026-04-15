@@ -8,7 +8,7 @@ No raw DDL creation in application code.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import (
     JSON,
@@ -29,6 +29,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from guardian.core.capability_tokens import (
+    CapabilityFamily,
+    CapabilityGrantKind,
+    CapabilityGrantScope,
+    CapabilityGrantStatus,
+)
 from guardian.protocol_tokens import (
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
@@ -52,6 +58,30 @@ DELEGATION_STATUS_VALUES_SQL = "','".join(
     status.value for status in DelegationJobStatus
 )
 DELEGATION_STATUS_CHECK = f"status IN ('{DELEGATION_STATUS_VALUES_SQL}')"
+CAPABILITY_FAMILY_VALUES_SQL = "','".join(
+    family.value for family in CapabilityFamily
+)
+CAPABILITY_GRANT_SCOPE_VALUES_SQL = "','".join(
+    scope.value for scope in CapabilityGrantScope
+)
+CAPABILITY_GRANT_KIND_VALUES_SQL = "','".join(
+    kind.value for kind in CapabilityGrantKind
+)
+CAPABILITY_GRANT_STATUS_VALUES_SQL = "','".join(
+    status.value for status in CapabilityGrantStatus
+)
+CAPABILITY_FAMILY_CHECK = (
+    f"capability_family IN ('{CAPABILITY_FAMILY_VALUES_SQL}')"
+)
+CAPABILITY_GRANT_SCOPE_CHECK = (
+    f"grant_scope IN ('{CAPABILITY_GRANT_SCOPE_VALUES_SQL}')"
+)
+CAPABILITY_GRANT_KIND_CHECK = (
+    f"grant_kind IN ('{CAPABILITY_GRANT_KIND_VALUES_SQL}')"
+)
+CAPABILITY_GRANT_STATUS_CHECK = (
+    f"grant_status IN ('{CAPABILITY_GRANT_STATUS_VALUES_SQL}')"
+)
 
 
 # =========================
@@ -88,6 +118,157 @@ class Project(Base):
             "identity_depth IN ('light','deep')",
             name="projects_identity_depth_check",
         ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Capability Grants
+# =========================
+
+
+class CapabilityTier(Base):
+    """Reusable package/tier definition for grant issuance."""
+
+    __tablename__ = "capability_tiers"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    capability_family: Mapped[str] = mapped_column(String(64), nullable=False)
+    tier_key: Mapped[str] = mapped_column(
+        String(128), unique=True, nullable=False
+    )
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    capabilities_json: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    limits_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="100"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    grants: Mapped[list[CapabilityGrant]] = relationship(
+        "CapabilityGrant", back_populates="tier"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            CAPABILITY_FAMILY_CHECK,
+            name="capability_tiers_capability_family_check",
+        ),
+        Index(
+            "ix_capability_tiers_family_active",
+            "capability_family",
+            "is_active",
+        ),
+        Index("ix_capability_tiers_priority", "priority"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CapabilityGrant(Base):
+    """Durable account-scoped grant issuance record."""
+
+    __tablename__ = "capability_grants"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("authenticated_principals.account_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tier_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("capability_tiers.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    grant_scope: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=CapabilityGrantScope.ACCOUNT.value,
+    )
+    grant_kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=CapabilityGrantKind.PERMANENT.value,
+    )
+    grant_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=CapabilityGrantStatus.ACTIVE.value,
+    )
+    starts_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    issued_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    provenance_source: Mapped[str | None] = mapped_column(String(64))
+    provenance_ref: Mapped[str | None] = mapped_column(String(255))
+    provenance_reason: Mapped[str | None] = mapped_column(Text)
+    provenance_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    tier: Mapped[CapabilityTier] = relationship(
+        "CapabilityTier", back_populates="grants"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            CAPABILITY_GRANT_SCOPE_CHECK,
+            name="capability_grants_scope_check",
+        ),
+        CheckConstraint(
+            CAPABILITY_GRANT_KIND_CHECK,
+            name="capability_grants_kind_check",
+        ),
+        CheckConstraint(
+            CAPABILITY_GRANT_STATUS_CHECK,
+            name="capability_grants_status_check",
+        ),
+        Index(
+            "ix_capability_grants_account_status",
+            "account_id",
+            "grant_status",
+        ),
+        Index(
+            "ix_capability_grants_account_ends_at",
+            "account_id",
+            "ends_at",
+        ),
+        Index("ix_capability_grants_tier_id", "tier_id"),
     )
 
     __mapper_args__ = {"eager_defaults": True}
@@ -1611,6 +1792,34 @@ class UserSettings(Base):
         CheckConstraint(
             "memory_mode IN ('none','light','deep')",
             name="user_settings_memory_mode_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AuthenticatedPrincipal(Base):
+    """Durable mapping from an authenticated subject to a stable account."""
+
+    __tablename__ = "authenticated_principals"
+
+    account_id: Mapped[str] = mapped_column(
+        String(255), primary_key=True, nullable=False
+    )
+    subject_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_id", name="uq_authenticated_principals_subject_id"
         ),
     )
 

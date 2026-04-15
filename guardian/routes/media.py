@@ -9,12 +9,13 @@ Handles:
 - TTS synthesis and tracking
 """
 
+import json
 import logging
 import os
 import sys
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import (
     APIRouter,
@@ -34,8 +35,17 @@ from sqlalchemy.exc import IntegrityError
 
 from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
-from guardian.core.default_project import canonicalize_default_project
-from guardian.core.dependencies import verify_api_key
+from guardian.core.default_project import (
+    DEFAULT_PROJECT_NAME,
+    canonicalize_default_project,
+    is_default_project_name,
+)
+from guardian.core.dependencies import (
+    RequestUserScope,
+    get_request_user_scope,
+    get_single_user_id,
+    verify_api_key,
+)
 from guardian.core.media_signing import extract_media_path, sign_media_url
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import (
@@ -251,6 +261,288 @@ def _normalize_source_tag(tag: Optional[str], source_tag: Optional[str]) -> str:
     """Normalize incoming tag values for media records."""
     candidate = (tag or source_tag or "uploaded").strip().lower()
     return candidate or "uploaded"
+
+
+_PROJECT_OWNER_SENTINEL = "__codexify_project_owner__"
+
+
+def _request_account_id(request_user_scope: RequestUserScope) -> str:
+    account_id = str(
+        getattr(request_user_scope, "account_id", "") or ""
+    ).strip()
+    return account_id or get_single_user_id()
+
+
+def _is_multi_user_scope(request_user_scope: RequestUserScope) -> bool:
+    return bool(getattr(request_user_scope, "multi_user_enabled", False))
+
+
+def _resolve_effective_user_id(
+    raw_user_id: str | None,
+    request_user_scope: RequestUserScope,
+    *,
+    default_when_blank: str | None = None,
+) -> str | None:
+    requested_user_id = str(raw_user_id or "").strip()
+    if requested_user_id.lower() == "default":
+        requested_user_id = ""
+    if _is_multi_user_scope(request_user_scope):
+        account_id = _request_account_id(request_user_scope)
+        if requested_user_id and requested_user_id != account_id:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Requested user_id does not match the authenticated account"
+                ),
+            )
+        return account_id
+    return requested_user_id or default_when_blank
+
+
+def _row_value(row: Any, field: str) -> Any:
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row.get(field)
+    return getattr(row, field, None)
+
+
+def _decode_project_description(description: Any) -> tuple[str | None, str]:
+    text = str(description or "")
+    if not text:
+        return None, ""
+
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return None, text
+
+    if not isinstance(payload, dict) or not payload.get(
+        _PROJECT_OWNER_SENTINEL
+    ):
+        return None, text
+
+    owner_id = str(payload.get("owner_user_id") or "").strip() or None
+    decoded_description = str(payload.get("description") or "")
+    return owner_id, decoded_description
+
+
+def _normalize_project_row(project: Any) -> dict[str, Any]:
+    row = dict(project or {})
+    owner_id = str(row.get("owner_user_id") or row.get("user_id") or "").strip()
+    decoded_owner_id, description = _decode_project_description(
+        row.get("description")
+    )
+    if decoded_owner_id:
+        owner_id = decoded_owner_id
+    if owner_id:
+        row["description"] = description
+        row["owner_user_id"] = owner_id
+    return row
+
+
+def _project_owner_id(project: Any) -> str:
+    row = _normalize_project_row(project)
+    return str(row.get("owner_user_id") or row.get("user_id") or "").strip()
+
+
+def _project_is_visible_to_scope(
+    project: Any,
+    request_user_scope: RequestUserScope,
+) -> bool:
+    if not _is_multi_user_scope(request_user_scope):
+        return True
+
+    account_id = _request_account_id(request_user_scope)
+    row = _normalize_project_row(project)
+    owner_id = str(row.get("owner_user_id") or row.get("user_id") or "").strip()
+    if owner_id:
+        return owner_id == account_id
+    return is_default_project_name(str(row.get("name") or ""))
+
+
+def _get_project_record(db, project_id: int) -> dict[str, Any] | None:
+    try:
+        with db.get_session() as session:
+            project = (
+                session.query(Project).filter(Project.id == project_id).first()
+            )
+            if project is None:
+                return None
+            return _normalize_project_row(project)
+    except Exception:
+        return None
+
+
+def _require_project_account_scope(
+    db,
+    project_id: int,
+    request_user_scope: RequestUserScope,
+) -> dict[str, Any]:
+    project = _get_project_record(db, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if _is_multi_user_scope(request_user_scope):
+        account_id = _request_account_id(request_user_scope)
+        owner_id = str(
+            project.get("owner_user_id") or project.get("user_id") or ""
+        ).strip()
+        if owner_id and owner_id != account_id:
+            raise HTTPException(
+                status_code=403,
+                detail=("Project does not belong to the authenticated account"),
+            )
+        if not owner_id and not is_default_project_name(
+            str(project.get("name") or "")
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=("Project does not belong to the authenticated account"),
+            )
+
+    return project
+
+
+def _require_thread_account_scope(
+    db,
+    thread_id: int,
+    request_user_scope: RequestUserScope,
+) -> Any:
+    try:
+        with db.get_session() as session:
+            thread = (
+                session.query(ChatThread)
+                .filter(ChatThread.id == thread_id)
+                .first()
+            )
+    except Exception:
+        thread = None
+
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    if _is_multi_user_scope(request_user_scope):
+        account_id = _request_account_id(request_user_scope)
+        owner_id = str(_row_value(thread, "user_id") or "").strip()
+        if owner_id != account_id:
+            raise HTTPException(
+                status_code=403,
+                detail=("Thread does not belong to the authenticated account"),
+            )
+
+    return thread
+
+
+def _media_row_is_owned_by_scope(
+    row: Any,
+    request_user_scope: RequestUserScope,
+) -> bool:
+    if not _is_multi_user_scope(request_user_scope):
+        return True
+    account_id = _request_account_id(request_user_scope)
+    owner_id = str(_row_value(row, "user_id") or "").strip()
+    return owner_id == account_id
+
+
+def _require_uploaded_image_account_scope(
+    db,
+    image_id: str,
+    request_user_scope: RequestUserScope,
+) -> UploadedImage:
+    with db.get_session() as session:
+        image = session.query(UploadedImage).filter_by(id=image_id).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    if not _media_row_is_owned_by_scope(image, request_user_scope):
+        raise HTTPException(
+            status_code=403,
+            detail="Image does not belong to the authenticated account",
+        )
+    return image
+
+
+def _require_generated_image_account_scope(
+    db,
+    image_id: str,
+    request_user_scope: RequestUserScope,
+) -> GeneratedImage:
+    with db.get_session() as session:
+        image = session.query(GeneratedImage).filter_by(id=image_id).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    if not _media_row_is_owned_by_scope(image, request_user_scope):
+        raise HTTPException(
+            status_code=403,
+            detail="Image does not belong to the authenticated account",
+        )
+    return image
+
+
+def _require_uploaded_document_account_scope(
+    db,
+    document_id: str,
+    request_user_scope: RequestUserScope,
+) -> UploadedDocument:
+    with db.get_session() as session:
+        document = (
+            session.query(UploadedDocument).filter_by(id=document_id).first()
+        )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not _media_row_is_owned_by_scope(document, request_user_scope):
+        raise HTTPException(
+            status_code=403,
+            detail="Document does not belong to the authenticated account",
+        )
+    return document
+
+
+def _require_tts_account_scope(
+    db,
+    tts_id: int,
+    request_user_scope: RequestUserScope,
+) -> TTSOutput:
+    with db.get_session() as session:
+        tts_output = session.query(TTSOutput).filter_by(id=tts_id).first()
+    if not tts_output:
+        raise HTTPException(status_code=404, detail="Audio not found")
+    if not _media_row_is_owned_by_scope(tts_output, request_user_scope):
+        raise HTTPException(
+            status_code=403,
+            detail="Audio does not belong to the authenticated account",
+        )
+    return tts_output
+
+
+def _asset_visible_to_scope(
+    db,
+    session,
+    asset: MediaAsset,
+    request_user_scope: RequestUserScope,
+) -> bool:
+    if not _is_multi_user_scope(request_user_scope):
+        return True
+
+    account_id = _request_account_id(request_user_scope)
+    asset_owner = str(_row_value(asset, "user_id") or "").strip()
+    if asset_owner == account_id:
+        return True
+
+    asset_id = str(_row_value(asset, "id") or "").strip()
+    if not asset_id:
+        return False
+
+    for model in (UploadedImage, UploadedDocument, GeneratedImage):
+        visible = (
+            session.query(model)
+            .filter_by(asset_id=asset_id, user_id=account_id)
+            .first()
+        )
+        if visible is not None:
+            return True
+
+    return False
 
 
 def _signed_src_url(src_url: str | None) -> str:
@@ -691,6 +983,7 @@ async def upload_image(
     user_id: str = Body(default="default"),
     tag: Optional[str] = Body(default=None),
     source_tag: Optional[str] = Body(default=None),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
     Upload an image file.
@@ -710,10 +1003,25 @@ async def upload_image(
         filesize = len(file_data)
         filename = file.filename or "upload"
         effective_tag = _normalize_source_tag(tag, source_tag)
+        effective_user_id = _resolve_effective_user_id(
+            user_id,
+            request_user_scope,
+            default_when_blank="default",
+        )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-image"
         )
         db = _get_db()
+        explicit_project_id = _coerce_optional_positive_int(project_id)
+        explicit_thread_id = _coerce_optional_positive_int(thread_id)
+        if explicit_project_id is not None:
+            _require_project_account_scope(
+                db, explicit_project_id, request_user_scope
+            )
+        if explicit_thread_id is not None:
+            _require_thread_account_scope(
+                db, explicit_thread_id, request_user_scope
+            )
         resolved_project_id, resolved_thread_id = _resolve_upload_context(
             db, project_id, thread_id
         )
@@ -740,7 +1048,9 @@ async def upload_image(
                 existing = _find_uploaded_image_for_asset(
                     session, existing_asset.id
                 )
-                if existing:
+                if existing and _media_row_is_owned_by_scope(
+                    existing, request_user_scope
+                ):
                     if not existing.source_tag:
                         existing.source_tag = effective_tag
                     session.commit()
@@ -764,7 +1074,7 @@ async def upload_image(
                     asset_id=existing_asset.id,
                     project_id=resolved_project_id,
                     thread_id=resolved_thread_id,
-                    user_id=user_id,
+                    user_id=effective_user_id,
                     src_url=existing_asset.src_url,
                     filename=filename,
                     filesize=filesize or (existing_asset.filesize or 0),
@@ -824,7 +1134,9 @@ async def upload_image(
                     existing = _find_uploaded_image_for_asset(
                         session, existing_asset.id
                     )
-                    if existing:
+                    if existing and _media_row_is_owned_by_scope(
+                        existing, request_user_scope
+                    ):
                         if not existing.source_tag:
                             existing.source_tag = effective_tag
                         session.commit()
@@ -846,7 +1158,7 @@ async def upload_image(
                         asset_id=existing_asset.id,
                         project_id=resolved_project_id,
                         thread_id=resolved_thread_id,
-                        user_id=user_id,
+                        user_id=effective_user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
                         filesize=filesize or (existing_asset.filesize or 0),
@@ -875,7 +1187,7 @@ async def upload_image(
                     session=session,
                     project_id=resolved_project_id,
                     thread_id=resolved_thread_id,
-                    user_id=user_id,
+                    user_id=effective_user_id,
                     media_kind="image",
                     provenance="uploaded",
                     source_tag=effective_tag,
@@ -895,7 +1207,7 @@ async def upload_image(
                     asset_id=asset.id,
                     project_id=resolved_project_id,
                     thread_id=resolved_thread_id,
-                    user_id=user_id,
+                    user_id=effective_user_id,
                     src_url=src_url,
                     filename=filename,
                     filesize=filesize,
@@ -929,7 +1241,9 @@ async def upload_image(
                     existing = _find_uploaded_image_for_asset(
                         session, existing_asset.id
                     )
-                    if existing:
+                    if existing and _media_row_is_owned_by_scope(
+                        existing, request_user_scope
+                    ):
                         session.commit()
                         return ImageUploadResponse(
                             id=existing.id,
@@ -949,7 +1263,7 @@ async def upload_image(
                         asset_id=existing_asset.id,
                         project_id=resolved_project_id,
                         thread_id=resolved_thread_id,
-                        user_id=user_id,
+                        user_id=effective_user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
                         filesize=filesize or (existing_asset.filesize or 0),
@@ -979,7 +1293,7 @@ async def upload_image(
             "Image uploaded: %s (%s bytes) by user %s project_id=%s thread_id=%s",
             filename,
             filesize,
-            user_id,
+            effective_user_id,
             resolved_project_id,
             resolved_thread_id,
         )
@@ -1011,45 +1325,48 @@ async def upload_image(
 
 
 @router.get("/images/{image_id}", tags=["media"])
-async def get_image(image_id: str):
+async def get_image(
+    image_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """Get an uploaded image by ID."""
     db = _get_db()
 
-    with db.get_session() as session:
-        image = session.query(UploadedImage).filter_by(id=image_id).first()
+    image = _require_uploaded_image_account_scope(
+        db, image_id, request_user_scope
+    )
 
-        if not image:
-            raise HTTPException(status_code=404, detail="Image not found")
-
-        # Download from storage
-        try:
-            file_data = storage.download_file(_storage_src_path(image.src_url))
-            return StreamingResponse(
-                iter([file_data]),
-                media_type=image.mime_type,
-                headers={
-                    "Content-Disposition": f"inline; filename={image.filename}"
-                },
-            )
-        except Exception as e:
-            logger.error(f"Failed to retrieve image {image_id}: {e}")
-            raise HTTPException(
-                status_code=500, detail="Failed to retrieve image"
-            )
+    # Download from storage
+    try:
+        file_data = storage.download_file(_storage_src_path(image.src_url))
+        return StreamingResponse(
+            iter([file_data]),
+            media_type=image.mime_type,
+            headers={
+                "Content-Disposition": f"inline; filename={image.filename}"
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to retrieve image {image_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve image")
 
 
 @router.delete("/images/{image_id}", tags=["media"])
-async def delete_image(image_id: str):
+async def delete_image(
+    image_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """Soft delete an uploaded image."""
     db = _get_db()
 
+    image = _require_uploaded_image_account_scope(
+        db, image_id, request_user_scope
+    )
+
     with db.get_session() as session:
         image = session.query(UploadedImage).filter_by(id=image_id).first()
-
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
-
-        # Soft delete
         image.deleted_at = datetime.now(timezone.utc)
         session.commit()
 
@@ -1073,6 +1390,7 @@ async def upload_document(
     user_id: str = Body(default="default"),
     tag: Optional[str] = Body(default=None),
     source_tag: Optional[str] = Body(default=None),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
     Upload a document file.
@@ -1102,11 +1420,26 @@ async def upload_document(
         filesize = len(file_data)
         filename = file.filename or "upload"
         effective_tag = _normalize_source_tag(tag, source_tag)
+        effective_user_id = _resolve_effective_user_id(
+            user_id,
+            request_user_scope,
+            default_when_blank="default",
+        )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-document"
         )
 
         db = _get_db()
+        explicit_project_id = _coerce_optional_positive_int(project_id)
+        explicit_thread_id = _coerce_optional_positive_int(thread_id)
+        if explicit_project_id is not None:
+            _require_project_account_scope(
+                db, explicit_project_id, request_user_scope
+            )
+        if explicit_thread_id is not None:
+            _require_thread_account_scope(
+                db, explicit_thread_id, request_user_scope
+            )
         resolved_project_id, resolved_thread_id = _resolve_upload_context(
             db, project_id, thread_id
         )
@@ -1133,7 +1466,9 @@ async def upload_document(
                 existing = _find_uploaded_document_for_asset(
                     session, existing_asset.id
                 )
-                if existing:
+                if existing and _media_row_is_owned_by_scope(
+                    existing, request_user_scope
+                ):
                     if not existing.source_tag:
                         existing.source_tag = effective_tag
                     _ensure_thread_document_link(
@@ -1147,7 +1482,7 @@ async def upload_document(
                         project_id=resolved_project_id,
                         document_id=existing.id,
                         document_type="uploaded",
-                        attached_by=user_id,
+                        attached_by=effective_user_id,
                     )
                     session.commit()
                     return _document_upload_response_from_row(
@@ -1246,25 +1581,34 @@ async def upload_document(
                             document_id=existing.id,
                             relation="attached",
                         )
-                    _ensure_project_document_link(
-                        session,
-                        project_id=resolved_project_id,
-                        document_id=existing.id,
-                        document_type="uploaded",
-                        attached_by=user_id,
-                    )
-                    session.commit()
-                    return _document_upload_response_from_row(
-                        existing,
-                        fallback_project_id=resolved_project_id,
-                        requested_thread_id=resolved_thread_id,
-                    )
+                    if existing and _media_row_is_owned_by_scope(
+                        existing, request_user_scope
+                    ):
+                        _ensure_thread_document_link(
+                            session,
+                            thread_id=resolved_thread_id,
+                            document_id=existing.id,
+                            relation="attached",
+                        )
+                        _ensure_project_document_link(
+                            session,
+                            project_id=resolved_project_id,
+                            document_id=existing.id,
+                            document_type="uploaded",
+                            attached_by=effective_user_id,
+                        )
+                        session.commit()
+                        return _document_upload_response_from_row(
+                            existing,
+                            fallback_project_id=resolved_project_id,
+                            requested_thread_id=resolved_thread_id,
+                        )
                     linked_doc = UploadedDocument(
                         id=doc_id,
                         asset_id=existing_asset.id,
                         project_id=resolved_project_id,
                         thread_id=resolved_thread_id,
-                        user_id=user_id,
+                        user_id=effective_user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
                         filesize=filesize or (existing_asset.filesize or 0),
@@ -1290,7 +1634,7 @@ async def upload_document(
                         project_id=resolved_project_id,
                         document_id=linked_doc.id,
                         document_type="uploaded",
-                        attached_by=user_id,
+                        attached_by=effective_user_id,
                     )
                     session.commit()
                     src_url = linked_doc.src_url
@@ -1309,7 +1653,7 @@ async def upload_document(
                         session=session,
                         project_id=resolved_project_id,
                         thread_id=resolved_thread_id,
-                        user_id=user_id,
+                        user_id=effective_user_id,
                         media_kind="document",
                         provenance="uploaded",
                         source_tag=effective_tag,
@@ -1329,7 +1673,7 @@ async def upload_document(
                         asset_id=asset.id,
                         project_id=resolved_project_id,
                         thread_id=resolved_thread_id,
-                        user_id=user_id,
+                        user_id=effective_user_id,
                         src_url=src_url,
                         filename=filename,
                         filesize=filesize,
@@ -1354,7 +1698,7 @@ async def upload_document(
                         project_id=resolved_project_id,
                         document_id=uploaded_doc.id,
                         document_type="uploaded",
-                        attached_by=user_id,
+                        attached_by=effective_user_id,
                     )
                     session.commit()
                     asset_metadata = {
@@ -1392,32 +1736,35 @@ async def upload_document(
                     existing = _find_uploaded_document_for_asset(
                         session, existing_asset.id
                     )
-                    if existing:
+                    if existing and _media_row_is_owned_by_scope(
+                        existing, request_user_scope
+                    ):
                         _ensure_thread_document_link(
                             session,
                             thread_id=resolved_thread_id,
                             document_id=existing.id,
                             relation="attached",
                         )
-                    _ensure_project_document_link(
-                        session,
-                        project_id=resolved_project_id,
-                        document_id=existing.id,
-                        document_type="uploaded",
-                        attached_by=user_id,
-                    )
-                    session.commit()
-                    return _document_upload_response_from_row(
-                        existing,
-                        fallback_project_id=resolved_project_id,
-                        requested_thread_id=resolved_thread_id,
-                    )
+                        _ensure_project_document_link(
+                            session,
+                            project_id=resolved_project_id,
+                            document_id=existing.id,
+                            document_type="uploaded",
+                            attached_by=effective_user_id,
+                        )
+                        session.commit()
+                        return _document_upload_response_from_row(
+                            existing,
+                            fallback_project_id=resolved_project_id,
+                            requested_thread_id=resolved_thread_id,
+                        )
+
                     linked_doc = UploadedDocument(
                         id=doc_id,
                         asset_id=existing_asset.id,
                         project_id=resolved_project_id,
                         thread_id=resolved_thread_id,
-                        user_id=user_id,
+                        user_id=effective_user_id,
                         src_url=existing_asset.src_url,
                         filename=filename,
                         filesize=filesize or (existing_asset.filesize or 0),
@@ -1443,7 +1790,7 @@ async def upload_document(
                         project_id=resolved_project_id,
                         document_id=linked_doc.id,
                         document_type="uploaded",
-                        attached_by=user_id,
+                        attached_by=effective_user_id,
                     )
                     session.commit()
                     src_url = linked_doc.src_url
@@ -1461,7 +1808,7 @@ async def upload_document(
                     raise
 
         logger.info(
-            f"Document uploaded: {filename} ({filesize} bytes) by user {user_id}"
+            f"Document uploaded: {filename} ({filesize} bytes) by user {effective_user_id}"
         )
 
         # --- Embedding (RAG) ---
@@ -1473,7 +1820,7 @@ async def upload_document(
                     metadata={
                         "filename": filename,
                         "mime_type": file.content_type,
-                        "user_id": user_id,
+                        "user_id": effective_user_id,
                         "project_id": resolved_project_id,
                         "thread_id": resolved_thread_id,
                         **asset_metadata,
@@ -1555,7 +1902,10 @@ async def upload_document(
     response_model=ImageGenerationResponse,
     tags=["generation"],
 )
-async def generate_image(request: ImageGenerationRequest):
+async def generate_image(
+    request: ImageGenerationRequest,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """
     Generate an image using the configured AI provider.
 
@@ -1570,6 +1920,23 @@ async def generate_image(request: ImageGenerationRequest):
     image_id = str(uuid.uuid4())
     project_id = request.project_id or 1
     thread_id = request.thread_id or 1
+    effective_user_id = _resolve_effective_user_id(
+        request.user_id,
+        request_user_scope,
+        default_when_blank="default",
+    )
+    if _coerce_optional_positive_int(request.project_id) is not None:
+        _require_project_account_scope(
+            db,
+            _coerce_optional_positive_int(request.project_id) or 0,
+            request_user_scope,
+        )
+    if _coerce_optional_positive_int(request.thread_id) is not None:
+        _require_thread_account_scope(
+            db,
+            _coerce_optional_positive_int(request.thread_id) or 0,
+            request_user_scope,
+        )
     prompt_alias = (request.prompt or "").strip()
     if not prompt_alias:
         prompt_alias = "Generated image"
@@ -1602,7 +1969,9 @@ async def generate_image(request: ImageGenerationRequest):
                 existing = _find_generated_image_for_asset(
                     session, existing_asset.id
                 )
-                if existing:
+                if existing and _media_row_is_owned_by_scope(
+                    existing, request_user_scope
+                ):
                     session.commit()
                     return ImageGenerationResponse(
                         id=existing.id,
@@ -1620,7 +1989,7 @@ async def generate_image(request: ImageGenerationRequest):
                     asset_id=existing_asset.id,
                     project_id=project_id,
                     thread_id=thread_id,
-                    user_id=request.user_id,
+                    user_id=effective_user_id,
                     src_url=existing_asset.src_url,
                     prompt=request.prompt,
                     model=request.model,
@@ -1681,7 +2050,9 @@ async def generate_image(request: ImageGenerationRequest):
                 existing = _find_generated_image_for_asset(
                     session, existing_asset.id
                 )
-                if existing:
+                if existing and _media_row_is_owned_by_scope(
+                    existing, request_user_scope
+                ):
                     session.commit()
                     return ImageGenerationResponse(
                         id=existing.id,
@@ -1699,7 +2070,7 @@ async def generate_image(request: ImageGenerationRequest):
                     asset_id=existing_asset.id,
                     project_id=project_id,
                     thread_id=thread_id,
-                    user_id=request.user_id,
+                    user_id=effective_user_id,
                     src_url=existing_asset.src_url,
                     prompt=request.prompt,
                     model=request.model,
@@ -1712,7 +2083,7 @@ async def generate_image(request: ImageGenerationRequest):
                     session=session,
                     project_id=project_id,
                     thread_id=thread_id,
-                    user_id=request.user_id,
+                    user_id=effective_user_id,
                     media_kind="image",
                     provenance="generated",
                     source_tag="generated",
@@ -1732,7 +2103,7 @@ async def generate_image(request: ImageGenerationRequest):
                     asset_id=asset.id,
                     project_id=project_id,
                     thread_id=thread_id,
-                    user_id=request.user_id,
+                    user_id=effective_user_id,
                     src_url=src_url,
                     prompt=request.prompt,
                     model=request.model,
@@ -1761,7 +2132,9 @@ async def generate_image(request: ImageGenerationRequest):
                 existing = _find_generated_image_for_asset(
                     session, existing_asset.id
                 )
-                if existing:
+                if existing and _media_row_is_owned_by_scope(
+                    existing, request_user_scope
+                ):
                     session.commit()
                     return ImageGenerationResponse(
                         id=existing.id,
@@ -1791,13 +2164,21 @@ async def generate_image(request: ImageGenerationRequest):
 
 
 @router.post("/tts/synthesize", response_model=TTSOutputResponse, tags=["tts"])
-async def synthesize_speech(request: TTSSynthesizeRequest):
+async def synthesize_speech(
+    request: TTSSynthesizeRequest,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """
     Synthesize speech from text and track in database.
 
     Uses the existing TTSManager from guardian/tts/.
     """
     _require_media_feature("CODEXIFY_ENABLE_MEDIA_TTS_ROUTES", "tts")
+    effective_user_id = _resolve_effective_user_id(
+        request.user_id,
+        request_user_scope,
+        default_when_blank=None,
+    )
     try:
         # Import TTS manager
         from guardian.tts.tts_manager import TTSManager
@@ -1827,7 +2208,7 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
             tts_output = TTSOutput(
                 project_id=request.project_id,
                 thread_id=request.thread_id,
-                user_id=request.user_id,
+                user_id=effective_user_id,
                 text=request.text,
                 voice=request.voice,
                 provider=request.provider or tts_manager.default_provider,
@@ -1860,33 +2241,32 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
 
 
 @router.get("/tts/{tts_id}", tags=["tts"])
-async def get_tts_audio(tts_id: int):
+async def get_tts_audio(
+    tts_id: int,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """Get synthesized audio by ID."""
     _require_media_feature("CODEXIFY_ENABLE_MEDIA_TTS_ROUTES", "tts")
     db = _get_db()
 
-    with db.get_session() as session:
-        tts_output = session.query(TTSOutput).filter_by(id=tts_id).first()
+    tts_output = _require_tts_account_scope(db, tts_id, request_user_scope)
+    if not tts_output.src_url:
+        raise HTTPException(status_code=404, detail="Audio not found")
 
-        if not tts_output or not tts_output.src_url:
-            raise HTTPException(status_code=404, detail="Audio not found")
-
-        try:
-            audio_data = storage.download_file(
-                _storage_src_path(tts_output.src_url)
-            )
-            return StreamingResponse(
-                iter([audio_data]),
-                media_type="audio/wav",
-                headers={
-                    "Content-Disposition": f"inline; filename=tts_{tts_id}.wav"
-                },
-            )
-        except Exception as e:
-            logger.error(f"Failed to retrieve audio {tts_id}: {e}")
-            raise HTTPException(
-                status_code=500, detail="Failed to retrieve audio"
-            )
+    try:
+        audio_data = storage.download_file(
+            _storage_src_path(tts_output.src_url)
+        )
+        return StreamingResponse(
+            iter([audio_data]),
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f"inline; filename=tts_{tts_id}.wav"
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to retrieve audio {tts_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve audio")
 
 
 # =========================
@@ -1901,6 +2281,7 @@ async def resolve_media_asset(
     kind: Optional[str] = Query(None),
     provenance: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Resolve fuzzy human labels/aliases to a canonical media asset."""
     db = _get_db()
@@ -1911,6 +2292,8 @@ async def resolve_media_asset(
     normalized_kind = (kind or "").strip().lower() or None
     normalized_provenance = (provenance or "").strip().lower() or None
     normalized_tag = (tag or "").strip().lower() or None
+
+    _require_project_account_scope(db, project_id, request_user_scope)
 
     with db.get_session() as session:
         asset = resolve_asset_from_aliases(
@@ -1923,6 +2306,11 @@ async def resolve_media_asset(
         )
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found")
+        if not _asset_visible_to_scope(db, session, asset, request_user_scope):
+            raise HTTPException(
+                status_code=403,
+                detail="Asset does not belong to the authenticated account",
+            )
 
         ingested_at = asset.ingested_at or utcnow()
         display_title = display_title_for_asset(session, asset=asset)
@@ -1945,9 +2333,23 @@ async def list_images(
     user_id: Optional[str] = Query(None),
     limit: int = Query(50, le=100),
     tag: Optional[str] = Query(None),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """List uploaded images with optional filters."""
     db = _get_db()
+    effective_user_id = _resolve_effective_user_id(
+        user_id, request_user_scope, default_when_blank=None
+    )
+    explicit_project_id = _coerce_optional_positive_int(project_id)
+    explicit_thread_id = _coerce_optional_positive_int(thread_id)
+    if explicit_project_id is not None:
+        _require_project_account_scope(
+            db, explicit_project_id, request_user_scope
+        )
+    if explicit_thread_id is not None:
+        _require_thread_account_scope(
+            db, explicit_thread_id, request_user_scope
+        )
 
     with db.get_session() as session:
         normalized_tag = tag.strip().lower() if tag else None
@@ -1960,8 +2362,8 @@ async def list_images(
                 query = query.filter_by(project_id=project_id)
             if thread_id:
                 query = query.filter_by(thread_id=thread_id)
-            if user_id:
-                query = query.filter_by(user_id=user_id)
+            if effective_user_id:
+                query = query.filter_by(user_id=effective_user_id)
             images = (
                 query.order_by(GeneratedImage.created_at.desc())
                 .limit(limit)
@@ -1995,8 +2397,8 @@ async def list_images(
             query = query.filter_by(project_id=project_id)
         if thread_id:
             query = query.filter_by(thread_id=thread_id)
-        if user_id:
-            query = query.filter_by(user_id=user_id)
+        if effective_user_id:
+            query = query.filter_by(user_id=effective_user_id)
         if normalized_tag:
             if normalized_tag == "uploaded":
                 query = query.filter(
@@ -2038,9 +2440,21 @@ async def list_documents(
     thread_id: Optional[int] = Query(None),
     limit: int = Query(50, le=100),
     tag: Optional[str] = Query(None),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """List uploaded documents with optional filters."""
     db = _get_db()
+    explicit_project_id = _coerce_optional_positive_int(project_id)
+    explicit_thread_id = _coerce_optional_positive_int(thread_id)
+    if explicit_project_id is not None:
+        _require_project_account_scope(
+            db, explicit_project_id, request_user_scope
+        )
+    if explicit_thread_id is not None:
+        _require_thread_account_scope(
+            db, explicit_thread_id, request_user_scope
+        )
+    effective_user_id = _request_account_id(request_user_scope)
 
     with db.get_session() as session:
         normalized_tag = tag.strip().lower() if tag else None
@@ -2052,6 +2466,8 @@ async def list_documents(
             query = query.filter_by(project_id=project_id)
         if thread_id:
             query = query.filter_by(thread_id=thread_id)
+        if _is_multi_user_scope(request_user_scope):
+            query = query.filter_by(user_id=effective_user_id)
         if normalized_tag:
             if normalized_tag == "uploaded":
                 query = query.filter(
@@ -2108,37 +2524,41 @@ async def list_documents(
     response_model=DocumentDetailResponse,
     tags=["media"],
 )
-async def get_document(document_id: str):
+async def get_document(
+    document_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """Fetch a single uploaded document with parsed text content."""
     db = _get_db()
 
-    with db.get_session() as session:
-        document = (
-            session.query(UploadedDocument).filter_by(id=document_id).first()
-        )
+    document = _require_uploaded_document_account_scope(
+        db, document_id, request_user_scope
+    )
 
-        if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
-
-        return _document_detail_response_from_row(
-            document,
-            fallback_project_id=int(document.project_id or 0),
-        )
+    return _document_detail_response_from_row(
+        document,
+        fallback_project_id=int(document.project_id or 0),
+    )
 
 
 @router.delete("/documents/{document_id}", tags=["media"])
-async def delete_document(document_id: str):
+async def delete_document(
+    document_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
     """Soft delete an uploaded document."""
     db = _get_db()
+
+    document = _require_uploaded_document_account_scope(
+        db, document_id, request_user_scope
+    )
 
     with db.get_session() as session:
         document = (
             session.query(UploadedDocument).filter_by(id=document_id).first()
         )
-
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
-
         document.deleted_at = datetime.now(timezone.utc)
         session.commit()
 

@@ -9,6 +9,7 @@ try:
         RequestUserScope,
         chatlog_db,
         get_request_user_scope,
+        get_single_user_id,
         require_api_key,
     )
 except Exception:  # pragma: no cover - fallback for import issues
@@ -20,16 +21,21 @@ except Exception:  # pragma: no cover - fallback for import issues
     class RequestUserScope:  # type: ignore[no-redef]
         def __init__(
             self,
-            account_id: str = "local",
-            principal_id: str = "local",
+            user_id: str = "local",
+            subject_id: str | None = None,
+            account_id: str | None = None,
             multi_user_enabled: bool = False,
         ) -> None:
+            self.user_id = user_id
+            self.subject_id = subject_id
             self.account_id = account_id
-            self.principal_id = principal_id
             self.multi_user_enabled = multi_user_enabled
 
     def get_request_user_scope() -> RequestUserScope:  # type: ignore[unused-argument]
         return RequestUserScope()
+
+    def get_single_user_id() -> str:  # type: ignore[unused-argument]
+        return "local"
 
 
 router = APIRouter(tags=["Threads"])
@@ -51,6 +57,20 @@ class ThreadCreatePayload(BaseModel):
 def _normalize_user_id(value: Any) -> Optional[str]:
     resolved = str(value or "").strip()
     return resolved or None
+
+
+def _request_account_id(request_user_scope: RequestUserScope) -> str:
+    account_id = _normalize_user_id(
+        getattr(request_user_scope, "account_id", None)
+    )
+    if account_id:
+        return account_id
+
+    user_id = _normalize_user_id(getattr(request_user_scope, "user_id", None))
+    if user_id:
+        return user_id
+
+    return get_single_user_id()
 
 
 def _thread_row_id(row: Any) -> Optional[int]:
@@ -144,7 +164,7 @@ def _effective_thread_owner(
     request_user_scope: RequestUserScope, *candidate_user_ids: Optional[str]
 ) -> str:
     _reject_conflicting_user_id(request_user_scope, *candidate_user_ids)
-    return request_user_scope.account_id
+    return _request_account_id(request_user_scope)
 
 
 def _list_thread_rows(
@@ -291,6 +311,6 @@ def get_thread(
         raise HTTPException(status_code=404, detail="thread not found")
     if request_user_scope.multi_user_enabled:
         owner_id = _thread_row_user_id(row)
-        if owner_id != request_user_scope.account_id:
+        if owner_id != _request_account_id(request_user_scope):
             raise HTTPException(status_code=404, detail="thread not found")
     return {"thread": row}

@@ -383,6 +383,18 @@ export interface CommandCenterRetrievalPostureResponse {
   retrieval_posture: CommandCenterRetrievalPosture | null;
 }
 
+export interface CommandCenterRetrievalPostureHistoryItem {
+  created_at: string;
+  retrieval_posture: CommandCenterRetrievalPosture;
+  task_id: string;
+}
+
+export interface CommandCenterRetrievalPostureHistoryResponse {
+  items: CommandCenterRetrievalPostureHistoryItem[];
+  status: "ok" | "empty";
+  thread_id: number;
+}
+
 function normalizeCommandCenterToken(value: string | null | undefined): string {
   return String(value ?? "")
     .trim()

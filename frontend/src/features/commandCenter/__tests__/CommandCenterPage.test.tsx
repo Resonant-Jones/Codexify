@@ -15,6 +15,7 @@ import type {
   CommandCenterEvent,
   CommandCenterHealthItem,
   CommandCenterRagTracePayload,
+  CommandCenterRetrievalPostureHistoryItem,
   CommandCenterRetrievalPosture,
   CommandCenterRun,
 } from "@/features/commandCenter/types";
@@ -26,6 +27,47 @@ import {
 } from "@/features/commandCenter/types";
 
 const mockRefresh = vi.fn();
+const mockClipboardWriteText = vi.fn();
+
+function expectedConversationAuditNote(): string {
+  return [
+    "Retrieval posture",
+    "- source_mode: conversation",
+    "- boundary_label: active_conversation_only",
+    "- retrieval_override_mode: conversation",
+    "- widen_reason: none",
+    "- conversation_only: true",
+    "",
+    "Summary",
+    "- This run stayed inside the active conversation.",
+    "- Evidence was constrained to the active conversation.",
+    "- No widening occurred.",
+  ].join("\n");
+}
+
+function expectedConversationPostureJson(): string {
+  return JSON.stringify(
+    {
+      source_mode: "conversation",
+      boundary_label: "active_conversation_only",
+      retrieval_override_mode: "conversation",
+      widen_reason: "none",
+      conversation_only: true,
+    },
+    null,
+    2
+  );
+}
+
+function expectedConversationPostureBundle(): string {
+  return [
+    "Retrieval posture JSON",
+    expectedConversationPostureJson(),
+    "",
+    "Audit note",
+    expectedConversationAuditNote(),
+  ].join("\n");
+}
 
 const mockedHealthItems: CommandCenterHealthItem[] = [
   {
@@ -806,6 +848,105 @@ const mockedPartialPosture = {
   conversation_only: true,
 } as unknown as CommandCenterRetrievalPosture;
 
+type RetrievalPostureHistoryHookState = {
+  error: string | null;
+  items: CommandCenterRetrievalPostureHistoryItem[];
+  loading: boolean;
+  status: "ok" | "empty" | "error" | null;
+};
+
+function makeHistoryItem(
+  taskId: string,
+  createdAt: string,
+  retrievalPosture: CommandCenterRetrievalPosture
+): CommandCenterRetrievalPostureHistoryItem {
+  return {
+    created_at: createdAt,
+    retrieval_posture: retrievalPosture,
+    task_id: taskId,
+  };
+}
+
+const defaultThread42HistoryItems: CommandCenterRetrievalPostureHistoryItem[] = [
+  makeHistoryItem("task-alpha", "2026-04-01T15:58:45Z", mockedRetrievalPosture),
+  makeHistoryItem("task-bravo", "2026-04-01T15:58:30Z", mockedProjectPosture),
+  makeHistoryItem("task-charlie", "2026-04-01T15:58:15Z", mockedPersonalKnowledgePosture),
+];
+
+let thread42HistoryItems = [...defaultThread42HistoryItems];
+
+const mockedRetrievalPostureHistoryStateByThreadId: Record<
+  number,
+  RetrievalPostureHistoryHookState
+> = {
+  84: {
+    error: null,
+    items: [],
+    loading: false,
+    status: "empty",
+  },
+  500: {
+    error: null,
+    items: [],
+    loading: true,
+    status: null,
+  },
+  600: {
+    error: "Retrieval posture history unavailable",
+    items: [],
+    loading: false,
+    status: "error",
+  },
+  700: {
+    error: null,
+    items: [],
+    loading: false,
+    status: "empty",
+  },
+};
+
+function setThread42HistoryItems(items: CommandCenterRetrievalPostureHistoryItem[]): void {
+  thread42HistoryItems = items.slice();
+}
+
+function renderActiveThreadHistoryPanel(): HTMLElement {
+  render(<CommandCenterPage enabled />);
+
+  const workbench = screen.getByTestId("command-center-trace-workbench");
+  fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+  return screen.getByTestId("command-center-retrieval-posture-history-panel");
+}
+
+function resolveMockedRetrievalPostureHistory(
+  threadId: number | null
+): RetrievalPostureHistoryHookState {
+  if (threadId === null) {
+    return {
+      error: null,
+      items: [],
+      loading: false,
+      status: null,
+    };
+  }
+
+  if (threadId === 42) {
+    return {
+      error: null,
+      items: thread42HistoryItems,
+      loading: false,
+      status: "ok",
+    };
+  }
+
+  return mockedRetrievalPostureHistoryStateByThreadId[threadId] ?? {
+    error: null,
+    items: [],
+    loading: false,
+    status: null,
+  };
+}
+
 function RetrievalPostureHistoryHarness({
   threadId,
 }: {
@@ -1148,9 +1289,23 @@ vi.mock("../hooks/useRetrievalPosture", () => ({
   },
 }));
 
+vi.mock("../hooks/useRetrievalPostureHistory", () => ({
+  default: (threadId: number | null) => {
+    return resolveMockedRetrievalPostureHistory(threadId);
+  },
+}));
+
 beforeEach(() => {
   mockRefresh.mockClear();
   clearRetrievalPostureSequences();
+  mockClipboardWriteText.mockReset();
+  setThread42HistoryItems(defaultThread42HistoryItems);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: mockClipboardWriteText,
+    },
+  });
 });
 
 describe("CommandCenterPage", () => {
@@ -1198,6 +1353,9 @@ describe("CommandCenterPage", () => {
   it("renders the dashboard surface with bounded diagnostics and raw telemetry", () => {
     render(<CommandCenterPage enabled />);
 
+    const root = screen.getByTestId("command-center-root");
+    expect(root).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
+
     expect(
       screen.getByRole("heading", { name: /agent command center/i })
     ).toBeInTheDocument();
@@ -1205,6 +1363,9 @@ describe("CommandCenterPage", () => {
     expect(screen.getByTestId("command-center-health-overview")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-event-console")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("command-center-retrieval-posture-history-panel")
+    ).toBeInTheDocument();
 
     expect(screen.getAllByLabelText(/transport state open/i)).toHaveLength(2);
     expect(screen.getAllByText(/last event: .*2026/i)).toHaveLength(2);
@@ -1217,12 +1378,26 @@ describe("CommandCenterPage", () => {
     expect(within(healthOverview).getByText("Vector")).toBeInTheDocument();
     expect(within(healthOverview).getByText("Memory")).toBeInTheDocument();
 
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+    expect(within(historyPanel).getByText("Recent retrieval posture")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Newest-first thread history from completed debug evidence only\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /no recent retrieval posture history for this thread/i
+      )
+    ).toBeInTheDocument();
+
     fireEvent.click(within(healthOverview).getByRole("button", { name: /core/i }));
     expect(screen.getByText("Health detail: Core")).toBeInTheDocument();
     expect(screen.getByText("Parsed health detail")).toBeInTheDocument();
     expect(screen.getByText("Raw response")).toBeInTheDocument();
 
     const workbench = screen.getByTestId("command-center-trace-workbench");
+    expect(workbench).toHaveClass("flex", "h-full", "min-h-0", "flex-col", "overflow-hidden");
     expect(within(workbench).getByText("RAG trace workbench")).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /report/i })).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /raw trace/i })).toBeInTheDocument();
@@ -1240,6 +1415,15 @@ describe("CommandCenterPage", () => {
     ).toBeInTheDocument();
     expect(within(workbench).getByText("Notes / Warnings")).toBeInTheDocument();
 
+    const listPane = within(workbench).getByTestId("command-center-trace-list-pane");
+    const listScroll = within(workbench).getByTestId("command-center-trace-list-scroll");
+    const viewerPane = within(workbench).getByTestId("command-center-trace-viewer-pane");
+    const viewerScroll = within(workbench).getByTestId("command-center-trace-viewer-scroll");
+    expect(listPane).toHaveClass("overflow-hidden", "min-h-0", "flex", "flex-col");
+    expect(listScroll).toHaveClass("overflow-auto", "min-h-0", "flex-1");
+    expect(viewerPane).toHaveClass("overflow-hidden", "min-h-0", "flex", "flex-col");
+    expect(viewerScroll).toHaveClass("overflow-auto", "min-h-0", "flex-1");
+
     fireEvent.click(within(workbench).getByRole("button", { name: /raw trace/i }));
     expect(
       within(workbench).queryByRole("heading", { name: "Verdict" })
@@ -1254,6 +1438,9 @@ describe("CommandCenterPage", () => {
     fireEvent.click(within(workbench).getByRole("button", { name: /task-bravo/i }));
     expect(within(workbench).getByText("Selected: task-bravo")).toBeInTheDocument();
     expect(within(workbench).getByText(/trace: unavailable/i)).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(/no recent retrieval posture history for this thread/i)
+    ).toBeInTheDocument();
 
     const console = screen.getByTestId("command-center-event-console");
     expect(within(console).getByText("Event console")).toBeInTheDocument();
@@ -1265,15 +1452,213 @@ describe("CommandCenterPage", () => {
     expect(within(console).getByText("No classification yet")).toBeInTheDocument();
   });
 
-  it("renders the standalone thread posture panel and updates with the selected thread", () => {
+  it("shows a generic fallback when the newest two history items differ in an unsupported combination", () => {
+    setThread42HistoryItems([
+      makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+      makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedProjectPosture),
+    ]);
+
+    const historyPanel = renderActiveThreadHistoryPanel();
+
+    expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Changed: source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).toBeInTheDocument();
+
+    const historyItems = within(historyPanel).getAllByTestId(
+      "command-center-retrieval-posture-history-item"
+    );
+    expect(historyItems).toHaveLength(2);
+    expect(historyItems[0]).toHaveTextContent(/task-newest/i);
+    expect(historyItems[1]).toHaveTextContent(/task-previous/i);
+  });
+
+  it.each([
+    [
+      "source_mode",
+      { source_mode: "project" as const },
+      "The retrieval scope changed.",
+    ],
+    [
+      "boundary_label",
+      { boundary_label: "same_user_same_project" as const },
+      "The retrieval boundary changed.",
+    ],
+    [
+      "retrieval_override_mode",
+      { retrieval_override_mode: null as const },
+      "An explicit retrieval override changed the posture.",
+    ],
+    [
+      "widen_reason",
+      { widen_reason: "insufficient_thread_hits" as const },
+      "The reason for widening changed.",
+    ],
+    [
+      "conversation_only",
+      { conversation_only: false as const },
+      "Conversation-only retrieval changed.",
+    ],
+  ] as const)(
+    "shows a bounded explanation when %s changes",
+    (
+      field,
+      patch,
+      expectedLine
+    ) => {
+      setThread42HistoryItems([
+        makeHistoryItem(
+          "task-newest",
+          "2026-04-01T15:59:30Z",
+          {
+            ...mockedRetrievalPosture,
+            ...patch,
+          } as CommandCenterRetrievalPosture
+        ),
+        makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedRetrievalPosture),
+      ]);
+
+      const historyPanel = renderActiveThreadHistoryPanel();
+
+      expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+      expect(within(historyPanel).getByText(`Changed: ${field}`)).toBeInTheDocument();
+      expect(within(historyPanel).getByText(expectedLine)).toBeInTheDocument();
+      expect(
+        within(historyPanel).queryByText(
+          /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+        )
+      ).not.toBeInTheDocument();
+    }
+  );
+
+  it("shows multiple bounded explanation lines when multiple fields change", () => {
+    setThread42HistoryItems([
+      makeHistoryItem(
+        "task-newest",
+        "2026-04-01T15:59:30Z",
+        {
+          ...mockedRetrievalPosture,
+          source_mode: "project",
+          widen_reason: "insufficient_thread_hits",
+        } as CommandCenterRetrievalPosture
+      ),
+      makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedRetrievalPosture),
+    ]);
+
+    const historyPanel = renderActiveThreadHistoryPanel();
+
+    expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Changed: source_mode, widen_reason")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("The retrieval scope changed.")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("The reason for widening changed.")).toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows that retrieval posture is unchanged when the newest two history items match", () => {
+    setThread42HistoryItems([
+      makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+      makeHistoryItem("task-previous", "2026-04-01T15:58:30Z", mockedRetrievalPosture),
+      makeHistoryItem("task-older", "2026-04-01T15:57:30Z", mockedProjectPosture),
+    ]);
+
+    const historyPanel = renderActiveThreadHistoryPanel();
+    expect(within(historyPanel).getByText("Posture unchanged since previous run")).toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(/^Changed:/i)
+    ).not.toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+    expect(within(historyPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
+
+    const historyItems = within(historyPanel).getAllByTestId(
+      "command-center-retrieval-posture-history-item"
+    );
+    expect(historyItems).toHaveLength(3);
+    expect(historyItems[0]).toHaveTextContent(/task-newest/i);
+    expect(historyItems[1]).toHaveTextContent(/task-previous/i);
+    expect(historyItems[2]).toHaveTextContent(/task-older/i);
+  });
+
+  it("shows that no previous comparison is available when only one history item exists", () => {
+    setThread42HistoryItems([
+      makeHistoryItem("task-newest", "2026-04-01T15:59:30Z", mockedRetrievalPosture),
+    ]);
+
+    const historyPanel = renderActiveThreadHistoryPanel();
+    expect(within(historyPanel).getByText("No previous posture to compare")).toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(/^Changed:/i)
+    ).not.toBeInTheDocument();
+    expect(
+      within(historyPanel).queryByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).not.toBeInTheDocument();
+    expect(within(historyPanel).queryByText("The retrieval scope changed.")).not.toBeInTheDocument();
+
+    const historyItems = within(historyPanel).getAllByTestId(
+      "command-center-retrieval-posture-history-item"
+    );
+    expect(historyItems).toHaveLength(1);
+    expect(historyItems[0]).toHaveTextContent(/task-newest/i);
+  });
+
+  it("renders the standalone thread posture panel and updates with the selected thread", async () => {
     render(<CommandCenterPage enabled />);
 
     const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
     expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
     expect(within(threadPanel).getByText(/no retrieval posture evidence for this thread/i)).toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /^copy posture$/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /copy posture bundle/i })
+    ).not.toBeInTheDocument();
 
     const workbench = screen.getByTestId("command-center-trace-workbench");
     fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+    const historyItems = within(historyPanel).getAllByTestId(
+      "command-center-retrieval-posture-history-item"
+    );
+    expect(historyItems).toHaveLength(3);
+    expect(historyItems[0]).toHaveTextContent(/task-alpha/i);
+    expect(historyItems[0]).toHaveTextContent(/source: conversation/i);
+    expect(historyItems[0]).toHaveTextContent(/boundary: active_conversation_only/i);
+    expect(historyItems[0]).toHaveTextContent(/widen: none/i);
+    expect(historyItems[0]).toHaveTextContent(/This run stayed inside the active conversation\./i);
+    expect(historyItems[1]).toHaveTextContent(/task-bravo/i);
+    expect(historyItems[1]).toHaveTextContent(/source: project/i);
+    expect(historyItems[1]).toHaveTextContent(/widen: insufficient_thread_hits/i);
+    expect(historyItems[2]).toHaveTextContent(/task-charlie/i);
+    expect(historyItems[2]).toHaveTextContent(/source: personal_knowledge/i);
+    expect(within(historyPanel).getByText("Posture changed since previous run")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Changed: source_mode, boundary_label, retrieval_override_mode, widen_reason, conversation_only/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Retrieval posture changed, but this combination does not yet have a tailored explanation\./i
+      )
+    ).toBeInTheDocument();
 
     expect(within(threadPanel).getByText(/source: conversation/i)).toBeInTheDocument();
     expect(within(threadPanel).getByText(/boundary: active_conversation_only/i)).toBeInTheDocument();
@@ -1301,6 +1686,96 @@ describe("CommandCenterPage", () => {
     expect(
       within(threadPanel).getByText(/Not enough completed posture history is available yet\./i)
     ).toBeInTheDocument();
+    expect(within(threadPanel).getByText("What these fields mean")).toBeInTheDocument();
+    expect(within(threadPanel).getByRole("button", { name: /^copy posture$/i })).toBeInTheDocument();
+    expect(within(threadPanel).getByRole("button", { name: /copy audit note/i })).toBeInTheDocument();
+    expect(within(threadPanel).getByRole("button", { name: /copy posture bundle/i })).toBeInTheDocument();
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /^copy posture$/i }));
+
+    expect(mockClipboardWriteText).toHaveBeenCalledWith(expectedConversationPostureJson());
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/^copied posture$/i)).toBeInTheDocument();
+    });
+  });
+  it("copies a retrieval posture audit note", async () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /copy audit note/i }));
+
+    expect(mockClipboardWriteText).toHaveBeenCalledWith(expectedConversationAuditNote());
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/copied audit note/i)).toBeInTheDocument();
+    });
+  });
+
+  it("copies a retrieval posture bundle", async () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /^copy posture bundle$/i }));
+
+    expect(mockClipboardWriteText).toHaveBeenCalledWith(expectedConversationPostureBundle());
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/copied posture bundle/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows copy failure feedback when the clipboard write is rejected", async () => {
+    mockClipboardWriteText.mockRejectedValueOnce(new Error("clipboard denied"));
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /^copy posture$/i }));
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/^copy failed$/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows audit note copy failure feedback when the clipboard write is rejected", async () => {
+    mockClipboardWriteText.mockRejectedValueOnce(new Error("clipboard denied"));
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /copy audit note/i }));
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/audit note copy failed/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows posture bundle copy failure feedback when the clipboard write is rejected", async () => {
+    mockClipboardWriteText.mockRejectedValueOnce(new Error("clipboard denied"));
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /^copy posture bundle$/i }));
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/posture bundle copy failed/i)).toBeInTheDocument();
+    });
   });
 
   it.each([
@@ -1820,6 +2295,8 @@ describe("CommandCenterPage", () => {
     // Verify explainer text is also present
     expect(within(workbench).getByText(/This run stayed inside the active conversation\./i)).toBeInTheDocument();
     expect(within(workbench).getByText(/No widening occurred\./i)).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /copy audit note/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /^copy posture bundle$/i })).toBeInTheDocument();
   });
 
   it("renders empty state for retrieval posture when status is empty", () => {
@@ -1834,6 +2311,12 @@ describe("CommandCenterPage", () => {
     // Retrieval posture section should show empty state
     expect(within(workbench).getByText("Retrieval posture")).toBeInTheDocument();
     expect(within(workbench).getByText(/no retrieval posture evidence/i)).toBeInTheDocument();
+    expect(
+      within(workbench).queryByRole("button", { name: /copy audit note/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(workbench).queryByRole("button", { name: /^copy posture bundle$/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders explainer for conversation-only posture", () => {
@@ -1909,6 +2392,7 @@ describe("CommandCenterPage", () => {
     expect(
       within(workbench).getByText(/Explicit personal-knowledge intent allowed retrieval to widen\./i)
     ).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /^copy posture$/i })).toBeInTheDocument();
   });
 
   it("renders loading state for the standalone posture panel", () => {
@@ -1918,8 +2402,20 @@ describe("CommandCenterPage", () => {
     fireEvent.click(within(workbench).getByRole("button", { name: /task-golf/i }));
 
     const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
     expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
     expect(within(threadPanel).getByText(/loading retrieval posture/i)).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Recent retrieval posture")).toBeInTheDocument();
+    expect(within(historyPanel).getByText(/loading recent retrieval posture history/i)).toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /^copy posture$/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /copy audit note/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /copy posture bundle/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders error state for the standalone posture panel", () => {
@@ -1929,8 +2425,22 @@ describe("CommandCenterPage", () => {
     fireEvent.click(within(workbench).getByRole("button", { name: /task-hotel/i }));
 
     const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
     expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
     expect(within(threadPanel).getByText(/retrieval posture unavailable/i)).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Recent retrieval posture")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(/retrieval posture history unavailable/i)
+    ).toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /^copy posture$/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /copy audit note/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /copy posture bundle/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders empty state for the standalone posture panel", () => {
@@ -1940,8 +2450,22 @@ describe("CommandCenterPage", () => {
     fireEvent.click(within(workbench).getByRole("button", { name: /task-india/i }));
 
     const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
     expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
     expect(within(threadPanel).getByText(/no retrieval posture evidence for this thread/i)).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Recent retrieval posture")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(/no recent retrieval posture history for this thread/i)
+    ).toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /^copy posture$/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /copy audit note/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /copy posture bundle/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders fallback explainer for unsupported posture values", () => {
@@ -1967,6 +2491,9 @@ describe("CommandCenterPage", () => {
         /This token is present but does not yet have a tailored glossary entry\./i
       )
     ).toHaveLength(3);
+    expect(within(workbench).getByRole("button", { name: /^copy posture$/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /copy audit note/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /copy posture bundle/i })).toBeInTheDocument();
   });
 
   it("renders fallback explainer for partially missing posture values", () => {
@@ -1988,5 +2515,8 @@ describe("CommandCenterPage", () => {
     expect(
       within(workbench).getByText(/This token is present but does not yet have a tailored glossary entry\./i)
     ).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /^copy posture$/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /copy audit note/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /copy posture bundle/i })).toBeInTheDocument();
   });
 });
