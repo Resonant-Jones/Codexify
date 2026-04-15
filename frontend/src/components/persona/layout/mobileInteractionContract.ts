@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { MobileShellProfile } from "./mobileShellProfile";
-import type { MobileGestureState } from "./mobileMotionContract";
+import { MOBILE_MOTION, type MobileGestureState } from "./mobileMotionContract";
 
 export type MobileWorkspaceSummonCopy = {
   label: string;
@@ -55,6 +55,29 @@ export function getMobileTapTargetStyle(
     minWidth: options.square ? MOBILE_INTERACTION.tapTargetMinWidth : undefined,
     touchAction: "manipulation",
     WebkitTapHighlightColor: "transparent",
+  };
+}
+
+export function getMobilePressSurfaceStyle(
+  isPhoneShell: boolean,
+  prefersReducedMotion: boolean
+): CSSProperties {
+  if (!isPhoneShell) {
+    return {};
+  }
+
+  return {
+    transitionProperty: prefersReducedMotion
+      ? "opacity, filter, background-color, border-color, box-shadow"
+      : "transform, opacity, filter, background-color, border-color, box-shadow",
+    transitionDuration: `${
+      prefersReducedMotion
+        ? MOBILE_INTERACTION.reducedMotionReleaseMs
+        : MOBILE_INTERACTION.releaseMs
+    }ms`,
+    transitionTimingFunction: prefersReducedMotion
+      ? "linear"
+      : "cubic-bezier(0.22, 1, 0.36, 1)",
   };
 }
 

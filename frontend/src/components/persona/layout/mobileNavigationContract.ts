@@ -12,7 +12,12 @@ import {
   type MobileNavigationRailFeedbackContext,
 } from "./navigationRailFeedbackContract";
 
-export { getMobileTopNavDockStyle, getMobileTopNavRailStyle, getMobileWorkspaceSummonCopy };
+export {
+  getMobileNavPillSelectionStyle,
+  getMobileTopNavDockStyle,
+  getMobileTopNavRailStyle,
+  getMobileWorkspaceSummonCopy,
+};
 
 export type MobileNavPillFeedbackContext = MobileNavigationRailFeedbackContext;
 
@@ -57,6 +62,7 @@ export function getMobileWorkspaceSummonFeedbackStyle(
   }
 
   return {
+    transitionProperty: "transform, opacity",
     transitionDuration: `${MOBILE_INTERACTION.releaseMs}ms`,
     transitionTimingFunction: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
     opacity: isOpen ? 1 : 0.96,

@@ -49,6 +49,7 @@ import {
   requireAuthReady,
   useAuthState,
 } from "@/lib/authState";
+import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
@@ -219,6 +220,7 @@ type GuardianChatWithSidebarProps = {
   activeWorkspaceDoc?: DocumentLike | null;
   onWorkspaceClose?: () => void;
   onWorkspaceOpenInThread?: (doc: DocumentLike | null) => void;
+  providerRuntimeState?: ProviderRuntimeState | null;
 };
 
 export default function GuardianChatWithSidebar({
@@ -234,6 +236,7 @@ export default function GuardianChatWithSidebar({
   activeWorkspaceDoc = null,
   onWorkspaceClose,
   onWorkspaceOpenInThread,
+  providerRuntimeState = null,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -1671,6 +1674,7 @@ export default function GuardianChatWithSidebar({
                 onPendingDocumentTilesConsumed={onPendingDocumentTilesConsumed}
                 onWorkspaceToggle={onWorkspaceToggle}
                 workspaceOpen={workspaceOpen}
+                providerRuntimeState={providerRuntimeState}
                 activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
                   onSendMessage={handleSendMessage}
