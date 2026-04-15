@@ -15,8 +15,9 @@ export const MOBILE_INTERACTION = {
   pressScale: 0.975,
   pressOpacity: 0.92,
   pressTone: "saturate(0.985) brightness(0.99)",
-  releaseMs: MOBILE_MOTION.navSelectionMs,
-  reducedMotionReleaseMs: MOBILE_MOTION.reducedMs,
+  releaseMs: 160,
+  reducedMotionReleaseMs: 1,
+  pressDragCancelDistancePx: 8,
   tapTargetMinHeight: "44px",
   tapTargetMinWidth: "44px",
 } as const;

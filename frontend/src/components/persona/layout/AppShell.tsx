@@ -2583,6 +2583,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "guardian" ? "active" : "inactive"}
+                aria-current={view === "guardian" ? "page" : undefined}
                 onClick={() => navigateToView("guardian")}
                 style={getMobileNavPillStyle("guardian")}
               >
@@ -2592,6 +2593,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "dashboard" ? "active" : "inactive"}
+                aria-current={view === "dashboard" ? "page" : undefined}
                 onClick={() => navigateToView("dashboard")}
                 style={getMobileNavPillStyle("dashboard")}
               >
@@ -2601,6 +2603,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
+                aria-current={view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
                 style={getMobileNavPillStyle("documents")}
               >
@@ -2610,6 +2613,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "gallery" ? "active" : "inactive"}
+                aria-current={view === "gallery" ? "page" : undefined}
                 onClick={() => navigateToView("gallery")}
                 style={getMobileNavPillStyle("gallery")}
               >
@@ -2619,6 +2623,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
+                aria-current={view === "personaStudio" ? "page" : undefined}
                 onClick={() => navigateToView("personaStudio")}
                 style={getMobileNavPillStyle("personaStudio")}
               >
