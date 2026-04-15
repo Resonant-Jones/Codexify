@@ -89,7 +89,7 @@ import {
   getMobileNavigationControlStyle,
   type MobileNavPillFeedbackContext,
   getMobileTopNavRailStyle,
-  getMobileNavPillFeedbackStyle,
+  getMobileNavPillSelectionStyle,
   getMobileWorkspaceSummonFeedbackStyle,
 } from "./mobileNavigationContract";
 import {
@@ -153,10 +153,19 @@ function PhonePressButton({
   ...buttonProps
 }: PhonePressButtonProps) {
   const pressFeedback = usePressFeedback({ enabled: isPhoneShell });
+  const { releasePressed } = pressFeedback;
+  const { onClick, ...restButtonProps } = buttonProps;
+  const handleClick = useCallback<React.MouseEventHandler<HTMLButtonElement>>(
+    (event) => {
+      releasePressed();
+      onClick?.(event);
+    },
+    [onClick, releasePressed]
+  );
 
   return (
     <button
-      {...buttonProps}
+      {...restButtonProps}
       {...pressFeedback.getPressFeedbackProps({
         className,
         style: {
@@ -164,6 +173,7 @@ function PhonePressButton({
           ...style,
         },
       })}
+      onClick={handleClick}
     >
       {children}
     </button>
@@ -1537,11 +1547,23 @@ export default function AppShell({
     () => getMobileTopNavDockStyle(mobileShellProfile),
     [mobileShellProfile]
   );
+  const mobileTopNavRailMotionState = useMemo(
+    () => ({
+      isPhoneShell,
+      allowMomentumScroll: isPhoneShell,
+    }),
+    [isPhoneShell]
+  );
   const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
-    () => getMobileTopNavRailStyle(mobileShellProfile),
-    [mobileShellProfile]
+    () => getMobileTopNavRailStyle(mobileShellProfile, mobileTopNavRailMotionState),
+    [mobileShellProfile, mobileTopNavRailMotionState]
   );
   const mobileInteractionContext = useMobileNavFeedbackContext(isPhoneShell);
+  const getMobileNavPillStyle = useCallback(
+    (navView: AppShellView) =>
+      getMobileNavPillSelectionStyle(mobileInteractionContext, view === navView),
+    [mobileInteractionContext, view]
+  );
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🏗️ SECTION: Modular Design Token Setup
@@ -2521,6 +2543,7 @@ export default function AppShell({
 
             <div
               className="inline-flex min-w-0 items-center"
+              data-testid="app-shell-top-nav-rail"
               style={mobileTopNavRailStyle}
             >
               {/* brand badge — doubles as layout mode toggle */}
@@ -2561,7 +2584,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "guardian" ? "active" : "inactive"}
                 onClick={() => navigateToView("guardian")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "guardian") : undefined}
+                style={getMobileNavPillStyle("guardian")}
               >
                 Guardian
               </PhonePressButton>
@@ -2570,7 +2593,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "dashboard" ? "active" : "inactive"}
                 onClick={() => navigateToView("dashboard")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "dashboard") : undefined}
+                style={getMobileNavPillStyle("dashboard")}
               >
                 Dashboard
               </PhonePressButton>
@@ -2579,7 +2602,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
                 onClick={() => navigateToView("documents")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "documents") : undefined}
+                style={getMobileNavPillStyle("documents")}
               >
                 Documents
               </PhonePressButton>
@@ -2588,7 +2611,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "gallery" ? "active" : "inactive"}
                 onClick={() => navigateToView("gallery")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "gallery") : undefined}
+                style={getMobileNavPillStyle("gallery")}
               >
                 Gallery
               </PhonePressButton>
@@ -2597,7 +2620,7 @@ export default function AppShell({
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 onClick={() => navigateToView("personaStudio")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "personaStudio") : undefined}
+                style={getMobileNavPillStyle("personaStudio")}
               >
                 Persona Studio
               </PhonePressButton>

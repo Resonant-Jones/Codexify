@@ -752,6 +752,51 @@ describe("AppShell workspace drawer shell", () => {
     });
   });
 
+  it("keeps the phone nav rail momentum-enabled and the selected pill tactile", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    const rail = screen.getByTestId("app-shell-top-nav-rail");
+    const railStyle = rail.getAttribute("style") ?? "";
+    expect((rail as HTMLElement).style.touchAction).toBe("pan-x");
+    expect(railStyle).toContain("scroll-padding-inline: 12px");
+    expect(railStyle).toContain("-webkit-overflow-scrolling: touch");
+
+    const guardian = screen.getByRole("button", { name: "Guardian" });
+    const guardianStyle = guardian.getAttribute("style") ?? "";
+    expect(guardian).toHaveAttribute("data-state", "active");
+    expect(guardianStyle).toContain(
+      "background: color-mix(in oklab, var(--accent-strong) 90%, var(--panel-bg) 10%)"
+    );
+    expect(guardianStyle).toContain("transition-duration: 140ms");
+    expect(guardianStyle).toContain(
+      "transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1)"
+    );
+    expect(guardianStyle).toContain(
+      "transition-property: color, background, border-color, box-shadow, transform, opacity, filter"
+    );
+    expect(guardianStyle).not.toContain("transform:");
+
+    fireEvent.pointerDown(guardian, { button: 0, pointerType: "touch" });
+    expect(guardian).toHaveAttribute("data-press-feedback", "pressed");
+
+    fireEvent.pointerUp(guardian, { button: 0, pointerType: "touch" });
+    expect(guardian).toHaveAttribute("data-press-feedback", "idle");
+
+    await user.click(screen.getByRole("button", { name: "Dashboard" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Dashboard" })).toHaveAttribute(
+        "data-state",
+        "active"
+      );
+    });
+  });
+
   it("tracks the phone shell height from the visual viewport instead of plain 100vh", () => {
     const originalInnerHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
     const originalVisualViewport = Object.getOwnPropertyDescriptor(
