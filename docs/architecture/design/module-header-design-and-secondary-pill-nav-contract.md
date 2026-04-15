@@ -1,40 +1,32 @@
-# Module Header + Secondary Pill-Nav Contract v1
+# Module Header + Secondary Pill-Nav Canon v1
 
-> Classification: UI/design canon
-> Scope: Module identity, header structure, local navigation, immediate action layout, and plugin-native presentation rules
-> Not runtime truth: This document does not define backend topology, worker behavior, health semantics, or deployment constraints
-> Interpretation rule: If this document conflicts with the UI token and structural layout canon, the canon wins
+> Classification: design canon
+> Status: binding for first-party module-class surfaces
+> Audience: first-party contributors, design-system maintainers, and UI-generating agents
+> Scope: module identity, action-zone structure, local navigation, surface hierarchy, and presentation enforcement for module-class tools inside Codexify
+> Interpretation rule: If this document conflicts with the Codexify UI token canon or structural layout canon, those canon documents win
 
 ## Purpose
 
-Define the canonical presentation contract for **tool-class modules** inside Codexify.
+This document defines the binding structural contract for **module-class interfaces** inside Codexify.
 
-This contract exists to ensure that native tools and third-party plugins share the same structural grammar:
+Its purpose is to prevent drift in how tool-like surfaces are introduced, composed, and extended.
 
-* modules look like modules
-* local navigation looks local
-* actions appear where users expect them
-* content begins immediately
-* secondary controls do not dominate the work surface
+Without this contract, modules accumulate:
 
-The goal is not visual sameness for its own sake.
-The goal is **structural consistency with clear role separation**.
+* oversized headers
+* explanatory banner creep
+* duplicated identity strips
+* pane labels that describe implementation instead of behavior
+* secondary controls that dominate the primary work surface
+
+This canon exists to stop that decay before it becomes the house style.
 
 ---
 
-## Core Thesis
+## Core Law
 
-Codexify needs a stable distinction between:
-
-* **app navigation**
-* **module identity**
-* **module-local navigation**
-* **module actions**
-* **work content**
-
-Without this distinction, surfaces become crowded, repetitive, and visually ambiguous.
-
-The correct module pattern is:
+Every module-class surface must follow this order:
 
 ```text
 Module Header
@@ -42,379 +34,400 @@ Action Zone
 Content Surface
 ```
 
-Not:
+Optional local navigation may appear through **Secondary Pill-Nav** when the module genuinely requires internal section or mode switching.
 
-```text
-Large title block
-Explanatory paragraph
-Pane label
-Secondary pane
-Status strip
-Content eventually
-```
+Anything that places additional structural bands between those layers must justify itself against this canon.
+
+Default assumption: it does **not** justify itself.
 
 ---
 
 ## Canonical Terms
 
-### 1. Codexify Navigational Dock
+### Codexify Navigational Dock
 
-The global, app-level navigation surface.
+The global application navigation surface.
 
-Used for:
+This is product-level navigation.
+It is not module navigation.
 
-* Guardian
-* Dashboard
-* Documents
-* Gallery
-* Persona Studio
-* other top-level routes
+### Module Header
 
-This dock is product navigation. It is not module-local navigation.
+The compact identity band for a module-class surface.
 
-### 2. Module Header
+It establishes:
 
-The top identity band for a tool-class module.
+* what this tool is
+* what broad purpose it serves
+* minimal current state or actions
 
-Used for:
+It does **not** exist to narrate implementation constraints at length.
 
-* module title
-* short descriptor
-* small status indicators
-* optional right-side actions
+### Action Zone
 
-The Module Header defines what the tool **is**, not how every internal section works.
+The immediate control strip below the Module Header.
 
-### 3. Action Zone
+It establishes:
 
-The immediate control strip under the Module Header.
+* what the user can do next
+* which local mode or section is active
+* which high-value actions are immediately available
 
-Used for:
+### Secondary Pill-Nav
 
-* primary local actions
-* section switching
-* mode changes
-* save/reset affordances
-* compact local status controls
+A module-scoped pill navigation surface used for local sections, modes, or views within a single module.
 
-The Action Zone defines what the user can **do next**.
+It is visually related to the Codexify Navigational Dock, but it is:
 
-### 4. Secondary Pill-Nav
+* lighter
+* local in scope
+* subordinate in visual authority
 
-A module-scoped pill navigation surface used for local sections, modes, or views within a module.
+### Content Surface
 
-It is visually related to the Codexify Navigational Dock, but serves **local** movement rather than app-wide route changes.
+The primary working region of the module.
 
-Examples:
-
-* Identity / Model / Voice / Prompt / Tools / Retrieval / Truth
-* Profiles / Diagnostics
-* Thread / Project
-* Shelf / Scratchpad / Inspector
+This is where real work begins.
 
 ---
 
-## Structural Contract
+## Module Header Contract
 
-## 1. Module Header
-
-Every tool-class module should begin with a Module Header.
+Every module-class surface must begin with a Module Header.
 
 ### Required contents
 
 * module title
-* short one-line descriptor
+* short descriptor
 
 ### Optional contents
 
-* one small state chip
-* one small mode/status token
-* compact right-side action group
+* compact state chip
+* compact right-side actions
+* one minimal status indicator
+
+### Prohibited contents
+
+* long explanatory paragraphs
+* setup essays
+* diagnostics dumps
+* pane labels
+* repeated internal mode labels
+* implementation-language controls such as “Show Utility Pane”
 
 ### Rules
 
-* the descriptor must stay short
-* the header must not become a documentation block
-* large explanatory copy is prohibited in the primary header region
-* the header must not consume unnecessary vertical space
-* the header must not contain secondary pane labels like “Utility Pane”
+* The descriptor must be one line when possible.
+* The Module Header must remain vertically compact.
+* The Module Header must not become a hero section.
+* The Module Header must not repeat information better expressed in contextual helper text, tooltips, or content-level microcopy.
 
 ### Design intent
 
-The Module Header should feel like the nameplate on an instrument, not a marketing hero section.
+The Module Header is a nameplate, not a lecture.
 
 ---
 
-## 2. Action Zone
+## Action Zone Contract
 
-The Action Zone appears immediately under the Module Header.
+The Action Zone must sit immediately beneath the Module Header.
 
 ### Allowed contents
 
 * Secondary Pill-Nav
-* mode selectors
-* save/reset/import/export controls
-* context-sensitive actions
-* compact toggle groups
+* local mode switches
+* save/reset/import/export actions
+* context-specific toggles
+* compact stateful actions
+
+### Prohibited contents
+
+* long guidance paragraphs
+* duplicate title/identity blocks
+* full diagnostics payloads
+* secondary pane headers
+* passive filler sections
 
 ### Rules
 
-* content should begin immediately after the Action Zone
-* the Action Zone must remain compact
-* the Action Zone must not become a second full header
-* controls in this zone should be directly relevant to the current module state
-* this zone should minimize eye travel between intent and action
+* The Action Zone must be compact.
+* The Action Zone must remain operational.
+* The Action Zone must not turn into a second header.
+* The Action Zone must reduce distance between user intent and control use.
 
 ### Design intent
 
-The Action Zone is the user’s handhold.
-It should feel operational, not ceremonial.
+The Action Zone is where the hand lands.
 
 ---
 
-## 3. Secondary Pill-Nav
+## Secondary Pill-Nav Contract
 
 Secondary Pill-Nav is optional.
-It should appear only when a module has enough local structure to justify it.
 
-### Use cases
+It should appear only when a module has enough internal structure to require local movement.
 
-* section switching inside a module
-* local view modes
-* content scope changes
-* editor subsection movement
+### Valid use cases
 
-### Secondary Pill-Nav is
+* section switching
+* local mode switching
+* scoped views inside one module
+* editor subsections
+* tightly related internal surfaces
 
-* module-scoped
-* optional
-* embedded inside the Action Zone or tightly associated with it
-* lighter than the Codexify Navigational Dock
-* token-governed
-
-### Secondary Pill-Nav is not
+### Invalid use cases
 
 * app-wide route navigation
-* a branding surface
-* a place for explanatory copy
-* a substitute for poor information architecture
-* a dumping ground for unrelated buttons
+* branding
+* passive status display
+* dumping unrelated actions into a pill group
+* compensating for weak information architecture
 
-### Rules
+### Required characteristics
 
-* only use it when local navigation is genuinely needed
-* keep labels concise
-* do not overload it with passive status items
-* do not mix unrelated actions inside the same pill structure
-* selected state must be visually obvious and token-consistent
+* visually related to the Codexify Navigational Dock
+* lower visual mass than the global dock
+* clearly local in scope
+* concise labels
+* obvious selected state
+* token-governed styling only
 
-### Design intent
+### Prohibited characteristics
 
-The Secondary Pill-Nav should feel like an instrument strip, not a second navbar.
-
----
-
-## 4. Content Surface
-
-After the Module Header and Action Zone, the content surface should begin immediately.
-
-### Rules
-
-* no unnecessary pane titles before content
-* no redundant explanatory banners before content
-* no repeated identity labels that restate what the header already established
-* scrolling should happen in the content region when possible
-* header and action zones should ideally remain stable anchors
+* acting like a second app navbar
+* mixing unrelated actions and navigation in one pill row
+* carrying verbose labels
+* turning into a generic control shelf
 
 ### Design intent
 
-The user should reach the working surface quickly.
+Secondary Pill-Nav is an instrument strip, not a parade float.
 
 ---
 
-## Information Hierarchy Rules
+## Content Surface Contract
+
+After the Module Header and Action Zone, the content surface must begin immediately.
+
+### Rules
+
+* real content must start without crossing additional structural ceremony
+* unnecessary pane labels are forbidden
+* repeated identity strips are forbidden
+* repeated explanation bands are forbidden
+* content-region scrolling is preferred over stacked pre-content chrome
+* only the content surface should scroll unless a different behavior is explicitly justified
+
+### Design intent
+
+Users should reach work quickly.
+
+---
+
+## Hierarchy Rules
 
 ### Rule 1: Identity appears once
 
-The active module identity should be established clearly, then not repeated unnecessarily.
+The module identity should be established once in the Module Header.
 
-### Rule 2: Secondary surfaces must not dominate
+Do not restate it in:
 
-If a surface is supportive rather than primary, it should be:
+* utility headers
+* repeated summary panels
+* duplicate section banners
+* redundant active-state blocks
 
-* collapsible
-* switchable
-* drawer-based
-* or integrated as a local mode
+### Rule 2: Secondary surfaces must remain secondary
 
-It should not permanently occupy prime vertical space unless the module truly depends on it.
+Supporting surfaces such as:
 
-### Rule 3: Explain less, orient better
+* profiles
+* diagnostics
+* inspectors
+* utility views
+* comparison panels
 
-Do not spend the top of the module on long disclaimers.
-Use short descriptors, tooltips, helper text, or contextual microcopy instead.
+must not consume prime vertical space by default.
 
-### Rule 4: Action precedes bureaucracy
+They should prefer:
 
-Users should reach an actionable region quickly.
+* local mode switching
+* drawers
+* collapsible regions
+* explicit summons
+* contextual reveals
 
-### Rule 5: Module-local controls stay local
+### Rule 3: Explanation must move closer to the act
 
-Do not blur app navigation and module navigation.
+Warnings or caveats that matter during input should live near the input path.
+
+Do not spend the primary header budget on interaction-local warnings.
+
+### Rule 4: Actions must precede bureaucracy
+
+A user should reach meaningful controls and content quickly.
+Administrative framing must not dominate the first screenful.
+
+### Rule 5: Local controls stay local
+
+Global navigation, module navigation, and contextual actions must remain distinct.
 
 ---
 
-## Uniformity Rules for Native Tools and Plugins
+## Surface Classification Rule
 
-Codexify should expose a consistent module grammar for first-party and third-party tools.
+Not every surface is a module.
 
-### If a surface is a Module, it should use
+This canon applies only to **module-class tools**.
+
+### Module-class surfaces may use
 
 * Module Header
 * Action Zone
 * optional Secondary Pill-Nav
-* token-governed Content Surface
+* Content Surface
 
-### If a surface is not a Module, it should follow its own surface class
+### Non-module surfaces should use their own surface grammar
 
 Examples:
 
 * chat
-* gallery
-* document viewer
-* dashboard grid
-* workspace drawer
+* gallery grid
+* viewer
+* passive inspector
+* workspace companion surface
 
-This distinction is important.
-Not every screen should look like a module.
-But every module should look recognizably like a module.
+Do not force every screen into module costume.
 
 ---
 
-## Native Presentation SDK Implication
+## Uniformity Rule
 
-This contract is part of the future **Native Presentation SDK**.
+If a surface is a module, it must **look recognizably like a module**.
 
-The plugin system should provide first-class structural primitives rather than forcing developers to invent their own shell.
+Uniformity does not mean cloning every header blindly.
 
-### Required plugin-native slots
+Uniformity means:
 
-* `ModuleHeader`
-* `ActionZone`
-* `ContentSurface`
+* same structural order
+* same slot logic
+* same token discipline
+* same hierarchy law
+* same visual family of module identity and local control presentation
 
-### Optional plugin-native slots
-
-* `StatusChip`
-* `SecondaryPillNav`
-* `Inspector`
-* `FooterActions`
-
-### SDK rules
-
-* token-only styling
-* no ad hoc header invention outside the shell contract
-* no arbitrary radii or spacing systems
-* no independent layout grammar for module-class plugins
-* module-local navigation must use approved Secondary Pill-Nav semantics when appropriate
-
-### Design goal
-
-Make it easy for third-party developers to feel native without reverse-engineering Codexify’s visual logic.
+This rule exists so native tools and future plugins feel related without feeling copy-pasted.
 
 ---
 
 ## Persona Studio Application
 
-Persona Studio should follow this contract as a flagship module.
+Persona Studio is a flagship module-class surface and must follow this canon.
 
-### Module Header
+### Required structure
 
-* **Persona Studio**
-* short descriptor only, such as:
+* Module Header
+* Action Zone
+* Content Surface
 
-  * *Build and tune runtime personas.*
+### Header guidance
 
-### Action Zone
+Use:
 
-* Secondary Pill-Nav for local sections
+* `Persona Studio`
+* one short descriptor, such as:
 
-  * Identity
-  * Model
-  * Voice
-  * Prompt
-  * Tools
-  * Retrieval
-  * Truth
-* local mode switch
+  * `Build and tune runtime personas.`
 
-  * Profiles
-  * Diagnostics
+Do not use:
+
+* multi-line implementation disclaimers in the header
+* oversized configuration-only explanations in the header
+
+### Action Zone guidance
+
+Place here:
+
+* local sections via Secondary Pill-Nav
+* Profiles / Diagnostics mode switch
 * save/reset actions
 * compact draft state
 
-### Content Surface
+### Content guidance
 
-* preview harness first
-* profile summary second
-* section editor third
-* truth summary / expandable matrix last
+Begin immediately with:
 
-### Boundary note
+* preview harness
+* compact profile summary
+* active section editor
+* truth summary / expandable matrix
 
-Persona Studio may support local preview behavior, but it remains configuration-first and must not become a real persisted chat surface.
+### Boundary rule
 
----
-
-## Notification Placement Rule for Preview Surfaces
-
-When a module includes an ephemeral preview composer, critical input-related warnings should appear in the composer path itself.
-
-For Persona Studio preview specifically:
-
-* no-memory warning belongs in or near the input/composer region
-* it should not dominate the global module header
-* stronger reminder text should appear only when the user expresses memory intent
-
-This keeps the warning attached to the act of input, where the user is already looking.
+Persona Studio remains configuration-first.
+It must not silently become a persisted chat surface.
 
 ---
 
-## Non-Goals
+## Preview Composer Warning Rule
 
-This contract is not:
+For ephemeral preview surfaces:
 
-* a backend spec
-* a runtime contract
-* a diagnostics data contract
-* a chat message UX spec
-* a plugin permission/security model
-* a requirement that every screen use Secondary Pill-Nav
+* input-related warnings belong in or near the composer
+* no-memory reminders belong in the input path, not the Module Header
+* stronger reminder language should appear when the user expresses memory intent
+* warnings should support the task, not dominate the page chrome
 
 ---
 
-## Adoption Guidance
+## Prohibited Patterns
 
-Apply this contract when:
+The following are explicitly disallowed for module-class surfaces unless a future canon amendment permits them:
 
-* creating a new first-party tool surface
-* redesigning an existing tool-like interface
-* defining plugin-native shells
-* deciding whether a control belongs in the header, action zone, or content
+* giant explanatory paragraphs under module titles
+* implementation-language buttons like `Show Utility Pane`
+* extra pane title bands before content begins
+* repeated active-profile identity panels
+* stacked status strips that delay arrival at content
+* module-local nav that visually impersonates the global dock
+* new ad hoc header systems outside the shared shell logic
+* token violations in spacing, radii, color, or surface treatment
 
-Do not apply this contract mechanically to:
+---
 
-* message streams
-* passive viewers
-* gallery-only surfaces
-* simple one-action cards
-* app-wide route navigation
+## Enforcement Standard
+
+A module-class surface fails this canon when any of the following are true:
+
+* the first screenful is mostly chrome rather than work
+* identity is repeated in more than one structural band
+* a secondary surface feels primary by default
+* explanatory copy consumes more visual weight than action controls
+* a user cannot immediately identify the module’s action zone
+* local navigation is confused with app navigation
+* the surface introduces new layout grammar outside token/canon rules
+
+---
+
+## Amendment Rule
+
+Changes to this canon should be rare and explicit.
+
+Any revision should include:
+
+* rationale
+* before/after screenshots
+* examples from at least one first-party module
+* statement of plugin-shell impact
+* confirmation of token and layout canon compliance
+
+This document is not a suggestion layer.
+It is a containment field.
 
 ---
 
 ## Canonical Summary
 
-Codexify module-class tools should follow a stable presentation grammar:
+A module-class surface inside Codexify must follow this grammar:
 
 ```text
 Codexify Navigational Dock
@@ -424,10 +437,12 @@ Secondary Pill-Nav (when needed)
 Content Surface
 ```
 
-This creates a system where:
+The goal is not ornamental consistency.
 
-* app navigation remains distinct
-* module identity is clear
-* local controls feel local
-* work begins quickly
-* plugins can feel native without improvising their own shell
+The goal is structural clarity:
+
+* modules look like modules
+* local navigation looks local
+* content begins quickly
+* support surfaces stay subordinate
+* future plugins inherit a native shell instead of inventing one
