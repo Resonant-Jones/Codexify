@@ -70,6 +70,51 @@ function expectedConversationPostureBundle(): string {
   ].join("\n");
 }
 
+function expectedPinnedCurrentDiffNote(): string {
+  return [
+    "Retrieval posture comparison",
+    "",
+    "Pinned posture matches current.",
+    "",
+    "Current posture",
+    "- source_mode: conversation",
+    "- boundary_label: active_conversation_only",
+    "- retrieval_override_mode: conversation",
+    "- widen_reason: none",
+    "- conversation_only: true",
+  ].join("\n");
+}
+
+function expectedPinnedHistoryDiffNote(): string {
+  return [
+    "Retrieval posture comparison",
+    "",
+    "Pinned posture",
+    "- source_mode: project",
+    "- boundary_label: same_user_same_project",
+    "- retrieval_override_mode: null",
+    "- widen_reason: insufficient_thread_hits",
+    "- conversation_only: false",
+    "",
+    "Current posture",
+    "- source_mode: conversation",
+    "- boundary_label: active_conversation_only",
+    "- retrieval_override_mode: conversation",
+    "- widen_reason: none",
+    "- conversation_only: true",
+    "",
+    "Changed fields",
+    "- source_mode",
+    "- boundary_label",
+    "- retrieval_override_mode",
+    "- widen_reason",
+    "- conversation_only",
+    "",
+    "Summary",
+    "- Retrieval posture changed, but this combination does not yet have a tailored explanation.",
+  ].join("\n");
+}
+
 const mockedHealthItems: CommandCenterHealthItem[] = [
   {
     checkedAt: Date.parse("2026-04-01T15:59:00Z"),
@@ -1734,8 +1779,16 @@ describe("CommandCenterPage", () => {
       within(threadPanel).queryByText(/Pinned posture differs from current/i)
     ).not.toBeInTheDocument();
     expect(within(threadPanel).queryByText(/^Changed:/i)).not.toBeInTheDocument();
+    expect(within(threadPanel).getByRole("button", { name: /copy diff note/i })).toBeInTheDocument();
     expect(within(threadPanel).getByText("Thread retrieval posture")).toBeInTheDocument();
     expect(within(threadPanel).getByRole("button", { name: /pin current posture/i })).toBeInTheDocument();
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /copy diff note/i }));
+
+    expect(mockClipboardWriteText).toHaveBeenCalledWith(expectedPinnedCurrentDiffNote());
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/copied diff note/i)).toBeInTheDocument();
+    });
 
     fireEvent.click(within(pinnedPanel).getByRole("button", { name: /clear pin/i }));
 
@@ -1792,6 +1845,14 @@ describe("CommandCenterPage", () => {
     expect(
       within(threadPanel).queryByText(/Pinned posture matches current/i)
     ).not.toBeInTheDocument();
+    expect(within(threadPanel).getByRole("button", { name: /copy diff note/i })).toBeInTheDocument();
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /copy diff note/i }));
+
+    expect(mockClipboardWriteText).toHaveBeenCalledWith(expectedPinnedHistoryDiffNote());
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/copied diff note/i)).toBeInTheDocument();
+    });
 
     fireEvent.click(within(pinnedPanel).getByRole("button", { name: /clear pin/i }));
 
@@ -1807,6 +1868,7 @@ describe("CommandCenterPage", () => {
     expect(within(threadPanel).queryByText(/Pinned posture differs from current/i)).not.toBeInTheDocument();
     expect(within(threadPanel).queryByText(/Pinned posture matches current/i)).not.toBeInTheDocument();
     expect(within(threadPanel).queryByText(/^Changed:/i)).not.toBeInTheDocument();
+    expect(within(threadPanel).queryByRole("button", { name: /copy diff note/i })).not.toBeInTheDocument();
   });
 
   it("does not render the pinned-vs-current strip when the current posture is unavailable", () => {
@@ -1837,6 +1899,7 @@ describe("CommandCenterPage", () => {
     expect(
       within(threadPanel).queryByText(/Pinned posture matches current/i)
     ).not.toBeInTheDocument();
+    expect(within(threadPanel).queryByRole("button", { name: /copy diff note/i })).not.toBeInTheDocument();
   });
 
   it("clears a pinned posture when the active thread changes", async () => {
@@ -1933,6 +1996,23 @@ describe("CommandCenterPage", () => {
 
     await waitFor(() => {
       expect(within(threadPanel).getByText(/posture bundle copy failed/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows diff note copy failure feedback when the clipboard write is rejected", async () => {
+    mockClipboardWriteText.mockRejectedValueOnce(new Error("clipboard denied"));
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /pin current posture/i }));
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /copy diff note/i }));
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/diff note copy failed/i)).toBeInTheDocument();
     });
   });
 
