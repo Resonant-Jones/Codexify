@@ -699,79 +699,6 @@ type RetrievalPostureCopyFeedback =
   | { action: "bundle"; status: "copied" | "failed" }
   | null;
 
-function renderRetrievalPostureBadges(
-  posture: CommandCenterRetrievalPosture
-): React.ReactNode[] {
-  return [
-    <Badge
-      key="source_mode"
-      className="border text-[11px] font-medium leading-none"
-      style={{
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      }}
-    >
-      source: {posture.source_mode}
-    </Badge>,
-    <Badge
-      key="boundary_label"
-      className="border text-[11px] font-medium leading-none"
-      style={{
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      }}
-    >
-      boundary: {posture.boundary_label}
-    </Badge>,
-    posture.retrieval_override_mode ? (
-    <Badge
-      key="retrieval_override_mode"
-      className="border text-[11px] font-medium leading-none"
-      style={{
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      }}
-    >
-        override: {posture.retrieval_override_mode}
-      </Badge>
-    ) : null,
-    <Badge
-      key="widen_reason"
-      className="border text-[11px] font-medium leading-none"
-      style={{
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      }}
-    >
-      widen: {posture.widen_reason}
-    </Badge>,
-    posture.conversation_only ? (
-      <Badge
-        key="conversation_only"
-        className="border text-[11px] font-medium leading-none"
-        style={{
-          background: "color-mix(in oklab, var(--accent-weak) 60%, transparent)",
-          borderColor: "var(--panel-border)",
-          color: "var(--text-on-accent)",
-        }}
-      >
-        conversation-only
-      </Badge>
-    ) : null,
-  ].filter((value): value is React.ReactNode => Boolean(value));
-}
-
-function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
-  if (!value) return "Not yet";
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Date(parsed).toLocaleString();
-}
-
 type RetrievalPostureComparisonState = "changed" | "unchanged" | "no-previous" | "none";
 
 type RetrievalPostureComparison = {
@@ -1449,6 +1376,9 @@ export function RetrievalPosturePanel({
     label: null,
     state: "none",
   });
+  type CopyAction = "posture" | "audit-note" | "bundle";
+  type CopyFeedback = { action: CopyAction; status: "copied" | "failed" } | null;
+  const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback>(null);
 
   React.useEffect(() => {
     setCopyFeedback(null);
