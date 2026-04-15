@@ -797,6 +797,14 @@ const mockedComparisonRuns: CommandCenterRun[] = [
 
 const allMockedRuns = [...mockedRuns, ...mockedComparisonRuns];
 
+const { mockCreateCodexEntry } = vi.hoisted(() => ({
+  mockCreateCodexEntry: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => ({
+  createCodexEntry: mockCreateCodexEntry,
+}));
+
 vi.mock("../hooks/useCommandCenterEvents", () => ({
   default: () => ({
     connectionDetail: "Listening to /api/events",
@@ -2774,5 +2782,182 @@ describe("CommandCenterPage", () => {
     expect(within(workbench).getByRole("button", { name: /^copy posture$/i })).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /copy audit note/i })).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /copy posture bundle/i })).toBeInTheDocument();
+  });
+
+  it("renders Save to Codex when pinned and current posture both exist", async () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /pin current posture/i }));
+
+    await waitFor(() => {
+      expect(
+        within(threadPanel).getByRole("button", { name: /save to codex/i })
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("calls createCodexEntry with bounded payload when Save to Codex is clicked", async () => {
+    mockCreateCodexEntry.mockResolvedValueOnce({ ok: true });
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /pin current posture/i }));
+
+    await waitFor(() => {
+      expect(
+        within(threadPanel).getByRole("button", { name: /save to codex/i })
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /save to codex/i }));
+
+    await waitFor(() => {
+      expect(mockCreateCodexEntry).toHaveBeenCalledTimes(1);
+    });
+
+    const callArg = mockCreateCodexEntry.mock.calls[0][0];
+    expect(callArg.type).toBe("note");
+    expect(typeof callArg.content).toBe("string");
+    expect(callArg.threadId).toBe(42);
+    expect(callArg.sourceMessageId).toBe(null);
+    expect(callArg.metadata.artifactKind).toBe("retrieval_posture_diff_note");
+    expect(callArg.metadata.comparisonMode).toBe("pinned_vs_current");
+    expect(callArg.metadata.pinned_posture).toEqual({
+      source_mode: "conversation",
+      boundary_label: "active_conversation_only",
+      retrieval_override_mode: "conversation",
+      widen_reason: "none",
+      conversation_only: true,
+    });
+    expect(callArg.metadata.current_posture).toEqual({
+      source_mode: "conversation",
+      boundary_label: "active_conversation_only",
+      retrieval_override_mode: "conversation",
+      widen_reason: "none",
+      conversation_only: true,
+    });
+    expect(callArg.metadata.changed_fields).toEqual([]);
+  });
+
+  it("shows Saved to Codex feedback on successful save", async () => {
+    mockCreateCodexEntry.mockResolvedValueOnce({ ok: true });
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /pin current posture/i }));
+
+    await waitFor(() => {
+      expect(
+        within(threadPanel).getByRole("button", { name: /save to codex/i })
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /save to codex/i }));
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/saved to codex/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows Codex save failed feedback on rejected save", async () => {
+    mockCreateCodexEntry.mockResolvedValueOnce({ ok: false });
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /pin current posture/i }));
+
+    await waitFor(() => {
+      expect(
+        within(threadPanel).getByRole("button", { name: /save to codex/i })
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /save to codex/i }));
+
+    await waitFor(() => {
+      expect(within(threadPanel).getByText(/codex save failed/i)).toBeInTheDocument();
+    });
+  });
+
+  it("does not render Save to Codex when no pin exists", () => {
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    expect(
+      within(threadPanel).queryByRole("button", { name: /save to codex/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render Save to Codex when current posture is unavailable", () => {
+    const pinnedRetrievalPosture: PinnedRetrievalPostureState = {
+      createdAt: null,
+      posture: mockedRetrievalPosture,
+      source: "current",
+      taskId: null,
+    };
+
+    render(
+      <RetrievalPosturePanel
+        compact
+        pinnedRetrievalPosture={pinnedRetrievalPosture}
+        showComparisonStrip
+        showTrendBadge
+        testId="current-unavailable-panel"
+        threadId={600}
+        title="Thread retrieval posture"
+      />
+    );
+
+    const threadPanel = screen.getByTestId("current-unavailable-panel");
+    expect(within(threadPanel).getByText(/retrieval posture unavailable/i)).toBeInTheDocument();
+    expect(
+      within(threadPanel).queryByRole("button", { name: /save to codex/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("includes projectId in payload when provided", async () => {
+    mockCreateCodexEntry.mockResolvedValueOnce({ ok: true });
+
+    render(<CommandCenterPage enabled />);
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-alpha/i }));
+
+    const threadPanel = screen.getByTestId("command-center-thread-posture-panel");
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /pin current posture/i }));
+
+    await waitFor(() => {
+      expect(
+        within(threadPanel).getByRole("button", { name: /save to codex/i })
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(threadPanel).getByRole("button", { name: /save to codex/i }));
+
+    await waitFor(() => {
+      expect(mockCreateCodexEntry).toHaveBeenCalledTimes(1);
+    });
+
+    const callArg = mockCreateCodexEntry.mock.calls[0][0];
+    expect(callArg.projectId).toBeUndefined();
   });
 });

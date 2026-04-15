@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { createCodexEntry } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
@@ -868,7 +869,9 @@ function RetrievalPostureDetails({
   onPinCurrentPosture,
   onClearPinnedPosture,
   pinnedRetrievalPosture,
+  projectId,
   retrievalPosture,
+  threadId,
   trend,
   showHistorySection,
   showComparisonStrip,
@@ -884,7 +887,9 @@ function RetrievalPostureDetails({
   onPinCurrentPosture?: (posture: CommandCenterRetrievalPosture) => void;
   onClearPinnedPosture?: () => void;
   pinnedRetrievalPosture: PinnedRetrievalPostureState;
+  projectId?: number;
   retrievalPosture: CommandCenterRetrievalPosture;
+  threadId: number | null;
   trend: RetrievalPostureTrend;
   showHistorySection: boolean;
   showTrendBadge: boolean;
@@ -935,10 +940,52 @@ function RetrievalPostureDetails({
   const [diffNoteCopyFeedback, setDiffNoteCopyFeedback] = React.useState<"copied" | "failed" | null>(
     null
   );
+  const [codexSaveFeedback, setCodexSaveFeedback] = React.useState<"saved" | "failed" | null>(null);
 
   React.useEffect(() => {
     setDiffNoteCopyFeedback(null);
+    setCodexSaveFeedback(null);
   }, [pinnedRetrievalPosture, retrievalPosture]);
+
+  async function onSaveToCodex(): Promise<void> {
+    if (!pinnedRetrievalPosture || !retrievalPosture) return;
+    if (threadId === null) return;
+
+    const diff = diffRetrievalPosture(retrievalPosture, pinnedRetrievalPosture.posture);
+    const metadata = {
+      artifactKind: "retrieval_posture_diff_note",
+      comparisonMode: "pinned_vs_current",
+      pinned_posture: {
+        source_mode: pinnedRetrievalPosture.posture.source_mode,
+        boundary_label: pinnedRetrievalPosture.posture.boundary_label,
+        retrieval_override_mode: pinnedRetrievalPosture.posture.retrieval_override_mode,
+        widen_reason: pinnedRetrievalPosture.posture.widen_reason,
+        conversation_only: pinnedRetrievalPosture.posture.conversation_only,
+      },
+      current_posture: {
+        source_mode: retrievalPosture.source_mode,
+        boundary_label: retrievalPosture.boundary_label,
+        retrieval_override_mode: retrievalPosture.retrieval_override_mode,
+        widen_reason: retrievalPosture.widen_reason,
+        conversation_only: retrievalPosture.conversation_only,
+      },
+      changed_fields: diff.changedFields,
+    };
+
+    try {
+      const result = await createCodexEntry({
+        type: "note",
+        content: formatPinnedVsCurrentDiffNote(pinnedRetrievalPosture.posture, retrievalPosture),
+        threadId,
+        sourceMessageId: null,
+        projectId,
+        metadata,
+      });
+      setCodexSaveFeedback(result?.ok ? "saved" : "failed");
+    } catch {
+      setCodexSaveFeedback("failed");
+    }
+  }
 
   async function writeClipboardText(action: CopyAction, text: string): Promise<void> {
     try {
@@ -1481,6 +1528,28 @@ function RetrievalPostureDetails({
             >
               Copy diff note
             </Button>
+            {pinnedRetrievalPosture && retrievalPosture ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="border border-[var(--panel-border)]"
+                onClick={() => {
+                  void onSaveToCodex();
+                }}
+              >
+                Save to Codex
+              </Button>
+            ) : null}
+            {codexSaveFeedback === "saved" ? (
+              <span className="text-xs" style={{ color: "var(--muted)" }}>
+                Saved to Codex
+              </span>
+            ) : codexSaveFeedback === "failed" ? (
+              <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+                Codex save failed
+              </span>
+            ) : null}
             {diffNoteCopyFeedback === "copied" ? (
               <span className="text-xs" style={{ color: "var(--muted)" }}>
                 Copied diff note
@@ -1568,6 +1637,7 @@ export function RetrievalPosturePanel({
   onPinCurrentPosture,
   onPinHistoryPosture,
   pinnedRetrievalPosture = null,
+  projectId,
   showHistorySection = false,
   threadId,
   title = "Retrieval posture",
@@ -1585,6 +1655,7 @@ export function RetrievalPosturePanel({
   onPinCurrentPosture?: (posture: CommandCenterRetrievalPosture) => void;
   onPinHistoryPosture?: (item: RetrievalPostureHistoryItem) => void;
   pinnedRetrievalPosture?: PinnedRetrievalPostureState;
+  projectId?: number;
   showHistorySection?: boolean;
   threadId: number | null;
   title?: string;
@@ -1748,10 +1819,12 @@ export function RetrievalPosturePanel({
           onPinCurrentPosture={onPinCurrentPosture}
           onPinHistoryPosture={onPinHistoryPosture}
           pinnedRetrievalPosture={pinnedRetrievalPosture}
+          projectId={projectId}
           retrievalPosture={retrievalPosture}
           showHistorySection={showHistorySection}
           showComparisonStrip={showComparisonStrip}
           showTrendBadge={showTrendBadge}
+          threadId={threadId}
           trend={trend}
         />
       ) : null}

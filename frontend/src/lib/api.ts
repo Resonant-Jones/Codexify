@@ -1110,4 +1110,23 @@ export async function fetchPersonalFactRevisions(
   return Array.isArray(response.data?.revisions) ? response.data.revisions : [];
 }
 
+export interface CodexEntryPayload {
+  type: "note";
+  content: string;
+  threadId: number;
+  sourceMessageId: null;
+  projectId?: number;
+  metadata: Record<string, unknown>;
+}
+
+export async function createCodexEntry(
+  payload: CodexEntryPayload
+): Promise<{ ok: boolean; entry?: Record<string, unknown> }> {
+  const response = await api.post<{ ok: boolean; entry?: Record<string, unknown> }>(
+    "/api/codex/entries",
+    payload
+  );
+  return response.data ?? { ok: false };
+}
+
 export default api;
