@@ -20,13 +20,17 @@ function renderPage() {
 }
 
 describe("Persona Studio Page", () => {
-  it("renders the utility pane in the left lane with Profiles active by default", () => {
+  it("re-homes the utility pane into a secondary support surface", () => {
     renderPage();
 
     const shell = screen.getByTestId("persona-studio-shell");
-    const configurationLane = within(shell).getByTestId("persona-studio-configuration-lane");
+    const supportSurfaces = screen.getByTestId("persona-studio-support-surfaces");
 
-    expect(within(configurationLane).getByTestId("persona-studio-utility-pane")).toBeVisible();
+    expect(within(shell).queryByTestId("persona-studio-utility-pane")).not.toBeInTheDocument();
+    expect(within(shell).getByTestId("persona-studio-editor")).toBeVisible();
+    expect(within(shell).getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
+    expect(supportSurfaces).toBeVisible();
+    expect(within(supportSurfaces).getByTestId("persona-studio-utility-pane")).toBeVisible();
     expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
       "data-state",
       "active"
@@ -38,7 +42,7 @@ describe("Persona Studio Page", () => {
     );
   });
 
-  it("renders the two-lane Persona Studio shell with the harness on the right", () => {
+  it("renders the primary two-lane shell with the harness on the right", () => {
     renderPage();
 
     const shell = screen.getByTestId("persona-studio-shell");
@@ -48,10 +52,10 @@ describe("Persona Studio Page", () => {
 
     expect(configurationLane).toBeVisible();
     expect(ephemeralLane).toBeVisible();
-    expect(within(configurationLane).getByTestId("persona-studio-utility-pane")).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
     expect(within(ephemeralLane).getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
-    expect(within(configurationLane).queryByTestId("persona-studio-ephemeral-chat-harness")).not.toBeInTheDocument();
+    expect(within(configurationLane).queryByTestId("persona-studio-utility-pane")).not.toBeInTheDocument();
+    expect(within(shell).queryByTestId("persona-studio-support-surfaces")).not.toBeInTheDocument();
     expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
     expect(screen.getByText(/^session-local$/i)).toBeVisible();
     expect(screen.getByText(/^non-runtime$/i)).toBeVisible();
