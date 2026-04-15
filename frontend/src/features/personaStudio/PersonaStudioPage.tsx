@@ -268,7 +268,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
   const hasMessages = ephemeralMessages.length > 0;
 
   return (
-    <Card
+    <div
       className="bezel-none flex min-h-0 flex-1 flex-col rounded-2xl border"
       role="region"
       aria-label="Persona Studio ephemeral chat harness"
@@ -278,11 +278,11 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
         borderColor: "var(--panel-border)",
       }}
     >
-      <CardHeader className="space-y-4 pb-3">
+      <div className="space-y-4 p-4 pb-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base">Ephemeral Chat Harness</CardTitle>
+              <span className="text-base font-semibold">Ephemeral Chat Harness</span>
               <Badge
                 variant="outline"
                 className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
@@ -342,6 +342,12 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             Clear ephemeral session
           </Button>
         </div>
+        {draftChangedSinceLastReply ? (
+          <p className="text-xs font-medium leading-5" style={{ color: "var(--accent)" }}>
+            Draft changed since the last reply. New turns use the current draft; earlier replies
+            remain as historical session turns.
+          </p>
+        ) : null}
         <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
           <Input
             ref={inputRef}
@@ -349,23 +355,17 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             onChange={(event) => setEphemeralPrompt(event.target.value)}
             placeholder="Session-local, ephemeral, non-runtime draft test"
             aria-label="Ephemeral chat prompt"
-            className="min-w-0 flex-1"
+            className="min-w-0 flex-1 h-9"
             disabled={isResponding}
           />
-          <Button type="submit" disabled={!ephemeralPrompt.trim() || isResponding}>
+          <Button type="submit" disabled={!ephemeralPrompt.trim() || isResponding} size="sm">
             Send
           </Button>
         </form>
-        {draftChangedSinceLastReply ? (
-          <p className="text-xs font-medium leading-5" style={{ color: "var(--accent)" }}>
-            Draft changed since the last reply. New turns use the current draft; earlier replies
-            remain as historical session turns.
-          </p>
-        ) : null}
-      </CardHeader>
-      <CardContent className="pt-0">
+      </div>
+      <div className="flex-1 overflow-hidden px-4 pb-4">
         <div
-          className="space-y-2.5 rounded-2xl border p-3"
+          className="flex h-full flex-col space-y-2.5 rounded-xl border p-3"
           data-testid="persona-studio-ephemeral-chat-transcript"
           aria-live="polite"
           aria-busy={isResponding}
@@ -391,215 +391,217 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
               Session cache
             </Badge>
           </div>
-          {hasMessages ? (
-            <div className="space-y-3">
-              {isResponding ? (
-                <div
-                  className="rounded-xl border px-3 py-3 text-sm"
-                  style={{
-                    background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
-                    borderColor: "var(--panel-border)",
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                        style={{ borderColor: "var(--panel-border)" }}
-                      >
-                        Draft-aware turn
-                      </Badge>
-                      <span
-                        className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        Generating
-                      </span>
-                    </div>
-                  </div>
-                  <p className="mt-2 leading-6">Generating a draft-aware reply…</p>
-                </div>
-              ) : null}
-              {ephemeralMessages.map((entry, index) => {
-                const isAssistant = entry.role === "assistant";
-                const turnNumber = index + 1;
-
-                return (
+          <div className="min-h-0 flex-1 overflow-auto">
+            {hasMessages ? (
+              <div className="space-y-3">
+                {isResponding ? (
                   <div
-                    key={entry.id}
                     className="rounded-xl border px-3 py-3 text-sm"
                     style={{
-                      background: isAssistant
-                        ? "color-mix(in srgb, var(--panel-bg) 94%, transparent)"
-                        : "color-mix(in srgb, var(--accent) 7%, var(--panel-bg))",
-                      borderColor: isAssistant
-                        ? "var(--panel-border)"
-                        : "color-mix(in oklab, var(--accent) 18%, var(--panel-border))",
+                      background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+                      borderColor: "var(--panel-border)",
                     }}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge
                           variant="outline"
                           className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                           style={{ borderColor: "var(--panel-border)" }}
                         >
-                          Turn {turnNumber}
+                          Draft-aware turn
                         </Badge>
-                        <div
+                        <span
                           className="text-[10px] font-semibold uppercase tracking-[0.16em]"
                           style={{ color: "var(--muted)" }}
                         >
-                          {isAssistant ? "Ephemeral assistant" : "Draft input"}
-                        </div>
-                      </div>
-                      {isAssistant ? (
-                        <Badge
-                          variant="outline"
-                          className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                          style={{ borderColor: "var(--panel-border)" }}
-                        >
-                          {entry.draftSignature === currentDraftSnapshot.signature
-                            ? "Current draft"
-                            : "Earlier draft"}
-                        </Badge>
-                      ) : (
-                        <span
-                          className="text-[10px] font-semibold uppercase tracking-[0.14em]"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          Captured at send time
+                          Generating
                         </span>
+                      </div>
+                    </div>
+                    <p className="mt-2 leading-6">Generating a draft-aware reply…</p>
+                  </div>
+                ) : null}
+                {ephemeralMessages.map((entry, index) => {
+                  const isAssistant = entry.role === "assistant";
+                  const turnNumber = index + 1;
+
+                  return (
+                    <div
+                      key={entry.id}
+                      className="rounded-xl border px-3 py-3 text-sm"
+                      style={{
+                        background: isAssistant
+                          ? "color-mix(in srgb, var(--panel-bg) 94%, transparent)"
+                          : "color-mix(in srgb, var(--accent) 7%, var(--panel-bg))",
+                        borderColor: isAssistant
+                          ? "var(--panel-border)"
+                          : "color-mix(in oklab, var(--accent) 18%, var(--panel-border))",
+                      }}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                            style={{ borderColor: "var(--panel-border)" }}
+                          >
+                            Turn {turnNumber}
+                          </Badge>
+                          <div
+                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            {isAssistant ? "Ephemeral assistant" : "Draft input"}
+                          </div>
+                        </div>
+                        {isAssistant ? (
+                          <Badge
+                            variant="outline"
+                            className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                            style={{ borderColor: "var(--panel-border)" }}
+                          >
+                            {entry.draftSignature === currentDraftSnapshot.signature
+                              ? "Current draft"
+                              : "Earlier draft"}
+                          </Badge>
+                        ) : (
+                          <span
+                            className="text-[10px] font-semibold uppercase tracking-[0.14em]"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Captured at send time
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 leading-6">{entry.content}</p>
+                      {isAssistant ? (
+                        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Persona
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.personaName}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Model
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.modelLine}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Temperature
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.temperatureLine}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Voice
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.voice}</p>
+                          </div>
+                          <div className="space-y-1 sm:col-span-2">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Prompt
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.systemPrompt}</p>
+                          </div>
+                          <div className="space-y-1 sm:col-span-2">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Style Notes
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.styleNotes}</p>
+                          </div>
+                          <div className="space-y-1 sm:col-span-2">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Directives
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.directives}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Retrieval
+                            </div>
+                            <p className="leading-6">{entry.draftSnapshot.retrieval}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div
+                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Tools
+                            </div>
+                            <p className="leading-6">
+                              Pinned: {entry.draftSnapshot.pinnedTools} | Allowed:{" "}
+                              {entry.draftSnapshot.allowedTools}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
+                          Captured against the draft that was active when this input was sent.
+                        </p>
                       )}
                     </div>
-                    <p className="mt-2 leading-6">{entry.content}</p>
-                    {isAssistant ? (
-                      <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                        <div className="space-y-1">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Persona
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.personaName}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Model
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.modelLine}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Temperature
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.temperatureLine}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Voice
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.voice}</p>
-                        </div>
-                        <div className="space-y-1 sm:col-span-2">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Prompt
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.systemPrompt}</p>
-                        </div>
-                        <div className="space-y-1 sm:col-span-2">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Style Notes
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.styleNotes}</p>
-                        </div>
-                        <div className="space-y-1 sm:col-span-2">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Directives
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.directives}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Retrieval
-                          </div>
-                          <p className="leading-6">{entry.draftSnapshot.retrieval}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <div
-                            className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: "var(--muted)" }}
-                          >
-                            Tools
-                          </div>
-                          <p className="leading-6">
-                            Pinned: {entry.draftSnapshot.pinnedTools} | Allowed:{" "}
-                            {entry.draftSnapshot.allowedTools}
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
-                        Captured against the draft that was active when this input was sent.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="space-y-2.5 rounded-xl border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                  style={{ borderColor: "var(--panel-border)" }}
-                >
-                  Empty harness
-                </Badge>
-                <span
-                  className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                  style={{ color: "var(--muted)" }}
-                >
-                  Local draft testing
-                </span>
+                  );
+                })}
               </div>
-              <p className="text-sm" style={{ color: "var(--muted)" }}>
-                No ephemeral turns yet. Use this session-local harness to test the active persona
-                draft before anything becomes runtime chat or durable state.
-              </p>
-              <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                Send a temporary message, inspect the draft snapshot, and keep iterating in this
-                mounted Studio session only.
-              </p>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-2.5 rounded-xl border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                    style={{ borderColor: "var(--panel-border)" }}
+                  >
+                    Empty harness
+                  </Badge>
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Local draft testing
+                  </span>
+                </div>
+                <p className="text-sm" style={{ color: "var(--muted)" }}>
+                  No ephemeral turns yet. Use this session-local harness to test the active persona
+                  draft before anything becomes runtime chat or durable state.
+                </p>
+                <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                  Send a temporary message, inspect the draft snapshot, and keep iterating in this
+                  mounted Studio session only.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1599,14 +1601,12 @@ export default function PersonaStudioPage() {
               <EphemeralChatHarness profile={selectedProfile} />
             </div>
           </div>
-        </section>
-
-        {isUtilityPaneOpen ? (
           <section
             className="flex min-h-0 flex-col gap-3"
             data-testid="persona-studio-support-surfaces"
           >
-            <div className="flex items-start justify-between gap-3">
+            {isUtilityPaneOpen && (
+            <div className="flex flex-col gap-3">
               <div className="space-y-1">
                 <div
                   className="text-[11px] font-semibold uppercase tracking-[0.18em]"
@@ -1736,8 +1736,9 @@ export default function PersonaStudioPage() {
                 )}
               </CardContent>
             </Card>
+            </div>
+          )}
           </section>
-        ) : null}
       </div>
     </div>
   );
