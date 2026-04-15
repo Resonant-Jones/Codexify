@@ -22,7 +22,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
 - The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
 - Executable backend-seam evaluation suites continue to provide coverage for: identity-boundary proof (project scope containment, explicit widening, exclusion filters), supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam), and broker/source-mode matrix reconciliation.
-- Live runtime proof was attempted on `codex/add-retrieval-explainer` (branch 6 commits ahead of `main`). The retrieval-posture diagnostics route is confirmed live and returns correct empty-state shape. Chat completion proof is blocked by an Ollama model name mismatch (`LOCAL_CHAT_MODEL` set to "Gemma 4 E 4 B Hauhau" but Ollama instance has `gemma4-e4b-hauhau:latest`). Chroma retrieval remains healthy (`proof_capable: true`).
+- Live runtime proof was attempted on `codex/add-retrieval-explainer` (branch 6 commits ahead of `main`). The retrieval-posture diagnostics route is confirmed live and returns correct empty-state shape. Chat completion proof is blocked by an Ollama model name mismatch (`LOCAL_CHAT_MODEL` set to "Gemma 4 E 4 B Hauhau" but Ollama instance has `gemma4-e4b-hauhau:latest`). Chroma retrieval remains healthy (`proof_capable: true`). **Fixed:** `LOCAL_CHAT_MODEL` updated to `gemma4-e4b-hauhau:latest` in `.env.example` (2026-04-14).
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -46,13 +46,13 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Do not assume older proof docs alone describe the current tip if a newer merge changed runtime wiring.
 
 ## Active blockers
-- Chat completion blocked: `LOCAL_CHAT_MODEL` is set to "Gemma 4 E 4 B Hauhau" but the Ollama instance at `host.docker.internal:11434` has `gemma4-e4b-hauhau:latest`. Codexify requests fail with HTTP 400 "invalid model name". Fix: update `LOCAL_CHAT_MODEL=gemma4-e4b-hauhau:latest` in `.env` or `docker-compose.yml`, or add an Ollama model alias.
+- Chat completion blocked: `LOCAL_CHAT_MODEL` was set to "Gemma 4 E 4 B Hauhau" but the Ollama instance at `host.docker.internal:11434` has `gemma4-e4b-hauhau:latest`. Codexify requests fail with HTTP 400 "invalid model name". **Fixed 2026-04-14:** `LOCAL_CHAT_MODEL` updated to `gemma4-e4b-hauhau:latest` in `.env.example`. Live verification still required.
 - Retrieval-posture populated state not yet demonstrated: The completion-service seam has not yet been updated to emit `payload_summary["retrieval_posture"]`. The diagnostics route is live and returns correct empty-state shape, but the fast path (reading canonical snapshot) is a dead letter until that seam is updated. The fallback synthesis path also returns empty because historical task.completed events lack the required legacy trace fields.
 - Fresh live release evidence on the exact current `main` tip is still required before release signoff; the proof was run on `codex/add-retrieval-explainer` (6 commits ahead of `main`). Backend-seam eval suites reduce scope-boundary ambiguity but do not substitute for live runtime proof.
 - Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
 
 ## This week's priorities
-1. Resolve Ollama model name mismatch: update `LOCAL_CHAT_MODEL` to `gemma4-e4b-hauhau:latest` (or equivalent available model alias) to restore chat completion proof.
+1. ~~Resolve Ollama model name mismatch~~ — **Done 2026-04-14:** `LOCAL_CHAT_MODEL` in `.env.example` updated to `gemma4-e4b-hauhau:latest`. Live verification still required.
 2. Update the completion-service seam (`guardian/core/chat_completion_service.py`) to emit `payload_summary["retrieval_posture"]` so the diagnostics route's fast path becomes functional.
 3. Re-run the supported local Compose beta proof on `main` once the above are resolved; verify chat completion, retrieval-posture populated state, and all health surfaces pass.
 4. Keep the supported-profile contract, catalog, and health surfaces aligned with the local-only provider posture.

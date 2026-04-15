@@ -311,7 +311,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             Ephemeral
           </Badge>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {EPHEMERAL_SCENARIO_CHIPS.map((prompt) => (
             <Button
               key={prompt}
@@ -325,7 +325,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             </Button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
           <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
             This stays local to the mounted Studio session. It does not create Guardian threads,
             memory writes, artifacts, or durable runtime history.
@@ -365,7 +365,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
       </CardHeader>
       <CardContent className="pt-0">
         <div
-          className="space-y-3 rounded-2xl border p-3"
+          className="space-y-2.5 rounded-2xl border p-3"
           data-testid="persona-studio-ephemeral-chat-transcript"
           aria-live="polite"
           aria-busy={isResponding}
@@ -374,7 +374,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             borderColor: "var(--panel-border)",
           }}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3" style={{ borderColor: "var(--panel-border)" }}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5" style={{ borderColor: "var(--panel-border)" }}>
             <div className="space-y-1">
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
                 Session transcript
@@ -475,7 +475,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
                     </div>
                     <p className="mt-2 leading-6">{entry.content}</p>
                     {isAssistant ? (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
                         <div className="space-y-1">
                           <div
                             className="text-[10px] font-semibold uppercase tracking-[0.16em]"
@@ -571,7 +571,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
               })}
             </div>
           ) : (
-            <div className="space-y-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
+            <div className="space-y-2.5 rounded-xl border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge
                   variant="outline"
@@ -1587,12 +1587,12 @@ export default function PersonaStudioPage() {
                     </Badge>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
                   <div
                     className="rounded-xl border px-3 py-2"
                     style={{
-                      borderColor: "var(--panel-border)",
-                      background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+                      borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)",
+                      background: "color-mix(in srgb, var(--panel-bg) 97%, transparent)",
                     }}
                   >
                     <div
@@ -1610,8 +1610,8 @@ export default function PersonaStudioPage() {
                   <div
                     className="rounded-xl border px-3 py-2"
                     style={{
-                      borderColor: "var(--panel-border)",
-                      background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+                      borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)",
+                      background: "color-mix(in srgb, var(--panel-bg) 97%, transparent)",
                     }}
                   >
                     <div
@@ -1662,7 +1662,7 @@ export default function PersonaStudioPage() {
                   >
                     {renderActiveTab()}
                   </div>
-                  <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <Button type="button" onClick={handleSave} disabled={!isDirty}>
                       Save
                     </Button>
