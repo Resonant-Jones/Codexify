@@ -517,7 +517,7 @@ export function ChatBubble({
       }
     : undefined;
   const userMessageTextClass = cn(
-    "min-w-0 text-sm leading-relaxed whitespace-pre-wrap break-words",
+    "w-full min-w-0 text-left text-sm leading-relaxed whitespace-pre-wrap break-words",
     userMessageLooksLikeCode ? "font-mono text-[13px] leading-5" : null
   );
 
@@ -607,7 +607,7 @@ export function ChatBubble({
       <div
         data-testid={boundedUserMessage ? "guardian-user-message-content" : undefined}
         id={boundedUserMessage ? `guardian-user-message-${message.id}` : undefined}
-        className={userMessageTextClass}
+        className={cn("w-full", userMessageTextClass)}
         style={{
           color: "var(--pill-active-text)",
           overflowWrap: "anywhere",
