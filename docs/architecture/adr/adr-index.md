@@ -36,6 +36,7 @@ Use this note as the local map for all ADRs.
 3. [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 4. [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
 5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
+6. [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
 
 ---
 
@@ -97,6 +98,15 @@ Primary companion notes:
   * [[modules-and-ownership|Modules and Ownership]]
   * [[00-current-state]]
   * [[chat-runtime-contract|Chat Runtime Contract]]
+
+* [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] links to:
+
+  * [[system-overview|System Overview]]
+  * [[flows|Critical Flows]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[delegation-runtime|Delegation Runtime Contract]]
+  * [[00-current-state]]
 
 ---
 
