@@ -85,6 +85,7 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
   >((event) => {
     if (!enabled) return;
     if (event.button != null && event.button !== 0) return;
+    if (event.isPrimary === false) return;
     setPressed(true);
   }, [enabled]);
 
