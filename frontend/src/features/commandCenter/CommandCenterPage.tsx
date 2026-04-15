@@ -24,6 +24,7 @@ import {
   filterCommandCenterRuns,
 } from "@/features/commandCenter/commandCenterObservability";
 import type {
+  CommandCenterRetrievalPosture,
   CommandCenterRetrievalPostureHistoryItem,
   CommandCenterRun,
   CommandCenterTraceFilters,
@@ -38,6 +39,7 @@ type CommandCenterPageProps = {
 };
 
 type BadgeTone = RuntimeStatusTone | "danger";
+type PinnedRetrievalPosture = CommandCenterRetrievalPosture | null;
 
 const filtersDefault: CommandCenterTraceFilters = {
   model: "",
@@ -432,6 +434,8 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     React.useState<RetrievalPostureHistoryFilter>("all");
   const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
     React.useState<RetrievalPostureHistoryWindowSize>(5);
+  const [pinnedRetrievalPosture, setPinnedRetrievalPosture] =
+    React.useState<PinnedRetrievalPosture>(null);
 
   const consoleRows = React.useMemo(() => buildCommandCenterEventConsoleRows(events), [events]);
   const visibleRuns = React.useMemo(
@@ -447,6 +451,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const activeThreadId = React.useMemo<number | null>(() => {
     return selectedRun?.threadId ?? visibleRuns[0]?.threadId ?? null;
   }, [selectedRun, visibleRuns]);
+
+  React.useEffect(() => {
+    setPinnedRetrievalPosture(null);
+  }, [activeThreadId]);
 
   React.useEffect(() => {
     if (visibleRuns.length === 0) {
@@ -560,8 +568,13 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
                 compact
                 historyFilter={retrievalPostureHistoryFilter}
                 historyWindowSize={retrievalPostureHistoryWindowSize}
+                onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
                 onHistoryFilterChange={setRetrievalPostureHistoryFilter}
                 onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
+                onPinCurrentPosture={(posture) =>
+                  setPinnedRetrievalPosture({ ...posture })
+                }
+                pinnedRetrievalPosture={pinnedRetrievalPosture}
                 showHistorySection
                 showComparisonStrip
                 showTrendBadge
