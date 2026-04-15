@@ -1625,7 +1625,6 @@ export default function PersonaStudioPage() {
               >
                 {utilityTab}
               </Badge>
-            </div>
             <Card
               className="bezel-none flex min-h-0 flex-col overflow-hidden rounded-2xl border"
               role="complementary"
@@ -1738,6 +1737,7 @@ export default function PersonaStudioPage() {
             </Card>
             </div>
           )}
+          </section>
           </section>
       </div>
     </div>
