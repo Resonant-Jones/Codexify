@@ -296,14 +296,30 @@ function renderRetrievalPostureBadges(posture: CommandCenterRetrievalPosture): R
   ].filter((node): node is React.ReactNode => node !== null);
 }
 
+export type PinnedRetrievalPostureSource = "current" | "history";
+
+export type PinnedRetrievalPostureState = {
+  createdAt?: string | null;
+  posture: CommandCenterRetrievalPosture;
+  source: PinnedRetrievalPostureSource;
+  taskId?: string | null;
+} | null;
+
 function PinnedRetrievalPostureCard({
+  createdAt,
   onClearPinnedPosture,
   posture,
+  source,
+  taskId,
 }: {
+  createdAt?: string | null;
   onClearPinnedPosture?: () => void;
   posture: CommandCenterRetrievalPosture;
+  source: PinnedRetrievalPostureSource;
+  taskId?: string | null;
 }) {
   const summaryLines = describeRetrievalPosture(posture);
+  const sourceLabel = source === "history" ? "Pinned posture (history)" : "Pinned posture (current)";
 
   return (
     <div
@@ -319,7 +335,7 @@ function PinnedRetrievalPostureCard({
           className="text-[11px] font-semibold uppercase tracking-[0.16em]"
           style={{ color: "var(--muted)" }}
         >
-          Pinned posture
+          {sourceLabel}
         </div>
         <Badge
           className="border text-[11px] font-medium leading-none"
@@ -329,9 +345,23 @@ function PinnedRetrievalPostureCard({
             color: "var(--text)",
           }}
         >
-          Pinned snapshot
+          {source === "history" ? "History snapshot" : "Live snapshot"}
         </Badge>
       </div>
+      {source === "history" ? (
+        <div className="mt-1 flex flex-wrap gap-2 text-[11px]" style={{ color: "var(--muted)" }}>
+          {taskId ? <span className="rounded-full border px-2 py-1">Task: {taskId}</span> : null}
+          {createdAt ? (
+            <span className="rounded-full border px-2 py-1">
+              Captured: {formatRetrievalPostureHistoryTimestamp(createdAt)}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>
+          Current live posture
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap gap-2">{renderRetrievalPostureBadges(posture)}</div>
       <div className="mt-2 text-xs leading-5" style={{ color: "var(--text)" }}>
         {summaryLines.map((line) => (
@@ -752,6 +782,7 @@ function RetrievalPostureDetails({
   historyWindowSize,
   onHistoryFilterChange,
   onHistoryWindowSizeChange,
+  onPinHistoryPosture,
   onPinCurrentPosture,
   onClearPinnedPosture,
   pinnedRetrievalPosture,
@@ -767,9 +798,10 @@ function RetrievalPostureDetails({
   historyWindowSize: RetrievalPostureHistoryWindowSize;
   onHistoryFilterChange?: (next: RetrievalPostureHistoryFilter) => void;
   onHistoryWindowSizeChange?: (next: RetrievalPostureHistoryWindowSize) => void;
+  onPinHistoryPosture?: (item: RetrievalPostureHistoryItem) => void;
   onPinCurrentPosture?: (posture: CommandCenterRetrievalPosture) => void;
   onClearPinnedPosture?: () => void;
-  pinnedRetrievalPosture: CommandCenterRetrievalPosture | null;
+  pinnedRetrievalPosture: PinnedRetrievalPostureState;
   retrievalPosture: CommandCenterRetrievalPosture;
   trend: RetrievalPostureTrend;
   showHistorySection: boolean;
@@ -1034,18 +1066,31 @@ function RetrievalPostureDetails({
                         borderColor: "var(--panel-border)",
                       }}
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge
-                          className="border text-[11px] font-medium leading-none"
-                          style={{
-                            background: "var(--surface-soft)",
-                            borderColor: "var(--panel-border)",
-                            color: "var(--text)",
-                          }}
-                        >
-                          {index === 0 ? "Newest" : `Earlier ${index + 1}`}
-                        </Badge>
-                        <span style={{ color: "var(--text)" }}>Posture snapshot</span>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            className="border text-[11px] font-medium leading-none"
+                            style={{
+                              background: "var(--surface-soft)",
+                              borderColor: "var(--panel-border)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            {index === 0 ? "Newest" : `Earlier ${index + 1}`}
+                          </Badge>
+                          <span style={{ color: "var(--text)" }}>Posture snapshot</span>
+                        </div>
+                        {onPinHistoryPosture ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="border border-[var(--panel-border)]"
+                            onClick={() => onPinHistoryPosture(item)}
+                          >
+                            Pin this posture
+                          </Button>
+                        ) : null}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Badge
@@ -1280,8 +1325,11 @@ function RetrievalPostureDetails({
       </div>
       {pinnedRetrievalPosture ? (
         <PinnedRetrievalPostureCard
+          createdAt={pinnedRetrievalPosture.createdAt}
           onClearPinnedPosture={onClearPinnedPosture}
-          posture={pinnedRetrievalPosture}
+          posture={pinnedRetrievalPosture.posture}
+          source={pinnedRetrievalPosture.source}
+          taskId={pinnedRetrievalPosture.taskId}
         />
       ) : null}
     </>
@@ -1290,10 +1338,12 @@ function RetrievalPostureDetails({
 
 export function RetrievalPostureSummaryRow({
   createdAt,
+  onPinPosture,
   posture,
   taskId,
 }: {
   createdAt: string | null;
+  onPinPosture?: () => void;
   posture: CommandCenterRetrievalPosture;
   taskId: string;
 }) {
@@ -1329,6 +1379,19 @@ export function RetrievalPostureSummaryRow({
       <div className="text-sm leading-5" style={{ color: "var(--text)" }}>
         {summary}
       </div>
+      {onPinPosture ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="border border-[var(--panel-border)]"
+            onClick={onPinPosture}
+          >
+            Pin this posture
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1342,6 +1405,7 @@ export function RetrievalPosturePanel({
   onHistoryWindowSizeChange,
   onClearPinnedPosture,
   onPinCurrentPosture,
+  onPinHistoryPosture,
   pinnedRetrievalPosture = null,
   showHistorySection = false,
   threadId,
@@ -1358,7 +1422,8 @@ export function RetrievalPosturePanel({
   onHistoryWindowSizeChange?: (next: RetrievalPostureHistoryWindowSize) => void;
   onClearPinnedPosture?: () => void;
   onPinCurrentPosture?: (posture: CommandCenterRetrievalPosture) => void;
-  pinnedRetrievalPosture?: CommandCenterRetrievalPosture | null;
+  onPinHistoryPosture?: (item: RetrievalPostureHistoryItem) => void;
+  pinnedRetrievalPosture?: PinnedRetrievalPostureState;
   showHistorySection?: boolean;
   threadId: number | null;
   title?: string;
@@ -1511,21 +1576,22 @@ export function RetrievalPosturePanel({
           No retrieval posture evidence for this thread.
         </div>
       ) : retrievalPosture ? (
-          <RetrievalPostureDetails
-            comparison={comparison}
-            historyFilter={historyFilter}
-            historyItems={historyItems}
-            historyWindowSize={historyWindowSize}
-            onClearPinnedPosture={onClearPinnedPosture}
-            onHistoryFilterChange={onHistoryFilterChange}
-            onHistoryWindowSizeChange={onHistoryWindowSizeChange}
-            onPinCurrentPosture={onPinCurrentPosture}
-            pinnedRetrievalPosture={pinnedRetrievalPosture}
-            retrievalPosture={retrievalPosture}
-            showHistorySection={showHistorySection}
-            showComparisonStrip={showComparisonStrip}
-            showTrendBadge={showTrendBadge}
-            trend={trend}
+        <RetrievalPostureDetails
+          comparison={comparison}
+          historyFilter={historyFilter}
+          historyItems={historyItems}
+          historyWindowSize={historyWindowSize}
+          onClearPinnedPosture={onClearPinnedPosture}
+          onHistoryFilterChange={onHistoryFilterChange}
+          onHistoryWindowSizeChange={onHistoryWindowSizeChange}
+          onPinCurrentPosture={onPinCurrentPosture}
+          onPinHistoryPosture={onPinHistoryPosture}
+          pinnedRetrievalPosture={pinnedRetrievalPosture}
+          retrievalPosture={retrievalPosture}
+          showHistorySection={showHistorySection}
+          showComparisonStrip={showComparisonStrip}
+          showTrendBadge={showTrendBadge}
+          trend={trend}
         />
       ) : null}
     </div>
