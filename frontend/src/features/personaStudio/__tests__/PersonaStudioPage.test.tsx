@@ -49,11 +49,23 @@ describe("Persona Studio Page", () => {
     const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
     const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
     const ephemeralLane = within(layout).getByTestId("persona-studio-ephemeral-chat-lane");
+    const harness = within(ephemeralLane).getByTestId("persona-studio-ephemeral-chat-harness");
+    const header = within(harness).getByTestId("persona-studio-ephemeral-chat-header");
+    const transcript = within(harness).getByTestId("persona-studio-ephemeral-chat-transcript");
+    const composer = within(harness).getByTestId("persona-studio-ephemeral-chat-composer");
 
     expect(configurationLane).toBeVisible();
     expect(ephemeralLane).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
-    expect(within(ephemeralLane).getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
+    expect(harness).toBeVisible();
+    expect(header).toBeVisible();
+    expect(transcript).toBeVisible();
+    expect(composer).toBeVisible();
+    expect(within(header).getByText("Ephemeral Chat Harness")).toBeVisible();
+    expect(within(header).getByText(/^session-local$/i)).toBeVisible();
+    expect(within(header).getByText(/^non-runtime$/i)).toBeVisible();
+    expect(within(header).getByText(/^ephemeral$/i)).toBeVisible();
+    expect(within(composer).getByRole("button", { name: /clear ephemeral session/i })).toBeVisible();
     expect(within(configurationLane).queryByTestId("persona-studio-utility-pane")).not.toBeInTheDocument();
     expect(within(shell).queryByTestId("persona-studio-support-surfaces")).not.toBeInTheDocument();
     expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
