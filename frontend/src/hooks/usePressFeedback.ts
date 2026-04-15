@@ -35,6 +35,7 @@ type PressFeedbackButtonProps = {
 
 type UsePressFeedbackOptions = {
   enabled: boolean;
+  visualMode?: "mobile" | "none";
 };
 
 function usePrefersReducedMotion(): boolean {
@@ -67,7 +68,10 @@ function usePrefersReducedMotion(): boolean {
   return prefersReducedMotion;
 }
 
-export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
+export function usePressFeedback({
+  enabled,
+  visualMode = "mobile",
+}: UsePressFeedbackOptions) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [pressed, setPressed] = useState(false);
   const pressedPointerIdRef = useRef<number | null>(null);
@@ -163,8 +167,14 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
   return useMemo(() => {
     const baseProps: PressFeedbackButtonProps = enabled
       ? {
-          className: MOBILE_INTERACTION_CLASS.pressFeedback,
-          style: getMobilePressFeedbackStyle(prefersReducedMotion),
+          className:
+            visualMode === "mobile"
+              ? MOBILE_INTERACTION_CLASS.pressFeedback
+              : undefined,
+          style:
+            visualMode === "mobile"
+              ? getMobilePressFeedbackStyle(prefersReducedMotion)
+              : undefined,
           "data-press-feedback": pressed ? "pressed" : "idle",
           "data-press-feedback-motion": prefersReducedMotion ? "reduced" : "normal",
           onPointerDown: handlePointerDown,
@@ -205,6 +215,7 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
     handlePointerUp,
     prefersReducedMotion,
     pressed,
+    visualMode,
   ]);
 }
 

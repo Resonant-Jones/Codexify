@@ -58,6 +58,31 @@ export function getMobileTapTargetStyle(
   };
 }
 
+export function getComposerControlSurfaceStyle(
+  isPhoneShell: boolean,
+  options: { variant?: "rail" | "trigger" } = {}
+): CSSProperties {
+  if (isPhoneShell) {
+    return {};
+  }
+
+  const variant = options.variant ?? "trigger";
+  const isRail = variant === "rail";
+
+  return {
+    borderStyle: "solid",
+    borderWidth: "1px",
+    borderRadius: "var(--card-radius,19px)",
+    borderColor: isRail
+      ? "color-mix(in oklab, var(--panel-border) 84%, var(--text) 16%)"
+      : "color-mix(in oklab, var(--panel-border) 76%, var(--text) 24%)",
+    boxShadow: isRail
+      ? "inset 0 1px 0 color-mix(in oklab, var(--panel-border) 28%, transparent)"
+      : "inset 0 1px 0 color-mix(in oklab, var(--panel-border) 20%, transparent)",
+    padding: isRail ? "calc(var(--composer-control-gap, 12px) / 2)" : undefined,
+  };
+}
+
 export function getMobileCompanionSurfaceStyle(
   isPhoneShell: boolean,
   state: MobileCompanionSurfaceState
