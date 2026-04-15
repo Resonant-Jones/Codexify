@@ -59,6 +59,7 @@ _LOCAL_VISION_HINTS = (
     "llava",
     "vl",
     "multimodal",
+    "gemma",
 )
 _QUANTIZATION_MARKER_RE = re.compile(
     r"^(?:q\d+(?:_[a-z0-9]+)*|bf16|f16|fp16|fp32|fp8|int4|int8)$",
