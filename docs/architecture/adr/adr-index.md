@@ -35,6 +35,7 @@ Use this note as the local map for all ADRs.
 2. [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
 3. [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 4. [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
+5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
 
 ---
 
@@ -89,6 +90,13 @@ Primary companion notes:
   * [[flows|Critical Flows]]
   * [[system-overview|System Overview]]
   * [[00-current-state]]
+
+* [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] links to:
+
+  * [[system-overview|System Overview]]
+  * [[modules-and-ownership|Modules and Ownership]]
+  * [[00-current-state]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
 
 ---
 

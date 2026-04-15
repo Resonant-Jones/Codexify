@@ -41,6 +41,7 @@ ADRs explain **why** major choices exist, specifically around:
 - **Provider/runtime vs request state separation** — why Codexify treats provider availability, model warmth, and request-level state as separate state machines
 - **Message identity vs request identity** — why `message_id` and `request_id` refer to different entities and why that distinction matters for transcript integrity
 - **Retrieval policy as a control plane** — why retrieval routing, source mode, and boundary labels are treated as a policy layer rather than a direct implementation detail
+- **Imprint UI deprecation and identity ownership** — why durable user modeling belongs under Settings, Persona Studio owns authored profile composition, and heavy inspectors remain in Diagnostics
 
 ADRs are part of the validated architecture corpus. They are not speculative planning docs, not code walkthroughs, and not excluded by the "what this atlas intentionally excludes" section.
 
@@ -76,7 +77,7 @@ The runtime view explains how the system is structured and operates. The UI view
 
 - **Current truth** (start here): [`00-current-state.md`](./00-current-state.md)
 - **Validity and trust rules**: [`kb-validity-matrix.md`](./kb-validity-matrix.md)
-- **Architectural decision rationale**: [`adr/adr-index.md`](adr/adr-index.md) — queue-backed acceptance, dual state machine model, message vs request identity, retrieval policy as control plane
+- **Architectural decision rationale**: [`adr/adr-index.md`](adr/adr-index.md) — queue-backed acceptance, dual state machine model, message vs request identity, retrieval policy as control plane, imprint UI deprecation and identity ownership
 - **Runtime structure**: [`system-overview.md`](./system-overview.md), [`flows.md`](./flows.md), [`config-and-ops.md`](./config-and-ops.md)
 - **Storage and data**: [`data-and-storage.md`](./data-and-storage.md)
 - **Ownership and seams**: [`modules-and-ownership.md`](./modules-and-ownership.md)
