@@ -101,7 +101,9 @@ export function ChatBubble({ message, isMe, guardianName }: { message: Message; 
       className="max-w-[78%] rounded-2xl p-3 shadow-sm ml-auto"
       style={{ background: "#2f2f2f", color: "#fff" }}
     >
-      <div className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</div>
+      <div className="whitespace-pre-wrap text-center text-sm leading-relaxed">
+        {message.content}
+      </div>
       <div className="mt-1.5 flex items-center justify-end gap-2">
         <span className="text-[10px] opacity-90">{fmtTime(message.createdAt)}</span>
       </div>

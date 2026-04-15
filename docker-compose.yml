@@ -140,6 +140,46 @@ services:
     restart: "no"
     command: ["/app/backend/scripts/docker/run_migrator.py"]
 
+  obsidian-ingest:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    working_dir: /app
+    profiles:
+      - cli
+    entrypoint: ["python"]
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      # Embedder runtime
+      EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      # Vector store (used by the ingest indexer to write results)
+      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
+      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./.chroma:/app/.chroma
+      # Mount the Obsidian vault from the host (read-only)
+      - ${OBSIDIAN_DIR:-}/:/vault:ro
+    restart: "no"
+    command: ["-m", "guardian.cli.ingest_cli", "ingest-obsidian", "/vault", "--rebuild"]
+
   chatgpt-migrate:
     build:
       context: .

@@ -1,3 +1,42 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a5d0cb66705562bbff699f5380bf2c9a9a200bc12aa8c569078d9630f1b5a218
-size 923
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0-rc",
+  "productName": "Codexify",
+  "version": "0.1.0",
+  "identifier": "com.codexify.desktop",
+  "mainBinaryName": "Codexify",
+  "build": {
+    "frontendDist": "../frontend/src/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm --dir frontend/src dev",
+    "beforeBuildCommand": "pnpm --dir frontend/src build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Codexify",
+        "width": 1440,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "macOS": {
+      "bundleName": "Codexify",
+      "bundleVersion": "0.1.0"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

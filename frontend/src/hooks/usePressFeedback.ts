@@ -181,6 +181,7 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
     return {
       pressed,
       prefersReducedMotion,
+      releasePressed: clearPressed,
       getPressFeedbackProps: ({
         className,
         style,
