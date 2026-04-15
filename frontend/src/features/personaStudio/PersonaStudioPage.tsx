@@ -1363,15 +1363,16 @@ export default function PersonaStudioPage() {
 
   return (
     <div className="h-full w-full overflow-auto p-[var(--card-pad)]">
-      <div className="flex h-full flex-col gap-6">
+      <div className="flex h-full flex-col gap-[var(--shell-gap)]">
         <div
-          className="flex flex-col gap-4"
+          className="flex flex-col gap-[var(--shell-gap)]"
           data-testid="persona-studio-page-header"
         >
           <div className="max-w-3xl space-y-2">
             <h1 className="text-2xl font-semibold tracking-tight">Persona Studio</h1>
             <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-              Configure runtime persona profiles. This is for configuration only — no chat history or memory records are created.
+              Configure runtime persona profiles. This is for configuration only — no chat history
+              or memory records are created.
             </p>
           </div>
 
@@ -1410,302 +1411,311 @@ export default function PersonaStudioPage() {
           </div>
         </div>
 
-        <div
-          className={`grid min-h-0 flex-1 gap-4 ${
-            isUtilityPaneOpen ? "lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]" : ""
-          }`}
+        <section
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--card-radius)] border p-[var(--card-pad)]"
+          data-testid="persona-studio-shell"
+          style={{
+            background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
+            borderColor: "var(--panel-border)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)",
+          }}
         >
-          {isUtilityPaneOpen ? (
-            <Card
-              className="bezel-none flex min-h-0 flex-col overflow-hidden rounded-2xl border"
-              role="complementary"
-              aria-label="Persona Studio utility pane"
-              data-testid="persona-studio-utility-pane"
-              style={{
-                background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
-                borderColor: "var(--panel-border)",
-              }}
-            >
-              <CardHeader className="space-y-3 pb-3">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Utility Pane</CardTitle>
-                  <Badge
-                    variant="outline"
-                    className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                    style={{ borderColor: "var(--panel-border)" }}
-                  >
-                    {utilityTab}
-                  </Badge>
-                </div>
-                <div
-                  className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
-                  data-testid="persona-studio-utility-tabs"
-                  style={
-                    {
-                      "--pill-active-text": "var(--text-on-accent)",
-                      "--pill-font": "0.92rem",
-                      width: "100%",
-                      justifyContent: "stretch",
-                    } as React.CSSProperties
-                  }
-                >
-                  {UTILITY_TABS.map((tab) => (
-                    <TabButton
-                      key={tab}
-                      active={utilityTab === tab}
-                      onClick={() => setUtilityTab(tab)}
-                    >
-                      {tab}
-                    </TabButton>
-                  ))}
-                </div>
-              </CardHeader>
-              <CardContent className="relative min-h-0 flex-1 pt-0">
-                {utilityTab === "Profiles" ? (
-                  <div
-                    data-testid="persona-studio-utility-profiles-panel"
-                    data-state="active"
-                    className="relative space-y-2"
-                  >
-                    {profiles.map((profile) => (
-                      <button
-                        key={profile.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedProfileId(profile.id);
-                        }}
-                        className={`w-full rounded-xl p-3 text-left transition-colors ${
-                          profile.id === selectedProfileId
-                            ? "border-2"
-                            : "border border-transparent hover:border-[var(--panel-border)]"
-                        }`}
-                        style={{
-                          background:
-                            profile.id === selectedProfileId
-                              ? "rgba(255,255,255,0.08)"
-                              : "transparent",
-                          borderColor:
-                            profile.id === selectedProfileId
-                              ? "var(--accent)"
-                              : "transparent",
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{profile.name}</span>
-                          {profile.isDefault && (
-                            <Badge
-                              variant="outline"
-                              className="px-1.5 py-0.5 text-[10px]"
-                              style={{ borderColor: "var(--panel-border)" }}
-                            >
-                              Default
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
-                          {profile.description}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div
-                    role="complementary"
-                    aria-label="Persona Studio diagnostics"
-                    data-testid="persona-studio-diagnostics"
-                    data-state="active"
-                    className="relative h-full"
-                  >
-                    <DiagnosticsPanel
-                      profile={selectedProfile}
-                      config={currentConfig}
-                      isDirty={isDirty}
-                      hasSavedVersion={hasSavedVersion}
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card
-            className="bezel-none flex min-h-0 flex-col rounded-2xl border"
-            role="region"
-            aria-label="Persona Studio editor"
-            data-testid="persona-studio-editor"
-            data-saved-profile-id={selectedSavedProfile?.id ?? ""}
-            data-draft-state={isDirty ? "dirty" : "clean"}
-            style={{
-              background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
-              borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
-            }}
+          <div
+            className="flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)] lg:flex-row"
+            data-testid="persona-studio-editor-two-lane-layout"
           >
-          <CardHeader className="space-y-4 pb-4">
-              <div
-                className="rounded-2xl border px-4 py-4"
-                data-testid="persona-studio-active-profile-summary"
-                style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 91%, transparent)",
-                  borderColor: "var(--panel-border)",
-                }}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 space-y-1.5">
-                    <div
-                      className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Active profile
-                    </div>
-                    <CardTitle className="text-lg leading-6">
-                      {selectedProfile?.name || "Editor"}
-                    </CardTitle>
-                    <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--muted)" }}>
-                      {selectedProfile?.description ||
-                        "Select a persona profile to edit its runtime identity and behavior."}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] px-2 py-1 uppercase tracking-[0.14em]"
-                      style={{
-                        borderColor: "var(--panel-border)",
-                      }}
-                    >
-                      {selectedProfile?.isDefault ? "Default profile" : "Custom profile"}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] px-2 py-1 uppercase tracking-[0.14em]"
-                      style={{
-                        borderColor: "var(--accent)",
-                        color: "var(--accent)",
-                      }}
-                    >
-                      Active profile
-                    </Badge>
-                  </div>
-                </div>
-                  <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                  <div
-                    className="rounded-xl border px-3 py-2"
-                    style={{
-                      borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)",
-                      background: "color-mix(in srgb, var(--panel-bg) 97%, transparent)",
-                    }}
-                  >
-                    <div
-                      className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Selection
-                    </div>
-                    <div className="mt-1 text-sm font-medium">
-                      {selectedProfile?.isDefault
-                        ? "Default runtime profile"
-                        : "Custom runtime profile"}
-                    </div>
-                  </div>
-                  <div
-                    className="rounded-xl border px-3 py-2"
-                    style={{
-                      borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)",
-                      background: "color-mix(in srgb, var(--panel-bg) 97%, transparent)",
-                    }}
-                  >
-                    <div
-                      className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Status
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-2">
+            <div
+              className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)]"
+              data-testid="persona-studio-configuration-lane"
+              style={{ flex: PERSONA_STUDIO_LEFT_LANE_FLEX }}
+            >
+              {isUtilityPaneOpen ? (
+                <Card
+                  className="bezel-none flex min-h-0 flex-col overflow-hidden rounded-2xl border"
+                  role="complementary"
+                  aria-label="Persona Studio utility pane"
+                  data-testid="persona-studio-utility-pane"
+                  style={{
+                    background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
+                    borderColor: "var(--panel-border)",
+                  }}
+                >
+                  <CardHeader className="space-y-3 pb-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <CardTitle className="text-base">Utility Pane</CardTitle>
                       <Badge
                         variant="outline"
-                        className="text-[10px] px-2 py-1"
+                        className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                         style={{ borderColor: "var(--panel-border)" }}
                       >
-                        {selectedProfile?.isDefault ? "Default" : "Custom"}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] px-2 py-1"
-                        style={{
-                          borderColor: "var(--accent)",
-                          color: "var(--accent)",
-                        }}
-                      >
-                        Active
+                        {utilityTab}
                       </Badge>
                     </div>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 pt-0">
-              <div
-                className="flex min-h-0 w-full flex-col gap-4 lg:flex-row"
-                data-testid="persona-studio-editor-two-lane-layout"
+                    <div
+                      className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
+                      data-testid="persona-studio-utility-tabs"
+                      style={
+                        {
+                          "--pill-active-text": "var(--text-on-accent)",
+                          "--pill-font": "0.92rem",
+                          width: "100%",
+                          justifyContent: "stretch",
+                        } as React.CSSProperties
+                      }
+                    >
+                      {UTILITY_TABS.map((tab) => (
+                        <TabButton
+                          key={tab}
+                          active={utilityTab === tab}
+                          onClick={() => setUtilityTab(tab)}
+                        >
+                          {tab}
+                        </TabButton>
+                      ))}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="relative min-h-0 flex-1 pt-0">
+                    {utilityTab === "Profiles" ? (
+                      <div
+                        data-testid="persona-studio-utility-profiles-panel"
+                        data-state="active"
+                        className="relative space-y-2"
+                      >
+                        {profiles.map((profile) => (
+                          <button
+                            key={profile.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedProfileId(profile.id);
+                            }}
+                            className={`w-full rounded-xl p-3 text-left transition-colors ${
+                              profile.id === selectedProfileId
+                                ? "border-2"
+                                : "border border-transparent hover:border-[var(--panel-border)]"
+                            }`}
+                            style={{
+                              background:
+                                profile.id === selectedProfileId
+                                  ? "rgba(255,255,255,0.08)"
+                                  : "transparent",
+                              borderColor:
+                                profile.id === selectedProfileId
+                                  ? "var(--accent)"
+                                  : "transparent",
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium">{profile.name}</span>
+                              {profile.isDefault && (
+                                <Badge
+                                  variant="outline"
+                                  className="px-1.5 py-0.5 text-[10px]"
+                                  style={{ borderColor: "var(--panel-border)" }}
+                                >
+                                  Default
+                                </Badge>
+                              )}
+                            </div>
+                            <p
+                              className="mt-1 line-clamp-2 text-xs"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              {profile.description}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        role="complementary"
+                        aria-label="Persona Studio diagnostics"
+                        data-testid="persona-studio-diagnostics"
+                        data-state="active"
+                        className="relative h-full"
+                      >
+                        <DiagnosticsPanel
+                          profile={selectedProfile}
+                          config={currentConfig}
+                          isDirty={isDirty}
+                          hasSavedVersion={hasSavedVersion}
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              <Card
+                className="bezel-none flex min-h-0 flex-1 flex-col rounded-2xl border"
+                role="region"
+                aria-label="Persona Studio editor"
+                data-testid="persona-studio-editor"
+                data-saved-profile-id={selectedSavedProfile?.id ?? ""}
+                data-draft-state={isDirty ? "dirty" : "clean"}
+                style={{
+                  background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
+                  borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
+                }}
               >
-                <div
-                  className="flex min-h-0 min-w-0 flex-col gap-5"
-                  data-testid="persona-studio-configuration-lane"
-                  style={{ flex: PERSONA_STUDIO_LEFT_LANE_FLEX }}
-                >
+                <CardHeader className="space-y-4 pb-4">
                   <div
-                    className="rounded-2xl border p-5"
+                    className="rounded-2xl border px-4 py-4"
+                    data-testid="persona-studio-active-profile-summary"
                     style={{
-                      background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                      background: "color-mix(in srgb, var(--panel-bg) 91%, transparent)",
                       borderColor: "var(--panel-border)",
                     }}
                   >
-                    {renderActiveTab()}
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 space-y-1.5">
+                        <div
+                          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Active profile
+                        </div>
+                        <CardTitle className="text-lg leading-6">
+                          {selectedProfile?.name || "Editor"}
+                        </CardTitle>
+                        <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--muted)" }}>
+                          {selectedProfile?.description ||
+                            "Select a persona profile to edit its runtime identity and behavior."}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                        <Badge
+                          variant="outline"
+                          className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                          style={{
+                            borderColor: "var(--panel-border)",
+                          }}
+                        >
+                          {selectedProfile?.isDefault ? "Default profile" : "Custom profile"}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                          style={{
+                            borderColor: "var(--accent)",
+                            color: "var(--accent)",
+                          }}
+                        >
+                          Active profile
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                      <div
+                        className="rounded-xl border px-3 py-2"
+                        style={{
+                          borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)",
+                          background: "color-mix(in srgb, var(--panel-bg) 97%, transparent)",
+                        }}
+                      >
+                        <div
+                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Selection
+                        </div>
+                        <div className="mt-1 text-sm font-medium">
+                          {selectedProfile?.isDefault
+                            ? "Default runtime profile"
+                            : "Custom runtime profile"}
+                        </div>
+                      </div>
+                      <div
+                        className="rounded-xl border px-3 py-2"
+                        style={{
+                          borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)",
+                          background: "color-mix(in srgb, var(--panel-bg) 97%, transparent)",
+                        }}
+                      >
+                        <div
+                          className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Status
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          <Badge
+                            variant="outline"
+                            className="px-2 py-1 text-[10px]"
+                            style={{ borderColor: "var(--panel-border)" }}
+                          >
+                            {selectedProfile?.isDefault ? "Default" : "Custom"}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className="px-2 py-1 text-[10px]"
+                            style={{
+                              borderColor: "var(--accent)",
+                              color: "var(--accent)",
+                            }}
+                          >
+                            Active
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <Button type="button" onClick={handleSave} disabled={!isDirty}>
-                      Save
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={handleSaveAsNew}
-                      disabled={!currentConfig}
+                </CardHeader>
+                <CardContent className="flex min-h-0 flex-1 pt-0">
+                  <div className="flex min-h-0 w-full flex-col gap-4">
+                    <div
+                      className="rounded-[var(--card-radius)] border p-[var(--card-pad)]"
+                      style={{
+                        background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                        borderColor: "var(--panel-border)",
+                      }}
                     >
-                      Save As New
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={handleReset}
-                      disabled={!isDirty}
-                    >
-                      Reset
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={resetAllLocalPersonaStudioData}
-                      className="whitespace-nowrap"
-                      aria-label="Reset All Local Persona Studio Data"
-                      title="Reset All Local Persona Studio Data"
-                    >
-                      Reset All Data
-                    </Button>
+                      {renderActiveTab()}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <Button type="button" onClick={handleSave} disabled={!isDirty}>
+                        Save
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleSaveAsNew}
+                        disabled={!currentConfig}
+                      >
+                        Save As New
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleReset}
+                        disabled={!isDirty}
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={resetAllLocalPersonaStudioData}
+                        className="whitespace-nowrap"
+                        aria-label="Reset All Local Persona Studio Data"
+                        title="Reset All Local Persona Studio Data"
+                      >
+                        Reset All Data
+                      </Button>
+                    </div>
                   </div>
-                </div>
-                <div
-                  className="flex min-h-0 min-w-0 flex-col"
-                  data-testid="persona-studio-ephemeral-chat-lane"
-                  style={{ flex: PERSONA_STUDIO_RIGHT_LANE_FLEX }}
-                >
-                  <EphemeralChatHarness profile={selectedProfile} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                </CardContent>
+              </Card>
+            </div>
+            <div
+              className="flex min-h-0 min-w-0 flex-col"
+              data-testid="persona-studio-ephemeral-chat-lane"
+              style={{ flex: PERSONA_STUDIO_RIGHT_LANE_FLEX }}
+            >
+              <EphemeralChatHarness profile={selectedProfile} />
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
