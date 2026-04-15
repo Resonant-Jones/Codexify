@@ -20,10 +20,13 @@ function renderPage() {
 }
 
 describe("Persona Studio Page", () => {
-  it("renders the utility pane with Profiles active by default", () => {
+  it("renders the utility pane in the left lane with Profiles active by default", () => {
     renderPage();
 
-    expect(screen.getByTestId("persona-studio-utility-pane")).toBeVisible();
+    const shell = screen.getByTestId("persona-studio-shell");
+    const configurationLane = within(shell).getByTestId("persona-studio-configuration-lane");
+
+    expect(within(configurationLane).getByTestId("persona-studio-utility-pane")).toBeVisible();
     expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
       "data-state",
       "active"
@@ -35,15 +38,20 @@ describe("Persona Studio Page", () => {
     );
   });
 
-  it("renders the two-lane Persona Studio layout with the harness on the right", () => {
+  it("renders the two-lane Persona Studio shell with the harness on the right", () => {
     renderPage();
 
-    const layout = screen.getByTestId("persona-studio-editor-two-lane-layout");
-    expect(screen.getByTestId("persona-studio-configuration-lane")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
-    expect(within(layout).getByTestId("persona-studio-configuration-lane")).toBeVisible();
-    expect(within(layout).getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
+    const shell = screen.getByTestId("persona-studio-shell");
+    const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
+    const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
+    const ephemeralLane = within(layout).getByTestId("persona-studio-ephemeral-chat-lane");
+
+    expect(configurationLane).toBeVisible();
+    expect(ephemeralLane).toBeVisible();
+    expect(within(configurationLane).getByTestId("persona-studio-utility-pane")).toBeVisible();
+    expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
+    expect(within(ephemeralLane).getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
+    expect(within(configurationLane).queryByTestId("persona-studio-ephemeral-chat-harness")).not.toBeInTheDocument();
     expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
     expect(screen.getByText(/^session-local$/i)).toBeVisible();
     expect(screen.getByText(/^non-runtime$/i)).toBeVisible();
