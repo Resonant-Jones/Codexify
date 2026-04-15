@@ -5,7 +5,7 @@
  * state from the runtime request contract instead of local loading guesses.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, FileText } from "lucide-react";
+import { ArrowUp, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
@@ -1163,7 +1163,7 @@ export function Composer({
               }
             }}
             className={cn(
-              "w-full rounded-[var(--radius-micro)] border border-[var(--panel-border)] bg-[var(--panel-bg)] text-[var(--text)] shadow-none resize-none text-base leading-relaxed placeholder:text-transparent focus-visible:ring-0 focus-visible:outline-none",
+              "w-full bg-transparent border-none outline-none text-[var(--text)] placeholder:text-[var(--muted)] resize-none text-base leading-relaxed",
               interactionState === "awaiting_model" &&
                 "opacity-60 cursor-not-allowed"
             )}
@@ -1404,11 +1404,7 @@ export function Composer({
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
               >
-                {interactionState === "submitting" && "Sending…"}
-                {interactionState === "awaiting_model" && "Warming…"}
-                {interactionState === "streaming" && "Streaming…"}
-                {(interactionState === "idle" || interactionState === "typing") &&
-                  "Send"}
+                <ArrowUp size={16} />
               </button>
             </div>
           </div>
