@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+import yaml
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from guardian.codex import service as codex_service
 from guardian.codex.lineage import ensure_lineage_exists, parse_lineage
 from guardian.codex.service import (
     list_codex_entries,
@@ -42,6 +48,7 @@ def _slugify(value: str) -> str:
 
 
 def _summary_payload(entry) -> dict:
+    thread_id = entry.source_thread_id or entry.thread_id
     return {
         "id": entry.id,
         "title": entry.title,
@@ -51,9 +58,18 @@ def _summary_payload(entry) -> dict:
         "thread_id": entry.thread_id,
         "source_thread_id": entry.source_thread_id,
         "source_message_id": entry.source_message_id,
-        "lineage_missing": entry.lineage_missing,
+        "lineage_missing": thread_id in (None, ""),
         "author_id": entry.author_id,
         "heat_score": entry.heat_score,
+    }
+
+
+def _entry_detail_payload(entry) -> dict[str, Any]:
+    return {
+        **_summary_payload(entry),
+        "message_ids": entry.message_ids,
+        "body": read_codex_body(entry),
+        "frontmatter": entry.frontmatter,
     }
 
 
@@ -74,6 +90,101 @@ def _users_match(resource_user_id: str | None, current_user_id: str) -> bool:
     pair = {resource.lower(), current.lower()}
     # Backward-compatible single-user aliases found in existing local data.
     return pair.issubset({"default", "local"})
+
+
+class CodexEntryCreateRequest(BaseModel):
+    entry_type: str = Field(alias="type")
+    content: str
+    thread_id: int = Field(alias="threadId", gt=0)
+    source_message_id: int | None = Field(
+        default=None, alias="sourceMessageId", gt=0
+    )
+    project_id: int | None = Field(default=None, alias="projectId", gt=0)
+    metadata: dict[str, Any] | None = None
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        extra="forbid",
+    )
+
+    @field_validator("entry_type")
+    @classmethod
+    def _validate_entry_type(cls, value: str) -> str:
+        value = str(value).strip()
+        if value != "note":
+            raise ValueError("type must be note")
+        return value
+
+    @field_validator("content")
+    @classmethod
+    def _validate_content(cls, value: str) -> str:
+        text = str(value).strip()
+        if not text:
+            raise ValueError("content is required")
+        return text
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _validate_metadata(cls, value: Any) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("metadata must be an object")
+        return value
+
+
+def _build_entry_id(title: str) -> str:
+    slug = _slugify(title)
+    return f"{slug}-{uuid4().hex[:8]}"
+
+
+def _entry_path(entry_id: str) -> Path:
+    root = codex_service.CODEX_ROOT
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{entry_id}.cdx"
+
+
+def _write_codex_entry(
+    *,
+    entry_id: str,
+    title: str,
+    author: str,
+    content: str,
+    thread_id: int,
+    source_message_id: int | None,
+    project_id: int | None,
+    metadata: dict[str, Any] | None,
+) -> Path:
+    now = datetime.now(timezone.utc).isoformat()
+    frontmatter: dict[str, Any] = {
+        "id": entry_id,
+        "title": title,
+        "type": "note",
+        "created_at": now,
+        "updated_at": now,
+        "author": author,
+        "thread_id": thread_id,
+        "source_thread_id": thread_id,
+        "source_message_id": source_message_id,
+        "message_id": source_message_id,
+        "message_ids": [source_message_id]
+        if source_message_id is not None
+        else [],
+    }
+    if project_id is not None:
+        frontmatter["project_id"] = project_id
+    if metadata is not None:
+        frontmatter["metadata"] = metadata
+
+    path = _entry_path(entry_id)
+    raw = (
+        "---\n"
+        + yaml.safe_dump(frontmatter, sort_keys=False).strip()
+        + "\n---\n"
+        + content
+    )
+    path.write_text(raw, encoding="utf-8")
+    return path
 
 
 def _entry_owner_user_id(entry) -> str | None:
@@ -141,11 +252,48 @@ async def codex_entry(
         raise HTTPException(status_code=404, detail="Codex entry not found")
     _ensure_entry_access(entry)
 
-    return {
-        **_summary_payload(entry),
-        "message_ids": entry.message_ids,
-        "body": read_codex_body(entry),
-    }
+    return _entry_detail_payload(entry)
+
+
+@router.post("/api/codex/entries", tags=["codex"], status_code=201)
+async def create_codex_entry(
+    body: CodexEntryCreateRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+) -> dict:
+    _ = api_key
+
+    lineage = parse_lineage(
+        {
+            "source_thread_id": body.thread_id,
+            "source_message_id": body.source_message_id,
+        }
+    )
+    try:
+        ensure_lineage_exists(lineage)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    current_user = get_single_user_id()
+    title = "Retrieval posture diff note"
+    entry_id = _build_entry_id(title)
+    _write_codex_entry(
+        entry_id=entry_id,
+        title=title,
+        author=current_user,
+        content=body.content,
+        thread_id=body.thread_id,
+        source_message_id=body.source_message_id,
+        project_id=body.project_id,
+        metadata=body.metadata,
+    )
+
+    try:
+        entry = load_codex_entry(entry_id)
+    except FileNotFoundError as e:  # pragma: no cover - defensive
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"ok": True, "entry": _entry_detail_payload(entry)}
 
 
 @router.get("/api/codex/{entry_id}/source", tags=["codex"])
@@ -175,7 +323,7 @@ async def codex_entry_source(
     }
 
     message_index = None
-    if entry.message_ids:
+    if lineage.source_message_id is not None and entry.message_ids:
         try:
             message_index = entry.message_ids.index(
                 str(lineage.source_message_id)

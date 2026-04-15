@@ -14,7 +14,7 @@ _SessionFactory: sessionmaker | None = None
 @dataclass(frozen=True)
 class CodexLineageRef:
     source_thread_id: int
-    source_message_id: int
+    source_message_id: int | None
 
 
 def _get_session_factory() -> sessionmaker:
@@ -56,16 +56,23 @@ def _coerce_int(value: Any) -> int | None:
 
 def parse_lineage(front_matter: dict[str, Any] | None) -> CodexLineageRef:
     fm = front_matter or {}
-    source_thread_id = _coerce_int(
-        fm.get("source_thread_id") or fm.get("thread_id")
-    )
-    source_message_id = _coerce_int(
-        fm.get("source_message_id") or fm.get("message_id")
-    )
-    if source_thread_id is None or source_message_id is None:
-        raise ValueError(
-            "source_thread_id and source_message_id are required for codex entries."
-        )
+    if "source_thread_id" in fm:
+        source_thread_id = _coerce_int(fm.get("source_thread_id"))
+    else:
+        source_thread_id = _coerce_int(fm.get("thread_id"))
+
+    if source_thread_id is None:
+        raise ValueError("source_thread_id is required for codex entries.")
+
+    if "source_message_id" in fm:
+        raw_source_message_id = fm.get("source_message_id")
+    elif "message_id" in fm:
+        raw_source_message_id = fm.get("message_id")
+    else:
+        raw_source_message_id = None
+    source_message_id = _coerce_int(raw_source_message_id)
+    if raw_source_message_id is not None and source_message_id is None:
+        raise ValueError("source_message_id must be an integer or null.")
     return CodexLineageRef(
         source_thread_id=source_thread_id,
         source_message_id=source_message_id,
@@ -83,6 +90,9 @@ def ensure_lineage_exists(lineage: CodexLineageRef) -> None:
             raise LookupError(
                 f"source_thread_id {lineage.source_thread_id} was not found."
             )
+
+        if lineage.source_message_id is None:
+            return
 
         message_row = session.execute(
             text(
