@@ -26,8 +26,11 @@ import {
   Zap,
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
-import { Composer } from "./components";
-import type { ComposerSendOptions } from "./components/Composer";
+import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
+import {
+  Composer,
+  type ComposerSendOptions,
+} from "@/features/guardian/components/Composer";
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
 import api, {
@@ -653,6 +656,7 @@ export function GuardianChat({
   activeModelId = "default",
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   activeDraft = "",
+  providerRuntimeState = null,
   onSessionTabActivate,
   onSessionTabClose,
   onSessionTabOpen,
@@ -691,6 +695,7 @@ export function GuardianChat({
   activeModelId?: string;
   activeInferenceMode?: ComposerInferenceMode;
   activeDraft?: string;
+  providerRuntimeState?: ProviderRuntimeState | null;
   onSessionTabActivate?: (tabId: TabId) => void;
   onSessionTabClose?: (tabId: TabId) => void;
   onSessionTabOpen?: () => void;
@@ -3304,7 +3309,6 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
                 projectId={composerProjectId}
                 projectName={activeThread.projectName ?? null}
-                isTurnInFlight={isTurnLocked(effectiveThreadId)}
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
                 onDraftValueChange={onSessionDraftChange}
@@ -3381,6 +3385,8 @@ export function GuardianChat({
                     void saveThreadConfigSnapshot(nextSnapshot);
                   }
                 }}
+                currentRequestState={completionState.requestState}
+                providerRuntimeState={providerRuntimeState}
                 sourceMode={sourceMode}
                 sourceOptions={sourceOptions}
                 onSourceModeChange={(mode) => {

@@ -11,6 +11,8 @@ import TraceWorkbench, {
   RetrievalPosturePanel,
   RetrievalPostureSummaryRow,
   type RetrievalPostureDiff,
+  type RetrievalPostureHistoryFilter,
+  type RetrievalPostureHistoryWindowSize,
 } from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
@@ -426,6 +428,10 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const [selectedRunKey, setSelectedRunKey] = React.useState<string | null>(null);
   const [traceFilters, setTraceFilters] =
     React.useState<CommandCenterTraceFilters>(filtersDefault);
+  const [retrievalPostureHistoryFilter, setRetrievalPostureHistoryFilter] =
+    React.useState<RetrievalPostureHistoryFilter>("all");
+  const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
+    React.useState<RetrievalPostureHistoryWindowSize>(5);
 
   const consoleRows = React.useMemo(() => buildCommandCenterEventConsoleRows(events), [events]);
   const visibleRuns = React.useMemo(
@@ -549,33 +555,36 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           }}
         >
           {activeThreadId !== null ? (
-            <div className="space-y-4">
-              <RecentRetrievalPosturePanel threadId={activeThreadId} />
+            <div className="mb-4">
               <RetrievalPosturePanel
                 compact
+                historyFilter={retrievalPostureHistoryFilter}
+                historyWindowSize={retrievalPostureHistoryWindowSize}
+                onHistoryFilterChange={setRetrievalPostureHistoryFilter}
+                onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
+                showHistorySection
+                showComparisonStrip
+                showTrendBadge
                 testId="command-center-thread-posture-panel"
                 threadId={activeThreadId}
                 title="Thread retrieval posture"
-                showComparisonStrip
               />
             </div>
           ) : null}
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <TraceWorkbench
-              allRuns={runs}
-              filters={traceFilters}
-              onFiltersChange={setTraceFilters}
-              onSelectRun={setSelectedRunKey}
-              selectedRun={selectedRun}
-              selectedRunKey={selectedRunKey}
-              visibleRuns={visibleRuns}
-            />
-          </div>
+          <TraceWorkbench
+            allRuns={runs}
+            filters={traceFilters}
+            onFiltersChange={setTraceFilters}
+            onSelectRun={setSelectedRunKey}
+            selectedRun={selectedRun}
+            selectedRunKey={selectedRunKey}
+            visibleRuns={visibleRuns}
+          />
+        </div>
 
-          <div
-            className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
+        <RecentRetrievalPosturePanel threadId={activeThreadId} />
+
+          <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
             <EventConsole
               connectionDetail={connectionDetail}
               connectionState={connectionState}
@@ -583,7 +592,6 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
               rows={consoleRows}
             />
           </div>
-        </div>
       </div>
     </main>
   );
