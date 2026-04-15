@@ -415,6 +415,56 @@ function comparePinnedRetrievalPosture(
   };
 }
 
+function formatRetrievalPostureCanonicalFields(
+  posture: CommandCenterRetrievalPosture
+): string[] {
+  return [
+    `- source_mode: ${posture.source_mode}`,
+    `- boundary_label: ${posture.boundary_label}`,
+    `- retrieval_override_mode: ${posture.retrieval_override_mode ?? "null"}`,
+    `- widen_reason: ${posture.widen_reason}`,
+    `- conversation_only: ${String(posture.conversation_only)}`,
+  ];
+}
+
+export function formatPinnedVsCurrentDiffNote(
+  pinnedRetrievalPosture: CommandCenterRetrievalPosture,
+  currentRetrievalPosture: CommandCenterRetrievalPosture
+): string {
+  const diff = diffRetrievalPosture(currentRetrievalPosture, pinnedRetrievalPosture);
+  const explanation = describeRetrievalPostureChange(
+    diff,
+    currentRetrievalPosture,
+    pinnedRetrievalPosture
+  );
+
+  const lines = ["Retrieval posture comparison", ""];
+
+  if (!diff.changed) {
+    lines.push("Pinned posture matches current.", "", "Current posture");
+    lines.push(...formatRetrievalPostureCanonicalFields(currentRetrievalPosture));
+    return lines.join("\n");
+  }
+
+  lines.push(
+    "Pinned posture",
+    ...formatRetrievalPostureCanonicalFields(pinnedRetrievalPosture),
+    "",
+    "Current posture",
+    ...formatRetrievalPostureCanonicalFields(currentRetrievalPosture)
+  );
+
+  if (diff.changedFields.length > 0) {
+    lines.push("", "Changed fields", ...diff.changedFields.map((field) => `- ${field}`));
+  }
+
+  if (explanation.lines.length > 0) {
+    lines.push("", "Summary", ...explanation.lines.map((line) => `- ${line}`));
+  }
+
+  return lines.join("\n");
+}
+
 function postureSignature(posture: CommandCenterRetrievalPosture | null): string | null {
   if (!posture) return null;
 
@@ -882,6 +932,13 @@ function RetrievalPostureDetails({
   type CopyFeedback = { action: CopyAction; status: "copied" | "failed" } | null;
 
   const [copyFeedback, setCopyFeedback] = React.useState<CopyFeedback>(null);
+  const [diffNoteCopyFeedback, setDiffNoteCopyFeedback] = React.useState<"copied" | "failed" | null>(
+    null
+  );
+
+  React.useEffect(() => {
+    setDiffNoteCopyFeedback(null);
+  }, [pinnedRetrievalPosture, retrievalPosture]);
 
   async function writeClipboardText(action: CopyAction, text: string): Promise<void> {
     try {
@@ -941,6 +998,19 @@ function RetrievalPostureDetails({
 
   function onCopyBundle(): void {
     void writeClipboardText("bundle", buildRetrievalPostureBundle());
+  }
+
+  async function onCopyDiffNote(): Promise<void> {
+    if (!pinnedRetrievalPosture || !retrievalPosture) return;
+
+    try {
+      await navigator.clipboard.writeText(
+        formatPinnedVsCurrentDiffNote(pinnedRetrievalPosture.posture, retrievalPosture)
+      );
+      setDiffNoteCopyFeedback("copied");
+    } catch {
+      setDiffNoteCopyFeedback("failed");
+    }
   }
 
   return (
@@ -1399,6 +1469,26 @@ function RetrievalPostureDetails({
                   </div>
                 ) : null}
               </div>
+            ) : null}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="border border-[var(--panel-border)]"
+              onClick={onCopyDiffNote}
+            >
+              Copy diff note
+            </Button>
+            {diffNoteCopyFeedback === "copied" ? (
+              <span className="text-xs" style={{ color: "var(--muted)" }}>
+                Copied diff note
+              </span>
+            ) : diffNoteCopyFeedback === "failed" ? (
+              <span className="text-xs" style={{ color: "var(--danger-text)" }}>
+                Diff note copy failed
+              </span>
             ) : null}
           </div>
         </div>
