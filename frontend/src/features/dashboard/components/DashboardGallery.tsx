@@ -2,6 +2,7 @@ import * as React from "react";
 import ContextMenu, { type ContextMenuItem } from "@/components/menus/ContextMenu";
 import MediaGrid from "@/components/media/MediaGrid";
 import TileShell from "@/components/surface/TileShell";
+import { Button } from "@/components/ui/button";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
@@ -251,11 +252,12 @@ export default function DashboardGallery({
   return (
     <div
       className="dashboardGalleryRoot"
+      style={{ gap: "var(--shell-gap)" }}
       data-gallery-layout={isPhoneShell ? "mobile_stack" : "desktop_grid"}
       data-testid="dashboard-gallery"
     >
       {isPhoneShell ? (
-        <div className="flex flex-col gap-[var(--gutter)]">
+        <div className="flex flex-col gap-[var(--shell-gap)]">
           {visibleItems.map((item, index) => {
             const resolvedSrc = normalizeMediaUrl(item.src);
             const alt = item.prompt || "Gallery image";
@@ -326,9 +328,11 @@ export default function DashboardGallery({
         </MediaGrid>
       )}
       {hasOverflow && (
-        <button
+        <Button
           type="button"
-          className="dashboardGalleryShowMore"
+          variant="ghost"
+          size="sm"
+          className="self-start"
           onClick={() => setShowAll((prev) => !prev)}
         >
           {showAll
@@ -336,7 +340,7 @@ export default function DashboardGallery({
             : `Show ${items.length - INITIAL_VISIBLE} more image${
                 items.length - INITIAL_VISIBLE === 1 ? "" : "s"
               }`}
-        </button>
+        </Button>
       )}
       <ContextMenu
         open={!!menu}
