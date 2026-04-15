@@ -39,11 +39,25 @@ describe("Persona Studio Page", () => {
     renderPage();
 
     const layout = screen.getByTestId("persona-studio-editor-two-lane-layout");
-    expect(screen.getByTestId("persona-studio-configuration-lane")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
+    const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
+    const ephemeralLane = within(layout).getByTestId("persona-studio-ephemeral-chat-lane");
+    const editorRail = within(configurationLane).getByTestId("persona-studio-editor-rail");
+    const editorFooter = within(editorRail).getByTestId("persona-studio-editor-footer");
+
+    expect(configurationLane).toBeVisible();
+    expect(ephemeralLane).toBeVisible();
+    expect(editorRail).toBeVisible();
     expect(within(layout).getByTestId("persona-studio-configuration-lane")).toBeVisible();
     expect(within(layout).getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
     expect(screen.getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
+    expect(within(editorRail).getByTestId("persona-studio-active-profile-summary")).toBeVisible();
+    expect(within(editorRail).getByTestId("persona-studio-editor-body")).toBeVisible();
+    expect(editorFooter).toBeVisible();
+    expect(within(editorRail).getByText("Selection")).toBeVisible();
+    expect(within(editorRail).getByText("Status")).toBeVisible();
+    expect(within(editorFooter).getByRole("button", { name: /^save$/i })).toBeVisible();
+    expect(within(editorFooter).getByRole("button", { name: /save as new/i })).toBeVisible();
+    expect(within(editorFooter).getByRole("button", { name: /^reset$/i })).toBeVisible();
     expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
     expect(screen.getByText(/^session-local$/i)).toBeVisible();
     expect(screen.getByText(/^non-runtime$/i)).toBeVisible();
