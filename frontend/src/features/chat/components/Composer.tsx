@@ -301,8 +301,8 @@ export function Composer({
   threadId,
   currentRequestState,
   providerRuntimeState,
-  isSending: _isSending,
-  isTurnInFlight: _isTurnInFlight,
+  isSending = false,
+  isTurnInFlight = false,
   draftValue,
   draftScopeKey,
   draftSyncDebounceMs,
@@ -433,6 +433,7 @@ export function Composer({
   const sendInFlightRef = useRef(false);
   const [showImgGen, setShowImgGen] = useState(false);
   const mobileShellProfile = useMobileShellProfile();
+  const isPhoneShell = mobileShellProfile.active;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const hasDraftContent =
@@ -451,7 +452,12 @@ export function Composer({
     interactionState === "submitting" || interactionState === "awaiting_model";
   const draftControlsDisabled = localSendInProgress;
   const voiceTurnDisabled = inputLocked || localSendInProgress;
-  const sendTransportDisabled = !hasDraftContent || inputLocked || localSendInProgress;
+  const sendBlockedByTurnLock = isSending || isTurnInFlight;
+  const sendTransportDisabled =
+    !hasDraftContent || inputLocked || localSendInProgress || sendBlockedByTurnLock;
+  const composerPressFeedback = usePressFeedback({
+    enabled: isPhoneShell && !sendTransportDisabled,
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
     try {
@@ -1006,6 +1012,30 @@ export function Composer({
     if (sendTransportDisabled) return;
     void send();
   };
+  const composerSendButtonProps = composerPressFeedback.getPressFeedbackProps({
+    className: cn(
+      "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
+      sendTransportDisabled
+        ? "cursor-not-allowed opacity-50"
+        : sendBlockedByTurnLock
+          ? "opacity-75"
+          : "",
+      "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
+      sendTransportDisabled && "opacity-50 cursor-not-allowed",
+      interactionState === "typing"
+        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
+        : "bg-[var(--panel-bg)] text-[var(--muted)]"
+    ),
+    style: {
+      ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+      width: "var(--composer-control-size, 2rem)",
+      height: "var(--composer-control-size, 2rem)",
+      background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+      color: "var(--text-on-accent, #111827)",
+      boxShadow: "none",
+      borderRadius: "9999px",
+    },
+  });
   const composerSurfaceStyle = useMemo<React.CSSProperties>(
     () =>
       ({
@@ -1370,36 +1400,9 @@ export function Composer({
             >
               <button
                 type="button"
-                {...composerPressFeedback.getPressFeedbackProps({
-                  className:
-                    cn(
-                      "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
-                      sendTransportDisabled
-                        ? "cursor-not-allowed opacity-50"
-                        : sendBlockedByTurnLock
-                          ? "opacity-75"
-                          : ""
-                    ),
-                  style: {
-                    ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
-                    width: "var(--composer-control-size, 2rem)",
-                    height: "var(--composer-control-size, 2rem)",
-                    background:
-                      "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
-                    color: "var(--text-on-accent, #111827)",
-                    boxShadow: "none",
-                    borderRadius: "9999px",
-                  },
-                })}
+                {...composerSendButtonProps}
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
-                className={cn(
-                  "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
-                  sendTransportDisabled && "opacity-50 cursor-not-allowed",
-                  interactionState === "typing"
-                    ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
-                    : "bg-[var(--panel-bg)] text-[var(--muted)]"
-                )}
               >
                 {interactionState === "submitting" && "Sending…"}
                 {interactionState === "awaiting_model" && "Warming…"}
