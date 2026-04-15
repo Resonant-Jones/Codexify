@@ -8,9 +8,9 @@ import {
   getMobileWorkspaceSummonCopy,
 } from "./mobileInteractionContract";
 import {
-  getMobileNavPillSelectionStyle,
-  type MobileNavSelectionContext,
-} from "./mobileNavSelectionContract";
+  getMobileNavigationRailPillStyle,
+  type MobileNavigationRailFeedbackContext,
+} from "./navigationRailFeedbackContract";
 
 export {
   getMobileNavPillSelectionStyle,
@@ -19,7 +19,7 @@ export {
   getMobileWorkspaceSummonCopy,
 };
 
-export type MobileNavPillFeedbackContext = MobileNavSelectionContext;
+export type MobileNavPillFeedbackContext = MobileNavigationRailFeedbackContext;
 
 export function getMobileNavigationControlStyle(
   isPhoneShell: boolean,
@@ -36,7 +36,7 @@ export function getMobileNavPillFeedbackStyle(
   context: MobileNavPillFeedbackContext,
   isActive: boolean
 ): CSSProperties {
-  return getMobileNavPillSelectionStyle(context, isActive);
+  return getMobileNavigationRailPillStyle(context, isActive);
 }
 
 /**
