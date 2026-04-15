@@ -5,7 +5,7 @@
  * state from the runtime request contract instead of local loading guesses.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, FileText } from "lucide-react";
+import { ArrowUp, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
@@ -1014,13 +1014,12 @@ export function Composer({
   };
   const composerSendButtonProps = composerPressFeedback.getPressFeedbackProps({
     className: cn(
-      "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
+      "inline-flex items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
       sendTransportDisabled
         ? "cursor-not-allowed opacity-50"
         : sendBlockedByTurnLock
           ? "opacity-75"
           : "",
-      "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
       sendTransportDisabled && "opacity-50 cursor-not-allowed",
       interactionState === "typing"
         ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
@@ -1163,7 +1162,7 @@ export function Composer({
               }
             }}
             className={cn(
-              "w-full rounded-[var(--radius-micro)] border border-[var(--panel-border)] bg-[var(--panel-bg)] text-[var(--text)] shadow-none resize-none text-base leading-relaxed placeholder:text-transparent focus-visible:ring-0 focus-visible:outline-none",
+              "w-full bg-transparent border-none outline-none text-[var(--text)] placeholder:text-[var(--muted)] resize-none text-base leading-relaxed",
               interactionState === "awaiting_model" &&
                 "opacity-60 cursor-not-allowed"
             )}
@@ -1397,6 +1396,7 @@ export function Composer({
             <div
               data-testid="composer-send-slot"
               className="flex shrink-0 items-center justify-center"
+              style={{ marginRight: "var(--composer-control-gap, 12px)" }}
             >
               <button
                 type="button"
@@ -1404,11 +1404,7 @@ export function Composer({
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
               >
-                {interactionState === "submitting" && "Sending…"}
-                {interactionState === "awaiting_model" && "Warming…"}
-                {interactionState === "streaming" && "Streaming…"}
-                {(interactionState === "idle" || interactionState === "typing") &&
-                  "Send"}
+                <ArrowUp size={16} />
               </button>
             </div>
           </div>
