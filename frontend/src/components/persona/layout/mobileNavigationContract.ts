@@ -1,13 +1,20 @@
 import type { CSSProperties } from "react";
 
 import {
+  MOBILE_INTERACTION,
   getMobileTapTargetStyle,
   getMobileTopNavDockStyle,
   getMobileTopNavRailStyle,
   getMobileWorkspaceSummonCopy,
 } from "./mobileInteractionContract";
+import type { MobileGestureState } from "./mobileMotionContract";
 
 export { getMobileTopNavDockStyle, getMobileTopNavRailStyle, getMobileWorkspaceSummonCopy };
+
+export type MobileNavPillFeedbackContext = Pick<
+  MobileGestureState,
+  "isPhoneShell" | "isCoarsePointer" | "prefersReducedMotion"
+>;
 
 export function getMobileNavigationControlStyle(
   isPhoneShell: boolean,
@@ -41,13 +48,10 @@ export function getMobileNavPillFeedbackStyle(
 
   // Full motion: spring-like transition for active state
   return {
-    transitionDuration: isActive
-      ? `${MOBILE_INTERACTION.pressReleaseMs + MOBILE_INTERACTION.settleMs}ms`
-      : `${MOBILE_INTERACTION.pressScaleDownMs}ms`,
-    transitionTimingFunction: isActive
-      ? "cubic-bezier(0.34, 1.2, 0.64, 1)"
-      : "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+    transitionDuration: `${MOBILE_INTERACTION.releaseMs}ms`,
+    transitionTimingFunction: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
     transform: isActive ? "scale(1.02)" : "scale(1)",
+    opacity: isActive ? 1 : 0.78,
   };
 }
 
@@ -67,15 +71,16 @@ export function getMobileWorkspaceSummonFeedbackStyle(
 
   if (prefersReducedMotion) {
     return {
-      transitionDuration: "80ms",
+      transitionDuration: `${MOBILE_INTERACTION.reducedMotionReleaseMs}ms`,
       transitionTimingFunction: "ease",
       opacity: isOpen ? 0.9 : 0.8,
     };
   }
 
   return {
-    transitionDuration: `${MOBILE_INTERACTION.pressScaleDownMs}ms`,
+    transitionDuration: `${MOBILE_INTERACTION.releaseMs}ms`,
     transitionTimingFunction: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
-    transform: isOpen ? "scale(1)" : "scale(1)",
+    opacity: isOpen ? 1 : 0.96,
+    transform: isOpen ? "scale(1)" : "scale(0.99)",
   };
 }
