@@ -1,9 +1,11 @@
+import base64
 import inspect
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import requests
 from fastapi import HTTPException
@@ -505,6 +507,81 @@ def _messages_contain_image_payload(messages: list[dict[str, Any]]) -> bool:
         if isinstance(images, list) and images:
             return True
     return False
+
+
+def _transform_messages_for_ollama_vision(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Rewrite messages containing image_url content parts into Ollama-native format.
+
+    Ollama native /api/chat expects a top-level ``images`` list (base64 bytes) on each
+    message, not ``image_url`` content parts. Returns messages unchanged if no images present.
+    """
+    if not _messages_contain_image_payload(messages):
+        return messages
+    result: list[dict[str, Any]] = []
+    for message in messages or []:
+        content = message.get("content")
+        if not isinstance(content, list) or not _content_has_image_payload(
+            content
+        ):
+            result.append(message)
+            continue
+        text_parts, image_base64_list = [], []
+        for part in content:
+            part_type = str(part.get("type") or "").strip().lower()
+            if part_type == "text":
+                txt = str(part.get("text") or "").strip()
+                if txt:
+                    text_parts.append(txt)
+            elif part_type == "image_url":
+                img_url = str(
+                    (part.get("image_url") or {}).get("url") or ""
+                ).strip()
+                if img_url:
+                    encoded = _encode_image_url_to_base64(img_url)
+                    if encoded:
+                        image_base64_list.append(encoded)
+        ollama_message = {
+            "role": message.get("role", "user"),
+            "content": " ".join(text_parts) if text_parts else "",
+        }
+        if image_base64_list:
+            ollama_message["images"] = image_base64_list
+        result.append(ollama_message)
+    return result
+
+
+def _encode_image_url_to_base64(url: str) -> str | None:
+    """Fetch a remote HTTP URL or Codexify media path and return base64-encoded bytes."""
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        if parsed.path.startswith("/media/"):
+            media_path = unquote(parsed.path[len("/media/") :])
+            local_root = os.environ.get("GUARDIAN_MEDIA_ROOT", "")
+            if local_root and media_path:
+                file_path = os.path.join(local_root, media_path)
+                with open(file_path, "rb") as fh:
+                    return base64.b64encode(fh.read()).decode("utf-8")
+            from guardian.core.config import get_settings
+
+            settings = get_settings()
+            host = getattr(settings, "GUARDIAN_INTERNAL_HOST", "localhost")
+            port = getattr(settings, "GUARDIAN_INTERNAL_PORT", "8000")
+            resp = requests.get(
+                f"http://{host}:{port}{parsed.path}", timeout=10
+            )
+            resp.raise_for_status()
+            return base64.b64encode(resp.content).decode("utf-8")
+        elif parsed.scheme in ("http", "https"):
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            return base64.b64encode(resp.content).decode("utf-8")
+    except Exception:
+        pass
+    return None
 
 
 def resolve_local_runtime_policy(
@@ -1458,12 +1535,36 @@ def call_local(
         )
         for kind, url in attempt_urls:
             try:
+                logger.info(
+                    "chat.inference.request.built",
+                    extra={
+                        "provider": "local",
+                        "model": model,
+                        "endpoint_kind": kind,
+                        "has_images": _messages_contain_image_payload(
+                            adapted_messages
+                        ),
+                        "message_count": len(adapted_messages),
+                        "content_part_counts": [
+                            len(m.get("content", []))
+                            if isinstance(m.get("content"), list)
+                            else 0
+                            for m in adapted_messages
+                        ],
+                        "stream": False,
+                    },
+                )
                 if kind == "openai":
                     resp = _post_json(url, payload)
                 elif kind == "ollama_chat":
+                    ollama_messages = adapted_messages
+                    if _messages_contain_image_payload(adapted_messages):
+                        ollama_messages = _transform_messages_for_ollama_vision(
+                            adapted_messages
+                        )
                     payload_ollama: Dict[str, Any] = {
                         "model": model,
-                        "messages": adapted_messages,
+                        "messages": ollama_messages,
                         "stream": False,
                     }
                     resp = _post_json(url, payload_ollama)
@@ -1645,6 +1746,25 @@ def stream_local(
             for kind, url in attempt_urls:
                 current_url = url
                 try:
+                    logger.info(
+                        "chat.inference.request.built",
+                        extra={
+                            "provider": "local",
+                            "model": model,
+                            "endpoint_kind": kind,
+                            "has_images": _messages_contain_image_payload(
+                                adapted_messages
+                            ),
+                            "message_count": len(adapted_messages),
+                            "content_part_counts": [
+                                len(m.get("content", []))
+                                if isinstance(m.get("content"), list)
+                                else 0
+                                for m in adapted_messages
+                            ],
+                            "stream": True,
+                        },
+                    )
                     if kind == "openai":
                         resp = requests.post(
                             url,
@@ -1654,9 +1774,16 @@ def stream_local(
                             timeout=timeout,
                         )
                     else:
+                        ollama_messages = adapted_messages
+                        if _messages_contain_image_payload(adapted_messages):
+                            ollama_messages = (
+                                _transform_messages_for_ollama_vision(
+                                    adapted_messages
+                                )
+                            )
                         payload_ollama = {
                             "model": model,
-                            "messages": adapted_messages,
+                            "messages": ollama_messages,
                             "temperature": 0.7
                             if temperature is None
                             else float(temperature),
