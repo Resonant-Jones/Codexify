@@ -50,6 +50,15 @@ introduces live retrieval behavior changes in this task.
 - `relationship_trace`: follow links or relationships between entities or facts.
 - `obsidian_only`: hard source mode that queries only Obsidian-backed documents and fails closed when no Obsidian evidence exists.
 
+## Source Mode Guarantees
+
+| Source Mode | Included Evidence | Required Sources | Notes |
+|---|---|---|---|
+| `project` | `thread_messages`, `semantic`, `docs` | none | Project-scoped retrieval remains local-first and may widen through ordinary local policy. |
+| `personal_knowledge` | `thread_messages`, `semantic`, `memory`, `obsidian` | `obsidian` | Always attempts Obsidian retrieval and surfaces `obsidian_empty_in_personal_knowledge` when no Obsidian docs are available. |
+| `obsidian_only` | `thread_messages`, `obsidian` | `obsidian` | Obsidian-only mode remains strict and fails closed when no Obsidian docs are available. |
+| `conversation` | `thread_messages` | none | Conversation-only mode stays inside the active thread history. |
+
 ## Routing Dimensions
 
 - `default scope`

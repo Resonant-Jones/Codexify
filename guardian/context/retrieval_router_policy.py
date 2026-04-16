@@ -136,6 +136,34 @@ SOURCE_MODE_BOUNDARY_LABELS: dict[str, str] = {
     SOURCE_MODE_OBSIDIAN_ONLY: SOURCE_MODE_BOUNDARY_SAME_USER_ONLY,
 }
 
+SOURCE_MODE_POSTURE: dict[str, dict[str, tuple[str, ...]]] = {
+    SOURCE_MODE_PROJECT: {
+        "includes": (
+            "thread_messages",
+            "semantic",
+            "docs",
+        ),
+        "required_sources": (),
+    },
+    SOURCE_MODE_PERSONAL_KNOWLEDGE: {
+        "includes": (
+            "thread_messages",
+            "semantic",
+            "memory",
+            "obsidian",
+        ),
+        "required_sources": ("obsidian",),
+    },
+    SOURCE_MODE_CONVERSATION: {
+        "includes": ("thread_messages",),
+        "required_sources": (),
+    },
+    SOURCE_MODE_OBSIDIAN_ONLY: {
+        "includes": ("thread_messages", "obsidian"),
+        "required_sources": ("obsidian",),
+    },
+}
+
 
 QUERY_INTENTS: frozenset[str] = frozenset(
     intent.value for intent in QueryIntent
@@ -594,6 +622,7 @@ __all__ = [
     "SOURCE_MODE_OBSIDIAN_ONLY",
     "SOURCE_MODE_PERSONAL_KNOWLEDGE",
     "SOURCE_MODE_PROJECT",
+    "SOURCE_MODE_POSTURE",
     "SOURCE_MODES",
     "SCOPE_MODES",
     "TIME_MODES",

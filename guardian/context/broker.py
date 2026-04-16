@@ -93,6 +93,14 @@ def merge_retrieval_policy(
     return policy  # type: ignore[return-value]
 
 
+def _append_retrieval_warning(context: Dict[str, Any], warning: str) -> None:
+    warnings = context.get("retrieval_warnings")
+    if not isinstance(warnings, list):
+        warnings = []
+    warnings.append(warning)
+    context["retrieval_warnings"] = warnings
+
+
 def _thread_namespace(thread_id: int) -> str:
     return f"thread:{thread_id}"
 
@@ -379,19 +387,12 @@ class ContextBroker:
         context["obsidian"] = []
         semantic_widen_reason = WIDEN_REASON_NONE
         if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
-            obsidian_docs: list[dict[str, Any]] = []
-            if self._obsidian_retrieval_enabled():
-                try:
-                    obsidian_docs = await self._search_semantic(
-                        query,
-                        k_semantic,
-                        namespace=OBSIDIAN_NAMESPACE,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "[ContextBroker] Obsidian-only retrieval failed; continuing without it: %s",
-                        exc,
-                    )
+            obsidian_docs = await self._retrieve_obsidian_documents(
+                query,
+                user_id=resolved_user_id,
+                project_scope=resolved_project_id,
+                k=k_semantic,
+            )
             context.update(
                 {
                     "semantic": [],
@@ -487,7 +488,21 @@ class ContextBroker:
                     search_fn=self._search_semantic,
                 )
                 semantic_obsidian: list[dict[str, Any]] = []
-                if not conversation_only and self._obsidian_retrieval_enabled():
+                if normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE:
+                    semantic_obsidian = await self._retrieve_obsidian_documents(
+                        query,
+                        user_id=resolved_user_id,
+                        project_scope=resolved_project_id,
+                        k=k_semantic,
+                    )
+                    if not semantic_obsidian:
+                        _append_retrieval_warning(
+                            context,
+                            "obsidian_empty_in_personal_knowledge",
+                        )
+                elif (
+                    not conversation_only and self._obsidian_retrieval_enabled()
+                ):
                     try:
                         semantic_obsidian = await self._search_semantic(
                             query,
@@ -893,6 +908,33 @@ class ContextBroker:
                 return await result
             return result if isinstance(result, list) else []
         return []
+
+    async def _retrieve_obsidian_documents(
+        self,
+        query: str,
+        *,
+        user_id: Optional[str],
+        project_scope: Optional[int],
+        k: int,
+    ) -> List[Dict[str, Any]]:
+        """Fetch Obsidian-backed documents from the shared vector corpus."""
+        if k <= 0:
+            return []
+
+        try:
+            return await self._search_semantic(
+                query,
+                k,
+                namespace=OBSIDIAN_NAMESPACE,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[ContextBroker] Obsidian retrieval failed user=%s project=%s: %s",
+                user_id or "default",
+                project_scope,
+                exc,
+            )
+            return []
 
     async def _search_memory(
         self,
