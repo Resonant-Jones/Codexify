@@ -1019,7 +1019,6 @@ export function Composer({
   const showLineageCopy =
     !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
   const lineageCopy = `Send a message to ${lineageTargetLabel}`;
-  const suppressPlaceholder = showLineageCopy && Boolean(projectName?.trim());
   const sendButtonLabel =
     interactionState === "submitting"
       ? "Sending…"
@@ -1162,8 +1161,8 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
-            aria-label={suppressPlaceholder ? lineageCopy : undefined}
-            placeholder={suppressPlaceholder ? "" : "Write a message…"}
+            aria-label={lineageCopy}
+            placeholder=""
             className={cn(
               "w-full bg-transparent border-none outline-none text-[var(--text)] placeholder:text-[var(--muted)] resize-none text-base leading-relaxed",
               interactionState === "awaiting_model" &&
