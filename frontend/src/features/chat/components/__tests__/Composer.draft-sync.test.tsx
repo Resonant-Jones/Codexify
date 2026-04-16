@@ -448,27 +448,26 @@ describe("Composer draft sync", () => {
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
     expect(sendButton).toHaveClass(
-      "rounded-[var(--radius-micro)]",
-      "px-3",
-      "py-2",
-      "transition-all"
+      "rounded-full",
+      "border-0",
+      "p-0",
+      "transition-opacity"
     );
     expect(sendButton).toHaveTextContent("Send");
     expect(sendButton.className).toContain("bg-[var(--accent)]");
     expect(sendButton.className).toContain("text-[var(--pill-active-text)]");
-    expect(sendButton.className).not.toContain("rounded-full");
+    expect(sendButton.className).not.toContain("rounded-[var(--radius-micro)]");
 
     const textarea = screen.getByPlaceholderText("Write a message…");
     expect(textarea).toHaveClass(
-      "rounded-[var(--radius-micro)]",
-      "bg-[var(--panel-bg)]",
-      "border",
-      "border-[var(--panel-border)]"
+      "w-full",
+      "bg-transparent",
+      "border-none",
+      "outline-none"
     );
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
-    expect(composerSource).toContain("rounded-[var(--radius-micro)]");
-    expect(composerSource).toContain("bg-[var(--panel-bg)]");
+    expect(composerSource).toContain("bg-transparent");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
