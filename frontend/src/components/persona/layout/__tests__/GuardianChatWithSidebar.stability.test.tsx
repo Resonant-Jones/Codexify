@@ -106,6 +106,14 @@ vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
   default: () => null,
 }));
 
+vi.mock("@/features/chat/hooks/useProviderState", () => ({
+  useProviderState: () => ({
+    data: null,
+    error: null,
+    isLoading: false,
+  }),
+}));
+
 vi.mock("@/components/ui/RefractiveGlassCard", () => ({
   default: ({ children }: { children?: ReactNode }) => <>{children ?? null}</>,
 }));
