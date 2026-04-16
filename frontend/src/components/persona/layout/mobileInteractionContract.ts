@@ -58,6 +58,29 @@ export function getMobileTapTargetStyle(
   };
 }
 
+export function getMobilePressSurfaceStyle(
+  isPhoneShell: boolean,
+  prefersReducedMotion: boolean
+): CSSProperties {
+  if (!isPhoneShell) {
+    return {};
+  }
+
+  return {
+    transitionProperty: prefersReducedMotion
+      ? "opacity, filter, background-color, border-color, box-shadow"
+      : "transform, opacity, filter, background-color, border-color, box-shadow",
+    transitionDuration: `${
+      prefersReducedMotion
+        ? MOBILE_INTERACTION.reducedMotionReleaseMs
+        : MOBILE_INTERACTION.releaseMs
+    }ms`,
+    transitionTimingFunction: prefersReducedMotion
+      ? "linear"
+      : "cubic-bezier(0.22, 1, 0.36, 1)",
+  };
+}
+
 export function getComposerControlSurfaceStyle(
   isPhoneShell: boolean,
   options: { variant?: "rail" | "trigger" } = {}
