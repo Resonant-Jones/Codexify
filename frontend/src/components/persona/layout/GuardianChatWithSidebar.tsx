@@ -252,6 +252,13 @@ export default function GuardianChatWithSidebar({
     return stored;
   });
 
+  const [selectedProjectName, setSelectedProjectName] = React.useState<string | null>(null);
+
+  const handleSelectedProjectChange = React.useCallback((id: string | null, name: string | null) => {
+    setSelectedProjectId(id);
+    setSelectedProjectName(name);
+  }, []);
+
   // Persist sidebar visibility preference
   React.useEffect(() => {
     try {
@@ -654,6 +661,10 @@ export default function GuardianChatWithSidebar({
       window.history.replaceState({}, "", nextPath);
     }
     sessionSpine?.tabActivate(tabId);
+    // Sync sidebar project selection to the activated tab's thread project.
+    const tabProjectId = nextTab?.projectId ?? null;
+    setSelectedProjectId(tabProjectId);
+    setSelectedProjectName(tabProjectId != null ? (nextTab?.projectName ?? null) : null);
   }, [sessionRail.tabs, sessionSpine]);
 
   const handleSessionTabClose = React.useCallback((tabId: TabId) => {
@@ -1061,11 +1072,11 @@ export default function GuardianChatWithSidebar({
         { id: "bot", name: guardianName || "Guardian" },
       ],
       messages: [],
-      projectId: null,
-      projectName: null,
+      projectId: selectedProjectId,
+      projectName: selectedProjectName,
       lastInteractionAt: null,
     };
-  }, [threads, activeId, userName, guardianName]);
+  }, [threads, activeId, userName, guardianName, selectedProjectId, selectedProjectName]);
 
   const handleNewChatImmediate = () => {
     void handleNewChat();
@@ -1532,7 +1543,8 @@ export default function GuardianChatWithSidebar({
                     onSelect={handleSelectThread}
                     onNewChat={handleNewChatImmediate}
                     projectId={selectedProjectId}
-                    onProjectChange={setSelectedProjectId}
+                    projectName={selectedProjectName}
+                    onProjectChange={handleSelectedProjectChange}
                     hasMoreThreads={threadsHasMore}
                     loadingMoreThreads={threadsLoadingMore}
                     onLoadMoreThreads={loadMoreThreads}
@@ -1607,7 +1619,8 @@ export default function GuardianChatWithSidebar({
                   onSelect={handleSelectThread}
                   onNewChat={handleNewChatImmediate}
                   projectId={selectedProjectId}
-                  onProjectChange={setSelectedProjectId}
+                  projectName={selectedProjectName}
+                  onProjectChange={handleSelectedProjectChange}
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}
                   onLoadMoreThreads={loadMoreThreads}
