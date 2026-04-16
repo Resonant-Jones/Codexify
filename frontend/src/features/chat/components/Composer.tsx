@@ -5,7 +5,7 @@
  * state from the runtime request contract instead of local loading guesses.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, FileText } from "lucide-react";
+import { ArrowUp, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
@@ -304,8 +304,8 @@ export function Composer({
   threadId,
   currentRequestState,
   providerRuntimeState,
-  isSending: _isSending,
-  isTurnInFlight: _isTurnInFlight,
+  isSending = false,
+  isTurnInFlight = false,
   draftValue,
   draftScopeKey,
   draftSyncDebounceMs,
@@ -1024,6 +1024,29 @@ export function Composer({
     if (sendTransportDisabled) return;
     void send();
   };
+  const composerSendButtonProps = composerPressFeedback.getPressFeedbackProps({
+    className: cn(
+      "inline-flex items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
+      sendTransportDisabled
+        ? "cursor-not-allowed opacity-50"
+        : sendBlockedByTurnLock
+          ? "opacity-75"
+          : "",
+      sendTransportDisabled && "opacity-50 cursor-not-allowed",
+      interactionState === "typing"
+        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
+        : "bg-[var(--panel-bg)] text-[var(--muted)]"
+    ),
+    style: {
+      ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+      width: "var(--composer-control-size, 2rem)",
+      height: "var(--composer-control-size, 2rem)",
+      background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+      color: "var(--text-on-accent, #111827)",
+      boxShadow: "none",
+      borderRadius: "9999px",
+    },
+  });
   const composerSurfaceStyle = useMemo<React.CSSProperties>(
     () =>
       ({
@@ -1151,7 +1174,7 @@ export function Composer({
               }
             }}
             className={cn(
-              "w-full rounded-[var(--radius-micro)] border border-[var(--panel-border)] bg-[var(--panel-bg)] text-[var(--text)] shadow-none resize-none text-base leading-relaxed placeholder:text-transparent focus-visible:ring-0 focus-visible:outline-none",
+              "w-full bg-transparent border-none outline-none text-[var(--text)] placeholder:text-[var(--muted)] resize-none text-base leading-relaxed",
               interactionState === "awaiting_model" &&
                 "opacity-60 cursor-not-allowed"
             )}
@@ -1394,6 +1417,7 @@ export function Composer({
             <div
               data-testid="composer-send-slot"
               className="flex shrink-0 items-center justify-center"
+              style={{ marginRight: "var(--composer-control-gap, 12px)" }}
             >
               <button
                 type="button"
@@ -1421,11 +1445,7 @@ export function Composer({
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
               >
-                {interactionState === "submitting" && "Sending…"}
-                {interactionState === "awaiting_model" && "Warming…"}
-                {interactionState === "streaming" && "Streaming…"}
-                {(interactionState === "idle" || interactionState === "typing") &&
-                  "Send"}
+                <ArrowUp size={16} />
               </button>
             </div>
           </div>
