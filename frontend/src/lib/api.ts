@@ -1110,4 +1110,18 @@ export async function fetchPersonalFactRevisions(
   return Array.isArray(response.data?.revisions) ? response.data.revisions : [];
 }
 
+export async function fetchProviderState() {
+  const res = await fetch("/api/health/llm");
+
+  if (!res.ok) {
+    throw new Error(`Provider state fetch failed: ${res.status}`);
+  }
+
+  const json = await res.json();
+
+  console.log("[provider-state:raw]", json);
+
+  return json;
+}
+
 export default api;
