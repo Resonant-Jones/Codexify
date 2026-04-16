@@ -242,6 +242,7 @@ function resolveViewFromPathname(pathname: string): AppShellView | null {
   if (pathname.startsWith("/gallery")) return "gallery";
   if (pathname.startsWith("/documents")) return "documents";
   if (pathname.startsWith("/dashboard")) return "dashboard";
+  if (pathname.startsWith("/guardian")) return "guardian";
   if (pathname.startsWith("/chat")) return "guardian";
   return null;
 }

@@ -379,6 +379,16 @@ describe("AppShell logo wordmark color contract", () => {
       await screen.findByText(/configure runtime persona profiles/i)
     ).toBeInTheDocument();
   });
+
+  it("keeps Guardian mounted when the legacy /guardian route is visited", async () => {
+    setRoutePath("/guardian");
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByTestId("guardian-chat-with-sidebar-mock")
+    ).toBeInTheDocument();
+  });
 });
 
 describe("AppShell settings utility trigger", () => {

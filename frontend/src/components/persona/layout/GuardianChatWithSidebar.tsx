@@ -1715,7 +1715,7 @@ export default function GuardianChatWithSidebar({
                       sessionSpine.tabSetThread(activeSessionTabId, undefined, NEW_THREAD_TITLE);
                     }
                     if (typeof window !== "undefined") {
-                      window.history.pushState({}, "", "/guardian");
+                      window.history.pushState({}, "", "/chat");
                     }
                   }}
                   bare

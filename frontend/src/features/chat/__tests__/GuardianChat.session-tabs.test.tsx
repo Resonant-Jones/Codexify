@@ -50,7 +50,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-vi.mock("@/features/chat/components", () => ({
+vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: () => <div data-testid="composer-stub" />,
 }));
 
@@ -333,10 +333,12 @@ describe("GuardianChat session-tab binding", () => {
     await waitFor(() => {
       const shell = screen.getByTestId("guardian-shell");
       expect(shell.className).toContain(GUARDIAN_SHELL_MAX_WIDTH_CLASS);
+      expect(shell).toBeVisible();
 
       const lane = screen.getByTestId("composer-conversation-lane");
       expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
       expect(lane.className).toContain(CHAT_LANE_MAX_WIDTH_CLASS);
+      expect(lane).toBeVisible();
 
       const composerShell = screen.getByTestId("composer-shell");
       expect(composerShell).toHaveStyle({
