@@ -458,7 +458,7 @@ export function Composer({
     interactionState === "submitting" || interactionState === "awaiting_model";
   const draftControlsDisabled = localSendInProgress;
   const sendTransportDisabled = !hasDraftContent || inputLocked || localSendInProgress;
-  const turnLocked = Boolean(_isTurnInFlight);
+  const turnLocked = Boolean(isTurnInFlight);
   const transportBusy = localSendInProgress;
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const voiceTurnDisabled = inputLocked || localSendInProgress || turnLocked;

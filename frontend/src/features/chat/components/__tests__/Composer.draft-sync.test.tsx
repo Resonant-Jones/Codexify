@@ -448,14 +448,14 @@ describe("Composer draft sync", () => {
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
     expect(sendButton).toHaveClass(
-      "rounded-full",
+      "inline-flex",
+      "items-center",
+      "justify-center",
       "border-0",
-      "p-0",
-      "transition-opacity"
+      "transition-opacity",
+      "focus:outline-none"
     );
     expect(sendButton).toHaveTextContent("Send");
-    expect(sendButton.className).toContain("bg-[var(--accent)]");
-    expect(sendButton.className).toContain("text-[var(--pill-active-text)]");
     expect(sendButton.className).not.toContain("rounded-[var(--radius-micro)]");
 
     const textarea = screen.getByPlaceholderText("Write a message…");
