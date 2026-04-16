@@ -12,10 +12,7 @@ import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import {
-  getComposerControlRowStyle,
   getComposerControlSurfaceStyle,
-  getComposerSendButtonStyle,
-  getComposerSendSlotStyle,
   getMobileTapTargetStyle,
 } from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
@@ -1035,6 +1032,29 @@ export function Composer({
     if (sendTransportDisabled) return;
     void send();
   };
+  const composerSendButtonProps = composerPressFeedback.getPressFeedbackProps({
+    className: cn(
+      "inline-flex items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
+      sendTransportDisabled
+        ? "cursor-not-allowed opacity-50"
+        : sendBlockedByTurnLock
+          ? "opacity-75"
+          : "",
+      sendTransportDisabled && "opacity-50 cursor-not-allowed",
+      interactionState === "typing"
+        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
+        : "bg-[var(--panel-bg)] text-[var(--muted)]"
+    ),
+    style: {
+      ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+      width: "var(--composer-control-size, 2rem)",
+      height: "var(--composer-control-size, 2rem)",
+      background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+      color: "var(--text-on-accent, #111827)",
+      boxShadow: "none",
+      borderRadius: "9999px",
+    },
+  });
   const composerSurfaceStyle = useMemo<React.CSSProperties>(
     () =>
       ({
@@ -1317,7 +1337,7 @@ export function Composer({
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
               "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
-            style={{ ...getComposerControlRowStyle(isPhoneShell) }}
+            style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
           <div
             data-testid="composer-controls-strip"
@@ -1407,27 +1427,29 @@ export function Composer({
             <div
               data-testid="composer-send-slot"
               className="flex shrink-0 items-center justify-center"
-              style={getComposerSendSlotStyle(isPhoneShell)}
+              style={{ marginRight: "6px" }}
             >
               <button
                 type="button"
                 {...composerPressFeedback.getPressFeedbackProps({
-                  className: cn(
-                    "inline-flex items-center justify-center border-0 transition-opacity focus:outline-none",
-                    sendTransportDisabled ? "cursor-not-allowed" : ""
-                  ),
+                  className:
+                    cn(
+                      "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
+                      sendTransportDisabled
+                        ? "cursor-not-allowed opacity-50"
+                        : sendBlockedByTurnLock
+                          ? "opacity-75"
+                          : "",
+                      interactionState === "typing"
+                        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
+                        : "bg-[var(--panel-bg)] text-[var(--muted)]"
+                    ),
                   style: {
                     ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
-                    ...getComposerSendButtonStyle(
-                      isPhoneShell,
-                      sendTransportDisabled
-                        ? "disabled"
-                        : composerPressFeedback.pressed
-                          ? "pressed"
-                          : hasDraftContent
-                            ? "ready"
-                            : "idle"
-                    ),
+                    transform:
+                      !isPhoneShell && composerPressFeedback.pressed
+                        ? "translateY(1px)"
+                        : undefined,
                   },
                 })}
                 onClick={handleAttemptSend}
