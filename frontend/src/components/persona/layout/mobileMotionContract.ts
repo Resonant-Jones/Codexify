@@ -22,6 +22,7 @@ export const MOBILE_MOTION = {
   workspaceSheetExitMs: 180,
   workspaceSheetSettleMs: 60,
   chromeMs: 180,
+  navSelectionMs: 140,
   reducedMs: 1,
   touchTargetMinHeight: "44px",
   touchTargetMinWidth: "44px",

@@ -517,7 +517,7 @@ export function ChatBubble({
       }
     : undefined;
   const userMessageTextClass = cn(
-    "min-w-0 text-sm leading-relaxed whitespace-pre-wrap break-words",
+    "w-full min-w-0 text-center text-sm leading-relaxed whitespace-pre-wrap break-words",
     userMessageLooksLikeCode ? "font-mono text-[13px] leading-5" : null
   );
 

@@ -84,7 +84,7 @@ function MobileRecentDocumentRow({
             {doc.name}
           </div>
           <div
-            className="mt-1 flex flex-wrap items-center gap-2 text-[11px]"
+            className="mt-[calc(var(--card-pad)/4)] flex flex-wrap items-center gap-[var(--pill-gap)] text-[11px]"
             style={{ color: "var(--muted)" }}
           >
             <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
@@ -296,6 +296,11 @@ export default function DashboardView({
   const threadColumns = mobileShellProfile.dashboard.threadColumns;
   const threadLimit = threadColumns * rows;
   const threadList = pinnedThreads.slice(0, threadLimit);
+  const dashboardCardPadding = mobileShellProfile.dashboard.contentPadding;
+  const surfaceActionClusterStyle: React.CSSProperties = {
+    paddingInline: mobileShellProfile.surfaceActions.clusterPaddingX,
+    paddingBlock: mobileShellProfile.surfaceActions.clusterPaddingY,
+  };
 
   const hasRealDocs = recentDocs.length > 0;
   const docsToRender = hasRealDocs
@@ -321,23 +326,19 @@ export default function DashboardView({
   const dashboardLayoutMode = isPhoneShell ? "mobile_stack" : "desktop_split";
   const dashboardSurfaceClassName = isPhoneShell
     ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
-    : "flex h-full min-h-0 gap-[var(--gutter)]";
+    : "flex h-full min-h-0 gap-[var(--shell-gap)]";
   const dashboardOuterClassName = isPhoneShell
     ? "flex-1 min-h-0 overflow-auto p-[var(--board-edge)]"
     : "flex-1 min-h-0 p-[var(--board-edge)]";
   const primaryColumnClassName = isPhoneShell
     ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
-    : "flex min-h-0 flex-1 flex-col gap-[var(--gutter)]";
+    : "flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)]";
   const cardFrameClassName = isPhoneShell ? "w-full min-h-[248px]" : "flex-1 min-h-[260px]";
-  const cardContentClassName = isPhoneShell
-    ? "flex h-full min-h-0 flex-col gap-[var(--shell-gap)] p-[var(--card-pad)]"
-    : "flex h-full min-h-0 flex-col gap-4 p-5";
+  const cardContentClassName = "flex h-full min-h-0 flex-col gap-[var(--shell-gap)]";
   const cardHeaderClassName = isPhoneShell
-    ? "flex flex-col items-start gap-2"
-    : "flex items-center justify-between gap-3";
-  const compactButtonRowClassName = isPhoneShell
-    ? "glass-pill h-auto flex-wrap justify-start py-[3px] px-[6px]"
-    : "glass-pill h-auto py-[3px] px-[6px]";
+    ? "flex flex-col items-start gap-[var(--card-pad)]"
+    : "flex items-center justify-between gap-[var(--shell-gap)]";
+  const compactButtonRowClassName = "glass-pill h-auto flex-wrap justify-start";
   const threadGridStyle = React.useMemo<React.CSSProperties>(
     () => ({
       gridTemplateColumns: `repeat(${threadColumns}, minmax(0, 1fr))`,
@@ -374,15 +375,15 @@ export default function DashboardView({
               shimmerMode="subtle"
               className={cardFrameClassName}
             >
-              <div className={cardContentClassName}>
+              <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
                 <div className={cardHeaderClassName}>
                   <div>
                     <h2 className="text-lg font-semibold tracking-tight">Recent Threads</h2>
-                    <p className="text-xs opacity-70">
+                    <p className="text-xs leading-6 opacity-70">
                       Jump back into a conversation or spin up something new.
                     </p>
                   </div>
-                  <div className={compactButtonRowClassName}>
+                  <div className={compactButtonRowClassName} style={surfaceActionClusterStyle}>
                     <button
                       type="button"
                       className="pill-tab text-xs"
@@ -404,17 +405,17 @@ export default function DashboardView({
                 </div>
                 <div className="relative flex-1 min-h-0">
                   {threadList.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm opacity-70">
+                    <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
                       No threads yet. Start one above.
                     </div>
                   ) : (
-                    <div className="grid h-full gap-[var(--gutter)]" style={threadGridStyle}>
+                    <div className="grid h-full gap-[var(--shell-gap)]" style={threadGridStyle}>
                       {threadList.map((t) => (
                         <TileShell
                           key={t.id}
                           as="button"
                           type="button"
-                          className="flex h-full w-full cursor-pointer flex-col justify-between gap-3 px-4 py-4 text-left transition-all duration-150 ease-out hover:-translate-y-0.5 hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                          className="flex h-full w-full cursor-pointer flex-col justify-between gap-[var(--shell-gap)] px-[var(--card-pad)] py-[var(--card-pad)] text-left transition-all duration-150 ease-out hover:-translate-y-0.5 hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
                           style={{
                             background:
                               "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 96%,transparent)",
@@ -448,7 +449,7 @@ export default function DashboardView({
               shimmerMode="subtle"
               className={isPhoneShell ? "w-full min-h-[240px]" : "flex-1 min-h-[240px]"}
             >
-              <div className={cardContentClassName}>
+              <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
                 <div className={cardHeaderClassName}>
                   <h2 className="text-lg font-semibold tracking-tight">Recent Documents</h2>
                   <Button type="button" variant="ghost" size="sm" onClick={onNavigateDocuments}>
@@ -456,20 +457,20 @@ export default function DashboardView({
                   </Button>
                 </div>
                 {!hasRealDocs && (
-                  <div className="rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-3 flex items-center justify-between gap-3">
-                    <p className="text-xs opacity-75">
+                  <div className="flex items-center justify-between gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
+                    <p className="text-xs leading-6 opacity-75">
                       Demo documents. Create or upload to replace.
                     </p>
                   </div>
                 )}
                 <div className="flex-1 min-h-0 overflow-hidden">
                   {docsToRender.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm opacity-70">
+                    <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
                       No documents yet. Create or upload to get started.
                     </div>
                   ) : (
                     <div
-                      className={`h-full content-start justify-start gap-[var(--gutter)] ${
+                      className={`h-full content-start justify-start gap-[var(--shell-gap)] ${
                         isPhoneShell ? "flex flex-col overflow-visible" : "grid"
                       }`}
                       style={isPhoneShell ? undefined : recentDocumentsGridStyle}
@@ -509,10 +510,10 @@ export default function DashboardView({
             shimmerMode="subtle"
             className={isPhoneShell ? "w-full min-h-[336px]" : "flex-[1.15] min-h-0"}
           >
-            <div className={cardContentClassName}>
+            <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
               <div className={cardHeaderClassName}>
                 <h2 className="text-lg font-semibold tracking-tight">Gallery</h2>
-                <div className={`flex items-center gap-2 ${isPhoneShell ? "flex-wrap justify-start" : ""}`}>
+                <div className={`flex items-center gap-[var(--pill-gap)] ${isPhoneShell ? "flex-wrap justify-start" : ""}`}>
                   <Button type="button" variant="ghost" size="sm" onClick={() => setShowImgGen(true)}>
                     <ImagePlus className="mr-1 h-4 w-4" />
                     Generate
@@ -523,20 +524,21 @@ export default function DashboardView({
                 </div>
               </div>
               {!hasRealGallery && (
-                <div className="rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-3 flex items-center justify-between gap-3">
-                  <p className="text-xs opacity-75">
+                <div className="flex items-center justify-between gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
+                  <p className="text-xs leading-6 opacity-75">
                     Demo gallery images. They'll disappear once you add your own.
                   </p>
                 </div>
               )}
               <div className={dashboardGalleryOuterClassName}>
                 {galleryToRender.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm opacity-70">
+                  <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
                     No gallery images yet. Generate or upload to get started.
                   </div>
                 ) : (
                   <DashboardGallery
                     items={galleryToRender}
+                    activeItemSrc={previewImage?.src ?? null}
                     onOpenPreview={(item) =>
                       setPreviewImage({
                         src: normalizeMediaUrl(item.src),

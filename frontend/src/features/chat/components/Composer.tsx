@@ -1,12 +1,11 @@
 /**
  * Composer.tsx
  *
- * Renders the chat composer input and controls, including turn-based gating
- * to prevent overlapping user sends while an assistant reply is in flight.
+ * Renders the chat composer input and controls while deriving interaction
+ * state from the runtime request contract instead of local loading guesses.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Textarea } from "@/components/ui/textarea";
-import { Send, X, FileText } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
@@ -29,6 +28,11 @@ import {
   buildSlashCommandIntentPayload,
   resolveSlashCommandIntent,
 } from "@/contracts/slashCommands";
+import {
+  CHAT_REQUEST_STATES,
+  type ChatRequestState,
+  type ProviderRuntimeState,
+} from "@/contracts/runtimeTokens";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
@@ -179,6 +183,35 @@ const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
   el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
+export type ComposerInteractionState =
+  | "idle"
+  | "typing"
+  | "submitting"
+  | "awaiting_model"
+  | "streaming"
+  | "disabled";
+
+export function deriveComposerState(
+  requestState?: ChatRequestState,
+  providerState?: ProviderRuntimeState,
+  inputValue?: string
+): ComposerInteractionState {
+  void providerState;
+
+  if (requestState === CHAT_REQUEST_STATES.STREAMING) return "streaming";
+  if (requestState === CHAT_REQUEST_STATES.AWAITING_MODEL) return "awaiting_model";
+  if (
+    requestState === CHAT_REQUEST_STATES.DISPATCHING ||
+    requestState === CHAT_REQUEST_STATES.AWAITING_ACK
+  ) {
+    return "submitting";
+  }
+
+  if (!inputValue || inputValue.trim() === "") return "idle";
+
+  return "typing";
+}
+
 export type ComposerSendOptions = {
   threadIdOverride?: number;
   slashIntent?: SlashCommandIntentPayload | null;
@@ -269,8 +302,10 @@ export function Composer({
   documentTiles = [],
   onDocumentTileRemove,
   threadId,
-  isSending,
-  isTurnInFlight,
+  currentRequestState,
+  providerRuntimeState,
+  isSending: _isSending,
+  isTurnInFlight: _isTurnInFlight,
   draftValue,
   draftScopeKey,
   draftSyncDebounceMs,
@@ -305,6 +340,8 @@ export function Composer({
   documentTiles?: DocumentContextTile[];
   onDocumentTileRemove?: (tileId: string) => void;
   threadId?: number;
+  currentRequestState?: ChatRequestState | null;
+  providerRuntimeState?: ProviderRuntimeState | null;
   isSending?: boolean;
   isTurnInFlight?: boolean;
   draftValue?: string;
@@ -396,50 +433,32 @@ export function Composer({
 
   const [internalSending, setInternalSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const sendInFlightRef = useRef(false);
   const [showImgGen, setShowImgGen] = useState(false);
   const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
-  const effectiveSending = Boolean(isSending) || internalSending;
-
-  // Submit feedback phase for mobile micro-interaction
-  const [submitFeedbackPhase, setSubmitFeedbackPhase] = useState<"idle" | "submitting" | "submitted">("idle");
-
-  // Mobile interaction context
-  const mobileInteractionContext = useMemo<MobileInteractionContext>(() => {
-    const prefersReduced =
-      typeof window !== "undefined"
-        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        : false;
-    return {
-      isPhoneShell: mobileShellProfile.active,
-      prefersReducedMotion: prefersReduced,
-      coarsePointer: true, // Assume coarse pointer on mobile
-    };
-  }, [mobileShellProfile.active]);
-
-  // Handle submit feedback sequence
-  const triggerSubmitFeedback = useCallback(() => {
-    if (!mobileShellProfile.active) return;
-    setSubmitFeedbackPhase("submitting");
-    const timer1 = setTimeout(() => {
-      setSubmitFeedbackPhase("submitted");
-      const timer2 = setTimeout(() => {
-        setSubmitFeedbackPhase("idle");
-      }, 80);
-      return () => clearTimeout(timer2);
-    }, 60);
-    return () => clearTimeout(timer1);
-  }, [mobileShellProfile.active]);
-  const turnLocked = Boolean(isTurnInFlight);
-  const transportBusy = effectiveSending || uploading;
-  const draftControlsDisabled = transportBusy;
-  const voiceTurnDisabled = turnLocked || transportBusy;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const hasDraftContent =
     Boolean(value.trim()) || draftAttachments.length > 0 || documentTiles.length > 0;
-  const sendTransportDisabled = transportBusy || !hasDraftContent;
+  const localSendInProgress = internalSending || uploading;
+  const runtimeInteractionState = deriveComposerState(
+    currentRequestState ?? undefined,
+    providerRuntimeState ?? undefined,
+    value
+  );
+  const interactionState =
+    localSendInProgress && runtimeInteractionState === "typing"
+      ? "submitting"
+      : runtimeInteractionState;
+  const inputLocked =
+    interactionState === "submitting" || interactionState === "awaiting_model";
+  const draftControlsDisabled = localSendInProgress;
+  const sendTransportDisabled = !hasDraftContent || inputLocked || localSendInProgress;
+  const turnLocked = Boolean(_isTurnInFlight);
+  const transportBusy = localSendInProgress;
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
+  const voiceTurnDisabled = inputLocked || localSendInProgress || turnLocked;
   const composerPressFeedback = usePressFeedback({
     enabled: !sendTransportDisabled,
     visualMode: isPhoneShell ? "mobile" : "none",
@@ -771,11 +790,8 @@ export function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onPrefillConsumed, prefill, value]);
   async function send() {
-    if (transportBusy) return;
-    if (turnLocked) {
-      notifyTurnLocked();
-      return;
-    }
+    if (sendInFlightRef.current) return;
+    if (sendTransportDisabled) return;
 
     const bodyText = value.trim();
     const hasAttachments = draftAttachments.length > 0;
@@ -784,6 +800,7 @@ export function Composer({
 
     const slashIntent = buildSlashCommandIntentPayload(value);
 
+    sendInFlightRef.current = true;
     setInternalSending(true);
     setUploading(hasAttachments);
 
@@ -896,6 +913,7 @@ export function Composer({
       const message = err?.message || "Failed to send message.";
       showToast(message);
     } finally {
+      sendInFlightRef.current = false;
       setUploading(false);
       setInternalSending(false);
     }
@@ -1003,7 +1021,7 @@ export function Composer({
       notifyTurnLocked();
       return;
     }
-    triggerSubmitFeedback();
+    if (sendTransportDisabled) return;
     void send();
   };
   const composerSurfaceStyle = useMemo<React.CSSProperties>(
@@ -1058,11 +1076,12 @@ export function Composer({
               ))}
             </div>
           ) : null}
-          <Textarea
+          <textarea
             ref={ref}
             rows={MIN_COMPOSER_ROWS}
             wrap="soft"
             value={value}
+            disabled={inputLocked}
             onChange={(e) => {
               const next = e.target.value;
               setValue(next);
@@ -1131,9 +1150,12 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
-            className="w-full min-w-0 resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-transparent"
+            className={cn(
+              "w-full rounded-[var(--radius-micro)] border border-[var(--panel-border)] bg-[var(--panel-bg)] text-[var(--text)] shadow-none resize-none text-base leading-relaxed placeholder:text-transparent focus-visible:ring-0 focus-visible:outline-none",
+              interactionState === "awaiting_model" &&
+                "opacity-60 cursor-not-allowed"
+            )}
             style={{
-              color: "var(--text)",
               overflow: "hidden",
               overflowWrap: "anywhere",
               wordBreak: "break-word",
@@ -1284,20 +1306,20 @@ export function Composer({
             )}
             style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
-            <div
-              data-testid="composer-controls-strip"
-              className={cn(
-                "flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto",
-                !isPhoneShell &&
-                  "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
-              )}
-              style={{
-                gap: "var(--composer-control-gap, 12px)",
-                ...getComposerControlSurfaceStyle(isPhoneShell, {
-                  variant: "rail",
-                }),
-              }}
-            >
+          <div
+            data-testid="composer-controls-strip"
+            className={cn(
+              "flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto",
+              !isPhoneShell &&
+                "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
+            )}
+            style={{
+              gap: "var(--composer-control-gap, 12px)",
+              ...getComposerControlSurfaceStyle(isPhoneShell, {
+                variant: "rail",
+              }),
+            }}
+          >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 isPhoneShell={isPhoneShell}
@@ -1371,48 +1393,39 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex w-8 shrink-0 items-center justify-center"
-              style={{ width: "var(--composer-control-size, 2rem)" }}
+              className="flex shrink-0 items-center justify-center"
             >
               <button
                 type="button"
                 {...composerPressFeedback.getPressFeedbackProps({
                   className:
                     cn(
-                      "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
+                      "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
                       sendTransportDisabled
                         ? "cursor-not-allowed opacity-50"
                         : sendBlockedByTurnLock
                           ? "opacity-75"
-                          : ""
+                          : "",
+                      interactionState === "typing"
+                        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
+                        : "bg-[var(--panel-bg)] text-[var(--muted)]"
                     ),
                   style: {
                     ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
-                    width: "var(--composer-control-size, 2rem)",
-                    height: "var(--composer-control-size, 2rem)",
                     transform:
                       !isPhoneShell && composerPressFeedback.pressed
                         ? "translateY(1px)"
                         : undefined,
-                    background:
-                      "color-mix(in oklab, var(--accent-strong) 82%, var(--panel-bg) 18%)",
-                    color: "var(--text-on-accent)",
-                    boxShadow: "none",
-                    borderRadius: "9999px",
                   },
                 })}
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
-                aria-label="Send"
-                aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
-                tabIndex={sendTransportDisabled ? -1 : 0}
-                title={
-                  sendBlockedByTurnLock
-                    ? "Finish the current reply before sending."
-                    : undefined
-                }
               >
-                <Send className="h-3.5 w-3.5 shrink-0" />
+                {interactionState === "submitting" && "Sending…"}
+                {interactionState === "awaiting_model" && "Warming…"}
+                {interactionState === "streaming" && "Streaming…"}
+                {(interactionState === "idle" || interactionState === "typing") &&
+                  "Send"}
               </button>
             </div>
           </div>
