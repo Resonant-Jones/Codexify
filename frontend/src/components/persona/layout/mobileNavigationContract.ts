@@ -7,6 +7,7 @@ import {
   getMobileTopNavRailStyle,
   getMobileWorkspaceSummonCopy,
 } from "./mobileInteractionContract";
+import { getMobileNavPillSelectionStyle } from "./mobileNavSelectionContract";
 import {
   getMobileNavigationRailPillStyle,
   type MobileNavigationRailFeedbackContext,

@@ -7,7 +7,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
+import {
+  getComposerControlSurfaceStyle,
+  getMobileTapTargetStyle,
+} from "@/components/persona/layout/mobileInteractionContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +48,10 @@ export function ComposerActionMenu({
   voiceTurnLabel = "Upload voice turn",
 }: ComposerActionMenuProps) {
   const [open, setOpen] = useState(false);
-  const pressFeedback = usePressFeedback({ enabled: isPhoneShell && !disabled });
+  const pressFeedback = usePressFeedback({
+    enabled: !disabled,
+    visualMode: isPhoneShell ? "mobile" : "none",
+  });
 
   const closeAndRun = (action: () => void) => {
     setOpen(false);
@@ -63,10 +69,21 @@ export function ComposerActionMenu({
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
               disabled
                 ? "cursor-not-allowed opacity-35"
-                : "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
+                : isPhoneShell
+                  ? "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
+                  : "opacity-100 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]",
+              !isPhoneShell &&
+                "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+              ...getComposerControlSurfaceStyle(isPhoneShell, {
+                variant: "trigger",
+              }),
+              transform:
+                !isPhoneShell && pressFeedback.pressed
+                  ? "translateY(1px)"
+                  : undefined,
               color: "var(--text)",
               width: "var(--composer-control-size, 2rem)",
               height: "var(--composer-control-size, 2rem)",
