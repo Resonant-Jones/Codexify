@@ -1198,7 +1198,9 @@ export function GuardianChat({
   const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
-    const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
+    const composer = document.querySelector<HTMLTextAreaElement>(
+      '[data-testid="composer-textarea"]'
+    );
     composer?.focus();
   }, []);
   const mobileComposerShellMotionStyle = useMemo<CSSProperties>(

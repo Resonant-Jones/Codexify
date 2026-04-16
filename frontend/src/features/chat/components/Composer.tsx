@@ -1008,6 +1008,15 @@ export function Composer({
   const showLineageCopy =
     !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
   const lineageCopy = `Send a message to ${lineageTargetLabel}`;
+  const suppressPlaceholder = showLineageCopy && Boolean(projectName?.trim());
+  const sendButtonLabel =
+    interactionState === "submitting"
+      ? "Sending…"
+      : interactionState === "streaming"
+        ? "Streaming…"
+        : interactionState === "awaiting_model"
+          ? "Warming…"
+          : "Send";
   const handleAttemptSend = () => {
     if (sendTransportDisabled) return;
     void send();
@@ -1089,6 +1098,7 @@ export function Composer({
           ) : null}
           <textarea
             ref={ref}
+            data-testid="composer-textarea"
             rows={MIN_COMPOSER_ROWS}
             wrap="soft"
             value={value}
@@ -1109,7 +1119,6 @@ export function Composer({
                 closeSlashPalette(activeSlashToken?.key ?? null);
               }
             }}
-            placeholder="Write a message…"
             onPaste={onPaste}
             onKeyDown={(e) => {
               if (slashPaletteOpen) {
@@ -1161,6 +1170,8 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
+            aria-label={suppressPlaceholder ? lineageCopy : undefined}
+            placeholder={suppressPlaceholder ? "" : "Write a message…"}
             className={cn(
               "w-full bg-transparent border-none outline-none text-[var(--text)] placeholder:text-[var(--muted)] resize-none text-base leading-relaxed",
               interactionState === "awaiting_model" &&
@@ -1404,6 +1415,7 @@ export function Composer({
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
               >
+                <span className="sr-only">{sendButtonLabel}</span>
                 <ArrowUp size={16} />
               </button>
             </div>

@@ -127,10 +127,10 @@ describe("Composer source selector", () => {
       screen.getByRole("button", { name: "Select retrieval source" })
     ).toHaveTextContent("Personal Knowledge");
 
-    fireEvent.change(screen.getByPlaceholderText("Write a message…"), {
+    fireEvent.change(screen.getByTestId("composer-textarea"), {
       target: { value: "Test retrieval source" },
     });
-    fireEvent.keyDown(screen.getByPlaceholderText("Write a message…"), {
+    fireEvent.keyDown(screen.getByTestId("composer-textarea"), {
       key: "Enter",
     });
 
@@ -176,7 +176,7 @@ describe("Composer source selector", () => {
       "Send a message to Home Renovation"
     );
 
-    fireEvent.change(screen.getByPlaceholderText("Write a message…"), {
+    fireEvent.change(screen.getByTestId("composer-textarea"), {
       target: { value: "Hello" },
     });
 
