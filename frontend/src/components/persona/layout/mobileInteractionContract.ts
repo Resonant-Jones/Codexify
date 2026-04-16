@@ -81,6 +81,117 @@ export function getMobilePressSurfaceStyle(
   };
 }
 
+export function getComposerSendButtonStyle(
+  isPhoneShell: boolean,
+  state: "idle" | "ready" | "pressed" | "disabled"
+): CSSProperties {
+  if (isPhoneShell) {
+    return {};
+  }
+
+  const base: CSSProperties = {
+    borderRadius: "9999px",
+    borderWidth: "0px",
+    borderStyle: "solid",
+    boxShadow: "none",
+    padding: "0px",
+    width: "var(--composer-control-size, 2rem)",
+    height: "var(--composer-control-size, 2rem)",
+    alignItems: "center",
+    justifyContent: "center",
+    display: "inline-flex",
+    transition: "background 160ms ease, opacity 160ms ease",
+  };
+
+  switch (state) {
+    case "disabled":
+      return { ...base, opacity: 0.5, cursor: "not-allowed" };
+    case "pressed":
+      return {
+        ...base,
+        transform: "scale(0.96)",
+        background: "color-mix(in oklab, var(--accent-strong) 72%, white 28%)",
+        color: "var(--text-on-accent, #111827)",
+      };
+    case "ready":
+      return {
+        ...base,
+        background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+        color: "var(--text-on-accent, #111827)",
+        cursor: "pointer",
+      };
+    case "idle":
+    default:
+      return {
+        ...base,
+        background: "var(--panel-bg)",
+        color: "var(--muted)",
+        cursor: "pointer",
+      };
+  }
+}
+
+export function getComposerSelectorSurfaceStyle(
+  isPhoneShell: boolean
+): CSSProperties {
+  if (isPhoneShell) {
+    return {};
+  }
+
+  return {
+    borderStyle: "solid",
+    borderWidth: "1px",
+    borderRadius: "var(--card-radius,19px)",
+    borderColor: "color-mix(in oklab, var(--panel-border) 76%, var(--text) 24%)",
+    boxShadow:
+      "inset 0 1px 0 color-mix(in oklab, var(--panel-border) 20%, transparent)",
+    height: "var(--composer-control-size, 2rem)",
+    minWidth: "0px",
+  };
+}
+
+export function getComposerActionMenuSurfaceStyle(
+  isPhoneShell: boolean
+): CSSProperties {
+  if (isPhoneShell) {
+    return {};
+  }
+
+  return {
+    borderStyle: "solid",
+    borderWidth: "1px",
+    borderRadius: "var(--card-radius,19px)",
+    borderColor: "color-mix(in oklab, var(--panel-border) 84%, var(--text) 16%)",
+    boxShadow:
+      "inset 0 1px 0 color-mix(in oklab, var(--panel-border) 28%, transparent)",
+    padding: "0px",
+    width: "var(--composer-control-size, 2rem)",
+    height: "var(--composer-control-size, 2rem)",
+  };
+}
+
+export function getComposerControlRowStyle(
+  isPhoneShell: boolean
+): CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--composer-control-gap, 12px)",
+    width: "100%",
+  };
+}
+
+export function getComposerSendSlotStyle(
+  isPhoneShell: boolean
+): CSSProperties {
+  return {
+    display: "flex",
+    flexShrink: "0",
+    alignItems: "center",
+    justifyContent: "center",
+  };
+}
+
 export function getComposerControlSurfaceStyle(
   isPhoneShell: boolean,
   options: { variant?: "rail" | "trigger" } = {}

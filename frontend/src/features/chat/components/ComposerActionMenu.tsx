@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  getComposerControlSurfaceStyle,
+  getComposerActionMenuSurfaceStyle,
   getMobileTapTargetStyle,
 } from "@/components/persona/layout/mobileInteractionContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
@@ -65,28 +65,23 @@ export function ComposerActionMenu({
           type="button"
           {...pressFeedback.getPressFeedbackProps({
             className: cn(
-              "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-[11px] leading-none transition-colors",
+              "inline-flex h-8 w-8 items-center justify-center border border-transparent text-[11px] leading-none transition-colors",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
               disabled
                 ? "cursor-not-allowed opacity-35"
                 : isPhoneShell
                   ? "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
                   : "opacity-100 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]",
-              !isPhoneShell &&
-                "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
+              !isPhoneShell && "bg-transparent"
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
-              ...getComposerControlSurfaceStyle(isPhoneShell, {
-                variant: "trigger",
-              }),
+              ...getComposerActionMenuSurfaceStyle(isPhoneShell),
               transform:
                 !isPhoneShell && pressFeedback.pressed
                   ? "translateY(1px)"
                   : undefined,
               color: "var(--text)",
-              width: "var(--composer-control-size, 2rem)",
-              height: "var(--composer-control-size, 2rem)",
             },
           })}
           aria-label="Open composer actions"

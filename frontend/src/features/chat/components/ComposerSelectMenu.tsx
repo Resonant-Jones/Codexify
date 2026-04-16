@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  getComposerControlSurfaceStyle,
+  getComposerSelectorSurfaceStyle,
   getMobileTapTargetStyle,
 } from "@/components/persona/layout/mobileInteractionContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
@@ -219,9 +219,7 @@ export function ComposerSelectMenu({
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell),
-              ...getComposerControlSurfaceStyle(isPhoneShell, {
-                variant: "trigger",
-              }),
+              ...getComposerSelectorSurfaceStyle(isPhoneShell),
               transform:
                 !isPhoneShell && pressFeedback.pressed
                   ? "translateY(1px)"
