@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_OBSIDIAN_ONLY,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
     WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
@@ -53,7 +54,8 @@ def derive_default_retrieval_policy(
     normalized_source_mode = normalize_source_mode(source_mode)
     return {
         "source_mode": normalized_source_mode,
-        "widening_enabled": normalized_source_mode != SOURCE_MODE_CONVERSATION,
+        "widening_enabled": normalized_source_mode
+        not in {SOURCE_MODE_CONVERSATION, SOURCE_MODE_OBSIDIAN_ONLY},
         "identity_scope": _identity_scope_for_source_mode(
             normalized_source_mode
         ),
@@ -65,6 +67,11 @@ def merge_retrieval_policy(
     retrieval_override: dict[str, Any] | None,
 ) -> EffectiveRetrievalPolicy:
     policy = dict(base_policy)
+
+    if policy.get("source_mode") == SOURCE_MODE_OBSIDIAN_ONLY:
+        policy["widening_enabled"] = False
+        policy["identity_scope"] = SOURCE_MODE_OBSIDIAN_ONLY
+        return policy  # type: ignore[return-value]
 
     if not retrieval_override:
         return policy  # type: ignore[return-value]
@@ -367,11 +374,102 @@ class ContextBroker:
             )
             context["messages"] = []
 
-        # Always include semantic search (for all depths except "shallow").
-        # Thread-first retrieval must remain active even when widening is
-        # disabled by a retrieval override.
+        # Default path includes semantic search (for all depths except
+        # "shallow"). Hard obsidian-only mode short-circuits above.
         context["obsidian"] = []
         semantic_widen_reason = WIDEN_REASON_NONE
+        if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
+            obsidian_docs: list[dict[str, Any]] = []
+            if self._obsidian_retrieval_enabled():
+                try:
+                    obsidian_docs = await self._search_semantic(
+                        query,
+                        k_semantic,
+                        namespace=OBSIDIAN_NAMESPACE,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[ContextBroker] Obsidian-only retrieval failed; continuing without it: %s",
+                        exc,
+                    )
+            context.update(
+                {
+                    "semantic": [],
+                    "memory": [],
+                    "docs": {"project": [], "thread": [], "global": []},
+                    "obsidian": obsidian_docs,
+                    "graph": [],
+                    "federated": [],
+                    "retrieval_status": (
+                        "obsidian_only_success"
+                        if obsidian_docs
+                        else "no_obsidian_results"
+                    ),
+                }
+            )
+            rag_trace = {
+                "thread_id": thread_id,
+                "project_id": resolved_project_id,
+                "depth_mode": normalized_depth,
+                "documents": [
+                    {
+                        "id": str(item.get("id", "")),
+                        "title": str(
+                            item.get("metadata", {}).get("filename", "unknown")
+                        ),
+                        "score": float(item.get("score", 0.0)),
+                        "snippet": str(item.get("text", ""))[:100] + "...",
+                    }
+                    for item in obsidian_docs
+                ],
+                "graph": [],
+                "source_mode": normalized_source_mode,
+                "effective_policy": effective_policy,
+                "widen_reason": WIDEN_REASON_NONE,
+                "graph_context": {
+                    "attempted": False,
+                    "status": "skipped",
+                    "reason": "obsidian_only",
+                    "count": 0,
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                },
+                "memory_context": {
+                    "attempted": False,
+                    "status": "skipped",
+                    "reason": "obsidian_only",
+                    "count": 0,
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                },
+                "personal_facts_context": {
+                    "attempted": False,
+                    "status": "skipped",
+                    "reason": "obsidian_only",
+                    "count": 0,
+                    "retrieved_count": 0,
+                    "user_id": resolved_user_id or "default",
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                },
+                "retrieval_status": context["retrieval_status"],
+                "obsidian_count": len(obsidian_docs),
+            }
+            logger.info(
+                "[ContextBroker] thread=%s depth=%s messages=%s semantic=%s obsidian=%s docs(project/thread)=%s/%s memory=%s(%s) graph=%s(%s)",
+                thread_id,
+                normalized_depth,
+                len(context.get("messages", [])),
+                len(context.get("semantic", [])),
+                len(context.get("obsidian", [])),
+                len(context.get("docs", {}).get("project", [])),
+                len(context.get("docs", {}).get("thread", [])),
+                0,
+                "skipped",
+                0,
+                "skipped",
+            )
+            return context, rag_trace
         if normalized_depth != "shallow" and self.always_search_thread_first:
             try:
                 (
@@ -389,7 +487,7 @@ class ContextBroker:
                     search_fn=self._search_semantic,
                 )
                 semantic_obsidian: list[dict[str, Any]] = []
-                if self._obsidian_retrieval_enabled():
+                if not conversation_only and self._obsidian_retrieval_enabled():
                     try:
                         semantic_obsidian = await self._search_semantic(
                             query,
