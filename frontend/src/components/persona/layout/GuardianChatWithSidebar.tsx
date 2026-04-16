@@ -738,10 +738,7 @@ export default function GuardianChatWithSidebar({
         window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'success', message: 'Saved to Prompt Library' } }));
       } catch {}
     } catch (err) {
-      console.warn('[prompt] embed failed', err);
-      try {
-        window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'error', message: 'Prompt embedding failed' } }));
-      } catch {}
+      console.debug('[prompt] embed unavailable — optional enrichment skipped', err);
     }
   }
 
