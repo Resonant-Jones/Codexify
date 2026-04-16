@@ -1,5 +1,5 @@
 Purpose: define the first canonical retrieval-router doctrine for Guardian so contributors can reason about retrieval posture without embedding ad hoc heuristics in chat, prompt, or provider code.
-Last updated: 2026-03-27
+Last updated: 2026-04-16
 Source anchors:
 - docs/architecture/README.md
 - docs/architecture/system-overview.md
@@ -48,6 +48,7 @@ introduces live retrieval behavior changes in this task.
 - `explicit_global_search`: the user explicitly asks for a broadened search.
 - `scope_locked_local`: the user explicitly constrains the search to local scope.
 - `relationship_trace`: follow links or relationships between entities or facts.
+- `obsidian_only`: hard source mode that queries only Obsidian-backed documents and fails closed when no Obsidian evidence exists.
 
 ## Routing Dimensions
 
@@ -86,6 +87,7 @@ introduces live retrieval behavior changes in this task.
 | `explicit_global_search` | yes | `global` | `none` | `allow_enrichment` | `deep` | `thread_messages -> thread_semantic -> project_docs -> adjacent_local -> global_search` | stop after the explicit broadened pass |
 | `scope_locked_local` | yes | `local` | `none` | `disallow` | `normal` | `thread_messages -> thread_semantic -> project_docs` | stop without adjacent or global expansion |
 | `relationship_trace` | yes | `local` | `none` | `prefer_enrichment` | `deep` | `thread_messages -> thread_semantic -> graph_enrichment -> project_docs -> adjacent_local` | stop once the relationship path is explainable |
+| `obsidian_only` | yes | `local` | `none` | `disallow` | `normal` | `thread_messages -> obsidian_documents` | stop once Obsidian-backed evidence is sufficient, or fail closed if no Obsidian hits exist |
 
 ## Design Rules
 
@@ -107,9 +109,8 @@ introduces live retrieval behavior changes in this task.
 
 ## Current Boundary
 
-- This policy does not modify `guardian/context/broker.py`.
-- This policy does not modify `guardian/core/chat_completion_service.py`.
+- This policy defines the canonical token set and routing doctrine.
+- Runtime enforcement now consumes the same `source_mode` vocabulary, including the hard `obsidian_only` mode.
 - This policy does not add UI controls.
 - This policy does not introduce graph execution behavior.
-- This policy exists so future runtime adoption can import one canonical
-  contract instead of growing inline heuristic tangles.
+- This policy exists so runtime adoption can import one canonical contract instead of growing inline heuristic tangles.

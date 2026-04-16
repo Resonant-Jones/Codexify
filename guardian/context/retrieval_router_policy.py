@@ -1,8 +1,7 @@
 """Canonical retrieval-router policy contract for Guardian orchestration.
 
-This module defines stable tokens and a pure policy resolver for future runtime
-use. It does not execute retrieval and does not change live broker or
-completion behavior.
+This module defines stable tokens and a pure policy resolver for the runtime
+retrieval contract. It does not execute retrieval directly.
 """
 
 from __future__ import annotations
@@ -93,11 +92,13 @@ class RetrievalPlan:
 SOURCE_MODE_PROJECT = "project"
 SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
 SOURCE_MODE_CONVERSATION = "conversation"
+SOURCE_MODE_OBSIDIAN_ONLY = "obsidian_only"
 
 SOURCE_MODES: tuple[str, ...] = (
     SOURCE_MODE_PROJECT,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_OBSIDIAN_ONLY,
 )
 
 RETRIEVAL_OVERRIDE_NONE = "none"
@@ -132,6 +133,7 @@ SOURCE_MODE_BOUNDARY_LABELS: dict[str, str] = {
     SOURCE_MODE_PROJECT: SOURCE_MODE_BOUNDARY_SAME_USER_SAME_PROJECT,
     SOURCE_MODE_PERSONAL_KNOWLEDGE: SOURCE_MODE_BOUNDARY_SAME_USER_ONLY,
     SOURCE_MODE_CONVERSATION: SOURCE_MODE_BOUNDARY_ACTIVE_CONVERSATION_ONLY,
+    SOURCE_MODE_OBSIDIAN_ONLY: SOURCE_MODE_BOUNDARY_SAME_USER_ONLY,
 }
 
 
@@ -155,6 +157,8 @@ _EMPTY_ESCALATION: tuple[EscalationStep, ...] = ()
 
 def normalize_source_mode(value: object) -> str:
     normalized = str(value or "").strip().lower()
+    if normalized in {"obsidian", SOURCE_MODE_OBSIDIAN_ONLY}:
+        return SOURCE_MODE_OBSIDIAN_ONLY
     if normalized in SOURCE_MODES:
         return normalized
     return SOURCE_MODE_PROJECT
@@ -587,6 +591,7 @@ __all__ = [
     "SOURCE_MODE_BOUNDARY_SAME_USER_ONLY",
     "SOURCE_MODE_BOUNDARY_SAME_USER_SAME_PROJECT",
     "SOURCE_MODE_CONVERSATION",
+    "SOURCE_MODE_OBSIDIAN_ONLY",
     "SOURCE_MODE_PERSONAL_KNOWLEDGE",
     "SOURCE_MODE_PROJECT",
     "SOURCE_MODES",
