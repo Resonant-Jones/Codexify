@@ -25,6 +25,7 @@ const originalScrollTo = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   "scrollTo"
 );
+const originalInnerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
 
 function restoreScrollTo() {
   if (originalScrollTo) {
@@ -44,6 +45,9 @@ describe("Composer source selector", () => {
 
   afterEach(() => {
     restoreScrollTo();
+    if (originalInnerWidth) {
+      Object.defineProperty(window, "innerWidth", originalInnerWidth);
+    }
     vi.restoreAllMocks();
   });
 
@@ -94,6 +98,45 @@ describe("Composer source selector", () => {
         "Current thread first, then your broader knowledge across projects."
       )
     ).toBeInTheDocument();
+  });
+
+  it("renders the desktop source selector inside a framed control strip", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1280,
+    });
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="thread-1"
+        draftValue=""
+        sourceMode="project"
+        sourceOptions={SOURCE_OPTIONS}
+        onSourceModeChange={vi.fn()}
+      />
+    );
+
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    const sourceButton = screen.getByRole("button", {
+      name: "Select retrieval source",
+    });
+
+    expect(controlsStrip).toHaveClass(
+      "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
+    );
+    expect(controlsStrip.style.borderRadius).toBe("var(--card-radius,19px)");
+    expect(controlsStrip.style.borderColor).toBe(
+      "color-mix(in oklab, var(--panel-border) 84%, var(--text) 16%)"
+    );
+    expect(sourceButton).toHaveClass(
+      "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
+    );
+    expect(sourceButton.style.borderRadius).toBe("var(--card-radius,19px)");
+    expect(sourceButton.style.borderColor).toBe(
+      "color-mix(in oklab, var(--panel-border) 76%, var(--text) 24%)"
+    );
+    expect(sourceButton.style.color).toBe("var(--text)");
   });
 
   it("keeps the selected source across sends in the same thread-scoped harness", async () => {

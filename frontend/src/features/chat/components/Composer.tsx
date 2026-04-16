@@ -11,7 +11,10 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
-import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
+import {
+  getComposerControlSurfaceStyle,
+  getMobileTapTargetStyle,
+} from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
@@ -451,18 +454,23 @@ export function Composer({
   const inputLocked =
     interactionState === "submitting" || interactionState === "awaiting_model";
   const draftControlsDisabled = localSendInProgress;
-  const voiceTurnDisabled = inputLocked || localSendInProgress;
-  const sendBlockedByTurnLock = isSending || isTurnInFlight;
-  const sendTransportDisabled =
-    !hasDraftContent || inputLocked || localSendInProgress || sendBlockedByTurnLock;
+  const sendTransportDisabled = !hasDraftContent || inputLocked || localSendInProgress;
+  const turnLocked = Boolean(_isTurnInFlight);
+  const transportBusy = localSendInProgress;
+  const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
+  const voiceTurnDisabled = inputLocked || localSendInProgress || turnLocked;
   const composerPressFeedback = usePressFeedback({
-    enabled: isPhoneShell && !sendTransportDisabled,
+    enabled: !sendTransportDisabled,
+    visualMode: isPhoneShell ? "mobile" : "none",
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
     try {
       window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message, kind: "error" } }));
     } catch {}
+  };
+  const notifyTurnLocked = () => {
+    showToast("Keep typing. Send unlocks when the current reply finishes.");
   };
   const notifyTransportBusy = () => {
     showToast("Finishing the current send…");
@@ -1018,6 +1026,10 @@ export function Composer({
           ? "Warming…"
           : "Send";
   const handleAttemptSend = () => {
+    if (turnLocked) {
+      notifyTurnLocked();
+      return;
+    }
     if (sendTransportDisabled) return;
     void send();
   };
@@ -1328,11 +1340,20 @@ export function Composer({
             )}
             style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
-            <div
-              data-testid="composer-controls-strip"
-              className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
-              style={{ gap: "var(--composer-control-gap, 12px)" }}
-            >
+          <div
+            data-testid="composer-controls-strip"
+            className={cn(
+              "flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto",
+              !isPhoneShell &&
+                "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
+            )}
+            style={{
+              gap: "var(--composer-control-gap, 12px)",
+              ...getComposerControlSurfaceStyle(isPhoneShell, {
+                variant: "rail",
+              }),
+            }}
+          >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 isPhoneShell={isPhoneShell}
@@ -1411,7 +1432,27 @@ export function Composer({
             >
               <button
                 type="button"
-                {...composerSendButtonProps}
+                {...composerPressFeedback.getPressFeedbackProps({
+                  className:
+                    cn(
+                      "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
+                      sendTransportDisabled
+                        ? "cursor-not-allowed opacity-50"
+                        : sendBlockedByTurnLock
+                          ? "opacity-75"
+                          : "",
+                      interactionState === "typing"
+                        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
+                        : "bg-[var(--panel-bg)] text-[var(--muted)]"
+                    ),
+                  style: {
+                    ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+                    transform:
+                      !isPhoneShell && composerPressFeedback.pressed
+                        ? "translateY(1px)"
+                        : undefined,
+                  },
+                })}
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
               >
