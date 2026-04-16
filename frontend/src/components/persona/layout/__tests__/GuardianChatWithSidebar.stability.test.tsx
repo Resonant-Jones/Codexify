@@ -24,6 +24,11 @@ const sessionHooksState = vi.hoisted(() => ({
   activeModelId: "default",
   activeInferenceMode: "default",
 }));
+const providerState = vi.hoisted(() => ({
+  data: null as unknown,
+  error: null as unknown,
+  isLoading: false,
+}));
 const authState = vi.hoisted(() => ({
   ready: true,
   status: "authenticated" as const,
@@ -107,11 +112,7 @@ vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
 }));
 
 vi.mock("@/features/chat/hooks/useProviderState", () => ({
-  useProviderState: () => ({
-    data: null,
-    error: null,
-    isLoading: false,
-  }),
+  useProviderState: () => providerState,
 }));
 
 vi.mock("@/components/ui/RefractiveGlassCard", () => ({
@@ -306,6 +307,9 @@ describe("GuardianChatWithSidebar stability contract", () => {
     sessionHooksState.activeProviderId = "local";
     sessionHooksState.activeModelId = "default";
     sessionHooksState.activeInferenceMode = "default";
+    providerState.data = null;
+    providerState.error = null;
+    providerState.isLoading = false;
     routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] = "available";
     routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION] =
       "available";
@@ -342,6 +346,18 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(
       mockApi.get.mock.calls.some(([url]) => url === "/ui/session")
     ).toBe(false);
+  });
+
+  it("stays mounted when provider state transitions to an error", () => {
+    const { rerender } = render(
+      <GuardianChatWithSidebar guardianName="Guardian" userName="User" />
+    );
+
+    providerState.error = new Error("Provider state fetch failed");
+
+    rerender(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    expect(screen.getByTestId("guardian-chat-mock")).toBeInTheDocument();
   });
 
   it("keeps selected thread stable when pagination appends", async () => {

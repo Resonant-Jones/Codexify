@@ -53,7 +53,6 @@ import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
-import { useProviderState } from "@/features/chat/hooks/useProviderState";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -300,26 +299,6 @@ export default function GuardianChatWithSidebar({
   const imprintZero = useImprintZero({
     enabled: routeCapabilitiesReady && imprintCapability !== "unavailable",
   });
-
-  // ── Provider state instrumentation ──────────────────────────────────────
-  const { data: providerData, error: providerError, isLoading: providerLoading } =
-    useProviderState();
-
-  console.log("[guardian:render]", {
-    providerLoading,
-    providerError,
-    providerData,
-  });
-
-  if (providerError) {
-    return (
-      <div style={{ padding: 16 }}>
-        <h3>Provider Error</h3>
-        <pre>{String(providerError)}</pre>
-      </div>
-    );
-  }
-  // ── End provider state instrumentation ──────────────────────────────────
 
   const resolveRouteThreadId = React.useCallback((): string | null => {
     if (typeof window === "undefined") return null;
@@ -1698,11 +1677,6 @@ export default function GuardianChatWithSidebar({
                 </div>
               )}
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-              {providerData && (
-                <pre style={{ fontSize: 10, opacity: 0.6, padding: "4px 8px" }}>
-                  {JSON.stringify(providerData, null, 2)}
-                </pre>
-              )}
               <GuardianChat
                 guardianName={guardianName}
                 userName={userName}
