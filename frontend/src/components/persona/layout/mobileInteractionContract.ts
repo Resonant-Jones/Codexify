@@ -189,6 +189,7 @@ export function getComposerSendSlotStyle(
     flexShrink: "0",
     alignItems: "center",
     justifyContent: "center",
+    marginRight: "6px",
   };
 }
 
