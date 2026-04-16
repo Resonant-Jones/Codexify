@@ -375,9 +375,21 @@ describe("AppShell logo wordmark color contract", () => {
 
     render(<AppShell />);
 
+    expect(screen.getByTestId("persona-studio-page")).toBeInTheDocument();
     expect(
-      await screen.findByText(/configure runtime persona profiles/i)
+      screen.getByRole("heading", { name: /persona studio/i })
     ).toBeInTheDocument();
+  });
+
+  it("honors the /flow-builder route on initial render", async () => {
+    setRoutePath("/flow-builder");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("flow-builder-page")).toBeInTheDocument();
+    expect(
+      screen.getByText(/pre-execution specification work only/i)
+    ).toBeVisible();
   });
 
   it("keeps Guardian mounted when the legacy /guardian route is visited", async () => {
@@ -388,6 +400,26 @@ describe("AppShell logo wordmark color contract", () => {
     expect(
       await screen.findByTestId("guardian-chat-with-sidebar-mock")
     ).toBeInTheDocument();
+  });
+
+  it("routes into the Flow Builder pre-execution seam from the shell nav", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    const flowBuilderPill = screen.getByRole("button", { name: /flow builder/i });
+    expect(flowBuilderPill).toBeInTheDocument();
+
+    await user.click(flowBuilderPill);
+
+    expect(window.location.pathname).toBe("/flow-builder");
+    expect(await screen.findByTestId("flow-builder-page")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /flow builder/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /build from expertise/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
   });
 });
 

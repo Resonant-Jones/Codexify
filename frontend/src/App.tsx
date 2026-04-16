@@ -114,6 +114,11 @@ function isPersonaStudioRoute() {
   return window.location.pathname.startsWith("/persona-studio");
 }
 
+function isFlowBuilderRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/flow-builder");
+}
+
 function isShareRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/share/");
@@ -529,6 +534,7 @@ export default function App() {
   const eventsRoute = isEventsRoute();
   const commandCenterRoute = isCommandCenterRoute();
   const personaStudioRoute = isPersonaStudioRoute();
+  const flowBuilderRoute = isFlowBuilderRoute();
   const shareRoute = isShareRoute();
   const shareToken = shareRoute ? getShareToken() : null;
   const desktopRuntime = isTauriRuntime();
@@ -574,6 +580,7 @@ export default function App() {
     !eventsRoute &&
     !commandCenterRoute &&
     !personaStudioRoute &&
+    !flowBuilderRoute &&
     !(shareRoute && !!shareToken) &&
     (desktopStartupCanBootstrap || desktopRecoveryRequested);
   const [docGenOpen, setDocGenOpen] = React.useState(false);

@@ -35,6 +35,7 @@ import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
+import FlowBuilderPage from "@/pages/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
@@ -131,6 +132,7 @@ type AppShellView =
   | "documents"
   | "gallery"
   | "guardian"
+  | "flowBuilder"
   | "settings"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
@@ -226,6 +228,7 @@ const APP_SHELL_VIEWS = [
   "documents",
   "gallery",
   "guardian",
+  "flowBuilder",
   "settings",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
@@ -237,6 +240,7 @@ function isAppShellView(value: string | null): value is AppShellView {
 }
 
 function resolveViewFromPathname(pathname: string): AppShellView | null {
+  if (pathname.startsWith("/flow-builder")) return "flowBuilder";
   if (pathname.startsWith("/persona-studio")) return "personaStudio";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/gallery")) return "gallery";
@@ -255,6 +259,8 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
       return "/documents";
     case "gallery":
       return "/gallery";
+    case "flowBuilder":
+      return "/flow-builder";
     case "settings":
       return "/settings";
     case "personaStudio":
@@ -2630,6 +2636,16 @@ export default function AppShell({
               >
                 Persona Studio
               </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "flowBuilder" ? "active" : "inactive"}
+                aria-current={view === "flowBuilder" ? "page" : undefined}
+                onClick={() => navigateToView("flowBuilder")}
+                style={getMobileNavPillStyle("flowBuilder")}
+              >
+                Flow Builder
+              </PhonePressButton>
             </div>
           </div>
         </div>
@@ -2853,6 +2869,15 @@ export default function AppShell({
               </FrameCard>
               <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
+          )}
+          {!startupLocked && view === "flowBuilder" && (
+            <div
+              className="h-full w-full min-h-0 overflow-hidden"
+              data-active-view="flowBuilder"
+              data-view-family="flow-builder"
+            >
+              <FlowBuilderPage />
+            </div>
           )}
           {!startupLocked && view === "guardian" && (
             <div
