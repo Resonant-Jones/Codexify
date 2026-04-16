@@ -1237,7 +1237,11 @@ export default function App() {
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
   const webRuntimeGateEnabled =
-    !desktopRuntime && !bootstrapEnabled && import.meta.env.MODE !== "test";
+    // Flow Builder is a pre-execution surface, so it should not wait on the backend.
+    !desktopRuntime &&
+    !bootstrapEnabled &&
+    !flowBuilderRoute &&
+    import.meta.env.MODE !== "test";
 
   // Mobile bottom-edge contract: suppress ambient bottom chrome when keyboard is open
   // on phone-class widths to keep the keyboard flush against the active input surface.
