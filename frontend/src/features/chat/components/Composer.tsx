@@ -1340,7 +1340,7 @@ export function Composer({
             data-testid="composer-control-row"
             className={cn(
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-              "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+              "grid min-w-0 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
             style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
@@ -1422,7 +1422,7 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="ml-auto flex shrink-0 items-center justify-center"
+              className="flex shrink-0 items-center justify-center justify-self-end"
             >
               <button
                 type="button"
