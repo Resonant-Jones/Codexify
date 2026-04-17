@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -52,5 +52,35 @@ describe("FlowBuilderPage mode routing", () => {
       );
     });
     expect(window.location.search).toBe("?mode=process");
+  });
+
+  it("renders an inspectable non-runtime draft artifact in expertise mode", async () => {
+    const user = userEvent.setup();
+
+    window.history.pushState({}, "", "/flow-builder?mode=expertise");
+    render(<FlowBuilderPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
+        "data-flow-builder-mode",
+        "expertise"
+      );
+    });
+
+    const draftArtifact = screen.getByTestId("flow-builder-draft-spec");
+    expect(draftArtifact).toBeVisible();
+    expect(within(draftArtifact).getByText(/^draft specification artifact$/i)).toBeVisible();
+    expect(within(draftArtifact).getByText(/^non-runtime$/i)).toBeVisible();
+    expect(within(draftArtifact).getByText(/^draft only$/i)).toBeVisible();
+    expect(within(draftArtifact).getByText(/build from expertise/i)).toBeVisible();
+    expect(
+      within(draftArtifact).getByText(/without claiming compile or execution support/i)
+    ).toBeVisible();
+
+    const objective = screen.getByTestId("flow-builder-draft-objective");
+    await user.clear(objective);
+    await user.type(objective, "Capture the first-pass workflow outcome.");
+
+    expect(objective).toHaveValue("Capture the first-pass workflow outcome.");
   });
 });
