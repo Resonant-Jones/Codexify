@@ -382,6 +382,28 @@ describe("AppShell logo wordmark color contract", () => {
       "expertise"
     );
   });
+
+  it("keeps the prior Guardian route reachable from Flow Builder even after the draft fields take focus", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+
+    await user.click(screen.getByRole("button", { name: "Flow Builder" }));
+
+    await user.click(await screen.findByTestId("flow-builder-mode-expertise"));
+
+    const objective = await screen.findByTestId("flow-builder-draft-objective");
+    objective.focus();
+
+    await user.click(screen.getByTestId("flow-builder-return-guardian"));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/chat/123");
+    });
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+  });
 });
 
 describe("AppShell settings utility trigger", () => {

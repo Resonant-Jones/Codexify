@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Textarea from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 
 import {
   DEFAULT_FLOW_BUILDER_MODE,
@@ -14,6 +15,10 @@ import {
 } from "./flowBuilderDraft";
 
 const FLOW_BUILDER_LAST_MODE_STORAGE_KEY = "cfy.flowBuilder.mode";
+
+type FlowBuilderPageProps = {
+  onReturnToGuardian?: () => void;
+};
 
 function isFlowBuilderPathname(pathname: string): boolean {
   return pathname.startsWith("/flow-builder");
@@ -113,12 +118,25 @@ function ModeButton({
   );
 }
 
-export default function FlowBuilderPage() {
+export default function FlowBuilderPage({
+  onReturnToGuardian,
+}: FlowBuilderPageProps = {}) {
   const initialMode = resolveInitialFlowBuilderMode();
   const [mode, setModeState] = useState<FlowBuilderMode>(initialMode);
   const [expertiseDraft, setExpertiseDraft] = useState<FlowBuilderExpertiseDraft | null>(
     () => (initialMode === "expertise" ? createFlowBuilderExpertiseDraft() : null)
   );
+  const handleReturnToGuardian = useCallback(() => {
+    if (onReturnToGuardian) {
+      onReturnToGuardian();
+      return;
+    }
+
+    if (typeof window === "undefined") return;
+
+    window.history.pushState({}, "", "/chat");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [onReturnToGuardian]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -218,20 +236,48 @@ export default function FlowBuilderPage() {
         </div>
 
         <div className="mt-5 rounded-[20px] border px-4 py-4" style={{ borderColor: "var(--panel-border)" }}>
-          <div className="text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
-            Current route
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div
+                className="text-xs uppercase tracking-[0.22em]"
+                style={{ color: "var(--muted)" }}
+              >
+                Guardian escape hatch
+              </div>
+              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+                Return to Guardian without depending on the shell nav staying in view.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleReturnToGuardian}
+              data-testid="flow-builder-return-guardian"
+              className="shrink-0 rounded-full px-4"
+            >
+              Back to Guardian
+            </Button>
           </div>
-          <code
-            data-testid="flow-builder-route"
-            className="mt-2 block rounded-[14px] border px-3 py-2 text-sm"
-            style={{
-              borderColor: "var(--panel-border)",
-              background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
-              color: "var(--text)",
-            }}
-          >
-            {currentRoute}
-          </code>
+
+          <div className="mt-4">
+            <div
+              className="text-xs uppercase tracking-[0.22em]"
+              style={{ color: "var(--muted)" }}
+            >
+              Current route
+            </div>
+            <code
+              data-testid="flow-builder-route"
+              className="mt-2 block rounded-[14px] border px-3 py-2 text-sm"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+                color: "var(--text)",
+              }}
+            >
+              {currentRoute}
+            </code>
+          </div>
         </div>
       </div>
 
