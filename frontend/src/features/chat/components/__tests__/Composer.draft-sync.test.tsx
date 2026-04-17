@@ -433,11 +433,12 @@ describe("Composer draft sync", () => {
 
     const controlsStrip = screen.getByTestId("composer-controls-strip");
     expect(controlsStrip).toHaveClass(
+      "flex-1",
       "min-w-0",
-      "flex-none",
-      "w-fit",
       "overflow-x-auto"
     );
+    expect(controlsStrip.className).not.toContain("w-fit");
+    expect(controlsStrip.className).not.toContain("flex-none");
     expect(controlsStrip.className).not.toMatch(/\bpr-/);
     expect(controlsStrip.className).not.toContain("bg-[");
 
