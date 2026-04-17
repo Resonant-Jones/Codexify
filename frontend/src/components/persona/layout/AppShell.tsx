@@ -20,7 +20,7 @@
  */
 import api from "@/lib/api";
 import { Settings2 } from "lucide-react";
-import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
+import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -1149,6 +1149,11 @@ export default function AppShell({
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
+  const lastGuardianPathRef = useRef<string | null>(
+    typeof window !== "undefined" && resolveViewFromPathname(window.location.pathname) === "guardian"
+      ? resolvePathForView("guardian", readRouteThreadId())
+      : null
+  );
   const [generalProjectId, setGeneralProjectId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem("cfy.generalProjectId");
@@ -1179,6 +1184,12 @@ export default function AppShell({
   useEffect(() => {
     setDocumentScope(activeRouteThreadId != null ? "thread" : "project");
   }, [activeRouteThreadId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (view !== "guardian") return;
+
+    lastGuardianPathRef.current = resolvePathForView("guardian", activeRouteThreadId);
+  }, [activeRouteThreadId, view]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
       setView(nextView);
@@ -1192,6 +1203,16 @@ export default function AppShell({
     },
     [activeRouteThreadId]
   );
+  const returnToGuardian = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const nextPath =
+      lastGuardianPathRef.current ?? resolvePathForView("guardian", activeRouteThreadId);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [activeRouteThreadId]);
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
@@ -3054,7 +3075,7 @@ export default function AppShell({
                 className="flex h-full w-full min-h-0 flex-col overflow-hidden"
                 data-testid="flow-builder-framecard"
               >
-                <FlowBuilderPage />
+                <FlowBuilderPage onReturnToGuardian={returnToGuardian} />
               </FrameCard>
             </div>
           )}
