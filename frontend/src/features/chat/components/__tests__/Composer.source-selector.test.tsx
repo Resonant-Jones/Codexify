@@ -100,7 +100,7 @@ describe("Composer source selector", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the desktop source selector inside a framed control strip", () => {
+  it("renders the desktop source selector as minimal floating text", () => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       value: 1280,
@@ -122,24 +122,21 @@ describe("Composer source selector", () => {
       name: "Select retrieval source",
     });
 
-    expect(controlsStrip).toHaveClass(
-      "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
-    );
-    expect(controlsStrip.style.borderRadius).toBe("var(--card-radius,19px)");
-    expect(controlsStrip.style.borderColor).toBe(
-      "color-mix(in oklab, var(--panel-border) 84%, var(--text) 16%)"
-    );
+    expect(controlsStrip).toHaveClass("flex-none", "w-fit");
+    expect(controlsStrip.className).not.toContain("bg-[");
+    expect(controlsStrip.style.borderRadius).toBe("");
+    expect(controlsStrip.style.borderColor).toBe("");
     expect(sourceButton).toHaveClass(
-      "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
+      "bg-transparent",
+      "border-0",
+      "rounded-none"
     );
-    expect(sourceButton.style.borderRadius).toBe("var(--card-radius,19px)");
-    expect(sourceButton.style.borderColor).toBe(
-      "color-mix(in oklab, var(--panel-border) 76%, var(--text) 24%)"
-    );
+    expect(sourceButton.style.borderRadius).toBe("");
+    expect(sourceButton.style.borderColor).toBe("");
     expect(sourceButton.style.color).toBe("var(--text)");
   });
 
-  it("keeps the mobile command bar framed but content-sized", () => {
+  it("keeps the mobile command bar content-sized and minimal", () => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       value: 390,
@@ -164,27 +161,17 @@ describe("Composer source selector", () => {
       name: "Select retrieval source",
     });
 
-    expect(controlsStrip.className).toContain("flex-none");
-    expect(controlsStrip.className).toContain(
-      "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
-    );
-    expect(controlsStrip.style.borderRadius).toBe("var(--card-radius,19px)");
-    expect(controlsStrip.style.borderColor).toBe(
-      "color-mix(in oklab, var(--panel-border) 84%, var(--text) 16%)"
-    );
+    expect(controlsStrip).toHaveClass("flex-none", "w-fit");
+    expect(controlsStrip.className).not.toContain("bg-[");
+    expect(controlsStrip.style.borderRadius).toBe("");
+    expect(controlsStrip.style.borderColor).toBe("");
 
-    expect(actionButton).toHaveClass(
-      "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
-    );
-    expect(actionButton.style.borderRadius).toBe("var(--card-radius,19px)");
+    expect(actionButton).toHaveClass("bg-transparent", "border-0", "rounded-none");
+    expect(actionButton.style.borderRadius).toBe("");
 
-    expect(sourceButton).toHaveClass(
-      "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
-    );
-    expect(sourceButton.style.borderRadius).toBe("var(--card-radius,19px)");
-    expect(sourceButton.style.borderColor).toBe(
-      "color-mix(in oklab, var(--panel-border) 76%, var(--text) 24%)"
-    );
+    expect(sourceButton).toHaveClass("bg-transparent", "border-0", "rounded-none");
+    expect(sourceButton.style.borderRadius).toBe("");
+    expect(sourceButton.style.borderColor).toBe("");
   });
 
   it("keeps the selected source across sends in the same thread-scoped harness", async () => {
