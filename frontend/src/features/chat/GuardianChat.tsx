@@ -39,6 +39,7 @@ import api, {
   getInFlightCompletionTurnId,
   moveChatThread,
   updateThreadConfig,
+  OptionalSurfaceError,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
@@ -1198,7 +1199,9 @@ export function GuardianChat({
   const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
-    const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
+    const composer = document.querySelector<HTMLTextAreaElement>(
+      '[data-testid="composer-textarea"]'
+    );
     composer?.focus();
   }, []);
   const mobileComposerShellMotionStyle = useMemo<CSSProperties>(
@@ -1864,11 +1867,19 @@ export function GuardianChat({
       const data = await fetchSystemPromptSummary(params);
       setPromptCostSummary(data ?? null);
     } catch (error) {
-      markRuntimeRouteUnavailableIfNotFound(
-        SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT,
-        error
-      );
-      console.debug("[guardian] prompt cost summary refresh failed", error);
+      if (error instanceof OptionalSurfaceError) {
+        if (error.kind === "forbidden") {
+          console.debug("[guardian] prompt cost summary forbidden — unavailable in this posture");
+        } else {
+          markRuntimeRouteUnavailableIfNotFound(
+            SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT,
+            error
+          );
+          console.debug("[guardian] prompt cost summary route absent — unavailable in this runtime");
+        }
+      } else {
+        console.debug("[guardian] prompt cost summary refresh failed", error);
+      }
       setPromptCostSummary(null);
     }
   }, [systemPromptCapability, systemPromptCapabilityReady]);
