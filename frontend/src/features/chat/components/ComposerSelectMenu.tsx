@@ -209,13 +209,11 @@ export function ComposerSelectMenu({
           type="button"
           {...pressFeedback.getPressFeedbackProps({
             className: cn(
-              "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-transparent px-2.5 py-1.5 text-[12px] transition-colors",
+              "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-[var(--card-radius,19px)] border border-transparent bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)] px-2.5 py-1.5 text-[12px] transition-colors",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
               disabled
                 ? "cursor-not-allowed opacity-45"
                 : "hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]",
-              !isPhoneShell &&
-                "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell),
