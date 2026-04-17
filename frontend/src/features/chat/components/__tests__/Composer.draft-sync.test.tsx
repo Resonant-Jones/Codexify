@@ -454,10 +454,12 @@ describe("Composer draft sync", () => {
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
     expect(sendButton).toHaveClass(
-      "rounded-[var(--radius-micro)]",
-      "px-3",
-      "py-2",
-      "transition-all"
+      "inline-flex",
+      "items-center",
+      "justify-center",
+      "border-0",
+      "transition-opacity",
+      "focus:outline-none"
     );
     expect(sendButton).toHaveAccessibleName("Send");
     expect(sendButton.className).toContain("bg-[var(--accent)]");

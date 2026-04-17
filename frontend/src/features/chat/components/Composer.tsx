@@ -1021,6 +1021,14 @@ export function Composer({
   const showLineageCopy =
     !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
   const lineageCopy = `Send a message to ${lineageTargetLabel}`;
+  const sendButtonLabel =
+    interactionState === "submitting"
+      ? "Sending…"
+      : interactionState === "streaming"
+        ? "Streaming…"
+        : interactionState === "awaiting_model"
+          ? "Warming…"
+          : "Send";
   const handleAttemptSend = () => {
     if (turnLocked) {
       notifyTurnLocked();
@@ -1106,6 +1114,7 @@ export function Composer({
           ) : null}
           <textarea
             ref={ref}
+            data-testid="composer-textarea"
             rows={MIN_COMPOSER_ROWS}
             wrap="soft"
             value={value}
@@ -1126,7 +1135,6 @@ export function Composer({
                 closeSlashPalette(activeSlashToken?.key ?? null);
               }
             }}
-            placeholder="Write a message…"
             onPaste={onPaste}
             onKeyDown={(e) => {
               if (slashPaletteOpen) {
@@ -1178,6 +1186,8 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
+            aria-label={lineageCopy}
+            placeholder=""
             className={cn(
               "w-full bg-transparent border-none outline-none text-[var(--text)] placeholder:text-[var(--muted)] resize-none text-base leading-relaxed",
               interactionState === "awaiting_model" &&
@@ -1413,7 +1423,7 @@ export function Composer({
             <div
               data-testid="composer-send-slot"
               className="flex shrink-0 items-center justify-center"
-              style={{ marginRight: "var(--composer-control-gap, 12px)" }}
+              style={{ marginRight: "6px" }}
             >
               <button
                 type="button"
@@ -1442,6 +1452,7 @@ export function Composer({
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
               >
+                <span className="sr-only">{sendButtonLabel}</span>
                 <ArrowUp size={16} />
               </button>
             </div>

@@ -24,6 +24,11 @@ const sessionHooksState = vi.hoisted(() => ({
   activeModelId: "default",
   activeInferenceMode: "default",
 }));
+const providerState = vi.hoisted(() => ({
+  data: null as unknown,
+  error: null as unknown,
+  isLoading: false,
+}));
 const authState = vi.hoisted(() => ({
   ready: true,
   status: "authenticated" as const,
@@ -104,6 +109,10 @@ vi.mock("@/imprint/ImprintZeroToast", () => ({
 
 vi.mock("@/features/chat/components/PromptCostIndicator", () => ({
   default: () => null,
+}));
+
+vi.mock("@/features/chat/hooks/useProviderState", () => ({
+  useProviderState: () => providerState,
 }));
 
 vi.mock("@/components/ui/RefractiveGlassCard", () => ({
@@ -298,6 +307,9 @@ describe("GuardianChatWithSidebar stability contract", () => {
     sessionHooksState.activeProviderId = "local";
     sessionHooksState.activeModelId = "default";
     sessionHooksState.activeInferenceMode = "default";
+    providerState.data = null;
+    providerState.error = null;
+    providerState.isLoading = false;
     routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] = "available";
     routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION] =
       "available";
@@ -334,6 +346,18 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(
       mockApi.get.mock.calls.some(([url]) => url === "/ui/session")
     ).toBe(false);
+  });
+
+  it("stays mounted when provider state transitions to an error", () => {
+    const { rerender } = render(
+      <GuardianChatWithSidebar guardianName="Guardian" userName="User" />
+    );
+
+    providerState.error = new Error("Provider state fetch failed");
+
+    rerender(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    expect(screen.getByTestId("guardian-chat-mock")).toBeInTheDocument();
   });
 
   it("keeps selected thread stable when pagination appends", async () => {
@@ -799,3 +823,56 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(spine.isComposerBlocked()).toBe(true);
   });
 });
+
+  it("stays mounted when optional system prompt summary returns 403", async () => {
+    routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] = "available";
+    routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION] = "available";
+    setupThreadApi({
+      all: {
+        0: { threads: [t(1)], has_more: false },
+      },
+    });
+
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === "/api/system_prompt/summary") {
+        const err = new Error("Forbidden") as any;
+        err.response = { status: 403 };
+        return Promise.reject(err);
+      }
+      if (url === "/chat/threads") {
+        return Promise.resolve({
+          data: { ok: true, threads: [{ id: 1, title: "Thread 1", last_message: "" }], has_more: false },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("guardian-chat-mock");
+    expect(screen.getByTestId("guardian-chat-mock")).toBeInTheDocument();
+  });
+
+  it("stays mounted when optional embed route returns 404", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(1)], has_more: false },
+      },
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/embed")) {
+        return new Response("Not Found", { status: 404 });
+      }
+      return originalFetch(url, init);
+    });
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await screen.findByTestId("guardian-chat-mock");
+    expect(screen.getByTestId("guardian-chat-mock")).toBeInTheDocument();
+
+    global.fetch = originalFetch;
+  });
