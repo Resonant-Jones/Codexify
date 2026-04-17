@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Textarea from "@/components/ui/textarea";
 
 import {
   DEFAULT_FLOW_BUILDER_MODE,
@@ -7,6 +8,10 @@ import {
   parseFlowBuilderMode,
   type FlowBuilderMode,
 } from "./flowBuilderRoute";
+import {
+  createFlowBuilderExpertiseDraft,
+  type FlowBuilderExpertiseDraft,
+} from "./flowBuilderDraft";
 
 const FLOW_BUILDER_LAST_MODE_STORAGE_KEY = "cfy.flowBuilder.mode";
 
@@ -104,8 +109,10 @@ function ModeButton({
 }
 
 export default function FlowBuilderPage() {
-  const [mode, setModeState] = useState<FlowBuilderMode>(() =>
-    resolveInitialFlowBuilderMode()
+  const initialMode = resolveInitialFlowBuilderMode();
+  const [mode, setModeState] = useState<FlowBuilderMode>(initialMode);
+  const [expertiseDraft, setExpertiseDraft] = useState<FlowBuilderExpertiseDraft | null>(
+    () => (initialMode === "expertise" ? createFlowBuilderExpertiseDraft() : null)
   );
 
   useEffect(() => {
@@ -121,6 +128,9 @@ export default function FlowBuilderPage() {
 
       setModeState((current) => (current === nextMode ? current : nextMode));
       persistFlowBuilderMode(nextMode);
+      if (nextMode === "expertise") {
+        setExpertiseDraft((current) => current ?? createFlowBuilderExpertiseDraft());
+      }
       canonicalizeFlowBuilderLocation(nextMode);
     };
 
@@ -148,6 +158,9 @@ export default function FlowBuilderPage() {
     (nextMode: FlowBuilderMode) => {
       setModeState(nextMode);
       persistFlowBuilderMode(nextMode);
+      if (nextMode === "expertise") {
+        setExpertiseDraft((current) => current ?? createFlowBuilderExpertiseDraft());
+      }
 
       if (typeof window === "undefined") return;
 
@@ -229,6 +242,143 @@ export default function FlowBuilderPage() {
           testId="flow-builder-mode-process"
         />
       </div>
+
+      {mode === "expertise" && expertiseDraft ? (
+        <section
+          data-testid="flow-builder-draft-spec"
+          className="rounded-[20px] border p-4 sm:p-5"
+          style={{
+            borderColor: "var(--panel-border)",
+            background:
+              "linear-gradient(180deg, color-mix(in oklab, var(--panel-bg) 96%, transparent), color-mix(in oklab, var(--panel-bg) 90%, transparent))",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
+              Draft specification artifact
+            </div>
+            <span
+              className="rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.2em]"
+              style={{
+                borderColor: "var(--chip-border)",
+                background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+                color: "var(--muted)",
+              }}
+            >
+              Non-runtime
+            </span>
+            <span
+              className="rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.2em]"
+              style={{
+                borderColor: "var(--chip-border)",
+                background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+                color: "var(--muted)",
+              }}
+            >
+              Draft only
+            </span>
+          </div>
+
+          <div className="mt-3 max-w-2xl space-y-2">
+            <h2 className="text-lg font-semibold tracking-[-0.02em]">
+              {expertiseDraft.title}
+            </h2>
+            <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+              This stub keeps the expertise lane honest: it makes the specification visible and
+              editable without claiming compile or execution support.
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[16px] border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
+              <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
+                Source
+              </div>
+              <div className="mt-2 text-sm font-medium">Build from expertise</div>
+            </div>
+            <div className="rounded-[16px] border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
+              <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
+                Runtime
+              </div>
+              <div className="mt-2 text-sm font-medium">{expertiseDraft.runtimeSupport}</div>
+            </div>
+            <div className="rounded-[16px] border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
+              <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
+                Status
+              </div>
+              <div className="mt-2 text-sm font-medium">{expertiseDraft.status}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <label className="block">
+              <div className="text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
+                Objective
+              </div>
+              <Textarea
+                data-testid="flow-builder-draft-objective"
+                className="mt-2 min-h-28"
+                value={expertiseDraft.objective}
+                onChange={(event) =>
+                  setExpertiseDraft((current) =>
+                    current ? { ...current, objective: event.target.value } : current
+                  )
+                }
+              />
+            </label>
+
+            <label className="block">
+              <div className="text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
+                Assumptions
+              </div>
+              <Textarea
+                data-testid="flow-builder-draft-assumptions"
+                className="mt-2 min-h-28"
+                value={expertiseDraft.assumptions}
+                onChange={(event) =>
+                  setExpertiseDraft((current) =>
+                    current ? { ...current, assumptions: event.target.value } : current
+                  )
+                }
+              />
+            </label>
+
+            <label className="block">
+              <div className="text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
+                Unknowns
+              </div>
+              <Textarea
+                data-testid="flow-builder-draft-unknowns"
+                className="mt-2 min-h-28"
+                value={expertiseDraft.unknowns}
+                onChange={(event) =>
+                  setExpertiseDraft((current) =>
+                    current ? { ...current, unknowns: event.target.value } : current
+                  )
+                }
+              />
+            </label>
+
+            <label className="block">
+              <div className="text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
+                Validation questions
+              </div>
+              <Textarea
+                data-testid="flow-builder-draft-validation-questions"
+                className="mt-2 min-h-28"
+                value={expertiseDraft.validationQuestions}
+                onChange={(event) =>
+                  setExpertiseDraft((current) =>
+                    current
+                      ? { ...current, validationQuestions: event.target.value }
+                      : current
+                  )
+                }
+              />
+            </label>
+          </div>
+        </section>
+      ) : null}
 
       <div
         className="rounded-[20px] border p-4 sm:p-5"
