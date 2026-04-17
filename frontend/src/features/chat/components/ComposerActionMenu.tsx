@@ -7,10 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  getComposerControlSurfaceStyle,
-  getMobileTapTargetStyle,
-} from "@/components/persona/layout/mobileInteractionContract";
+import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { cn } from "@/lib/utils";
 
@@ -65,19 +62,12 @@ export function ComposerActionMenu({
           type="button"
           {...pressFeedback.getPressFeedbackProps({
             className: cn(
-              "inline-flex h-8 w-8 items-center justify-center rounded-[var(--card-radius,19px)] border border-transparent bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)] text-[11px] leading-none transition-colors",
+              "inline-flex h-8 w-8 items-center justify-center rounded-none border-0 bg-transparent text-[11px] leading-none transition-colors",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
-              disabled
-                ? "cursor-not-allowed opacity-35"
-                : isPhoneShell
-                  ? "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
-                  : "opacity-100 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]",
+              disabled ? "cursor-not-allowed opacity-35" : "opacity-100 hover:opacity-80",
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
-              ...getComposerControlSurfaceStyle(isPhoneShell, {
-                variant: "trigger",
-              }),
               transform:
                 !isPhoneShell && pressFeedback.pressed
                   ? "translateY(1px)"
