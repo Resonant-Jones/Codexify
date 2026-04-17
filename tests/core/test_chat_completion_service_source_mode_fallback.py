@@ -18,6 +18,7 @@ from guardian.context.retrieval_router_policy import (
     WIDEN_REASON_NONE,
 )
 from guardian.core import chat_completion_service
+from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
 
 
@@ -383,4 +384,103 @@ def test_run_chat_completion_task_preserves_routing_debug_metadata_in_payload_su
     assert result["payload_summary"]["source_mode"] == "personal_knowledge"
     assert result["payload_summary"]["effective_source_mode"] == (
         "personal_knowledge"
+    )
+
+
+def test_run_chat_completion_task_persists_retrieval_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _seed_completion_service(monkeypatch)
+
+    class _ObsidianOnlyBroker:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def assemble(
+            self,
+            thread_id,
+            query,
+            depth_mode,
+            user_id,
+            project_id=None,
+            source_mode=SOURCE_MODE_PROJECT,
+        ):
+            captured["source_mode"] = source_mode
+            return {
+                "semantic": [
+                    {
+                        "metadata": {
+                            "namespace": OBSIDIAN_NAMESPACE,
+                            "source_id": "obsidian-1",
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "namespace": OBSIDIAN_NAMESPACE,
+                            "source_id": "obsidian-2",
+                        }
+                    },
+                ],
+                "obsidian": [
+                    {"metadata": {"namespace": OBSIDIAN_NAMESPACE}},
+                    {"metadata": {"namespace": OBSIDIAN_NAMESPACE}},
+                ],
+                "docs": {"project": [], "thread": []},
+                "memory": [],
+                "graph": [],
+            }, {
+                "documents": [],
+                "graph": [],
+                "source_mode": source_mode,
+                "widen_reason": WIDEN_REASON_NONE,
+            }
+
+    monkeypatch.setattr(
+        chat_completion_service, "ContextBroker", _ObsidianOnlyBroker
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "assistant reply",
+    )
+
+    class _EmptyStream:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "stream_local",
+        lambda *args, **kwargs: _EmptyStream(),
+    )
+
+    task = ChatCompletionTask(
+        thread_id=1,
+        provider="local",
+        model="mock-model",
+        origin="api:chat.complete|turn_id=abc|source_mode=personal_knowledge",
+        requested_source_mode="Personal_Knowledge",
+    )
+    queued_task = task_from_dict(task.to_dict())
+    assert isinstance(queued_task, ChatCompletionTask)
+    assert queued_task.requested_source_mode == "Personal_Knowledge"
+
+    result = chat_completion_service.run_chat_completion_task(
+        queued_task,
+        persist_assistant_message=False,
+    )
+
+    provenance = result["retrieval_provenance"]
+    assert provenance["requested_source_mode"] == "Personal_Knowledge"
+    assert provenance["normalized_source_mode"] == "personal_knowledge"
+    assert provenance["retrieval_status"] == "obsidian_only_success"
+    assert provenance["source_hit_counts"]["obsidian_semantic"] == 2
+    assert provenance["source_hit_counts"]["thread_semantic"] == 0
+    assert result["payload_summary"]["retrieval_provenance"] == provenance
+    assert (
+        result["payload_summary"]["requested_source_mode"]
+        == "Personal_Knowledge"
     )
