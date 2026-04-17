@@ -1346,7 +1346,7 @@ export function Composer({
           >
             <div
               data-testid="composer-controls-strip"
-              className="flex w-fit max-w-full min-w-0 flex-none flex-nowrap items-center gap-3 overflow-x-auto"
+              className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
               style={{ gap: "var(--composer-control-gap, 12px)" }}
             >
               <ComposerActionMenu
