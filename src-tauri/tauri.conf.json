@@ -27,6 +27,20 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
+    "resources": {
+      "./target/bundle-resources/.env.example": ".env.example",
+      "./target/bundle-resources/.env.template": ".env.template",
+      "./target/bundle-resources/backend": "backend",
+      "./target/bundle-resources/docker": "docker",
+      "./target/bundle-resources/docker-compose.yml": "docker-compose.yml",
+      "./target/bundle-resources/guardian": "guardian",
+      "./target/bundle-resources/plugins": "plugins",
+      "./target/bundle-resources/pytest.ini": "pytest.ini",
+      "./target/bundle-resources/requirements": "requirements",
+      "./target/bundle-resources/requirements.txt": "requirements.txt",
+      "./target/bundle-resources/scripts": "scripts",
+      "./target/bundle-resources/tests": "tests"
+    },
     "macOS": {
       "bundleName": "Codexify",
       "bundleVersion": "0.1.0"
