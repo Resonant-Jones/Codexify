@@ -15,6 +15,10 @@ import {
 
 const FLOW_BUILDER_LAST_MODE_STORAGE_KEY = "cfy.flowBuilder.mode";
 
+function isFlowBuilderPathname(pathname: string): boolean {
+  return pathname.startsWith("/flow-builder");
+}
+
 function readPersistedFlowBuilderMode(): FlowBuilderMode | null {
   if (typeof window === "undefined") return null;
 
@@ -54,6 +58,7 @@ function resolveInitialFlowBuilderMode(): FlowBuilderMode {
 
 function canonicalizeFlowBuilderLocation(nextMode: FlowBuilderMode): void {
   if (typeof window === "undefined") return;
+  if (!isFlowBuilderPathname(window.location.pathname)) return;
 
   const nextPath = getFlowBuilderPath(nextMode);
   const currentPath = `${window.location.pathname}${window.location.search}`;
@@ -119,6 +124,10 @@ export default function FlowBuilderPage() {
     if (typeof window === "undefined") return;
 
     const syncFromLocation = () => {
+      if (!isFlowBuilderPathname(window.location.pathname)) {
+        return;
+      }
+
       const routeMode = parseFlowBuilderMode(window.location.search);
       const hasModeQuery = hasFlowBuilderModeQuery(window.location.search);
       const nextMode = routeMode

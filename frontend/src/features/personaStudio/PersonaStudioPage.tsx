@@ -622,8 +622,8 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             </form>
           </section>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
