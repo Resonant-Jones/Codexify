@@ -370,14 +370,17 @@ describe("AppShell logo wordmark color contract", () => {
     expect(listCodexEntriesSpy).not.toHaveBeenCalled();
   });
 
-  it("honors the /persona-studio route on initial render", async () => {
-    setRoutePath("/persona-studio");
+  it("honors the /flow-builder route on initial render", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/flow-builder?mode=expertise");
 
     render(<AppShell />);
 
-    expect(
-      await screen.findByText(/configure runtime persona profiles/i)
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("flow-builder-page")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
+      "data-flow-builder-mode",
+      "expertise"
+    );
   });
 });
 
