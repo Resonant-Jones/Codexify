@@ -439,6 +439,7 @@ describe("Composer draft sync", () => {
       "overflow-x-auto"
     );
     expect(controlsStrip.className).not.toMatch(/\bpr-/);
+    expect(controlsStrip.className).not.toContain("bg-[");
 
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass(
@@ -470,6 +471,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
     expect(composerSource).toContain("bg-transparent");
+    expect(composerSource).not.toContain("bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
@@ -511,15 +513,11 @@ describe("Composer draft sync", () => {
       name: "Select retrieval source",
     });
 
-    expect(controlsStrip.className).toContain("flex-none");
-    expect(controlsStrip.className).toContain(
-      "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
-    );
-    expect(controlsStrip.style.borderRadius).toBe("var(--card-radius,19px)");
-    expect(sourceButton).toHaveClass(
-      "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
-    );
-    expect(sourceButton.style.borderRadius).toBe("var(--card-radius,19px)");
+    expect(controlsStrip).toHaveClass("flex-none", "w-fit");
+    expect(controlsStrip.className).not.toContain("bg-[");
+    expect(controlsStrip.style.borderRadius).toBe("");
+    expect(sourceButton).toHaveClass("bg-transparent", "border-0", "rounded-none");
+    expect(sourceButton.style.borderRadius).toBe("");
   });
 
   it("stages attachments locally and uploads them only after send", async () => {

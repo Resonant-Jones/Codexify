@@ -11,10 +11,7 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
-import {
-  getComposerControlSurfaceStyle,
-  getMobileTapTargetStyle,
-} from "@/components/persona/layout/mobileInteractionContract";
+import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
@@ -1349,15 +1346,8 @@ export function Composer({
           >
           <div
             data-testid="composer-controls-strip"
-            className={cn(
-              "flex w-fit max-w-full min-w-0 flex-none flex-nowrap items-center gap-3 overflow-x-auto bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
-            )}
-            style={{
-              gap: "var(--composer-control-gap, 12px)",
-              ...getComposerControlSurfaceStyle(isPhoneShell, {
-                variant: "rail",
-              }),
-            }}
+            className="flex w-fit max-w-full min-w-0 flex-none flex-nowrap items-center gap-3 overflow-x-auto"
+            style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
