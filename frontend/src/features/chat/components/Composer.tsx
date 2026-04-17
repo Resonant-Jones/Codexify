@@ -459,6 +459,14 @@ export function Composer({
   const transportBusy = localSendInProgress;
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const voiceTurnDisabled = inputLocked || localSendInProgress || turnLocked;
+  const composerSendButtonLabel =
+    interactionState === "awaiting_model"
+      ? "Warming…"
+      : interactionState === "streaming"
+        ? "Streaming…"
+        : interactionState === "submitting"
+          ? "Sending…"
+          : "Send";
   const composerPressFeedback = usePressFeedback({
     enabled: !sendTransportDisabled,
     visualMode: isPhoneShell ? "mobile" : "none",
@@ -1342,9 +1350,7 @@ export function Composer({
           <div
             data-testid="composer-controls-strip"
             className={cn(
-              "flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto",
-              !isPhoneShell &&
-                "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
+              "flex w-fit max-w-full min-w-0 flex-none flex-nowrap items-center gap-3 overflow-x-auto bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
             )}
             style={{
               gap: "var(--composer-control-gap, 12px)",
@@ -1431,6 +1437,7 @@ export function Composer({
             >
               <button
                 type="button"
+                aria-label={composerSendButtonLabel}
                 {...composerPressFeedback.getPressFeedbackProps({
                   className:
                     cn(

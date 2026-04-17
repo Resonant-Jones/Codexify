@@ -65,15 +65,13 @@ export function ComposerActionMenu({
           type="button"
           {...pressFeedback.getPressFeedbackProps({
             className: cn(
-              "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-[11px] leading-none transition-colors",
+              "inline-flex h-8 w-8 items-center justify-center rounded-[var(--card-radius,19px)] border border-transparent bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)] text-[11px] leading-none transition-colors",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
               disabled
                 ? "cursor-not-allowed opacity-35"
                 : isPhoneShell
                   ? "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
                   : "opacity-100 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]",
-              !isPhoneShell &&
-                "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
