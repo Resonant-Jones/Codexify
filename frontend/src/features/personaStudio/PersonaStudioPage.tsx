@@ -83,9 +83,9 @@ function buildEphemeralChatDraftSnapshot(
   profile: PersonaProfileDraft | null
 ): EphemeralChatDraftSnapshot {
   const config = profile?.config ?? null;
-  const personaName = profile?.name || config?.identity?.name || "Persona";
+  const personaName = config?.identity?.name || profile?.name || "Persona";
   const description =
-    profile?.description || config?.identity?.description || "No description set.";
+    config?.identity?.description || profile?.description || "No description set.";
   const modelLine = config
     ? `${config.model.provider} / ${config.model.model}`
     : "No model selected.";
@@ -1328,9 +1328,6 @@ export default function PersonaStudioPage() {
   const [utilityTab, setUtilityTab] = React.useState<UtilityTab>("Profiles");
   const [isUtilityPaneOpen, setIsUtilityPaneOpen] = React.useState(true);
 
-  const selectedProfileIdFromHook = usePersonaStudioLocalDraftState().selectedProfileId;
-  const actualSelectedProfileId = selectedProfileId ?? selectedProfileIdFromHook;
-
   const handleTabChange = (tab: (typeof TABS)[number]) => {
     setActiveTab(tab);
   };
@@ -1371,7 +1368,12 @@ export default function PersonaStudioPage() {
 
     const onChange = (config: PersonaConfig) => {
       if (selectedProfile) {
-        updateSelectedProfile({ config });
+        updateSelectedProfile((currentProfile) => ({
+          ...currentProfile,
+          name: config.identity.name,
+          description: config.identity.description,
+          config,
+        }));
       }
     };
 
