@@ -85,12 +85,13 @@ export function getComposerControlSurfaceStyle(
   isPhoneShell: boolean,
   options: { variant?: "rail" | "trigger" } = {}
 ): CSSProperties {
-  if (isPhoneShell) {
-    return {};
-  }
-
   const variant = options.variant ?? "trigger";
   const isRail = variant === "rail";
+  const railPadding = isRail
+    ? isPhoneShell
+      ? "calc(var(--composer-control-gap, 12px) / 3)"
+      : "calc(var(--composer-control-gap, 12px) / 2)"
+    : undefined;
 
   return {
     borderStyle: "solid",
@@ -102,7 +103,7 @@ export function getComposerControlSurfaceStyle(
     boxShadow: isRail
       ? "inset 0 1px 0 color-mix(in oklab, var(--panel-border) 28%, transparent)"
       : "inset 0 1px 0 color-mix(in oklab, var(--panel-border) 20%, transparent)",
-    padding: isRail ? "calc(var(--composer-control-gap, 12px) / 2)" : undefined,
+    padding: railPadding,
   };
 }
 
