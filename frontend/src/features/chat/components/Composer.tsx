@@ -1344,11 +1344,11 @@ export function Composer({
             )}
             style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
-          <div
-            data-testid="composer-controls-strip"
-            className="flex w-fit max-w-full min-w-0 flex-none flex-nowrap items-center gap-3 overflow-x-auto"
-            style={{ gap: "var(--composer-control-gap, 12px)" }}
-          >
+            <div
+              data-testid="composer-controls-strip"
+              className="flex w-fit max-w-full min-w-0 flex-none flex-nowrap items-center gap-3 overflow-x-auto"
+              style={{ gap: "var(--composer-control-gap, 12px)" }}
+            >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 isPhoneShell={isPhoneShell}
@@ -1422,8 +1422,7 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex shrink-0 items-center justify-center"
-              style={{ marginRight: "6px" }}
+              className="ml-auto flex shrink-0 items-center justify-center"
             >
               <button
                 type="button"

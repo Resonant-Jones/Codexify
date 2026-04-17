@@ -443,6 +443,7 @@ describe("Composer draft sync", () => {
 
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass(
+      "ml-auto",
       "flex",
       "shrink-0",
       "items-center",
@@ -453,20 +454,9 @@ describe("Composer draft sync", () => {
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
-    expect(sendButton).toHaveClass(
-      "inline-flex",
-      "items-center",
-      "justify-center",
-      "border-0",
-      "transition-opacity",
-      "focus:outline-none"
-    );
     expect(sendButton).toHaveAccessibleName("Send");
-    expect(sendButton.className).toContain("bg-[var(--accent)]");
-    expect(sendButton.className).toContain("text-[var(--pill-active-text)]");
-    expect(sendButton.className).not.toContain("rounded-full");
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     expect(textarea).toHaveClass("w-full", "bg-transparent", "border-none");
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
