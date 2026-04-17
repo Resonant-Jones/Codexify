@@ -2230,6 +2230,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
                 "payload_summary": result.get("payload_summary"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_query": result_retrieval_query,
                 "retrieval_target": result_retrieval_target,
                 "retrieval_query_matches_latest_turn": result.get(

@@ -459,6 +459,7 @@ class ChatCompletionTask(BaseTask):
     reasoning_mode: str | None = None
     max_context: int | None = 50
     depth_mode: str | None = "normal"
+    requested_source_mode: str | None = None
     system_override: str | None = None
     retrieval_override: dict[str, Any] | None = None
     preferred_name: str | None = None
@@ -493,6 +494,11 @@ class ChatCompletionTask(BaseTask):
             reasoning_mode=payload.get("reasoning_mode"),
             max_context=payload.get("max_context"),
             depth_mode=payload.get("depth_mode"),
+            requested_source_mode=(
+                None
+                if payload.get("requested_source_mode") is None
+                else str(payload.get("requested_source_mode"))
+            ),
             system_override=payload.get("system_override"),
             retrieval_override=_coerce_mapping(
                 payload.get("retrieval_override")

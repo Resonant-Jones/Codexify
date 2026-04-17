@@ -176,3 +176,98 @@ def test_chat_worker_emits_lifecycle_states_in_order(monkeypatch):
 
     assert streaming_index < first_progress_index
     assert completed_state_index < terminal_index
+
+
+def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
+    _isolate_turn_anchor(monkeypatch)
+    task = _build_task(task_id="task-provenance")
+
+    published: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        chat_worker.dependencies,
+        "chatlog_db",
+        SimpleNamespace(
+            create_message=lambda *_args, **_kwargs: 42,
+            write_audit_log=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_safe_publish",
+        lambda _task_id, event_type, data: published.append(
+            (event_type, dict(data or {}))
+        )
+        or {"ok": True},
+    )
+    monkeypatch.setattr(
+        chat_worker.event_bus, "emit_event", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
+    monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
+    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_for_turn",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_id_by_turn_id",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_turn_id_metadata",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_message_extra_meta",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_schedule_assistant_message_audio_generation",
+        lambda **_kwargs: False,
+    )
+    monkeypatch.setattr(chat_worker, "_embed_message", lambda *_, **__: None)
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_args, **_kwargs: {
+            "message_id": 42,
+            "provider": "local",
+            "model": "test-model",
+            "retrieval_provenance": {
+                "requested_source_mode": "Personal_Knowledge",
+                "normalized_source_mode": "personal_knowledge",
+                "source_hit_counts": {
+                    "semantic_total": 2,
+                    "thread_semantic": 0,
+                    "obsidian_semantic": 2,
+                    "other_semantic": 0,
+                    "project_documents": 0,
+                    "thread_documents": 0,
+                    "global_documents": 0,
+                    "other_documents": 0,
+                    "memory": 0,
+                    "graph": 0,
+                },
+                "retrieval_status": "obsidian_only_success",
+            },
+        },
+    )
+
+    chat_worker._run_chat_task(task)
+
+    completed_payload = next(
+        payload
+        for event_type, payload in published
+        if event_type == "task.completed"
+    )
+    assert completed_payload["retrieval_provenance"]["retrieval_status"] == (
+        "obsidian_only_success"
+    )
+    assert completed_payload["retrieval_provenance"][
+        "requested_source_mode"
+    ] == ("Personal_Knowledge")
