@@ -111,6 +111,50 @@ def test_rag_trace_exposes_payload_summary(monkeypatch):
     chat._rag_traces.pop(77, None)
 
 
+def test_rag_trace_exposes_retrieval_provenance(monkeypatch):
+    chat._thread_latest_task[781] = "task-781"
+
+    retrieval_provenance = {
+        "requested_source_mode": "Personal_Knowledge",
+        "normalized_source_mode": "personal_knowledge",
+        "source_hit_counts": {
+            "semantic_total": 2,
+            "thread_semantic": 0,
+            "obsidian_semantic": 2,
+            "other_semantic": 0,
+            "project_documents": 0,
+            "thread_documents": 0,
+            "global_documents": 0,
+            "other_documents": 0,
+            "memory": 0,
+            "graph": 0,
+        },
+        "retrieval_status": "obsidian_only_success",
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "retrieval_provenance": retrieval_provenance,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(781, api_key="test-key")
+    assert (
+        trace["payload_summary"]["retrieval_provenance"] == retrieval_provenance
+    )
+    assert trace["retrieval_provenance"] == retrieval_provenance
+
+    chat._thread_latest_task.pop(781, None)
+    chat._rag_traces.pop(781, None)
+
+
 def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
     chat._thread_latest_task[78] = "task-78"
 

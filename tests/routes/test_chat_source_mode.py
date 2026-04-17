@@ -59,6 +59,10 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     if raw_source_mode is not None:
         payload["source_mode"] = raw_source_mode
 
+    expected_requested_source_mode = (
+        "project" if raw_source_mode is None else raw_source_mode
+    )
+
     response = test_client.post("/chat/1/complete", json=payload)
 
     assert response.status_code == 200
@@ -69,7 +73,15 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     assert f"|source_mode={expected_source_mode}" in getattr(task, "origin")
     assert "|slash_intent=" not in getattr(task, "origin")
     assert "|retrieval_override=" not in getattr(task, "origin")
+    assert (
+        getattr(task, "requested_source_mode") == expected_requested_source_mode
+    )
     assert getattr(task, "retrieval_override", None) is None
+    round_tripped = task_from_dict(task.to_dict())
+    assert (
+        getattr(round_tripped, "requested_source_mode")
+        == expected_requested_source_mode
+    )
     assert captured["queue_name"] == "codexify:queue:chat"
 
 
@@ -142,11 +154,15 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
     assert "|source_mode=personal_knowledge" in origin
     assert "|slash_intent=" in origin
     assert "|retrieval_override=" in origin
+    assert getattr(task, "requested_source_mode") == "personal_knowledge"
     assert getattr(task, "retrieval_override") == expected_retrieval_override
     round_tripped = task_from_dict(task.to_dict())
     assert (
         getattr(round_tripped, "retrieval_override")
         == expected_retrieval_override
+    )
+    assert (
+        getattr(round_tripped, "requested_source_mode") == "personal_knowledge"
     )
 
     slash_intent_raw = origin.split("|slash_intent=", 1)[1]

@@ -2527,7 +2527,8 @@ async def chat_complete(
     Enqueue an assistant reply for the given thread and return a task id.
     """
     turn_id = _normalize_turn_id(body.turn_id)
-    source_mode = normalize_source_mode(body.source_mode)
+    requested_source_mode = body.source_mode
+    source_mode = normalize_source_mode(requested_source_mode)
 
     provider = str(body.provider or "").strip().lower() or None
     requested_model = str(body.model or "").strip() or None
@@ -2722,6 +2723,7 @@ async def chat_complete(
         reasoning_mode=body.reasoning_mode,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
+        requested_source_mode=requested_source_mode,
         system_override=merged_system_override,
         retrieval_override=retrieval_override,
         preferred_name=body.preferred_name,
@@ -3467,6 +3469,8 @@ def get_latest_rag_trace(
 
     # Try to get trace + profile data from task events if we have a recent task.
     task_id = _thread_latest_task_id(thread_id, metadata)
+    completed_payload: dict[str, Any] | None = None
+    retrieval_provenance: dict[str, Any] | None = None
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
         if isinstance(completed_payload, dict):
@@ -3490,20 +3494,31 @@ def get_latest_rag_trace(
                         task_id,
                         trace,
                     )
-            if isinstance(completed_payload.get("payload_summary"), dict):
-                payload_summary = dict(completed_payload.get("payload_summary"))
-                if trace is not None:
-                    trace["payload_summary"] = payload_summary
-                    _rag_traces[thread_id] = trace
-            for key in (
-                "active_profile_id",
-                "provider_override",
-                "model_override",
-                "injection_hash",
-                "retrieval_mode",
-                "model_mode",
-            ):
-                profile_debug[key] = completed_payload.get(key)
+    if isinstance(completed_payload, dict):
+        payload_summary_value = completed_payload.get("payload_summary")
+        if isinstance(payload_summary_value, dict):
+            payload_summary = dict(payload_summary_value)
+            retrieval_provenance_value = payload_summary.get(
+                "retrieval_provenance"
+            )
+            if isinstance(retrieval_provenance_value, dict):
+                retrieval_provenance = dict(retrieval_provenance_value)
+        else:
+            retrieval_provenance_value = completed_payload.get(
+                "retrieval_provenance"
+            )
+            if isinstance(retrieval_provenance_value, dict):
+                retrieval_provenance = dict(retrieval_provenance_value)
+
+        for key in (
+            "active_profile_id",
+            "provider_override",
+            "model_override",
+            "injection_hash",
+            "retrieval_mode",
+            "model_mode",
+        ):
+            profile_debug[key] = completed_payload.get(key)
 
     if trace is None:
         persisted = _thread_trace_entry(
@@ -3528,6 +3543,8 @@ def get_latest_rag_trace(
 
     if payload_summary is not None:
         trace["payload_summary"] = payload_summary
+    if retrieval_provenance is not None:
+        trace["retrieval_provenance"] = retrieval_provenance
 
     trace.setdefault("thread_id", thread_id)
     trace.setdefault("project_id", None)
