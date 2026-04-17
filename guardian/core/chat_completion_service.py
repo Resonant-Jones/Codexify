@@ -27,6 +27,7 @@ from guardian.context.retrieval_router_policy import (
     RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE,
     RETRIEVAL_OVERRIDE_PROJECT,
     SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_OBSIDIAN_ONLY,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
     normalize_retrieval_override_mode,
@@ -181,6 +182,8 @@ def _effective_source_mode_for_broker_assembly(
     retrieval_override: dict[str, Any] | None,
 ) -> str:
     effective_source_mode = normalize_source_mode(source_mode)
+    if effective_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
+        return effective_source_mode
     if not isinstance(retrieval_override, dict):
         return effective_source_mode
 
@@ -235,6 +238,8 @@ def _resolve_effective_source_mode_for_assembly(
     retrieval_override: Any,
 ) -> str:
     normalized_source_mode = _normalize_source_mode(source_mode)
+    if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
+        return normalized_source_mode
     override_mode = _retrieval_override_mode(retrieval_override)
     if override_mode == "project":
         return "project"
@@ -1518,6 +1523,12 @@ async def build_messages_for_llm(
         bundle = {}
     else:
         trace_candidate = trace
+
+    if (
+        isinstance(bundle, dict)
+        and bundle.get("retrieval_status") == "no_obsidian_results"
+    ):
+        raise ValueError("Obsidian-only retrieval returned no results")
 
     if isinstance(bundle, dict):
         if thread_execution.persona_id:
