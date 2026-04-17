@@ -54,6 +54,24 @@ describe("FlowBuilderPage mode routing", () => {
     expect(window.location.search).toBe("?mode=process");
   });
 
+  it("does not force the browser back to Flow Builder after leaving the route", async () => {
+    render(<FlowBuilderPage />);
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?mode=process");
+    });
+
+    await act(async () => {
+      window.history.pushState({}, "", "/dashboard");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/dashboard");
+    });
+    expect(window.location.search).toBe("");
+  });
+
   it("renders an inspectable non-runtime draft artifact in expertise mode", async () => {
     const user = userEvent.setup();
 
