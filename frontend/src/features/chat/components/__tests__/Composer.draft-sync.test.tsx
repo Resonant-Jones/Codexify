@@ -432,7 +432,12 @@ describe("Composer draft sync", () => {
     expect(controlsRow.className).not.toContain("pb-[6px]");
 
     const controlsStrip = screen.getByTestId("composer-controls-strip");
-    expect(controlsStrip).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
+    expect(controlsStrip).toHaveClass(
+      "min-w-0",
+      "flex-none",
+      "w-fit",
+      "overflow-x-auto"
+    );
     expect(controlsStrip.className).not.toMatch(/\bpr-/);
 
     const sendSlot = screen.getByTestId("composer-send-slot");
@@ -453,22 +458,16 @@ describe("Composer draft sync", () => {
       "py-2",
       "transition-all"
     );
-    expect(sendButton).toHaveTextContent("Send");
+    expect(sendButton).toHaveAccessibleName("Send");
     expect(sendButton.className).toContain("bg-[var(--accent)]");
     expect(sendButton.className).toContain("text-[var(--pill-active-text)]");
     expect(sendButton.className).not.toContain("rounded-full");
 
     const textarea = screen.getByPlaceholderText("Write a message…");
-    expect(textarea).toHaveClass(
-      "rounded-[var(--radius-micro)]",
-      "bg-[var(--panel-bg)]",
-      "border",
-      "border-[var(--panel-border)]"
-    );
+    expect(textarea).toHaveClass("w-full", "bg-transparent", "border-none");
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
-    expect(composerSource).toContain("rounded-[var(--radius-micro)]");
-    expect(composerSource).toContain("bg-[var(--panel-bg)]");
+    expect(composerSource).toContain("bg-transparent");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
@@ -504,6 +503,21 @@ describe("Composer draft sync", () => {
     expect(composerRoot?.style.getPropertyValue("--composer-safe-area-bottom")).toBe(
       "env(safe-area-inset-bottom, 0px)"
     );
+
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    const sourceButton = screen.getByRole("button", {
+      name: "Select retrieval source",
+    });
+
+    expect(controlsStrip.className).toContain("flex-none");
+    expect(controlsStrip.className).toContain(
+      "bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]"
+    );
+    expect(controlsStrip.style.borderRadius).toBe("var(--card-radius,19px)");
+    expect(sourceButton).toHaveClass(
+      "bg-[color-mix(in_oklab,var(--panel-bg)_92%,transparent)]"
+    );
+    expect(sourceButton.style.borderRadius).toBe("var(--card-radius,19px)");
   });
 
   it("stages attachments locally and uploads them only after send", async () => {
