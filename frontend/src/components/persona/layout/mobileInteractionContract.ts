@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { MobileShellProfile } from "./mobileShellProfile";
-import { MOBILE_MOTION, type MobileGestureState } from "./mobileMotionContract";
+import type { MobileGestureState } from "./mobileMotionContract";
 
 export type MobileWorkspaceSummonCopy = {
   label: string;
@@ -15,8 +15,9 @@ export const MOBILE_INTERACTION = {
   pressScale: 0.975,
   pressOpacity: 0.92,
   pressTone: "saturate(0.985) brightness(0.99)",
-  releaseMs: MOBILE_MOTION.navSelectionMs,
-  reducedMotionReleaseMs: MOBILE_MOTION.reducedMs,
+  releaseMs: 160,
+  reducedMotionReleaseMs: 1,
+  pressDragCancelDistancePx: 8,
   tapTargetMinHeight: "44px",
   tapTargetMinWidth: "44px",
 } as const;
@@ -78,6 +79,15 @@ export function getMobilePressSurfaceStyle(
       ? "linear"
       : "cubic-bezier(0.22, 1, 0.36, 1)",
   };
+}
+
+export function getComposerControlSurfaceStyle(
+  isPhoneShell: boolean,
+  options: { variant?: "rail" | "trigger" } = {}
+): CSSProperties {
+  void isPhoneShell;
+  void options;
+  return {};
 }
 
 export function getMobileCompanionSurfaceStyle(

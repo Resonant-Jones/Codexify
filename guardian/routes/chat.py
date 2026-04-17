@@ -2148,6 +2148,8 @@ def map_internal_depth_mode(
 
 def normalize_source_mode(raw: Any) -> str:
     value = str(raw or "").strip().lower()
+    if value in {"obsidian", "obsidian_only"}:
+        return "obsidian_only"
     return "personal_knowledge" if value == "personal_knowledge" else "project"
 
 

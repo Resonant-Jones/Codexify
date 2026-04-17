@@ -20,6 +20,47 @@ import type {
 
 export type { SlashCommandIntentPayload };
 
+export type OptionalSurfaceFailureKind = "forbidden" | "not_found";
+
+export class OptionalSurfaceError extends Error {
+  kind: OptionalSurfaceFailureKind;
+  status: number;
+  originalError: unknown;
+
+  constructor(kind: OptionalSurfaceFailureKind, status: number, message: string, originalError: unknown) {
+    super(message);
+    this.name = "OptionalSurfaceError";
+    this.kind = kind;
+    this.status = status;
+    this.originalError = originalError;
+  }
+
+  static isInstance(value: unknown): value is OptionalSurfaceError {
+    return value instanceof OptionalSurfaceError;
+  }
+}
+
+export function classifyOptionalSurfaceError(error: unknown): OptionalSurfaceError | null {
+  const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
+  if (status === 403) {
+    return new OptionalSurfaceError(
+      "forbidden",
+      403,
+      "Optional surface forbidden — unavailable in this posture",
+      error
+    );
+  }
+  if (status === 404) {
+    return new OptionalSurfaceError(
+      "not_found",
+      404,
+      "Optional surface absent — unavailable in this runtime",
+      error
+    );
+  }
+  return null;
+}
+
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
     typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
@@ -1108,6 +1149,20 @@ export async function fetchPersonalFactRevisions(
     `${personalFactPath(factId)}/revisions`
   );
   return Array.isArray(response.data?.revisions) ? response.data.revisions : [];
+}
+
+export async function fetchProviderState() {
+  const res = await fetch("/api/health/llm");
+
+  if (!res.ok) {
+    throw new Error(`Provider state fetch failed: ${res.status}`);
+  }
+
+  const json = await res.json();
+
+  console.log("[provider-state:raw]", json);
+
+  return json;
 }
 
 export default api;

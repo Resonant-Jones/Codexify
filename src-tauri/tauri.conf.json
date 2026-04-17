@@ -27,6 +27,21 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
+    "resources": [
+      "../frontend/src/dist",
+      "../backend",
+      "../guardian",
+      "../docker",
+      "../docker-compose.yml",
+      "../plugins",
+      "../scripts",
+      "../requirements",
+      "../tests",
+      "../.env.example",
+      "../.env.template",
+      "../pytest.ini",
+      "../requirements.txt"
+    ],
     "macOS": {
       "bundleName": "Codexify",
       "bundleVersion": "0.1.0"
