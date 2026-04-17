@@ -282,7 +282,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base">Ephemeral Chat Harness</CardTitle>
+              <span className="text-base font-semibold">Ephemeral Chat Harness</span>
               <Badge
                 variant="outline"
                 className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
@@ -622,8 +622,8 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
             </form>
           </section>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1320,121 +1320,142 @@ export default function PersonaStudioPage() {
     setSelectedProfileId,
     setActiveTab,
     updateSelectedProfile,
-    saveSelectedProfile,
-    saveSelectedProfileAsNew,
-    resetSelectedProfile,
-    resetAllLocalPersonaStudioData,
+    saveProfile,
+    saveAsNewProfile,
+    resetToSaved,
   } = usePersonaStudioLocalDraftState();
 
-  const [isUtilityPaneOpen, setIsUtilityPaneOpen] = React.useState(true);
   const [utilityTab, setUtilityTab] = React.useState<UtilityTab>("Profiles");
+  const [isUtilityPaneOpen, setIsUtilityPaneOpen] = React.useState(true);
 
-  const currentConfig = selectedProfile?.config || null;
+  const selectedProfileIdFromHook = usePersonaStudioLocalDraftState().selectedProfileId;
+  const actualSelectedProfileId = selectedProfileId ?? selectedProfileIdFromHook;
 
-  const handleConfigChange = (newConfig: PersonaConfig) => {
-    updateSelectedProfile((currentProfile) => ({
-      ...currentProfile,
-      name: newConfig.identity.name,
-      description: newConfig.identity.description,
-      config: newConfig,
-    }));
+  const handleTabChange = (tab: (typeof TABS)[number]) => {
+    setActiveTab(tab);
   };
 
+  const currentConfig = selectedProfile?.config ?? null;
+
   const handleSave = () => {
-    saveSelectedProfile();
+    if (selectedProfile) {
+      saveProfile(selectedProfile);
+    }
   };
 
   const handleSaveAsNew = () => {
-    saveSelectedProfileAsNew();
+    if (selectedProfile) {
+      saveAsNewProfile(selectedProfile);
+    }
   };
 
   const handleReset = () => {
-    resetSelectedProfile();
+    resetToSaved();
   };
 
+  const resetAllLocalPersonaStudioData = React.useCallback(() => {
+    if (window.confirm("Reset all local Persona Studio data?")) {
+      localStorage.removeItem("personaStudio");
+      window.location.reload();
+    }
+  }, []);
+
   const renderActiveTab = () => {
+    if (!currentConfig) {
+      return (
+        <div className="flex items-center justify-center py-12 text-sm" style={{ color: "var(--muted)" }}>
+          Select a profile to begin editing.
+        </div>
+      );
+    }
+
+    const onChange = (config: PersonaConfig) => {
+      if (selectedProfile) {
+        updateSelectedProfile({ config });
+      }
+    };
+
     switch (activeTab) {
       case "Identity":
-        return currentConfig ? (
-          <IdentityEditor config={currentConfig} onChange={handleConfigChange} />
-        ) : null;
+        return <IdentityEditor config={currentConfig} onChange={onChange} />;
       case "Model":
-        return currentConfig ? (
-          <ModelEditor config={currentConfig} onChange={handleConfigChange} />
-        ) : null;
+        return <ModelEditor config={currentConfig} onChange={onChange} />;
       case "Voice":
-        return currentConfig ? (
-          <VoiceEditor config={currentConfig} onChange={handleConfigChange} />
-        ) : null;
+        return <VoiceEditor config={currentConfig} onChange={onChange} />;
       case "Prompt":
-        return currentConfig ? (
-          <PromptEditor config={currentConfig} onChange={handleConfigChange} />
-        ) : null;
+        return <PromptEditor config={currentConfig} onChange={onChange} />;
       case "Tools":
-        return currentConfig ? (
-          <ToolsEditor config={currentConfig} onChange={handleConfigChange} />
-        ) : null;
+        return <ToolsEditor config={currentConfig} onChange={onChange} />;
       case "Retrieval":
-        return currentConfig ? (
-          <RetrievalEditor config={currentConfig} onChange={handleConfigChange} />
-        ) : null;
+        return <RetrievalEditor config={currentConfig} onChange={onChange} />;
       case "Truth Matrix":
-        return <TruthMatrix />;
+        return <TruthMatrix config={currentConfig} />;
       default:
         return null;
     }
   };
 
   return (
-    <div className="h-full w-full overflow-auto p-[var(--card-pad)]">
-      <div className="flex h-full flex-col gap-[var(--shell-gap)]">
-        <div
-          className="flex flex-col gap-[var(--shell-gap)]"
-          data-testid="persona-studio-page-header"
-        >
-          <div className="max-w-3xl space-y-2">
-            <h1 className="text-2xl font-semibold tracking-tight">Persona Studio</h1>
-            <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-              Configure runtime persona profiles. This is for configuration only — no chat history
-              or memory records are created.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
+    <div
+      className="flex h-full flex-col overflow-hidden"
+      data-testid="persona-studio-page"
+      style={{
+        background: "var(--bg)",
+      }}
+    >
+      <div className="px-6 pt-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
             <div
-              className="glass-pill flex min-w-0 flex-1 items-stretch gap-1.5 overflow-x-auto px-1"
-              data-testid="persona-studio-section-tabs"
-              style={
-                {
-                  "--pill-active-text": "var(--text-on-accent)",
-                  "--pill-font": "0.92rem",
-                  width: "100%",
-                  justifyContent: "stretch",
-                } as React.CSSProperties
-              }
+              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={{ color: "var(--muted)" }}
             >
-              {TABS.map((tab) => (
-                <TabButton
-                  key={tab}
-                  active={activeTab === tab}
-                  onClick={() => setActiveTab(tab)}
-                >
-                  {tab}
-                </TabButton>
-              ))}
+              Configuration &amp; Observability
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsUtilityPaneOpen((value) => !value)}
-              aria-label={isUtilityPaneOpen ? "Hide utility pane" : "Show utility pane"}
+            <h1
+              className="mt-1 text-2xl font-semibold"
+              style={{ color: "var(--text)" }}
             >
-              {isUtilityPaneOpen ? "Hide Utility Pane" : "Show Utility Pane"}
-            </Button>
+              Persona Studio
+            </h1>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsUtilityPaneOpen(!isUtilityPaneOpen)}
+            aria-label={isUtilityPaneOpen ? "Hide utility pane" : "Show utility pane"}
+            style={{ borderColor: "var(--panel-border)" }}
+          >
+            {isUtilityPaneOpen ? "Hide Utility Pane" : "Show Utility Pane"}
+          </Button>
         </div>
 
+        <div
+          className="glass-pill mb-4 flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
+          data-testid="persona-studio-tabs"
+          style={
+            {
+              "--pill-active-text": "var(--text-on-accent)",
+              "--pill-font": "0.92rem",
+              width: "100%",
+              justifyContent: "stretch",
+            } as React.CSSProperties
+          }
+        >
+          {TABS.map((tab) => (
+            <TabButton
+              key={tab}
+              active={activeTab === tab}
+              onClick={() => handleTabChange(tab)}
+            >
+              {tab}
+            </TabButton>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
         <section
           className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--card-radius)] border p-[var(--card-pad)]"
           data-testid="persona-studio-shell"
@@ -1623,46 +1644,24 @@ export default function PersonaStudioPage() {
               <EphemeralChatHarness profile={selectedProfile} />
             </div>
           </div>
-        </section>
-
-        {isUtilityPaneOpen ? (
           <section
             className="flex min-h-0 flex-col gap-3"
             data-testid="persona-studio-support-surfaces"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div
-                  className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                  style={{ color: "var(--muted)" }}
-                >
-                  Support Surfaces
-                </div>
-                <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                  Profiles and diagnostics stay subordinate to the primary editor and harness.
-                </p>
-              </div>
-              <Badge
-                variant="outline"
-                className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                style={{ borderColor: "var(--panel-border)" }}
-              >
-                {utilityTab}
-              </Badge>
-            </div>
-            <Card
-              className="bezel-none flex min-h-0 flex-col overflow-hidden rounded-2xl border"
-              role="complementary"
-              aria-label="Persona Studio utility pane"
-              data-testid="persona-studio-utility-pane"
-              style={{
-                background: "color-mix(in srgb, var(--panel-bg) 93%, transparent)",
-                borderColor: "color-mix(in srgb, var(--panel-border) 88%, transparent)",
-              }}
-            >
-              <CardHeader className="space-y-3 pb-3">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Utility Pane</CardTitle>
+            {isUtilityPaneOpen && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div
+                      className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      Support Surfaces
+                    </div>
+                    <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                      Profiles and diagnostics stay subordinate to the primary editor and harness.
+                    </p>
+                  </div>
                   <Badge
                     variant="outline"
                     className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
@@ -1671,97 +1670,120 @@ export default function PersonaStudioPage() {
                     {utilityTab}
                   </Badge>
                 </div>
-                <div
-                  className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
-                  data-testid="persona-studio-utility-tabs"
-                  style={
-                    {
-                      "--pill-active-text": "var(--text-on-accent)",
-                      "--pill-font": "0.92rem",
-                      width: "100%",
-                      justifyContent: "stretch",
-                    } as React.CSSProperties
-                  }
+                <Card
+                  className="bezel-none flex min-h-0 flex-col overflow-hidden rounded-2xl border"
+                  role="complementary"
+                  aria-label="Persona Studio utility pane"
+                  data-testid="persona-studio-utility-pane"
+                  style={{
+                    background: "color-mix(in srgb, var(--panel-bg) 93%, transparent)",
+                    borderColor: "color-mix(in srgb, var(--panel-border) 88%, transparent)",
+                  }}
                 >
-                  {UTILITY_TABS.map((tab) => (
-                    <TabButton
-                      key={tab}
-                      active={utilityTab === tab}
-                      onClick={() => setUtilityTab(tab)}
-                    >
-                      {tab}
-                    </TabButton>
-                  ))}
-                </div>
-              </CardHeader>
-              <CardContent className="relative min-h-0 flex-1 pt-0">
-                {utilityTab === "Profiles" ? (
-                  <div
-                    data-testid="persona-studio-utility-profiles-panel"
-                    data-state="active"
-                    className="relative space-y-2"
-                  >
-                    {profiles.map((profile) => (
-                      <button
-                        key={profile.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedProfileId(profile.id);
-                        }}
-                        className={`w-full rounded-xl p-3 text-left transition-colors ${
-                          profile.id === selectedProfileId
-                            ? "border-2"
-                            : "border border-transparent hover:border-[var(--panel-border)]"
-                        }`}
-                        style={{
-                          background:
-                            profile.id === selectedProfileId
-                              ? "rgba(255,255,255,0.08)"
-                              : "transparent",
-                          borderColor:
-                            profile.id === selectedProfileId
-                              ? "var(--accent)"
-                              : "transparent",
-                        }}
+                  <CardHeader className="space-y-3 pb-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <CardTitle className="text-base">Utility Pane</CardTitle>
+                      <Badge
+                        variant="outline"
+                        className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                        style={{ borderColor: "var(--panel-border)" }}
                       >
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{profile.name}</span>
-                          {profile.isDefault && (
-                            <Badge
-                              variant="outline"
-                              className="px-1.5 py-0.5 text-[10px]"
-                              style={{ borderColor: "var(--panel-border)" }}
-                            >
-                              Default
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
-                          {profile.description}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div
-                    role="complementary"
-                    aria-label="Persona Studio diagnostics"
-                    data-testid="persona-studio-diagnostics"
-                    data-state="active"
-                    className="relative h-full"
-                  >
-                    <DiagnosticsPanel
-                      profile={selectedProfile}
-                      config={currentConfig}
-                      isDirty={isDirty}
-                      hasSavedVersion={hasSavedVersion}
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                        {utilityTab}
+                      </Badge>
+                    </div>
+                    <div
+                      className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
+                      data-testid="persona-studio-utility-tabs"
+                      style={
+                        {
+                          "--pill-active-text": "var(--text-on-accent)",
+                          "--pill-font": "0.92rem",
+                          width: "100%",
+                          justifyContent: "stretch",
+                        } as React.CSSProperties
+                      }
+                    >
+                      {UTILITY_TABS.map((tab) => (
+                        <TabButton
+                          key={tab}
+                          active={utilityTab === tab}
+                          onClick={() => setUtilityTab(tab)}
+                        >
+                          {tab}
+                        </TabButton>
+                      ))}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="relative min-h-0 flex-1 pt-0">
+                    {utilityTab === "Profiles" ? (
+                      <div
+                        data-testid="persona-studio-utility-profiles-panel"
+                        data-state="active"
+                        className="relative space-y-2"
+                      >
+                        {profiles.map((profile) => (
+                          <button
+                            key={profile.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedProfileId(profile.id);
+                            }}
+                            className={`w-full rounded-xl p-3 text-left transition-colors ${
+                              profile.id === selectedProfileId
+                                ? "border-2"
+                                : "border border-transparent hover:border-[var(--panel-border)]"
+                            }`}
+                            style={{
+                              background:
+                                profile.id === selectedProfileId
+                                  ? "rgba(255,255,255,0.08)"
+                                  : "transparent",
+                              borderColor:
+                                profile.id === selectedProfileId
+                                  ? "var(--accent)"
+                                  : "transparent",
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium">{profile.name}</span>
+                              {profile.isDefault && (
+                                <Badge
+                                  variant="outline"
+                                  className="px-1.5 py-0.5 text-[10px]"
+                                  style={{ borderColor: "var(--panel-border)" }}
+                                >
+                                  Default
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--muted)" }}>
+                              {profile.description}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        role="complementary"
+                        aria-label="Persona Studio diagnostics"
+                        data-testid="persona-studio-diagnostics"
+                        data-state="active"
+                        className="relative h-full"
+                      >
+                        <DiagnosticsPanel
+                          profile={selectedProfile}
+                          config={currentConfig}
+                          isDirty={isDirty}
+                          hasSavedVersion={hasSavedVersion}
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </section>
-        ) : null}
+        </section>
       </div>
     </div>
   );

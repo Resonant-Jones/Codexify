@@ -9,6 +9,7 @@ import pytest
 from guardian.context.broker import ContextBroker
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_OBSIDIAN_ONLY,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
     WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
@@ -228,7 +229,12 @@ MATRIX_CASES = [
                 DECOY_HIT["text"],
                 OMEGA_HIT["text"],
             ],
-            "expected_namespaces": ["thread:1", "thread:2", "thread:3"],
+            "expected_namespaces": [
+                "thread:1",
+                "thread:2",
+                "thread:3",
+                "obsidian:local",
+            ],
             "expected_widen_reason": WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
         },
         id="personal-knowledge-widening-success",
@@ -258,7 +264,12 @@ MATRIX_CASES = [
             "source_mode": SOURCE_MODE_PERSONAL_KNOWLEDGE,
             "expected_hits": [],
             "expected_excluded": [OMEGA_HIT["text"]],
-            "expected_namespaces": ["thread:1", "thread:2", "thread:3"],
+            "expected_namespaces": [
+                "thread:1",
+                "thread:2",
+                "thread:3",
+                "obsidian:local",
+            ],
             # Cross-user material is excluded before widening can contribute.
             "expected_widen_reason": WIDEN_REASON_NONE,
         },
@@ -421,7 +432,7 @@ async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_wid
     assert trace["personal_facts_context"][
         "boundary"
     ] == source_mode_boundary_label(SOURCE_MODE_CONVERSATION)
-    assert _namespaces(mock_vector_store) == []
+    assert _namespaces(mock_vector_store) == ["thread:1"]
 
 
 @pytest.mark.asyncio
@@ -512,6 +523,7 @@ async def test_personal_knowledge_widens_same_user_across_projects(
         "thread:1",
         "thread:2",
         "thread:3",
+        "obsidian:local",
     ]
 
 
@@ -596,7 +608,11 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
     ]
     assert trace["source_mode"] == SOURCE_MODE_PERSONAL_KNOWLEDGE
     assert trace["widen_reason"] == WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
-    assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
+    assert _namespaces(mock_vector_store) == [
+        "thread:1",
+        "thread:2",
+        "obsidian:local",
+    ]
 
 
 @pytest.mark.asyncio
@@ -799,10 +815,18 @@ def test_source_mode_registry_helpers_are_bounded() -> None:
         normalize_source_mode(SOURCE_MODE_PERSONAL_KNOWLEDGE)
         == SOURCE_MODE_PERSONAL_KNOWLEDGE
     )
+    assert normalize_source_mode("obsidian") == SOURCE_MODE_OBSIDIAN_ONLY
+    assert (
+        normalize_source_mode(SOURCE_MODE_OBSIDIAN_ONLY)
+        == SOURCE_MODE_OBSIDIAN_ONLY
+    )
     assert (
         normalize_source_mode(SOURCE_MODE_CONVERSATION)
         == SOURCE_MODE_CONVERSATION
     )
+    assert source_mode_boundary_label(
+        SOURCE_MODE_OBSIDIAN_ONLY
+    ) == source_mode_boundary_label(SOURCE_MODE_PERSONAL_KNOWLEDGE)
     assert normalize_source_mode("unsupported") == SOURCE_MODE_PROJECT
     assert source_mode_boundary_label(
         "unsupported"

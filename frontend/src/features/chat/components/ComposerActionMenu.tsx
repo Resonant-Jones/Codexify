@@ -45,7 +45,10 @@ export function ComposerActionMenu({
   voiceTurnLabel = "Upload voice turn",
 }: ComposerActionMenuProps) {
   const [open, setOpen] = useState(false);
-  const pressFeedback = usePressFeedback({ enabled: isPhoneShell && !disabled });
+  const pressFeedback = usePressFeedback({
+    enabled: !disabled,
+    visualMode: isPhoneShell ? "mobile" : "none",
+  });
 
   const closeAndRun = (action: () => void) => {
     setOpen(false);
@@ -59,14 +62,16 @@ export function ComposerActionMenu({
           type="button"
           {...pressFeedback.getPressFeedbackProps({
             className: cn(
-              "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-[11px] leading-none transition-colors",
+              "inline-flex h-8 w-8 items-center justify-center rounded-none border-0 bg-transparent text-[11px] leading-none transition-colors",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color-mix(in_oklab,var(--panel-border)_72%,var(--text)_28%)]",
-              disabled
-                ? "cursor-not-allowed opacity-35"
-                : "opacity-82 hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)] hover:opacity-100"
+              disabled ? "cursor-not-allowed opacity-35" : "opacity-100 hover:opacity-80",
             ),
             style: {
               ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+              transform:
+                !isPhoneShell && pressFeedback.pressed
+                  ? "translateY(1px)"
+                  : undefined,
               color: "var(--text)",
               width: "var(--composer-control-size, 2rem)",
               height: "var(--composer-control-size, 2rem)",
@@ -99,26 +104,14 @@ export function ComposerActionMenu({
         >
           Composer actions
         </div>
-        {/* Beta-disabled: document upload is broken in this build */}
         <DropdownMenuItem
-          onClick={() => {
-            setOpen(false);
-            // Show toast for beta limitation
-            try {
-              window.dispatchEvent(new CustomEvent("cfy:toast", {
-                detail: { message: "Document upload is not available in this beta build", duration: 4000 }
-              }));
-            } catch {}
-          }}
-          className="cursor-not-allowed px-2 py-2 opacity-50"
+          onClick={() => closeAndRun(onAttach)}
+          className="cursor-pointer px-2 py-2"
           style={{ borderRadius: "0.8rem" }}
         >
           <span className="flex items-center gap-2">
             <Paperclip className="h-3.5 w-3.5" />
             <span>Attach file</span>
-            <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--accent)] text-[var(--text-on-accent)] opacity-80">
-              Beta
-            </span>
           </span>
         </DropdownMenuItem>
         <DropdownMenuItem

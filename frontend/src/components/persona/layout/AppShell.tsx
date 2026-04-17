@@ -35,6 +35,7 @@ import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
+import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
@@ -100,6 +101,11 @@ import {
   WORKSPACE_AFFORDANCE,
 } from "./workspaceAffordanceContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
+import {
+  DEFAULT_FLOW_BUILDER_MODE,
+  getFlowBuilderPath,
+  type FlowBuilderMode,
+} from "@/features/flowBuilder/flowBuilderRoute";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -131,6 +137,7 @@ type AppShellView =
   | "documents"
   | "gallery"
   | "guardian"
+  | "flowBuilder"
   | "settings"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
@@ -226,6 +233,7 @@ const APP_SHELL_VIEWS = [
   "documents",
   "gallery",
   "guardian",
+  "flowBuilder",
   "settings",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
@@ -237,6 +245,7 @@ function isAppShellView(value: string | null): value is AppShellView {
 }
 
 function resolveViewFromPathname(pathname: string): AppShellView | null {
+  if (pathname.startsWith("/flow-builder")) return "flowBuilder";
   if (pathname.startsWith("/persona-studio")) return "personaStudio";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/gallery")) return "gallery";
@@ -250,6 +259,8 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
   switch (view) {
     case "guardian":
       return threadId != null ? `/chat/${threadId}` : "/chat";
+    case "flowBuilder":
+      return getFlowBuilderPath(resolvePersistedFlowBuilderMode());
     case "documents":
       return "/documents";
     case "gallery":
@@ -261,6 +272,21 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
     case "dashboard":
     default:
       return "/dashboard";
+  }
+}
+
+function resolvePersistedFlowBuilderMode(): FlowBuilderMode {
+  if (typeof window === "undefined") {
+    return DEFAULT_FLOW_BUILDER_MODE;
+  }
+
+  try {
+    const raw = window.localStorage.getItem("cfy.flowBuilder.mode");
+    return raw === "expertise" || raw === "process"
+      ? raw
+      : DEFAULT_FLOW_BUILDER_MODE;
+  } catch {
+    return DEFAULT_FLOW_BUILDER_MODE;
   }
 }
 
@@ -2583,6 +2609,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "guardian" ? "active" : "inactive"}
+                aria-current={view === "guardian" ? "page" : undefined}
                 onClick={() => navigateToView("guardian")}
                 style={getMobileNavPillStyle("guardian")}
               >
@@ -2592,6 +2619,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "dashboard" ? "active" : "inactive"}
+                aria-current={view === "dashboard" ? "page" : undefined}
                 onClick={() => navigateToView("dashboard")}
                 style={getMobileNavPillStyle("dashboard")}
               >
@@ -2601,6 +2629,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
+                aria-current={view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
                 style={getMobileNavPillStyle("documents")}
               >
@@ -2610,6 +2639,7 @@ export default function AppShell({
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "gallery" ? "active" : "inactive"}
+                aria-current={view === "gallery" ? "page" : undefined}
                 onClick={() => navigateToView("gallery")}
                 style={getMobileNavPillStyle("gallery")}
               >
@@ -2618,7 +2648,18 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "flowBuilder" ? "active" : "inactive"}
+                aria-current={view === "flowBuilder" ? "page" : undefined}
+                onClick={() => navigateToView("flowBuilder")}
+                style={getMobileNavPillStyle("flowBuilder")}
+              >
+                Flow Builder
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
+                aria-current={view === "personaStudio" ? "page" : undefined}
                 onClick={() => navigateToView("personaStudio")}
                 style={getMobileNavPillStyle("personaStudio")}
               >
@@ -2998,6 +3039,24 @@ export default function AppShell({
                 </ErrorBoundary>
               </div>
             </FrameCard>
+          )}
+          {!startupLocked && view === "flowBuilder" && (
+            <div
+              className="h-full w-full isolate"
+              data-active-view="flowBuilder"
+              data-active-view-contract="single-panel"
+              data-thread-rail="absent"
+              data-view-family="flowBuilder"
+            >
+              <FrameCard
+                refractiveFallback
+                shimmerMode="subtle"
+                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+                data-testid="flow-builder-framecard"
+              >
+                <FlowBuilderPage />
+              </FrameCard>
+            </div>
           )}
           {!startupLocked && view === "personaStudio" && (
             <div

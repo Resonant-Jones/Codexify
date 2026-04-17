@@ -432,8 +432,14 @@ describe("Composer draft sync", () => {
     expect(controlsRow.className).not.toContain("pb-[6px]");
 
     const controlsStrip = screen.getByTestId("composer-controls-strip");
-    expect(controlsStrip).toHaveClass("min-w-0", "flex-1", "overflow-x-auto");
+    expect(controlsStrip).toHaveClass(
+      "min-w-0",
+      "flex-none",
+      "w-fit",
+      "overflow-x-auto"
+    );
     expect(controlsStrip.className).not.toMatch(/\bpr-/);
+    expect(controlsStrip.className).not.toContain("bg-[");
 
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass(
@@ -448,27 +454,24 @@ describe("Composer draft sync", () => {
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
     expect(sendButton).toHaveClass(
-      "rounded-[var(--radius-micro)]",
-      "px-3",
-      "py-2",
-      "transition-all"
+      "inline-flex",
+      "items-center",
+      "justify-center",
+      "border-0",
+      "transition-opacity",
+      "focus:outline-none"
     );
-    expect(sendButton).toHaveTextContent("Send");
+    expect(sendButton).toHaveAccessibleName("Send");
     expect(sendButton.className).toContain("bg-[var(--accent)]");
     expect(sendButton.className).toContain("text-[var(--pill-active-text)]");
     expect(sendButton.className).not.toContain("rounded-full");
 
     const textarea = screen.getByPlaceholderText("Write a message…");
-    expect(textarea).toHaveClass(
-      "rounded-[var(--radius-micro)]",
-      "bg-[var(--panel-bg)]",
-      "border",
-      "border-[var(--panel-border)]"
-    );
+    expect(textarea).toHaveClass("w-full", "bg-transparent", "border-none");
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
-    expect(composerSource).toContain("rounded-[var(--radius-micro)]");
-    expect(composerSource).toContain("bg-[var(--panel-bg)]");
+    expect(composerSource).toContain("bg-transparent");
+    expect(composerSource).not.toContain("bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
       "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
@@ -504,6 +507,17 @@ describe("Composer draft sync", () => {
     expect(composerRoot?.style.getPropertyValue("--composer-safe-area-bottom")).toBe(
       "env(safe-area-inset-bottom, 0px)"
     );
+
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    const sourceButton = screen.getByRole("button", {
+      name: "Select retrieval source",
+    });
+
+    expect(controlsStrip).toHaveClass("flex-none", "w-fit");
+    expect(controlsStrip.className).not.toContain("bg-[");
+    expect(controlsStrip.style.borderRadius).toBe("");
+    expect(sourceButton).toHaveClass("bg-transparent", "border-0", "rounded-none");
+    expect(sourceButton.style.borderRadius).toBe("");
   });
 
   it("stages attachments locally and uploads them only after send", async () => {
