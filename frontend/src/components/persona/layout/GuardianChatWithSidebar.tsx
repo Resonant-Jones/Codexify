@@ -16,6 +16,7 @@ import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
+import { useProviderState } from "@/features/chat/hooks/useProviderState";
 import useImprintZero from "@/imprint/useImprintZero";
 import ImprintZeroToast from "@/imprint/ImprintZeroToast";
 import PromptCostIndicator from "@/features/chat/components/PromptCostIndicator";
@@ -44,12 +45,16 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import { getPreferredProviderSelection } from "@/lib/providerPref";
+import { mapRuntimeToVisualState } from "@/contracts/runtimeVisualState";
 import {
   checkAuthGate,
   requireAuthReady,
   useAuthState,
 } from "@/lib/authState";
-import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
+import type {
+  ChatRequestState,
+  ProviderRuntimeState,
+} from "@/contracts/runtimeTokens";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
@@ -252,6 +257,13 @@ export default function GuardianChatWithSidebar({
     return stored;
   });
 
+  const [selectedProjectName, setSelectedProjectName] = React.useState<string | null>(null);
+
+  const handleSelectedProjectChange = React.useCallback((id: string | null, name: string | null) => {
+    setSelectedProjectId(id);
+    setSelectedProjectName(name);
+  }, []);
+
   // Persist sidebar visibility preference
   React.useEffect(() => {
     try {
@@ -277,6 +289,7 @@ export default function GuardianChatWithSidebar({
   const threadsRef = React.useRef<Thread[]>([]);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
+  const { data: providerStateData } = useProviderState();
   const {
     ready: routeCapabilitiesReady,
     states: routeCapabilityStates,
@@ -654,6 +667,10 @@ export default function GuardianChatWithSidebar({
       window.history.replaceState({}, "", nextPath);
     }
     sessionSpine?.tabActivate(tabId);
+    // Sync sidebar project selection to the activated tab's thread project.
+    const tabProjectId = nextTab?.projectId ?? null;
+    setSelectedProjectId(tabProjectId);
+    setSelectedProjectName(tabProjectId != null ? (nextTab?.projectName ?? null) : null);
   }, [sessionRail.tabs, sessionSpine]);
 
   const handleSessionTabClose = React.useCallback((tabId: TabId) => {
@@ -727,10 +744,7 @@ export default function GuardianChatWithSidebar({
         window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'success', message: 'Saved to Prompt Library' } }));
       } catch {}
     } catch (err) {
-      console.warn('[prompt] embed failed', err);
-      try {
-        window.dispatchEvent(new CustomEvent('cfy:toast', { detail: { kind: 'error', message: 'Prompt embedding failed' } }));
-      } catch {}
+      console.debug('[prompt] embed unavailable — optional enrichment skipped', err);
     }
   }
 
@@ -1061,11 +1075,11 @@ export default function GuardianChatWithSidebar({
         { id: "bot", name: guardianName || "Guardian" },
       ],
       messages: [],
-      projectId: null,
-      projectName: null,
+      projectId: selectedProjectId,
+      projectName: selectedProjectName,
       lastInteractionAt: null,
     };
-  }, [threads, activeId, userName, guardianName]);
+  }, [threads, activeId, userName, guardianName, selectedProjectId, selectedProjectName]);
 
   const handleNewChatImmediate = () => {
     void handleNewChat();
@@ -1471,7 +1485,31 @@ export default function GuardianChatWithSidebar({
     []
   );
 
-  const chatDisabled = !isDesktopLayout && isSidebarOpen;
+  const providerStateToken = useMemo(() => {
+    if (
+      providerStateData &&
+      typeof providerStateData === "object" &&
+      !Array.isArray(providerStateData)
+    ) {
+      const rawState = (providerStateData as {
+        state?: unknown;
+        status?: unknown;
+      }).state ?? (providerStateData as { status?: unknown }).status;
+      if (typeof rawState === "string" && rawState.trim()) {
+        return rawState.trim();
+      }
+    }
+
+    return providerRuntimeState ?? "offline";
+  }, [providerRuntimeState, providerStateData]);
+
+  const requestState: ChatRequestState =
+    providerStateToken === "model_warming" ? "awaiting_model" : "queued";
+  const visualState = mapRuntimeToVisualState(
+    requestState,
+    providerStateToken as ProviderRuntimeState
+  );
+  const chatDisabled = (!isDesktopLayout && isSidebarOpen) || visualState.isBlocking;
   const showWorkspacePreview = workspaceOpen && activeWorkspaceDoc != null;
 
   const sidebarWrapperClass = "relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)]";
@@ -1532,7 +1570,8 @@ export default function GuardianChatWithSidebar({
                     onSelect={handleSelectThread}
                     onNewChat={handleNewChatImmediate}
                     projectId={selectedProjectId}
-                    onProjectChange={setSelectedProjectId}
+                    projectName={selectedProjectName}
+                    onProjectChange={handleSelectedProjectChange}
                     hasMoreThreads={threadsHasMore}
                     loadingMoreThreads={threadsLoadingMore}
                     onLoadMoreThreads={loadMoreThreads}
@@ -1607,7 +1646,8 @@ export default function GuardianChatWithSidebar({
                   onSelect={handleSelectThread}
                   onNewChat={handleNewChatImmediate}
                   projectId={selectedProjectId}
-                  onProjectChange={setSelectedProjectId}
+                  projectName={selectedProjectName}
+                  onProjectChange={handleSelectedProjectChange}
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}
                   onLoadMoreThreads={loadMoreThreads}
@@ -1664,18 +1704,24 @@ export default function GuardianChatWithSidebar({
                 </div>
               )}
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-              <GuardianChat
-                guardianName={guardianName}
-                userName={userName}
-                userProfession={userProfession}
-                prefill={prefill}
-                onPrefillConsumed={onPrefillConsumed}
-                pendingDocumentTiles={pendingDocumentTiles}
-                onPendingDocumentTilesConsumed={onPendingDocumentTilesConsumed}
-                onWorkspaceToggle={onWorkspaceToggle}
-                workspaceOpen={workspaceOpen}
-                providerRuntimeState={providerRuntimeState}
-                activeThread={activeThread}
+                <div
+                  className="px-2 py-1 text-xs text-[var(--muted)]"
+                  title={visualState.description}
+                >
+                  {visualState.label}
+                </div>
+                <GuardianChat
+                  guardianName={guardianName}
+                  userName={userName}
+                  userProfession={userProfession}
+                  prefill={prefill}
+                  onPrefillConsumed={onPrefillConsumed}
+                  pendingDocumentTiles={pendingDocumentTiles}
+                  onPendingDocumentTilesConsumed={onPendingDocumentTilesConsumed}
+                  onWorkspaceToggle={onWorkspaceToggle}
+                  workspaceOpen={workspaceOpen}
+                  providerRuntimeState={providerRuntimeState}
+                  activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
                   onSendMessage={handleSendMessage}
                   onThreadPersisted={handleDraftThreadPersisted}
