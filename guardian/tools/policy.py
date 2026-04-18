@@ -14,6 +14,14 @@ PolicyMode = Literal["enforce", "warn", "off"]
 PolicyDecisionType = Literal["allow", "deny", "require_confirmation"]
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
+# Profile switching is a controlled UI mutation, not a general write command.
+_WRITE_ALLOWLISTED_COMMAND_IDS = {
+    "op::guardian.profile.switch",
+}
+_WRITE_ALLOWLISTED_PATH_TEMPLATES = {
+    "/chat/{thread_id}/profile",
+    "/api/chat/{thread_id}/profile",
+}
 
 
 class PolicyDecision(BaseModel):
@@ -83,13 +91,28 @@ def evaluate_tool_policy(
     effect = str(command.get("effect") or "").strip().lower()
     if not effect:
         effect = "read" if method in {"GET", "HEAD"} else "write"
-
+    command_id = str(command.get("command_id") or "").strip()
     risk = str(command.get("risk") or "").strip().lower()
     approval_mode = str(command.get("approval_mode") or "").strip().lower()
     requires_confirmation = bool(command.get("requires_confirmation")) or (
         approval_mode not in {"", "none"}
     )
     path_template = str(command.get("path_template") or "").strip().lower()
+
+    if (
+        command_id in _WRITE_ALLOWLISTED_COMMAND_IDS
+        or path_template in _WRITE_ALLOWLISTED_PATH_TEMPLATES
+    ):
+        return PolicyDecision(
+            decision="allow",
+            reason_codes=[],
+            metadata={
+                "method": method,
+                "effect": effect,
+                "risk": risk or "unknown",
+                "path_template": str(command.get("path_template") or ""),
+            },
+        )
 
     reason_codes: list[str] = []
     decision: PolicyDecisionType = "allow"

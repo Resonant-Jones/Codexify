@@ -14,9 +14,7 @@ import {
   getRuntimeApiKey,
   setRuntimeApiKey as setRuntimeApiKeyState,
 } from "@/lib/runtimeAuth";
-import type {
-  SlashCommandIntentPayload,
-} from "@/contracts/slashCommands";
+import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 
 export type { SlashCommandIntentPayload };
 
@@ -356,6 +354,55 @@ export type ThreadMoveResponse = {
   thread?: Record<string, unknown>;
   move?: Record<string, unknown>;
 };
+
+export type CommandBusActor = {
+  kind: "human" | "agent" | "system";
+  id: string;
+  session_id?: string | null;
+  delegated_by?: string | null;
+};
+
+export type CommandBusInvokeArguments = {
+  path_params?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  headers?: Record<string, unknown>;
+  body?: unknown;
+};
+
+export type CommandBusInvokeRequest = {
+  invoke_version: string;
+  command_id: string;
+  actor: CommandBusActor;
+  arguments?: CommandBusInvokeArguments;
+  idempotency_key?: string | null;
+};
+
+export type CommandBusInvokeResponse = {
+  run_id?: string;
+  status?: string;
+  invoke_version?: string;
+  manifest_version?: string;
+  events_url?: string;
+  inline_result?: unknown;
+  error?: unknown;
+  policy_warnings?: unknown[];
+  warning?: unknown;
+};
+
+export async function invokeCommandBus(
+  payload: CommandBusInvokeRequest
+): Promise<CommandBusInvokeResponse> {
+  const response = await api.post(
+    "/api/guardian/commands/invoke",
+    payload,
+    {
+      headers: {
+        "X-User-Id": payload.actor.id,
+      },
+    }
+  );
+  return response?.data ?? {};
+}
 
 export async function updateThreadConfig(
   threadId: string | number,
