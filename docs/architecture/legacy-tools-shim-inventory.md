@@ -68,6 +68,8 @@ rg -n "command_runs|command_run_events" guardian/db/migrations/
 
 ## 3. Frontend Callers of `/api/tools` or `/tools`
 
+**Update 2026-04-18:** The two live frontend callers documented below have been migrated to the canonical command-bus invoke surface. They remain here as historical inventory entries so the remaining shim deletion sequence stays explicit, but they are no longer active frontend dependencies on `/tools/execute`.
+
 ### 3.1 `frontend/src/features/chat/GuardianChat.tsx` (line 2025)
 
 ```typescript
@@ -79,7 +81,7 @@ const response = await api.post("/tools/execute", {
 
 - **What it does:** Profile switching via the legacy shim's `tools_execute` endpoint.
 - **Uses:** The `name`/`args` legacy request shape, not the command-bus `InvokeRequest` shape.
-- **Classification:** `active dependency` — live frontend code hitting the shim for profile switching.
+- **Classification:** `migrated` — this live frontend caller now targets `/api/guardian/commands/invoke` with the command-bus request shape.
 
 ### 3.2 `frontend/src/dcw-services/gc.ts` (lines 50-52)
 
@@ -95,7 +97,7 @@ export const Tools = {
   - `frontend/src/hooks/useTriggerAction.ts` (lines 1, 5, 9): `import { Tools } from "@/dcw-services/gc"` — calls `Tools.execute()` and `Tools.job()`.
   - `frontend/src/main.tsx` (line 7): `import { configureGC } from "./dcw-services/gc"` — configures the GC service layer.
   - `frontend/src/hooks/useSaveRitual.ts` (line 1): imports `Notes, Agent` from gc (not Tools).
-- **Classification:** `active dependency` — `useTriggerAction.ts` is a live consumer of the `/tools/execute` endpoint.
+- **Classification:** `migrated` — the wrapper now invokes the command bus and keeps only local polling/cache semantics.
 
 ---
 
@@ -248,9 +250,8 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 
 **No.** There are live callers that would break:
 
-1. **Frontend: `GuardianChat.tsx`** — profile switching hits `POST /tools/execute` with the legacy `name`/`args` shape.
-2. **Frontend: `useTriggerAction.ts`** — calls `Tools.execute()` from `dcw-services/gc.ts` which hits `POST /tools/execute`.
-3. **Test suite:** 6 test files directly import and exercise the shim routes.
+1. **Frontend migration:** already completed for `GuardianChat.tsx` and `useTriggerAction.ts`; both now use the command-bus invoke surface.
+2. **Test suite:** 6 test files still directly import and exercise the shim routes.
 
 ### What must migrate first?
 
@@ -283,14 +284,13 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 
 ### Minimum safe deletion sequence
 
-1. **Migrate frontend callers** — update `GuardianChat.tsx` and `useTriggerAction.ts` to use the command bus or a dedicated profile-switch endpoint. Remove `dcw-services/gc.ts` `Tools` namespace.
-2. **Migrate or delete test files** — convert the 6 test files to command-bus tests or delete them.
-3. **Remove route registrations** — delete the `_include_router()` calls for `tools_router` and `api_tools_router` in `guardian/guardian_api.py`.
-4. **Delete `guardian/routes/tools.py`** — the shim file itself.
-5. **Audit and consolidate `guardian/tools/`** — move live utilities (`derive.py`, `spec.py`, `coercion.py`, `policy.py`, `approval_tokens.py`) under `guardian/command_bus/` or another appropriate home. Delete unused modules.
-6. **Decide on `tool_jobs` table** — keep or drop with a migration.
-7. **Delete `guardian/server/tools_api.py`** and clean up `guardian/server/app.py` tools references (dead code).
-8. **Update architecture docs** — remove shim references from `modules-and-ownership.md`, `flows.md`, `data-and-storage.md`, `system-overview.md`, `tech-debt-and-risks.md`, `README.md`.
+1. **Migrate or delete test files** — convert the 6 test files to command-bus tests or delete them.
+2. **Remove route registrations** — delete the `_include_router()` calls for `tools_router` and `api_tools_router` in `guardian/guardian_api.py`.
+3. **Delete `guardian/routes/tools.py`** — the shim file itself.
+4. **Audit and consolidate `guardian/tools/`** — move live utilities (`derive.py`, `spec.py`, `coercion.py`, `policy.py`, `approval_tokens.py`) under `guardian/command_bus/` or another appropriate home. Delete unused modules.
+5. **Decide on `tool_jobs` table** — keep or drop with a migration.
+6. **Delete `guardian/server/tools_api.py`** and clean up `guardian/server/app.py` tools references (dead code).
+7. **Update architecture docs** — remove shim references from `modules-and-ownership.md`, `flows.md`, `data-and-storage.md`, `system-overview.md`, `tech-debt-and-risks.md`, `README.md`.
 
 ---
 
