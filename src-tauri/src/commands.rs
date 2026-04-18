@@ -50,7 +50,6 @@ const RUNTIME_CONTEXT_DEVELOPMENT: &str = "development";
 const RUNTIME_CONTEXT_PACKAGED: &str = "packaged";
 const PACKAGED_RUNTIME_METADATA_DIRNAME: &str = "Codexify";
 const PACKAGED_RUNTIME_ROOT_DIRNAME: &str = "Codexify";
-const PACKAGED_RUNTIME_HOME_DIRNAME: &str = PACKAGED_RUNTIME_METADATA_DIRNAME;
 const PACKAGED_RUNTIME_MANIFEST_FILENAME: &str = ".codexify-runtime-manifest.json";
 const PACKAGED_RUNTIME_MARKER_FILENAME: &str = ".codexify-packaged-runtime";
 const LAUNCHER_STARTUP_STATE_FILENAME: &str = ".codexify-launcher-startup-state.json";
@@ -107,7 +106,7 @@ pub struct LauncherStartupHandoff {
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LauncherStartupStateFile {
     #[serde(default)]
@@ -676,6 +675,12 @@ fn write_packaged_runtime_manifest(
 ) -> Result<PathBuf, BootstrapRuntimeMaterializationError> {
     let manifest_path = packaged_runtime_manifest_path(runtime_root);
     let marker_path = packaged_runtime_marker_path(runtime_root);
+    log::info!(
+        "codexify.desktop.launcher.runtime_manifest_write_start runtimeRoot={} manifest={} marker={}",
+        runtime_root.display(),
+        manifest_path.display(),
+        marker_path.display()
+    );
     let manifest = PackagedRuntimeManifest {
         schema_version: 1,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -701,12 +706,18 @@ fn write_packaged_runtime_manifest(
             .collect(),
     };
     let manifest_body = serde_json::to_string_pretty(&manifest).map_err(|err| {
+        log::error!(
+            "codexify.desktop.launcher.runtime_manifest_serialize_failed runtimeRoot={} manifest={} error={}",
+            runtime_root.display(),
+            manifest_path.display(),
+            err
+        );
         BootstrapRuntimeMaterializationError {
             failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
             detail: join_lines(vec![
                 "Packaged runtime materialization failed while serializing the runtime manifest."
                     .to_string(),
-                format!("runtimeHome={}", runtime_root.display()),
+                format!("runtimeRoot={}", runtime_root.display()),
                 format!("manifest={}", manifest_path.display()),
                 format!("error={err}"),
             ]),
@@ -714,19 +725,96 @@ fn write_packaged_runtime_manifest(
     })?;
 
     fs::write(&manifest_path, manifest_body).map_err(|err| {
+        log::error!(
+            "codexify.desktop.launcher.runtime_manifest_write_failed runtimeRoot={} manifest={} error={}",
+            runtime_root.display(),
+            manifest_path.display(),
+            err
+        );
         BootstrapRuntimeMaterializationError {
             failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
             detail: join_lines(vec![
                 "Packaged runtime materialization failed while writing the runtime manifest."
                     .to_string(),
-                format!("runtimeHome={}", runtime_root.display()),
+                format!("runtimeRoot={}", runtime_root.display()),
                 format!("manifest={}", manifest_path.display()),
                 format!("error={err}"),
             ]),
         }
     })?;
 
+    log::info!(
+        "codexify.desktop.launcher.runtime_manifest_write_complete runtimeRoot={} manifest={}",
+        runtime_root.display(),
+        manifest_path.display()
+    );
+
     Ok(manifest_path)
+}
+
+fn write_packaged_launcher_startup_state(
+    runtime_home: &Path,
+    runtime_root: &Path,
+    resource_root: &Path,
+) -> Result<PathBuf, BootstrapRuntimeMaterializationError> {
+    let state_path = runtime_home.join(LAUNCHER_STARTUP_STATE_FILENAME);
+    let state = LauncherStartupStateFile {
+        setup_complete: true,
+        runtime_profile: Some(RUNTIME_CONTEXT_PACKAGED.to_string()),
+        env_path: Some(runtime_env_file_path(runtime_root).display().to_string()),
+        handoff_target: None,
+        detail: Some(join_lines(vec![
+            "packaged runtime materialization completed; launcher handoff pending.".to_string(),
+            format!("runtimeHome={}", runtime_home.display()),
+            format!("runtimeRoot={}", runtime_root.display()),
+            format!("resourceRoot={}", resource_root.display()),
+        ])),
+    };
+    let state_body = serde_json::to_string_pretty(&state).map_err(|err| {
+        BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged runtime materialization failed while serializing the launcher startup state."
+                    .to_string(),
+                format!("runtimeHome={}", runtime_home.display()),
+                format!("startupState={}", state_path.display()),
+                format!("error={err}"),
+            ]),
+        }
+    })?;
+
+    log::info!(
+        "codexify.desktop.launcher.startup_state_write_start runtimeHome={} startupState={}",
+        runtime_home.display(),
+        state_path.display()
+    );
+
+    fs::write(&state_path, state_body).map_err(|err| {
+        log::error!(
+            "codexify.desktop.launcher.startup_state_write_failed runtimeHome={} startupState={} error={}",
+            runtime_home.display(),
+            state_path.display(),
+            err
+        );
+        BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged runtime materialization failed while writing the launcher startup state."
+                    .to_string(),
+                format!("runtimeHome={}", runtime_home.display()),
+                format!("startupState={}", state_path.display()),
+                format!("error={err}"),
+            ]),
+        }
+    })?;
+
+    log::info!(
+        "codexify.desktop.launcher.startup_state_write_complete runtimeHome={} startupState={}",
+        runtime_home.display(),
+        state_path.display()
+    );
+
+    Ok(state_path)
 }
 
 fn validate_packaged_runtime_attachment(
@@ -781,6 +869,11 @@ fn materialize_packaged_runtime_assets(
         format!("resourceRoot={}", resource_root.display()),
         format!("runtimeRoot={}", runtime_root.display()),
     ];
+    log::info!(
+        "codexify.desktop.launcher.runtime_materialization_start resourceRoot={} runtimeRoot={}",
+        resource_root.display(),
+        runtime_root.display()
+    );
     let runtime_manifest_path = packaged_runtime_manifest_path(runtime_root);
     let marker_path = packaged_runtime_marker_path(runtime_root);
     let attachment_state = if runtime_manifest_path.is_file() && marker_path.is_file() {
@@ -807,12 +900,12 @@ fn materialize_packaged_runtime_assets(
             BootstrapRuntimeMaterializationError {
                 failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
                 detail: join_lines(vec![
-                "Packaged runtime materialization failed while creating placeholder directories."
-                    .to_string(),
-                format!("runtimeRoot={}", runtime_root.display()),
-                format!("placeholder={}", placeholder_path.display()),
-                format!("error={err}"),
-            ]),
+                    "Packaged runtime materialization failed while creating placeholder directories."
+                        .to_string(),
+                    format!("runtimeRoot={}", runtime_root.display()),
+                    format!("placeholder={}", placeholder_path.display()),
+                    format!("error={err}"),
+                ]),
             }
         })?;
     }
@@ -838,6 +931,11 @@ fn materialize_packaged_runtime_assets(
             })?;
 
         if metadata.is_dir() {
+            log::info!(
+                "codexify.desktop.launcher.runtime_artifact_copy_start kind=directory source={} destination={}",
+                source_path.display(),
+                destination_path.display()
+            );
             copy_dir_all(&source_path, &destination_path).map_err(|detail| {
                 BootstrapRuntimeMaterializationError {
                     failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
@@ -848,7 +946,17 @@ fn materialize_packaged_runtime_assets(
                     ]),
                 }
             })?;
+            log::info!(
+                "codexify.desktop.launcher.runtime_artifact_copy_complete kind=directory source={} destination={}",
+                source_path.display(),
+                destination_path.display()
+            );
         } else if metadata.is_file() {
+            log::info!(
+                "codexify.desktop.launcher.runtime_artifact_copy_start kind=file source={} destination={}",
+                source_path.display(),
+                destination_path.display()
+            );
             copy_file_to_runtime(&source_path, &destination_path).map_err(|detail| {
                 BootstrapRuntimeMaterializationError {
                     failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
@@ -859,6 +967,11 @@ fn materialize_packaged_runtime_assets(
                     ]),
                 }
             })?;
+            log::info!(
+                "codexify.desktop.launcher.runtime_artifact_copy_complete kind=file source={} destination={}",
+                source_path.display(),
+                destination_path.display()
+            );
         } else {
             missing_assets.push(relative_path.to_string());
         }
@@ -886,7 +999,18 @@ fn materialize_packaged_runtime_assets(
         format!("runtimeHome={}", runtime_root.display()),
         format!("manifest={}", manifest_path.display()),
     ]);
+    log::info!(
+        "codexify.desktop.launcher.runtime_marker_write_start runtimeRoot={} marker={}",
+        runtime_root.display(),
+        marker_path.display()
+    );
     fs::write(&marker_path, marker_contents).map_err(|err| {
+        log::error!(
+            "codexify.desktop.launcher.runtime_marker_write_failed runtimeRoot={} marker={} error={}",
+            runtime_root.display(),
+            marker_path.display(),
+            err
+        );
         BootstrapRuntimeMaterializationError {
             failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
             detail: join_lines(vec![
@@ -898,6 +1022,11 @@ fn materialize_packaged_runtime_assets(
             ]),
         }
     })?;
+    log::info!(
+        "codexify.desktop.launcher.runtime_marker_write_complete runtimeRoot={} marker={}",
+        runtime_root.display(),
+        marker_path.display()
+    );
 
     validate_packaged_runtime_attachment(runtime_root)?;
 
@@ -915,6 +1044,12 @@ fn materialize_packaged_runtime_assets(
         runtime_env_example_path(runtime_root).display()
     ));
     detail_lines.push("materialization=complete".to_string());
+    log::info!(
+        "codexify.desktop.launcher.runtime_materialization_complete runtimeRoot={} manifest={} marker={}",
+        runtime_root.display(),
+        manifest_path.display(),
+        marker_path.display()
+    );
     Ok(detail_lines)
 }
 
@@ -1570,6 +1705,10 @@ fn resolve_packaged_bootstrap_runtime(
                     .to_string(),
             );
             detail_lines.push(format!("runtimeHomeError={err}"));
+            log::error!(
+                "codexify.desktop.launcher.app_support_resolution_failed error={}",
+                err
+            );
             return BootstrapRuntime::failure(
                 RUNTIME_CONTEXT_PACKAGED,
                 true,
@@ -1583,12 +1722,21 @@ fn resolve_packaged_bootstrap_runtime(
         }
     };
     detail_lines.push(format!("runtimeHome={}", runtime_home.display()));
+    log::info!(
+        "codexify.desktop.launcher.app_support_resolved runtimeHome={}",
+        runtime_home.display()
+    );
 
     if let Err(err) = fs::create_dir_all(&runtime_home) {
         detail_lines.push(
             "The packaged app could not create its Application Support metadata home.".to_string(),
         );
         detail_lines.push(format!("runtimeHomeCreateError={err}"));
+        log::error!(
+            "codexify.desktop.launcher.app_support_create_failed runtimeHome={} error={}",
+            runtime_home.display(),
+            err
+        );
         return BootstrapRuntime::failure(
             RUNTIME_CONTEXT_PACKAGED,
             true,
@@ -1622,6 +1770,10 @@ fn resolve_packaged_bootstrap_runtime(
         }
     };
     detail_lines.push(format!("runtimeRoot={}", runtime_root.display()));
+    log::info!(
+        "codexify.desktop.launcher.runtime_root_resolved runtimeRoot={}",
+        runtime_root.display()
+    );
 
     let resource_root = match app.path().resource_dir() {
         Ok(path) => path,
@@ -1630,6 +1782,10 @@ fn resolve_packaged_bootstrap_runtime(
                 "The packaged app could not resolve its bundled resource directory.".to_string(),
             );
             detail_lines.push(format!("resourceRootError={err}"));
+            log::error!(
+                "codexify.desktop.launcher.resource_root_resolution_failed error={}",
+                err
+            );
             return BootstrapRuntime::failure(
                 RUNTIME_CONTEXT_PACKAGED,
                 true,
@@ -1643,10 +1799,36 @@ fn resolve_packaged_bootstrap_runtime(
         }
     };
     detail_lines.push(format!("resourceRoot={}", resource_root.display()));
+    log::info!(
+        "codexify.desktop.launcher.resource_root_resolved resourceRoot={}",
+        resource_root.display()
+    );
 
     match materialize_packaged_runtime_assets(&resource_root, &runtime_root) {
         Ok(materialization_detail) => {
             detail_lines.extend(materialization_detail);
+            match write_packaged_launcher_startup_state(
+                &runtime_home,
+                &runtime_root,
+                &resource_root,
+            ) {
+                Ok(startup_state_path) => {
+                    detail_lines.push(format!(
+                        "launcherStartupState={}",
+                        startup_state_path.display()
+                    ));
+                }
+                Err(err) => {
+                    detail_lines.push(format!("launcherStartupStateWriteFailure={}", err.detail));
+                    log::error!(
+                        "codexify.desktop.launcher.startup_state_write_failed runtimeHome={} runtimeRoot={} resourceRoot={} error={}",
+                        runtime_home.display(),
+                        runtime_root.display(),
+                        resource_root.display(),
+                        err.detail
+                    );
+                }
+            }
             BootstrapRuntime::success(
                 RUNTIME_CONTEXT_PACKAGED,
                 true,
@@ -4146,6 +4328,40 @@ mod tests {
                 .expect("failed to read migrated model data"),
             "legacy-models"
         );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn packaged_launcher_startup_state_writes_to_application_support_root() {
+        let root = unique_temp_dir("codexify-packaged-startup-state");
+        let runtime_home = root.join("Application Support").join("Codexify");
+        let runtime_root = root.join("Codexify");
+        let resource_root = root.join("bundle");
+        fs::create_dir_all(&runtime_home).expect("failed to create runtime home");
+        fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
+        fs::create_dir_all(&resource_root).expect("failed to create resource root");
+
+        let state_path = write_packaged_launcher_startup_state(
+            runtime_home.as_path(),
+            runtime_root.as_path(),
+            resource_root.as_path(),
+        )
+        .expect("expected launcher startup state write to succeed");
+
+        assert_eq!(
+            state_path,
+            runtime_home.join(LAUNCHER_STARTUP_STATE_FILENAME)
+        );
+        assert!(state_path.is_file());
+
+        let written = fs::read_to_string(&state_path).expect("failed to read startup state");
+        assert!(written.contains("\"setupComplete\": true"));
+        assert!(written.contains("\"runtimeProfile\": \"packaged\""));
+        assert!(written.contains("\"handoffTarget\": null"));
+        assert!(written
+            .contains("packaged runtime materialization completed; launcher handoff pending."));
+        assert!(written.contains(&runtime_env_file_path(&runtime_root).display().to_string()));
 
         fs::remove_dir_all(&root).ok();
     }
