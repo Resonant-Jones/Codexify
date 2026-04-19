@@ -21,7 +21,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
-from guardian.cognition.system_profiles.resolver import switch_thread_profile
 from guardian.command_bus.contracts import (
     ActorSpec,
     InvokeArguments,
@@ -78,43 +77,11 @@ _MANIFEST_FORMAT_ENVELOPE = "envelope"
 _MANIFEST_FORMAT_ARRAY = "array"
 
 
-class ToolRequest(BaseModel):
-    """
-    Legacy local tools request model retained for profile-switch helper tests.
-    """
-
-    name: str = ""
-    args: dict[str, Any] = Field(default_factory=dict)
-    actor: dict[str, Any] | None = None
-    tool_id: str | None = None
-    command_id: str | None = None
-    operation_id: str | None = None
-    method: str | None = None
-    path: str | None = None
-    path_template: str | None = None
-    arguments: dict[str, Any] | None = None
-    idempotency_key: str | None = None
-
-
 class JobStatus(BaseModel):
     job_id: str
     tool_name: str
     status: str
     result: dict[str, Any] = Field(default_factory=dict)
-
-
-# Import optional dependencies used by local profile-switch helper.
-try:
-    from guardian.core.dependencies import chatlog_db, event_bus
-except ImportError:
-    chatlog_db = None
-
-    class _NoopEventBus:
-        @staticmethod
-        def emit_event(_topic: str, _payload: dict[str, Any]) -> None:
-            return None
-
-    event_bus = _NoopEventBus()
 
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
@@ -128,7 +95,7 @@ def configure_db(db: Any | None) -> None:
     _configured_tool_jobs_db = db
 
 
-def _dispatch_tool(body: ToolCallRequest | ToolRequest) -> dict[str, Any]:
+def _dispatch_tool(body: ToolCallRequest) -> dict[str, Any]:
     """Legacy local dispatcher retained for durable job seam tests."""
 
     return {"ok": True, "tool": body.name, "args": dict(body.args or {})}
@@ -197,7 +164,7 @@ def _resolve_auth_subject(request: Request | None) -> str | None:
 
 
 def _resolve_actor(
-    body: ToolCallRequest | ToolRequest, request: Request | None
+    body: ToolCallRequest, request: Request | None
 ) -> tuple[ActorSpec, str]:
     header_user = (
         request.headers.get("X-User-Id", "").strip() if request else ""
@@ -680,96 +647,6 @@ def _normalize_manifest_format(raw_format: str) -> str:
         },
         replaced_by=MANIFEST_REPLACED_BY,
     )
-
-
-def _run_legacy_tool_locally(body: ToolRequest) -> dict[str, Any]:
-    result: dict[str, Any]
-    args = body.args or {}
-
-    if body.name in {"guardian.profile.switch", "set_profile"}:
-        thread_id = _coerce_thread_id(args.get("thread_id"))
-        profile_id = str(args.get("profile_id") or "").strip()
-        if thread_id is None:
-            result = {
-                "ok": False,
-                "tool": body.name,
-                "error": "thread_id is required for guardian.profile.switch",
-            }
-        elif not profile_id:
-            result = {
-                "ok": False,
-                "tool": body.name,
-                "error": "profile_id is required",
-            }
-        elif chatlog_db is None:
-            result = {
-                "ok": False,
-                "tool": body.name,
-                "error": "chat_db_unavailable",
-                "thread_id": thread_id,
-                "profile_id": profile_id,
-            }
-        else:
-            try:
-                resolved = switch_thread_profile(
-                    thread_id=thread_id,
-                    profile_id=profile_id,
-                    chatlog_db=chatlog_db,
-                )
-                result = {
-                    "ok": True,
-                    "tool": body.name,
-                    "thread_id": thread_id,
-                    "active_profile_id": resolved.active_profile_id,
-                    "provider_override": resolved.provider_override,
-                    "model_override": resolved.model_override,
-                }
-                try:
-                    event_bus.emit_event(
-                        "thread.profile.switched",
-                        {
-                            "thread_id": thread_id,
-                            "active_profile_id": resolved.active_profile_id,
-                            "provider_override": resolved.provider_override,
-                            "model_override": resolved.model_override,
-                        },
-                    )
-                except Exception:
-                    logger.debug(
-                        "Tools.execute profile switch event emit failed",
-                        exc_info=True,
-                    )
-            except Exception as exc:
-                result = {
-                    "ok": False,
-                    "tool": body.name,
-                    "error": str(exc),
-                    "thread_id": thread_id,
-                    "profile_id": profile_id,
-                }
-    else:
-        result = {"ok": True, "tool": body.name, "args": args}
-    return result
-
-
-def _coerce_thread_id(value: Any) -> int | None:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
-
-
-def tools_execute(body: ToolRequest, api_key: str = Depends(require_api_key)):
-    """
-    Legacy local helper used by profile-switch tests.
-    """
-
-    jid = str(uuid4())
-    result = _run_legacy_tool_locally(body)
-    JOBS[jid] = {"status": "done", "result": result}
-    logger.info("Tools.execute: %s job_id=%s", body.name, jid)
-    return {"job_id": jid, "status": "done", "result": result}
 
 
 def _store_job_snapshot(response: ToolCallResponse) -> None:

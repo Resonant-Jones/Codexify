@@ -24,7 +24,6 @@ def _build_client(monkeypatch) -> TestClient:
         return {"ok": True, "payload": payload}
 
     app.include_router(command_bus.router)
-    app.include_router(tools.router)
     app.include_router(tools.api_router)
     return TestClient(app)
 
@@ -58,19 +57,13 @@ def test_manifest_route_ownership_and_openapi_format_param(monkeypatch) -> None:
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", set())
         endpoint = getattr(route, "endpoint", None)
-        if (
-            path in {"/api/tools/manifest", "/tools/manifest"}
-            and "GET" in methods
-        ):
+        if path == "/api/tools/manifest" and "GET" in methods:
             route_map.setdefault(path, []).append(
                 f"{endpoint.__module__}.{endpoint.__name__}"
             )
 
     assert route_map["/api/tools/manifest"] == [
         "guardian.routes.tools.api_tools_manifest"
-    ]
-    assert route_map["/tools/manifest"] == [
-        "guardian.routes.tools.tools_manifest"
     ]
 
     # OpenAPI must advertise the format query param.
@@ -122,35 +115,6 @@ def test_manifest_hash_is_deterministic(monkeypatch) -> None:
     assert first["command_manifest_hash"] == second["command_manifest_hash"]
 
 
-def test_tools_alias_mirrors_api_manifest(monkeypatch) -> None:
-    client = _build_client(monkeypatch)
-
-    api_envelope = client.get(
-        "/api/tools/manifest", headers=_auth_headers()
-    ).json()
-    tools_envelope_response = client.get(
-        "/tools/manifest", headers=_auth_headers()
-    )
-    assert tools_envelope_response.status_code == 200
-    tools_envelope = tools_envelope_response.json()
-    assert isinstance(tools_envelope, dict)
-    assert (
-        tools_envelope["command_manifest_hash"]
-        == api_envelope["command_manifest_hash"]
-    )
-    assert len(tools_envelope["tools"]) == len(api_envelope["tools"])
-
-    api_array = client.get(
-        "/api/tools/manifest?format=array", headers=_auth_headers()
-    ).json()
-    tools_array = client.get(
-        "/tools/manifest?format=array", headers=_auth_headers()
-    ).json()
-    assert isinstance(api_array, list)
-    assert isinstance(tools_array, list)
-    assert len(api_array) == len(tools_array)
-
-
 def test_manifest_bad_format_returns_400(monkeypatch) -> None:
     client = _build_client(monkeypatch)
     response = client.get(
@@ -161,14 +125,10 @@ def test_manifest_bad_format_returns_400(monkeypatch) -> None:
     assert detail["error"] == "invalid_manifest_format"
 
 
-def test_manifest_auth_rejects_blank_api_key_on_both_prefixes(
-    monkeypatch,
-) -> None:
+def test_manifest_auth_rejects_blank_api_key(monkeypatch) -> None:
     client = _build_client(monkeypatch)
     blank_headers = {"X-API-Key": "", "X-User-Id": "local"}
 
     api_response = client.get("/api/tools/manifest", headers=blank_headers)
-    tools_response = client.get("/tools/manifest", headers=blank_headers)
 
     assert api_response.status_code == 401
-    assert tools_response.status_code == 401
