@@ -298,6 +298,28 @@ describe("ChatBubble", () => {
     expect(container.querySelector(".codexifyCodeBlock")).not.toBeInTheDocument();
   });
 
+  it("left-aligns user message text and keeps it padded within the bubble", () => {
+    const centeredText = `Centered user message ${"x".repeat(1300)}`;
+    const { container } = render(
+      <ChatBubble
+        isGuardian={false}
+        message={{
+          id: "msg-center-user",
+          authorId: "me",
+          authorName: "You",
+          content: centeredText,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    const content = container.querySelector(
+      '[data-testid="guardian-user-message-content"]'
+    );
+    expect(content).toHaveClass("text-left", "px-4", "py-3");
+    expect(content).not.toHaveClass("text-center");
+  });
+
   it("renders document tiles inline without exposing the full document body", () => {
     const content = serializeDocumentContextMessage("Please review", [
       {

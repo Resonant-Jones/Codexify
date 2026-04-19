@@ -277,6 +277,35 @@ def _persist_message_extra_meta(
         return bool(row)
 
 
+def _resolve_graph_write_scope(
+    thread_id: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return None, None
+
+    get_chat_thread = getattr(chatlog_db, "get_chat_thread", None)
+    if not callable(get_chat_thread):
+        return None, None
+
+    try:
+        thread = get_chat_thread(thread_id)
+    except Exception:
+        return None, None
+
+    if not isinstance(thread, dict):
+        return None, None
+
+    project_id = thread.get("project_id")
+    if project_id is None:
+        return None, None
+
+    return thread, {
+        "id": project_id,
+        "name": thread.get("project_name"),
+    }
+
+
 def _turn_completion_anchor_key(thread_id: int, turn_id: str) -> str:
     return ":".join((_TURN_COMPLETION_ANCHOR_PREFIX, str(thread_id), turn_id))
 
@@ -2169,6 +2198,37 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             message_id,
         )
         assistant_text = str(result.get("assistant_text") or "")
+        try:
+            from guardian.memory_graph.graph_write_hook import (
+                build_graph_write_candidate,
+            )
+
+            thread_scope, project_scope = _resolve_graph_write_scope(
+                task.thread_id
+            )
+            if thread_scope is None or project_scope is None:
+                raise ValueError("graph_write_scope_unavailable")
+
+            candidate = build_graph_write_candidate(
+                assistant_message={
+                    "id": message_id,
+                    "content": assistant_text,
+                    "role": "assistant",
+                    "created_at": lifecycle_timings_payload.get("completed_at"),
+                },
+                thread=thread_scope,
+                project=project_scope,
+            )
+
+            logger.info(
+                "graph_write_candidate_emitted",
+                extra={"candidate": candidate},
+            )
+        except Exception as e:
+            logger.warning(
+                "graph_write_candidate_failed",
+                extra={"error": str(e)},
+            )
         audio_autogenerate_scheduled = False
         try:
             audio_autogenerate_scheduled = (
@@ -2230,6 +2290,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
                 "payload_summary": result.get("payload_summary"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_query": result_retrieval_query,
                 "retrieval_target": result_retrieval_target,
                 "retrieval_query_matches_latest_turn": result.get(

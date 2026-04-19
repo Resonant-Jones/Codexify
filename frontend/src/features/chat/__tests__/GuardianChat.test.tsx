@@ -61,6 +61,18 @@ vi.mock("@/lib/api", () => ({
   getDevApiKey: vi.fn(() => null),
   getInFlightCompletionTurnId: vi.fn(() => null),
   readRuntimeApiKey: vi.fn(() => null),
+  invokeCommandBus: async (payload: Record<string, unknown>) => {
+    const response = await apiSpies.post(
+      "/api/guardian/commands/invoke",
+      payload,
+      {
+        headers: {
+          "X-User-Id": String((payload as any)?.actor?.id ?? ""),
+        },
+      }
+    );
+    return response?.data ?? {};
+  },
   updateThreadConfig: async (
     threadId: string | number,
     patch: Record<string, unknown>
@@ -227,7 +239,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-vi.mock("@/features/chat/components", () => ({
+vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: ({
     onSend,
     onProviderChange,
@@ -593,6 +605,76 @@ describe("GuardianChat inference rail", () => {
         })
       );
     });
+  });
+
+  it("switches profiles through the command bus invoke surface instead of the legacy tools shim", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("local_mode");
+    renderChat("1");
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/api/guardian/commands/invoke") {
+        expect(body).toEqual(
+          expect.objectContaining({
+            invoke_version: "1.0",
+            command_id: "op::guardian.profile.switch",
+            actor: { kind: "human", id: "local" },
+            arguments: expect.objectContaining({
+              path_params: { thread_id: 1 },
+              body: { profile_id: "local_mode" },
+            }),
+          })
+        );
+        return {
+          data: {
+            run_id: "run-profile-switch-1",
+            status: "completed",
+            inline_result: {
+              ok: true,
+              thread_id: 1,
+              active_profile_id: "local_mode",
+              provider_override: "local",
+              model_override: "local-model",
+            },
+          },
+        };
+      }
+      if (url === "/chat/1/profile") {
+        return {
+          data: {
+            ok: true,
+            thread_id: 1,
+            profile: {
+              profile_id: "local_mode",
+              active_profile_id: "local_mode",
+              provider_override: "local",
+              model_override: "local-model",
+            },
+            profiles: [],
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Switch profile…"));
+    });
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/api/guardian/commands/invoke",
+        expect.objectContaining({
+          command_id: "op::guardian.profile.switch",
+        }),
+        expect.objectContaining({
+          headers: { "X-User-Id": "local" },
+        })
+      );
+    });
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/tools/execute")
+    ).toBe(false);
+    promptSpy.mockRestore();
   });
 
   it("collapses oversized user messages by default and keeps the chat scroll container intact", async () => {
