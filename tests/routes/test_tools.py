@@ -54,7 +54,6 @@ def tools_client():
     tools.configure_db(fake_db)
 
     app = FastAPI()
-    app.include_router(tools.router)
     app.include_router(tools.api_router)
     app.dependency_overrides[tools.require_api_key] = lambda: "test-api-key"
 

@@ -27,7 +27,6 @@ def _build_client(monkeypatch) -> TestClient:
         return {"ok": True, "payload": payload}
 
     app.include_router(command_bus.router)
-    app.include_router(tools.router)
     app.include_router(tools.api_router)
     return TestClient(app)
 
@@ -74,7 +73,7 @@ def _install_fake_loopback(monkeypatch, captured: list[dict[str, Any]]) -> None:
 def test_legacy_manifest_returns_deprecation_header(monkeypatch) -> None:
     client = _build_client(monkeypatch)
 
-    response = client.get("/tools/manifest", headers=_auth_headers())
+    response = client.get("/api/tools/manifest", headers=_auth_headers())
     assert response.status_code == 200
     assert response.headers["X-Codexify-Deprecated"] == "true"
     assert (
@@ -96,10 +95,6 @@ def test_legacy_manifest_returns_deprecation_header(monkeypatch) -> None:
     )
     assert isinstance(payload["openai_tools"], list)
 
-    alias_response = client.get("/api/tools/manifest", headers=_auth_headers())
-    assert alias_response.status_code == 200
-    assert alias_response.headers["X-Codexify-Deprecated"] == "true"
-
 
 def test_legacy_execute_forward_read_only_not_blocked(monkeypatch) -> None:
     captured: list[dict[str, Any]] = []
@@ -107,7 +102,7 @@ def test_legacy_execute_forward_read_only_not_blocked(monkeypatch) -> None:
     client = _build_client(monkeypatch)
 
     response = client.post(
-        "/tools/execute?legacy=1",
+        "/api/tools/execute?legacy=1",
         headers=_auth_headers(),
         json={"name": "health_check", "args": {"check": "yes"}},
     )
@@ -150,7 +145,7 @@ def test_legacy_execute_synthesizes_actor_from_x_user_id(monkeypatch) -> None:
     client = _build_client(monkeypatch)
 
     response = client.post(
-        "/tools/execute?legacy=1",
+        "/api/tools/execute?legacy=1",
         headers=_auth_headers(user_id="shim-operator"),
         json={"name": "health_check", "args": {"check": "actor"}},
     )
@@ -174,7 +169,7 @@ def test_legacy_execute_synthesizes_actor_from_single_user_fallback(
     client = _build_client(monkeypatch)
 
     response = client.post(
-        "/tools/execute?legacy=1",
+        "/api/tools/execute?legacy=1",
         headers=_auth_headers(user_id=None),
         json={"name": "health_check", "args": {"check": "fallback"}},
     )
@@ -194,7 +189,7 @@ def test_legacy_execute_rejects_missing_actor_and_identity(monkeypatch) -> None:
     monkeypatch.setattr(tools, "_resolve_auth_subject", lambda _request: None)
 
     response = client.post(
-        "/tools/execute?legacy=1",
+        "/api/tools/execute?legacy=1",
         headers=_auth_headers(user_id=None),
         json={"name": "health_check"},
     )

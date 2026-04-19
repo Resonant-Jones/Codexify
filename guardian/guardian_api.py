@@ -530,7 +530,6 @@ from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
 from guardian.routes.tools import api_router as api_tools_router
-from guardian.routes.tools import router as tools_router
 from guardian.routes.voice import router as voice_router
 from guardian.voice.config import get_voice_runtime_config
 from guardian.voice.runtime import SUPPORTED_INPUT_MIME
@@ -1107,11 +1106,6 @@ _include_router(
     label="flows",
     flag_name="CODEXIFY_ENABLE_FLOW_ROUTES",
     include_fn=lambda: app.include_router(flows_router),
-)
-_include_router(
-    label="tools",
-    flag_name="CODEXIFY_ENABLE_TOOL_ROUTES",
-    include_fn=lambda: app.include_router(tools_router),
 )
 _include_router(
     label="api_tools",

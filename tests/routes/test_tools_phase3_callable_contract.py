@@ -29,7 +29,6 @@ def _build_client(monkeypatch) -> TestClient:
         return {"ok": True, "payload": payload}
 
     app.include_router(command_bus.router)
-    app.include_router(tools.router)
     app.include_router(tools.api_router)
     return TestClient(app)
 

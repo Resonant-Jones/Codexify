@@ -1,7 +1,7 @@
 # Legacy Tools Shim Dependency Inventory
 
 **Date:** 2026-04-16
-**Scope:** Repo-wide inventory of every dependency edge tied to `guardian/routes/tools.py` and the legacy `/tools` + `/api/tools` compatibility shim.
+**Scope:** Repo-wide inventory of every dependency edge tied to `guardian/routes/tools.py` and the legacy `/api/tools` compatibility shim. The bare `/tools` mount has been removed from the primary app and is now only present as unmounted route code.
 **Method:** Grep-driven evidence collection. No runtime behavior changed.
 
 ---
@@ -35,20 +35,19 @@ rg -n "command_runs|command_run_events" guardian/db/migrations/
 
 | Router | Prefix | Endpoints | Deprecation headers |
 |---|---|---|---|
-| `router` | `/tools` | `GET /tools/manifest`, `POST /tools/execute`, `POST /tools/approve`, `GET /tools/jobs/{job_id}` | Yes — `X-Codexify-Deprecated`, `X-Codexify-Deprecation-Replaced-By`, `X-Codexify-Deprecation-Phase` |
+| `router` | `/tools` | Defined in `guardian/routes/tools.py` but no longer mounted by `guardian/guardian_api.py` | N/A in primary app |
 | `api_router` | `/api/tools` | `GET /api/tools/manifest`, `POST /api/tools/execute`, `POST /api/tools/approve`, `GET /api/tools/jobs/{job_id}` | Yes — same headers |
 
 **Registration in `guardian/guardian_api.py`:**
 - Line 532: `from guardian.routes.tools import api_router as api_tools_router`
-- Line 533: `from guardian.routes.tools import router as tools_router`
-- Lines 1112-1119: Both routers included via `_include_router()` with labels `tools` and `api_tools`
+- Lines 1112-1119: Only `api_tools_router` is included via `_include_router()` with label `api_tools`
 
 **Registration in `guardian/server/app.py` (legacy/alternate entry):**
 - Line 27: `from guardian.server.tools_api import router as tools_router`
 - Line 31: Fallback `tools_router = APIRouter()` if import fails
 - Line 96: `app.include_router(tools_router)`
 
-**Classification:** `active dependency` — both routers are mounted in the primary `guardian_api.py` entry point.
+**Classification:** `active dependency` — only `/api/tools` is mounted in the primary `guardian_api.py` entry point; the bare `/tools` router object remains defined but unmounted.
 
 ---
 
@@ -56,19 +55,18 @@ rg -n "command_runs|command_run_events" guardian/db/migrations/
 
 | File | Line | Import | Classification |
 |---|---|---|---|
-| `guardian/guardian_api.py` | 532-533 | `from guardian.routes.tools import api_router as api_tools_router` / `router as tools_router` | `active dependency` |
+| `guardian/guardian_api.py` | 532 | `from guardian.routes.tools import api_router as api_tools_router` | `active dependency` |
 | `tests/routes/test_tools.py` | 15 | `from guardian.routes import tools` | `active dependency` (test) |
 | `tests/routes/test_tools_manifest_phase21_format.py` | 8 | `from guardian.routes import command_bus, tools` | `active dependency` (test) |
 | `tests/routes/test_tools_phase2_spec_policy.py` | 8 | `from guardian.routes import command_bus, tools` | `active dependency` (test) |
 | `tests/routes/test_tools_phase3_callable_contract.py` | 9 | `from guardian.routes import command_bus, tools` | `active dependency` (test) |
-| `tests/routes/test_tools_profile_switch.py` | 6 | `from guardian.routes import tools` | `active dependency` (test) |
 | `tests/routes/test_tools_legacy_shims_phase15.py` | 8 | `from guardian.routes import command_bus, tools` | `active dependency` (test) |
 
 ---
 
 ## 3. Frontend Callers of `/api/tools` or `/tools`
 
-**Update 2026-04-18:** The two live frontend callers documented below have been migrated to the canonical command-bus invoke surface. They remain here as historical inventory entries so the remaining shim deletion sequence stays explicit, but they are no longer active frontend dependencies on `/tools/execute`.
+**Update 2026-04-18:** The two live frontend callers documented below have been migrated to the canonical command-bus invoke surface. They remain here as historical inventory entries so the remaining shim deletion sequence stays explicit, but they are no longer active frontend dependencies on `/tools/execute`. The bare `/tools` mount was also removed in this pass; the remaining runtime compatibility surface is `/api/tools/*`.
 
 ### 3.1 `frontend/src/features/chat/GuardianChat.tsx` (line 2025)
 
@@ -106,11 +104,10 @@ export const Tools = {
 | Test File | Routes Tested | Classification |
 |---|---|---|
 | `tests/routes/test_tools.py` | `/api/tools/execute`, `/api/tools/jobs/{job_id}` | `active dependency` |
-| `tests/routes/test_tools_manifest_phase21_format.py` | `/api/tools/manifest`, `/tools/manifest` | `active dependency` |
+| `tests/routes/test_tools_manifest_phase21_format.py` | `/api/tools/manifest` | `active dependency` |
 | `tests/routes/test_tools_phase2_spec_policy.py` | `/api/tools/manifest`, `/api/tools/execute?legacy=1` | `active dependency` |
 | `tests/routes/test_tools_phase3_callable_contract.py` | `/api/tools/execute`, `/api/tools/approve`, `/api/tools/manifest`, `/api/tools/execute?legacy=1`, `/api/tools/approve?legacy=1` | `active dependency` |
-| `tests/routes/test_tools_profile_switch.py` | Direct function calls to `tools.tools_execute()`, `tools.tools_job_status()` | `active dependency` |
-| `tests/routes/test_tools_legacy_shims_phase15.py` | `/tools/manifest`, `/api/tools/manifest`, `/tools/execute?legacy=1`, `/api/tools/execute?legacy=1` | `active dependency` |
+| `tests/routes/test_tools_legacy_shims_phase15.py` | `/api/tools/manifest`, `/api/tools/execute?legacy=1`, `/api/tools/approve?legacy=1` | `active dependency` |
 | `tests/core/test_beta_router_quarantine.py` | `/api/tools/manifest` (quarantine check) | `compatibility surface` |
 | `tests/core/test_supported_profile_quarantine.py` | `/api/tools/manifest`, `/tools/manifest` (quarantine check) | `compatibility surface` |
 | `tests/routes/test_retrieve_health_or_mount.py` | `/api/tools/manifest` (health/mount check) | `compatibility surface` |
@@ -149,14 +146,13 @@ JOBS: dict[str, dict[str, Any]] = {}
 ```
 
 **Writers:**
-- `tools_execute()` (line 770): Stores job snapshots for the legacy local helper.
 - `_store_job_snapshot()` (line 786): Stores job snapshots after command-bus execute/approve.
 
 **Readers:**
 - `tools_job_status()` (line 1365): Returns job status from `JOBS` dict.
 - `api_tools_job_status()` (line 1434): Falls back to `JOBS` dict if no `tool_jobs` row found.
 
-**Classification:** `active dependency` — process-local job tracking is live for both the legacy helper and the command-bus shim path.
+**Classification:** `active dependency` — process-local job tracking is still live for the retained `/api/tools` compatibility path. The direct local helper was removed, but `JOBS` remains part of the retained shim behavior until the `api_tools_job_status` path is retired.
 
 ### 5.3 `command_runs` and `command_run_events` tables
 
@@ -225,7 +221,7 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 |---|---|---|---|
 | `guardian/server/tools_api.py` | `guardian/server/tools_api.py` | Contains a `ToolSpec` model that duplicates `guardian/tools/spec.py`. Only referenced by `guardian/server/app.py` with a try/except fallback. The `guardian/server/app.py` path is a legacy/alternate entry point not used by the primary `guardian_api.py` bootstrap. | `dead / likely dead` |
 | `guardian/server/app.py` tools import | Lines 27, 31, 96 | Alternate app bootstrap that includes a stub `tools_router`. Not the primary entry point. | `dead / likely dead` |
-| `_run_legacy_tool_locally()` | `guardian/routes/tools.py` lines 685-752 | Handles `guardian.profile.switch` and `set_profile` locally without going through command bus. Only reachable via `tools_execute()` (line 763), which is a standalone function — **not** wired to any route. The frontend calls `/tools/execute` which routes to `tools_execute_route()` -> `_execute_tools_call()`, NOT `tools_execute()`. | `dead / likely dead` (function exists but route does not call it) |
+| `router = APIRouter(prefix="/tools")` | `guardian/routes/tools.py` | Router object remains defined for future deletion cleanup, but the primary app no longer mounts it. | `unmounted compatibility object` |
 | `_dispatch_tool()` | `guardian/routes/tools.py` line 131 | Called only by `_execute_persisted_compat_tool()` which requires `_configured_tool_jobs_db` to be set (never in production). | `dead / likely dead` in production |
 | `_execute_persisted_compat_tool()` | `guardian/routes/tools.py` line 862 | Only called from `api_tools_execute()` when `_uses_persisted_compat_seam()` returns true, which requires `_configured_tool_jobs_db` to be set. | `dead / likely dead` in production |
 | `_persist_tool_job()` / `_load_persisted_tool_job()` | `guardian/routes/tools.py` lines 810, 839 | Require `_configured_tool_jobs_db` — only set in tests via `configure_db()`. | `dead / likely dead` in production |
@@ -236,9 +232,9 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 
 | Class | Count | Details |
 |---|---|---|
-| `active dependency` | 15+ | Route registrations, frontend callers (`GuardianChat.tsx`, `useTriggerAction.ts`), test suite (6 test files), `guardian/tools/` submodule imports, command-bus cross-references, in-memory `JOBS` dict |
+| `active dependency` | 14+ | Route registrations, frontend callers (`GuardianChat.tsx`, `useTriggerAction.ts`), test suite (5 test files), `guardian/tools/` submodule imports, command-bus cross-references, in-memory `JOBS` dict |
 | `compatibility surface` | 3 | Quarantine/health test checks that verify the shim routes are or are not mounted |
-| `dead / likely dead` | 6 | `guardian/server/tools_api.py`, alternate `server/app.py` path, `_run_legacy_tool_locally()`, `_dispatch_tool()`, `_execute_persisted_compat_tool()`, `_persist_tool_job()`/`_load_persisted_tool_job()` |
+| `dead / likely dead` | 5 | `guardian/server/tools_api.py`, alternate `server/app.py` path, `_dispatch_tool()`, `_execute_persisted_compat_tool()`, `_persist_tool_job()`/`_load_persisted_tool_job()` |
 | `docs-only reference` | 6 | Architecture docs that describe the shim |
 | `unclear requires manual verification` | 3 | `guardian/tools/overrides.py`, `guardian/tools/state_inspector.py`, `guardian/tools/context/` — exist in directory but not imported by `tools.py` |
 
@@ -248,27 +244,25 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 
 ### Can the shim likely be removed now?
 
-**No.** There are live callers that would break:
+**No.** The shim is still retained by the `/api/tools` compatibility path and its backend tests:
 
 1. **Frontend migration:** already completed for `GuardianChat.tsx` and `useTriggerAction.ts`; both now use the command-bus invoke surface.
-2. **Test suite:** 6 test files still directly import and exercise the shim routes.
+2. **Test suite:** 5 test files still directly import and exercise the retained `/api/tools` shim routes.
 
 ### What must migrate first?
 
 1. **Profile switching in `GuardianChat.tsx`** (line 2025):
-   - Must migrate from `POST /tools/execute` with `{name: "guardian.profile.switch", args: {...}}` to `POST /api/guardian/commands/invoke` with the command-bus `InvokeRequest` shape, or to a dedicated profile-switch endpoint if one exists.
-   - Verify that the command bus exposes a `guardian.profile.switch` command or that an equivalent route exists.
+   - Already completed in the frontend. Keep the command-bus route and tests as the supported profile-switch path.
 
 2. **Trigger action in `useTriggerAction.ts`** (lines 5, 9):
-   - Must migrate from `Tools.execute()` / `Tools.job()` to the command bus invoke + event stream pattern.
-   - The `dcw-services/gc.ts` `Tools` namespace should be replaced or deprecated.
+   - Already migrated to the command bus invoke surface. The remaining local `Tools.job()` polling/cache behavior is a frontend implementation detail, not a `/tools` dependency.
+   - If the polling path is later replaced by a command-bus-native job/status API, deprecate the `dcw-services/gc.ts` `Tools` namespace.
 
-3. **Test suite** (6 files):
+3. **Test suite** (5 files):
    - `tests/routes/test_tools.py`
    - `tests/routes/test_tools_manifest_phase21_format.py`
    - `tests/routes/test_tools_phase2_spec_policy.py`
    - `tests/routes/test_tools_phase3_callable_contract.py`
-   - `tests/routes/test_tools_profile_switch.py`
    - `tests/routes/test_tools_legacy_shims_phase15.py`
    - These should be migrated to test the command bus endpoints directly (`/api/guardian/commands/*`) or deleted if they only test shim-specific behavior that no longer applies.
 
@@ -284,8 +278,8 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 
 ### Minimum safe deletion sequence
 
-1. **Migrate or delete test files** — convert the 6 test files to command-bus tests or delete them.
-2. **Remove route registrations** — delete the `_include_router()` calls for `tools_router` and `api_tools_router` in `guardian/guardian_api.py`.
+1. **Migrate or delete test files** — convert the 5 test files to command-bus tests or delete them.
+2. **Remove route registrations** — delete the `_include_router()` call for `api_tools_router` in `guardian/guardian_api.py`.
 3. **Delete `guardian/routes/tools.py`** — the shim file itself.
 4. **Audit and consolidate `guardian/tools/`** — move live utilities (`derive.py`, `spec.py`, `coercion.py`, `policy.py`, `approval_tokens.py`) under `guardian/command_bus/` or another appropriate home. Delete unused modules.
 5. **Decide on `tool_jobs` table** — keep or drop with a migration.
@@ -296,10 +290,10 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 
 ## Appendix: Exact Grep Hit Summary by Dependency Class
 
-### Direct route exposure (2 routers, 8 endpoints)
+### Direct route exposure (1 mounted router, 1 unmounted router object, 4 mounted endpoints)
 - `guardian/routes/tools.py:120` — `router = APIRouter(prefix="/tools")`
 - `guardian/routes/tools.py:121` — `api_router = APIRouter(prefix="/api/tools")`
-- `guardian/guardian_api.py:1112-1119` — both routers included
+- `guardian/guardian_api.py:1112-1119` — only `api_tools_router` included
 
 ### Direct imports (7 files)
 - `guardian/guardian_api.py:532-533`
@@ -307,7 +301,6 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 - `tests/routes/test_tools_manifest_phase21_format.py:8`
 - `tests/routes/test_tools_phase2_spec_policy.py:8`
 - `tests/routes/test_tools_phase3_callable_contract.py:9`
-- `tests/routes/test_tools_profile_switch.py:6`
 - `tests/routes/test_tools_legacy_shims_phase15.py:8`
 
 ### Frontend callers (2 active surfaces)
