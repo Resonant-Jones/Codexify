@@ -19,6 +19,26 @@ class TaskEventType(str, Enum):
     TASK_EVENT = "task.event"
 
 
+class ToolTurnState(str, Enum):
+    IDLE = "idle"
+    DECISION_RECEIVED = "decision_received"
+    COMMAND_DISPATCHED = "command_dispatched"
+    RESULT_REINJECTED = "result_reinjected"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    LIMIT_REACHED = "limit_reached"
+
+
+class ToolLoopStopReason(str, Enum):
+    PLAIN_ANSWER = "plain_answer"
+    TOOL_TURN_COMPLETED = "tool_turn_completed"
+    TOOL_DECISION_INVALID = "tool_decision_invalid"
+    TOOL_COMMAND_FAILED = "tool_command_failed"
+    TOOL_COMMAND_BLOCKED = "tool_command_blocked"
+    TOOL_TURN_LIMIT_REACHED = "tool_turn_limit_reached"
+    CANCELLED = "cancelled"
+
+
 class DelegationJobStatus(str, Enum):
     DRAFT = "draft"
     APPROVED = "approved"
@@ -119,6 +139,12 @@ ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
 TASK_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in TaskEventType}
 )
+TOOL_TURN_STATES: frozenset[str] = frozenset(
+    {state.value for state in ToolTurnState}
+)
+TOOL_LOOP_STOP_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in ToolLoopStopReason}
+)
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
 )
@@ -173,6 +199,8 @@ EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
 __all__ = [
     "AcceptanceStatus",
     "TaskEventType",
+    "ToolTurnState",
+    "ToolLoopStopReason",
     "DelegationJobStatus",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
@@ -188,6 +216,8 @@ __all__ = [
     "EmbeddingLifecycleStatus",
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
+    "TOOL_TURN_STATES",
+    "TOOL_LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",

@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from guardian.protocol_tokens import ToolLoopStopReason, ToolTurnState
+
 MANIFEST_VERSION = "1.0"
 INVOKE_VERSION = "1.0"
 EVENT_PROTOCOL_VERSION = "1.0"
@@ -48,6 +50,19 @@ class InvokeRequest(BaseModel):
     """Command invocation payload."""
 
     invoke_version: str = Field(min_length=1, max_length=32)
+    command_id: str = Field(min_length=1, max_length=512)
+    actor: ActorSpec
+    arguments: InvokeArguments = Field(default_factory=InvokeArguments)
+    idempotency_key: str | None = Field(default=None, max_length=255)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BoundedToolTurnInvocation(BaseModel):
+    """Bounded chat-tool turn request routed through the command bus."""
+
+    tool_turn_id: str = Field(min_length=1, max_length=255)
+    request_id: str = Field(min_length=1, max_length=255)
     command_id: str = Field(min_length=1, max_length=512)
     actor: ActorSpec
     arguments: InvokeArguments = Field(default_factory=InvokeArguments)
@@ -99,5 +114,19 @@ class ManifestResponse(BaseModel):
     generated_at: str
     capabilities: CapabilitiesSpec
     commands: list[CommandSpec]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BoundedToolTurnResult(BaseModel):
+    """Machine-readable outcome for the bounded chat tool turn."""
+
+    tool_turn_id: str = Field(min_length=1, max_length=255)
+    request_id: str = Field(min_length=1, max_length=255)
+    command_run_id: str | None = Field(default=None, max_length=255)
+    tool_turn_state: ToolTurnState = ToolTurnState.IDLE
+    loop_stop_reason: ToolLoopStopReason = ToolLoopStopReason.PLAIN_ANSWER
+    command_status: str | None = Field(default=None, max_length=64)
+    command_error: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="forbid")
