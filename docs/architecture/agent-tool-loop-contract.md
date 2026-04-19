@@ -32,8 +32,8 @@ Source anchors:
 - Chat completion is still single-pass. `run_chat_completion_task()` assembles one provider-ready bundle, calls one provider path, and persists one assistant message when persistence is enabled. (`guardian/core/chat_completion_service.py`)
 - Provider execution currently returns assistant content, not a looped tool-turn runtime object. `chat_with_ai()` returns the provider response text (or a provider response wrapper), and `run_chat_completion_task()` persists that assistant text. (`guardian/core/ai_router.py`, `guardian/core/chat_completion_service.py`)
 - The command bus already exists as the durable execution substrate for command-style work, with persisted runs, run events, idempotency, and policy gating. (`guardian/command_bus/contracts.py`, `guardian/command_bus/invoke.py`)
-- `/tools` is a compatibility shim over command-bus-backed behavior, not the canonical execution contract. (`guardian/routes/tools.py`)
-- Policy, approval, and idempotency semantics already exist at the command bus and tools layers. (`guardian/command_bus/contracts.py`, `guardian/command_bus/invoke.py`, `guardian/routes/tools.py`, `guardian/tools/spec.py`)
+- The legacy `/api/tools` compatibility shim has been removed; future loop semantics should build on the command bus rather than reintroducing a parallel tools route.
+- Policy, approval, and idempotency semantics already exist at the command bus and tool helper layers. (`guardian/command_bus/contracts.py`, `guardian/command_bus/invoke.py`, `guardian/tools/spec.py`)
 
 ### What is not yet true
 

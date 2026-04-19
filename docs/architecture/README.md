@@ -87,7 +87,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - DB schema and invariants: `guardian/db/models.py`, `guardian/db/migrations/`
 - Redis queues, cancellation, task streams, and turn locks: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`
 - Durable event outbox and `/api/events`: `guardian/core/event_bus.py`, `guardian/core/outbox.py`, `guardian/guardian_api.py`
-- Command bus and tool execution policy: `guardian/routes/command_bus.py`, `guardian/command_bus/`, `guardian/routes/tools.py`
+- Command bus and tool execution policy: `guardian/routes/command_bus.py`, `guardian/command_bus/`
 - Cron jobs and background automation: `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py`
 - Federation and peer context/search: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/`
 - Frontend routing, shell state, and live event consumption: `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/state/session/SessionSpine.ts`
