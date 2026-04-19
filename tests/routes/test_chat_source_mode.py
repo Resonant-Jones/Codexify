@@ -18,6 +18,8 @@ from guardian.tasks.types import task_from_dict
     ("raw_source_mode", "expected_source_mode"),
     [
         ("personal_knowledge", "personal_knowledge"),
+        ("obsidian", "obsidian_only"),
+        ("obsidian_only", "obsidian_only"),
         ("", "project"),
         ("invalid", "project"),
         (None, "project"),

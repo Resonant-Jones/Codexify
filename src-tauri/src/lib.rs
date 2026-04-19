@@ -2,6 +2,12 @@ mod commands;
 
 use tauri::Manager;
 
+fn initialize_bootstrap_runtime(handle: &tauri::AppHandle) -> commands::BootstrapRuntime {
+    let bootstrap_runtime = commands::resolve_bootstrap_runtime(handle);
+    commands::prime_packaged_runtime_environment(&bootstrap_runtime);
+    bootstrap_runtime
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
