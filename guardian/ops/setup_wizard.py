@@ -14,6 +14,21 @@ class DepStatus:
     is_present: bool
     found_path: str | None
     help_text: str
+    resolution_source: str | None = None
+
+
+MACOS_FALLBACK_BINARIES: dict[str, tuple[str, ...]] = {
+    "docker": (
+        "/opt/homebrew/bin/docker",
+        "/usr/local/bin/docker",
+        "/Applications/Docker.app/Contents/Resources/bin/docker",
+    ),
+    "ollama": (
+        "/opt/homebrew/bin/ollama",
+        "/usr/local/bin/ollama",
+        "/Applications/Ollama.app/Contents/Resources/ollama",
+    ),
+}
 
 
 def _os_hint_lines(dep: str) -> str:
@@ -50,23 +65,86 @@ def _resolve_custom_binary_path(custom_path: str | None) -> str | None:
     return None
 
 
+def _macos_fallback_binary_paths(binary_name: str) -> tuple[Path, ...]:
+    if platform.system().lower() != "darwin":
+        return ()
+
+    return tuple(
+        Path(path) for path in MACOS_FALLBACK_BINARIES.get(binary_name, ())
+    )
+
+
+def _resolve_macos_fallback_binary_path(binary_name: str) -> str | None:
+    for candidate in _macos_fallback_binary_paths(binary_name):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate.resolve())
+    return None
+
+
+def _dependency_help_text(
+    binary_name: str,
+    *,
+    custom_path: str | None,
+    custom_resolved: bool,
+    resolution_source: str | None,
+    found_path: str | None,
+) -> str:
+    if found_path and resolution_source:
+        prefix = ""
+        if custom_path and not custom_resolved:
+            prefix = f"Custom path is not executable: {custom_path}. "
+        return f"{prefix}Resolved via {resolution_source}: {found_path}"
+
+    if custom_path:
+        custom_note = f"Custom path is not executable: {custom_path}."
+        return (
+            f"{custom_note} Not found via PATH or macOS fallback probe. "
+            f"{_os_hint_lines(binary_name)}"
+        )
+
+    return (
+        "Not found via PATH or macOS fallback probe. "
+        f"{_os_hint_lines(binary_name)}"
+    )
+
+
 def detect_dependency(
     binary_name: str,
     display_name: str,
     custom_path: str | None = None,
 ) -> DepStatus:
     custom_resolved = _resolve_custom_binary_path(custom_path)
-    found = custom_resolved or shutil.which(binary_name)
-    help_text = _os_hint_lines(binary_name)
+    resolution_source: str | None = None
+    found: str | None = None
 
-    if custom_path and custom_resolved is None:
-        help_text = f"Custom path is not executable: {custom_path}. {help_text}"
+    if custom_resolved is not None:
+        found = custom_resolved
+        resolution_source = "custom path"
+    else:
+        path_resolved = shutil.which(binary_name)
+        if path_resolved:
+            found = path_resolved
+            resolution_source = "PATH"
+        else:
+            fallback_resolved = _resolve_macos_fallback_binary_path(binary_name)
+            if fallback_resolved:
+                found = fallback_resolved
+                resolution_source = "macOS fallback"
+
+    help_text = _dependency_help_text(
+        binary_name,
+        custom_path=custom_path,
+        custom_resolved=custom_resolved is not None,
+        resolution_source=resolution_source,
+        found_path=found,
+    )
 
     return DepStatus(
         name=display_name,
         is_present=found is not None,
         found_path=found,
         help_text=help_text,
+        resolution_source=resolution_source,
     )
 
 
@@ -319,7 +397,7 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
             name="Docker available",
             ok=docker.is_present,
             required=docker_required,
-            detail=docker.found_path or docker.help_text,
+            detail=docker.help_text,
         )
     )
 
@@ -329,7 +407,7 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
             name="Ollama available",
             ok=ollama.is_present,
             required=ollama_required,
-            detail=ollama.found_path or ollama.help_text,
+            detail=ollama.help_text,
         )
     )
 
