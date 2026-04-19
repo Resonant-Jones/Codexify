@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     env, fs,
     path::{Path, PathBuf},
 };
@@ -62,48 +63,54 @@ fn stage_bundle_resources() -> Result<(), String> {
         )
     })?;
 
+    let mut visited_directories = HashSet::new();
+
     for relative_path in BUNDLE_RESOURCE_PATHS {
         let source_path = repo_root.join(relative_path);
         let destination_path = staging_root.join(relative_path);
 
         println!("cargo:rerun-if-changed={}", source_path.display());
-        copy_resource_path(&source_path, &destination_path)?;
+        copy_resource_path(&source_path, &destination_path, &mut visited_directories)?;
     }
 
     Ok(())
 }
 
-fn copy_resource_path(source_path: &Path, destination_path: &Path) -> Result<(), String> {
-    let metadata = match fs::metadata(source_path) {
-        Ok(metadata) => metadata,
-        Err(err) => {
-            if let Ok(link_metadata) = fs::symlink_metadata(source_path) {
-                if link_metadata.file_type().is_symlink() {
-                    let link_target = fs::read_link(source_path).unwrap_or_default();
-                    println!(
-                        "cargo:warning=skipping broken bundle symlink {} -> {}",
-                        source_path.display(),
-                        link_target.display()
-                    );
-                    return Ok(());
-                }
-            }
-
-            return Err(format!(
-                "bundle resource path {} does not exist: {err}",
-                source_path.display()
-            ));
+fn copy_resource_path(
+    source_path: &Path,
+    destination_path: &Path,
+    visited_directories: &mut HashSet<PathBuf>,
+) -> Result<(), String> {
+    match bundle_source_metadata(source_path, "bundle symlink")? {
+        Some(metadata) if metadata.is_dir() => {
+            copy_directory(source_path, destination_path, visited_directories)
         }
-    };
-
-    if metadata.is_dir() {
-        copy_directory(source_path, destination_path)
-    } else {
-        copy_file(source_path, destination_path)
+        Some(_) => copy_file(source_path, destination_path),
+        None => Ok(()),
     }
 }
 
-fn copy_directory(source_path: &Path, destination_path: &Path) -> Result<(), String> {
+fn copy_directory(
+    source_path: &Path,
+    destination_path: &Path,
+    visited_directories: &mut HashSet<PathBuf>,
+) -> Result<(), String> {
+    let canonical_source = fs::canonicalize(source_path).map_err(|err| {
+        format!(
+            "failed to resolve bundle directory {}: {err}",
+            source_path.display()
+        )
+    })?;
+
+    if !visited_directories.insert(canonical_source.clone()) {
+        println!(
+            "cargo:warning=skipping already-visited bundle directory {} -> {}",
+            source_path.display(),
+            canonical_source.display()
+        );
+        return Ok(());
+    }
+
     fs::create_dir_all(destination_path).map_err(|err| {
         format!(
             "failed to create bundle directory {}: {err}",
@@ -125,39 +132,23 @@ fn copy_directory(source_path: &Path, destination_path: &Path) -> Result<(), Str
         })?;
         let entry_source = entry.path();
         let entry_destination = destination_path.join(entry.file_name());
-        copy_resource_entry(&entry_source, &entry_destination)?;
+        copy_resource_entry(&entry_source, &entry_destination, visited_directories)?;
     }
 
     Ok(())
 }
 
-fn copy_resource_entry(source_path: &Path, destination_path: &Path) -> Result<(), String> {
-    let metadata = match fs::metadata(source_path) {
-        Ok(metadata) => metadata,
-        Err(err) => {
-            if let Ok(link_metadata) = fs::symlink_metadata(source_path) {
-                if link_metadata.file_type().is_symlink() {
-                    let link_target = fs::read_link(source_path).unwrap_or_default();
-                    println!(
-                        "cargo:warning=skipping broken nested bundle symlink {} -> {}",
-                        source_path.display(),
-                        link_target.display()
-                    );
-                    return Ok(());
-                }
-            }
-
-            return Err(format!(
-                "bundle resource path {} does not exist: {err}",
-                source_path.display()
-            ));
+fn copy_resource_entry(
+    source_path: &Path,
+    destination_path: &Path,
+    visited_directories: &mut HashSet<PathBuf>,
+) -> Result<(), String> {
+    match bundle_source_metadata(source_path, "nested bundle symlink")? {
+        Some(metadata) if metadata.is_dir() => {
+            copy_directory(source_path, destination_path, visited_directories)
         }
-    };
-
-    if metadata.is_dir() {
-        copy_directory(source_path, destination_path)
-    } else {
-        copy_file(source_path, destination_path)
+        Some(_) => copy_file(source_path, destination_path),
+        None => Ok(()),
     }
 }
 
@@ -180,4 +171,41 @@ fn copy_file(source_path: &Path, destination_path: &Path) -> Result<(), String> 
     })?;
 
     Ok(())
+}
+
+fn bundle_source_metadata(
+    source_path: &Path,
+    symlink_label: &str,
+) -> Result<Option<fs::Metadata>, String> {
+    let link_metadata = fs::symlink_metadata(source_path).map_err(|err| {
+        format!(
+            "bundle resource path {} does not exist: {err}",
+            source_path.display()
+        )
+    })?;
+
+    if link_metadata.file_type().is_symlink() {
+        let link_target = fs::read_link(source_path).unwrap_or_default();
+        let target_metadata = match fs::metadata(source_path) {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                println!(
+                    "cargo:warning=skipping broken {} {} -> {} ({err})",
+                    symlink_label,
+                    source_path.display(),
+                    link_target.display()
+                );
+                return Ok(None);
+            }
+        };
+
+        return Ok(Some(target_metadata));
+    }
+
+    fs::metadata(source_path).map(Some).map_err(|err| {
+        format!(
+            "bundle resource path {} does not exist: {err}",
+            source_path.display()
+        )
+    })
 }
