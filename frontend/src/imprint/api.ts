@@ -1,4 +1,4 @@
-import api from "@/lib/api";
+import api, { classifyOptionalSurfaceError } from "@/lib/api";
 
 export type PromptCostStatus = "ok" | "warn" | "hard" | "unknown";
 
@@ -97,10 +97,16 @@ export async function rejectImprint(imprintId: number) {
 }
 
 export async function fetchSystemPromptSummary(params?: { thread_id?: number; project_id?: number | null }) {
-  const res = await api.get<SystemPromptSummary>("/api/system_prompt/summary", {
-    params,
-  });
-  return res.data;
+  try {
+    const res = await api.get<SystemPromptSummary>("/api/system_prompt/summary", {
+      params,
+    });
+    return res.data;
+  } catch (error) {
+    const classified = classifyOptionalSurfaceError(error);
+    if (classified) throw classified;
+    throw error;
+  }
 }
 
 export async function updatePersonaApi(body: string) {
