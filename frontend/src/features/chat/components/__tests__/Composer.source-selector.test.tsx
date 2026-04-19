@@ -25,6 +25,7 @@ const originalScrollTo = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   "scrollTo"
 );
+const originalInnerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
 
 function restoreScrollTo() {
   if (originalScrollTo) {
@@ -44,6 +45,9 @@ describe("Composer source selector", () => {
 
   afterEach(() => {
     restoreScrollTo();
+    if (originalInnerWidth) {
+      Object.defineProperty(window, "innerWidth", originalInnerWidth);
+    }
     vi.restoreAllMocks();
   });
 
@@ -96,6 +100,110 @@ describe("Composer source selector", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the desktop source selector as minimal floating text", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1280,
+    });
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="thread-1"
+        draftValue=""
+        sourceMode="project"
+        sourceOptions={SOURCE_OPTIONS}
+        onSourceModeChange={vi.fn()}
+      />
+    );
+
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    const sourceButton = screen.getByRole("button", {
+      name: "Select retrieval source",
+    });
+
+    expect(controlsStrip).toHaveClass("flex-1", "min-w-0", "overflow-x-auto");
+    expect(controlsStrip.className).not.toContain("bg-[");
+    expect(controlsStrip.style.borderRadius).toBe("");
+    expect(controlsStrip.style.borderColor).toBe("");
+    expect(sourceButton).toHaveClass(
+      "bg-transparent",
+      "border-0",
+      "rounded-none"
+    );
+    expect(sourceButton.style.borderRadius).toBe("");
+    expect(sourceButton.style.borderColor).toBe("");
+    expect(sourceButton.style.color).toBe("var(--text)");
+  });
+
+  it("keeps the mobile command bar content-sized and minimal", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="thread-1"
+        draftValue=""
+        sourceMode="project"
+        sourceOptions={SOURCE_OPTIONS}
+        onSourceModeChange={vi.fn()}
+      />
+    );
+
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    const actionButton = screen.getByRole("button", {
+      name: "Open composer actions",
+    });
+    const sourceButton = screen.getByRole("button", {
+      name: "Select retrieval source",
+    });
+
+    expect(controlsStrip).toHaveClass("flex-1", "min-w-0", "overflow-x-auto");
+    expect(controlsStrip.className).not.toContain("bg-[");
+    expect(controlsStrip.style.borderRadius).toBe("");
+    expect(controlsStrip.style.borderColor).toBe("");
+
+    expect(actionButton).toHaveClass("bg-transparent", "border-0", "rounded-none");
+    expect(actionButton.style.borderRadius).toBe("");
+
+    expect(sourceButton).toHaveClass("bg-transparent", "border-0", "rounded-none");
+    expect(sourceButton.style.borderRadius).toBe("");
+    expect(sourceButton.style.borderColor).toBe("");
+  });
+
+  it("keeps the left control cluster before an anchored send slot when the rail tightens", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 320,
+    });
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="thread-1"
+        draftValue="hello"
+        sourceMode="project"
+        sourceOptions={SOURCE_OPTIONS}
+        onSourceModeChange={vi.fn()}
+      />
+    );
+
+    const controlsRow = screen.getByTestId("composer-control-row");
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    const sendSlot = screen.getByTestId("composer-send-slot");
+    const sendButton = screen.getByRole("button", { name: "Send" });
+
+    expect(controlsRow).toHaveClass("grid", "min-w-0");
+    expect(controlsRow.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(controlsRow.firstElementChild).toBe(controlsStrip);
+    expect(controlsRow.lastElementChild).toBe(sendSlot);
+    expect(sendSlot).toHaveClass("justify-self-end");
+    expect(sendButton.parentElement).toBe(sendSlot);
+  });
+
   it("keeps the selected source across sends in the same thread-scoped harness", async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
 
@@ -127,10 +235,10 @@ describe("Composer source selector", () => {
       screen.getByRole("button", { name: "Select retrieval source" })
     ).toHaveTextContent("Personal Knowledge");
 
-    fireEvent.change(screen.getByPlaceholderText("Write a message…"), {
+    fireEvent.change(screen.getByTestId("composer-textarea"), {
       target: { value: "Test retrieval source" },
     });
-    fireEvent.keyDown(screen.getByPlaceholderText("Write a message…"), {
+    fireEvent.keyDown(screen.getByTestId("composer-textarea"), {
       key: "Enter",
     });
 
@@ -176,7 +284,7 @@ describe("Composer source selector", () => {
       "Send a message to Home Renovation"
     );
 
-    fireEvent.change(screen.getByPlaceholderText("Write a message…"), {
+    fireEvent.change(screen.getByTestId("composer-textarea"), {
       target: { value: "Hello" },
     });
 

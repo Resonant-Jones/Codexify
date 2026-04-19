@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-09
+Last updated: 2026-04-15
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -32,6 +32,8 @@ Start here first when you need current-state interpretation rather than structur
 
 If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
+If you are working on Flow Builder, delegation/specification workflows, tacit-knowledge extraction, or workflow authoring semantics, start with [`ADR-006: Flow Builder Elicitation Lane`](./adr/005-flow-builder-elicitation-lane.md) first. That ADR defines the upstream `interview -> extract -> normalize -> validate -> compile -> execute` lane and the boundary between elicitation and runnable execution.
+
 ## KB Validity and Diagram Source Sets
 
 Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
@@ -49,6 +51,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
+- [Flow Builder Elicitation Lane ADR](./adr/005-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
+- [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
@@ -56,7 +60,9 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
+- [Agent Tool Loop Contract](./agent-tool-loop-contract.md): canonical bounded tool-augmented completion loop contract for future ReAct/function-calling orchestration; runtime semantics and transcript integrity only.
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
+- [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, and machine-readable failure codes.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
@@ -73,6 +79,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - Completion assembly and provider execution: `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`
 - Identity precedence, persona/imprint assembly, and status-surface wording: `docs/architecture/identity-precedence-contract.md`, `guardian/cognition/identity_contract.py`, `guardian/cognition/identity_resolution.py`, `guardian/cognition/system_prompt_builder.py`, `guardian/core/chat_completion_service.py`, `guardian/routes/imprint.py`, `guardian/routes/chat.py`, `frontend/src/features/settings/`
 - RAG depth behavior and retrieval composition: `guardian/context/broker.py`, `guardian/memoryos/retriever.py`
+- Flow Builder elicitation lane, delegation/specification workflows, tacit-knowledge extraction, and workflow authoring semantics: `docs/architecture/adr/005-flow-builder-elicitation-lane.md`
 - Provider catalog, model selection, and runtime support: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py`
 - Startup order, router wiring, middleware, SSE: `guardian/guardian_api.py`
 - Auth mode, API key/session behavior, and exposure policy: `guardian/core/dependencies.py`, `guardian/core/public_exposure.py`
@@ -82,7 +89,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - DB schema and invariants: `guardian/db/models.py`, `guardian/db/migrations/`
 - Redis queues, cancellation, task streams, and turn locks: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`
 - Durable event outbox and `/api/events`: `guardian/core/event_bus.py`, `guardian/core/outbox.py`, `guardian/guardian_api.py`
-- Command bus and tool execution policy: `guardian/routes/command_bus.py`, `guardian/command_bus/`, `guardian/routes/tools.py`
+- Command bus and tool execution policy: `guardian/routes/command_bus.py`, `guardian/command_bus/`
 - Cron jobs and background automation: `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py`
 - Federation and peer context/search: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/`
 - Frontend routing, shell state, and live event consumption: `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/state/session/SessionSpine.ts`
