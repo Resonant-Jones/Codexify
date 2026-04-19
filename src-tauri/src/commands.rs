@@ -706,10 +706,9 @@ fn write_packaged_runtime_manifest(
             .collect(),
     };
     let manifest_body = serde_json::to_string_pretty(&manifest).map_err(|err| {
-        log::error!(
-            "codexify.desktop.launcher.runtime_manifest_serialize_failed runtimeRoot={} manifest={} error={}",
+        log::warn!(
+            "packaged runtime manifest serialization failed: runtime_root={} error={}",
             runtime_root.display(),
-            manifest_path.display(),
             err
         );
         BootstrapRuntimeMaterializationError {
@@ -725,10 +724,10 @@ fn write_packaged_runtime_manifest(
     })?;
 
     fs::write(&manifest_path, manifest_body).map_err(|err| {
-        log::error!(
-            "codexify.desktop.launcher.runtime_manifest_write_failed runtimeRoot={} manifest={} error={}",
-            runtime_root.display(),
+        log::warn!(
+            "packaged runtime manifest write failed: manifest_path={} runtime_root={} error={}",
             manifest_path.display(),
+            runtime_root.display(),
             err
         );
         BootstrapRuntimeMaterializationError {
@@ -744,9 +743,11 @@ fn write_packaged_runtime_manifest(
     })?;
 
     log::info!(
-        "codexify.desktop.launcher.runtime_manifest_write_complete runtimeRoot={} manifest={}",
+        "packaged runtime manifest written: manifest_path={} attachment_state={} runtime_root={} resource_root={}",
+        manifest_path.display(),
+        attachment_state,
         runtime_root.display(),
-        manifest_path.display()
+        resource_root.display()
     );
 
     Ok(manifest_path)
@@ -865,6 +866,11 @@ fn materialize_packaged_runtime_assets(
     resource_root: &Path,
     runtime_root: &Path,
 ) -> Result<Vec<String>, BootstrapRuntimeMaterializationError> {
+    log::info!(
+        "packaged runtime materialization started: resource_root={} runtime_root={}",
+        resource_root.display(),
+        runtime_root.display()
+    );
     let mut detail_lines = vec![
         format!("resourceRoot={}", resource_root.display()),
         format!("runtimeRoot={}", runtime_root.display()),
@@ -983,6 +989,11 @@ fn materialize_packaged_runtime_assets(
             "The packaged app bundle is missing the runtime source payload needed to bootstrap safely."
                 .to_string(),
         );
+        log::warn!(
+            "packaged runtime materialization missing assets: runtime_root={} missing_assets={}",
+            runtime_root.display(),
+            missing_assets.join(",")
+        );
         return Err(BootstrapRuntimeMaterializationError {
             failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_MISSING,
             detail: join_lines(detail_lines),
@@ -1005,10 +1016,10 @@ fn materialize_packaged_runtime_assets(
         marker_path.display()
     );
     fs::write(&marker_path, marker_contents).map_err(|err| {
-        log::error!(
-            "codexify.desktop.launcher.runtime_marker_write_failed runtimeRoot={} marker={} error={}",
-            runtime_root.display(),
+        log::warn!(
+            "packaged runtime marker write failed: marker_path={} runtime_root={} error={}",
             marker_path.display(),
+            runtime_root.display(),
             err
         );
         BootstrapRuntimeMaterializationError {
@@ -1028,7 +1039,22 @@ fn materialize_packaged_runtime_assets(
         marker_path.display()
     );
 
-    validate_packaged_runtime_attachment(runtime_root)?;
+    log::info!(
+        "packaged runtime marker written: marker_path={} attachment_state={} runtime_root={} resource_root={}",
+        marker_path.display(),
+        attachment_state,
+        runtime_root.display(),
+        resource_root.display()
+    );
+
+    if let Err(err) = validate_packaged_runtime_attachment(runtime_root) {
+        log::warn!(
+            "packaged runtime attachment validation failed: runtime_root={} detail={}",
+            runtime_root.display(),
+            truncate_chars(&err.detail, 300)
+        );
+        return Err(err);
+    }
 
     detail_lines.push(format!("manifest={}", manifest_path.display()));
     detail_lines.push(format!(
@@ -1045,8 +1071,9 @@ fn materialize_packaged_runtime_assets(
     ));
     detail_lines.push("materialization=complete".to_string());
     log::info!(
-        "codexify.desktop.launcher.runtime_materialization_complete runtimeRoot={} manifest={} marker={}",
+        "packaged runtime materialization complete: runtime_root={} resource_root={} manifest={} marker={}",
         runtime_root.display(),
+        resource_root.display(),
         manifest_path.display(),
         marker_path.display()
     );
@@ -1705,8 +1732,8 @@ fn resolve_packaged_bootstrap_runtime(
                     .to_string(),
             );
             detail_lines.push(format!("runtimeHomeError={err}"));
-            log::error!(
-                "codexify.desktop.launcher.app_support_resolution_failed error={}",
+            log::warn!(
+                "packaged runtime app-support resolution failed: error={}",
                 err
             );
             return BootstrapRuntime::failure(
@@ -1723,7 +1750,7 @@ fn resolve_packaged_bootstrap_runtime(
     };
     detail_lines.push(format!("runtimeHome={}", runtime_home.display()));
     log::info!(
-        "codexify.desktop.launcher.app_support_resolved runtimeHome={}",
+        "packaged runtime app-support directory resolved: runtime_home={}",
         runtime_home.display()
     );
 
@@ -1732,8 +1759,8 @@ fn resolve_packaged_bootstrap_runtime(
             "The packaged app could not create its Application Support metadata home.".to_string(),
         );
         detail_lines.push(format!("runtimeHomeCreateError={err}"));
-        log::error!(
-            "codexify.desktop.launcher.app_support_create_failed runtimeHome={} error={}",
+        log::warn!(
+            "packaged runtime app-support directory creation failed: runtime_home={} error={}",
             runtime_home.display(),
             err
         );
@@ -1771,7 +1798,7 @@ fn resolve_packaged_bootstrap_runtime(
     };
     detail_lines.push(format!("runtimeRoot={}", runtime_root.display()));
     log::info!(
-        "codexify.desktop.launcher.runtime_root_resolved runtimeRoot={}",
+        "packaged runtime root resolved: runtime_root={}",
         runtime_root.display()
     );
 
@@ -1782,8 +1809,9 @@ fn resolve_packaged_bootstrap_runtime(
                 "The packaged app could not resolve its bundled resource directory.".to_string(),
             );
             detail_lines.push(format!("resourceRootError={err}"));
-            log::error!(
-                "codexify.desktop.launcher.resource_root_resolution_failed error={}",
+            log::warn!(
+                "packaged runtime resource root resolution failed: runtime_root={} error={}",
+                runtime_root.display(),
                 err
             );
             return BootstrapRuntime::failure(
@@ -1800,7 +1828,7 @@ fn resolve_packaged_bootstrap_runtime(
     };
     detail_lines.push(format!("resourceRoot={}", resource_root.display()));
     log::info!(
-        "codexify.desktop.launcher.resource_root_resolved resourceRoot={}",
+        "packaged runtime resource root resolved: resource_root={}",
         resource_root.display()
     );
 
@@ -1839,16 +1867,23 @@ fn resolve_packaged_bootstrap_runtime(
                 join_lines(detail_lines),
             )
         }
-        Err(err) => BootstrapRuntime::failure(
-            RUNTIME_CONTEXT_PACKAGED,
-            true,
-            Some(runtime_root),
-            None,
-            Some(runtime_home),
-            Some(resource_root),
-            err.failure_kind,
-            join_lines(vec![join_lines(detail_lines), err.detail]),
-        ),
+        Err(err) => {
+            log::warn!(
+                "packaged runtime materialization failed: kind={} detail={}",
+                err.failure_kind,
+                truncate_chars(&err.detail, 300)
+            );
+            BootstrapRuntime::failure(
+                RUNTIME_CONTEXT_PACKAGED,
+                true,
+                Some(runtime_root),
+                None,
+                Some(runtime_home),
+                Some(resource_root),
+                err.failure_kind,
+                join_lines(vec![join_lines(detail_lines), err.detail]),
+            )
+        }
     }
 }
 
@@ -2882,6 +2917,13 @@ fn launcher_startup_state_candidates(runtime: &BootstrapRuntime) -> Vec<PathBuf>
     candidates
 }
 
+fn launcher_startup_state_path(runtime: &BootstrapRuntime) -> Option<PathBuf> {
+    runtime
+        .runtime_home
+        .as_ref()
+        .map(|runtime_home| runtime_home.join(LAUNCHER_STARTUP_STATE_FILENAME))
+}
+
 fn normalize_optional_text(value: Option<String>) -> Option<String> {
     value.and_then(|text| {
         let trimmed = text.trim().to_string();
@@ -3020,6 +3062,180 @@ fn read_launcher_startup_handoff(runtime: &BootstrapRuntime) -> LauncherStartupH
         },
         status_detail,
     )
+}
+
+fn launcher_startup_state_detail(
+    runtime: &BootstrapRuntime,
+    setup_complete: bool,
+    handoff_target: Option<&str>,
+    state_path: &Path,
+    origin: &str,
+) -> String {
+    let runtime_home = runtime
+        .runtime_home_display()
+        .unwrap_or_else(|| "<unavailable>".to_string());
+    let runtime_root = runtime
+        .runtime_root_display()
+        .unwrap_or_else(|| "<unavailable>".to_string());
+    let runtime_profile = "local";
+    format!(
+        "{origin}; runtimeContext={}; runtimeProfile={runtime_profile}; statePath={}; runtimeHome={runtime_home}; runtimeRoot={runtime_root}; setupComplete={setup_complete}; envPath={}; handoffTarget={}",
+        runtime.runtime_context,
+        state_path.display(),
+        runtime
+            .runtime_root_path()
+            .map(runtime_env_file_path)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<unavailable>".to_string()),
+        handoff_target.unwrap_or("<none>"),
+    )
+}
+
+fn write_launcher_startup_state(
+    runtime: &BootstrapRuntime,
+    setup_complete: bool,
+    handoff_target: Option<&str>,
+    detail: String,
+) -> Result<PathBuf, BootstrapRuntimeMaterializationError> {
+    let Some(state_path) = launcher_startup_state_path(runtime) else {
+        return Err(BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: join_lines(vec![
+                "Packaged launcher startup state could not resolve an Application Support home."
+                    .to_string(),
+                format!("runtimeContext={}", runtime.runtime_context),
+                runtime
+                    .runtime_home
+                    .as_ref()
+                    .map(|path| format!("runtimeHome={}", path.display()))
+                    .unwrap_or_else(|| "runtimeHome=<unavailable>".to_string()),
+            ]),
+        });
+    };
+
+    if let Some(parent) = state_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            log::warn!(
+                "packaged launcher startup state parent directory creation failed: state_path={} parent={} error={}",
+                state_path.display(),
+                parent.display(),
+                err
+            );
+            BootstrapRuntimeMaterializationError {
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+                detail: join_lines(vec![
+                    "Packaged launcher startup state could not prepare its parent directory."
+                        .to_string(),
+                    format!("runtimeContext={}", runtime.runtime_context),
+                    format!("statePath={}", state_path.display()),
+                    format!("parent={}", parent.display()),
+                    format!("error={err}"),
+                ]),
+            }
+        })?;
+    }
+
+    let state = LauncherStartupStateFile {
+        setup_complete,
+        runtime_profile: Some("local".to_string()),
+        env_path: runtime
+            .runtime_root_path()
+            .map(runtime_env_file_path)
+            .map(|path| path.display().to_string()),
+        handoff_target: handoff_target.map(|target| target.trim().to_string()),
+        detail: Some(detail),
+    };
+    let serialized = serde_json::to_string_pretty(&state).map_err(|err| {
+        log::warn!(
+            "packaged launcher startup state serialization failed: state_path={} error={}",
+            state_path.display(),
+            err
+        );
+        BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged launcher startup state failed while serializing the state file."
+                    .to_string(),
+                format!("runtimeContext={}", runtime.runtime_context),
+                format!("statePath={}", state_path.display()),
+                format!("error={err}"),
+            ]),
+        }
+    })?;
+
+    fs::write(&state_path, serialized).map_err(|err| {
+        log::warn!(
+            "packaged launcher startup state write failed: state_path={} error={}",
+            state_path.display(),
+            err
+        );
+        BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged launcher startup state failed while writing the state file.".to_string(),
+                format!("runtimeContext={}", runtime.runtime_context),
+                format!("statePath={}", state_path.display()),
+                format!("error={err}"),
+            ]),
+        }
+    })?;
+
+    log::info!(
+        "packaged launcher startup state written: state_path={} setup_complete={} handoff_target={} runtime_home={} runtime_root={}",
+        state_path.display(),
+        setup_complete,
+        handoff_target.unwrap_or("<none>"),
+        runtime.runtime_home_display().unwrap_or_else(|| "<unavailable>".to_string()),
+        runtime.runtime_root_display().unwrap_or_else(|| "<unavailable>".to_string())
+    );
+
+    Ok(state_path)
+}
+
+pub fn prime_packaged_launcher_startup_state(runtime: &BootstrapRuntime) {
+    if !runtime.packaged {
+        return;
+    }
+
+    let existing = read_launcher_startup_handoff(runtime);
+    if existing.setup_complete && existing.handoff_target.is_some() {
+        log::info!(
+            "packaged launcher startup state already complete; preserving canonical state at runtime_home={}",
+            runtime
+                .runtime_home_display()
+                .unwrap_or_else(|| "<unavailable>".to_string())
+        );
+        return;
+    }
+
+    let state_path =
+        launcher_startup_state_path(runtime).unwrap_or_else(|| PathBuf::from("<unavailable>"));
+    let detail = launcher_startup_state_detail(
+        runtime,
+        false,
+        None,
+        state_path.as_path(),
+        if runtime.failure_kind.is_some() {
+            "packaged launcher bootstrap recorded after runtime materialization failure"
+        } else {
+            "packaged launcher bootstrap initialized after runtime materialization"
+        },
+    );
+    match write_launcher_startup_state(runtime, false, None, detail) {
+        Ok(state_path) => {
+            log::info!(
+                "packaged launcher startup state initialized for first launch: state_path={}",
+                state_path.display()
+            );
+        }
+        Err(err) => {
+            log::warn!(
+                "packaged launcher startup state initialization failed: kind={} detail={}",
+                err.failure_kind,
+                truncate_chars(&err.detail, 300)
+            );
+        }
+    }
 }
 
 #[tauri::command]
@@ -3318,6 +3534,33 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
         return match materialize_packaged_setup_env(runtime.runtime_home.as_deref(), &runtime_root)
         {
             Ok(result) => {
+                let backend_base_url = desktop_backend_base_url();
+                let launcher_state_path = launcher_startup_state_path(&*runtime)
+                    .unwrap_or_else(|| PathBuf::from("<unavailable>"));
+                let launcher_startup_detail = launcher_startup_state_detail(
+                    &*runtime,
+                    true,
+                    Some(backend_base_url.as_str()),
+                    launcher_state_path.as_path(),
+                    "packaged launcher startup state refreshed after setup",
+                );
+                let launcher_startup_state = write_launcher_startup_state(
+                    &*runtime,
+                    true,
+                    Some(backend_base_url.as_str()),
+                    launcher_startup_detail.clone(),
+                );
+                if let Err(err) = &launcher_startup_state {
+                    log::warn!(
+                        "packaged launcher startup state refresh after setup failed: kind={} detail={}",
+                        err.failure_kind,
+                        truncate_chars(&err.detail, 300)
+                    );
+                }
+                let launcher_startup_state_path = launcher_startup_state
+                    .as_ref()
+                    .ok()
+                    .map(|path| path.display().to_string());
                 let stdout = Some(
                     serde_json::json!({
                         "source": "desktop_run_setup_cli",
@@ -3333,6 +3576,10 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                             .as_ref()
                             .map(|path| path.display().to_string()),
                         "migrated_legacy_runtime_assets": result.migrated_legacy_runtime_assets,
+                        "launcher_startup_state_path": launcher_startup_state_path,
+                        "launcher_startup_state_written": launcher_startup_state.is_ok(),
+                        "launcher_startup_state_setup_complete": true,
+                        "launcher_startup_state_handoff_target": backend_base_url,
                     })
                     .to_string(),
                 );
@@ -3365,6 +3612,16 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                             } else {
                                 result.migrated_legacy_runtime_assets.join(",")
                             }
+                        ),
+                        format!(
+                            "launcherStartupStatePath={}",
+                            launcher_startup_state_path
+                                .clone()
+                                .unwrap_or_else(|| "<unavailable>".to_string())
+                        ),
+                        format!(
+                            "launcherStartupStateWritten={}",
+                            launcher_startup_state.is_ok()
                         ),
                         "status=success".to_string(),
                     ],

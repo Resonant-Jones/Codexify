@@ -38,6 +38,15 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
   - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
   - Broker/source-mode reconciliation (`effective_source_mode` derived from `source_mode` + `retrieval_override`).
 
+## Identity and Runtime Mode
+
+- Codexify now defines `single_user` and `multi_user` runtime modes.
+- `multi_user` mode introduces strict `user_id` enforcement across:
+  - API routes
+  - retrieval
+  - persistence
+- exportability is now a first-class invariant.
+
 ## Not yet true / do not assume
 - Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.
 - Do not assume the Obsidian ingest→retrieve seam proof constitutes a full connector sync or live runtime validation; it uses an in-memory fixture at the backend route level.
