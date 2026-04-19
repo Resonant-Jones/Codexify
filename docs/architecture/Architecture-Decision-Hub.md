@@ -22,6 +22,7 @@ This note exists to strengthen backlink density across the architecture vault.
 * [[adr/002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
 * [[adr/003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 * [[adr/004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
+* [[adr/005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
 
 ## Core architecture notes
 
