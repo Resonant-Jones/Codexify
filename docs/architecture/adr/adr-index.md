@@ -35,9 +35,7 @@ Use this note as the local map for all ADRs.
 2. [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
 3. [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 4. [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
-5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
-6. [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
-7. [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] — derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
+5. [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
 
 ---
 
@@ -93,28 +91,10 @@ Primary companion notes:
   * [[system-overview|System Overview]]
   * [[00-current-state]]
 
-* [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] links to:
+* [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]] links to:
 
-  * [[system-overview|System Overview]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[00-current-state]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-
-* [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] links to:
-
-  * [[system-overview|System Overview]]
-  * [[flows|Critical Flows]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[delegation-runtime|Delegation Runtime Contract]]
-  * [[00-current-state]]
-
-* [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] links to:
-
-  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[identity-and-runtime-mode|Identity and Runtime Mode]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[flows|Critical Flows]]
-  * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 
 ---
