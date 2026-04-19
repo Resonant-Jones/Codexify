@@ -9,12 +9,15 @@ export type MobileWorkspaceSummonCopy = {
   title: string;
 };
 
+export type MobileCompanionSurfaceState = "collapsed" | "open";
+
 export const MOBILE_INTERACTION = {
   pressScale: 0.975,
   pressOpacity: 0.92,
   pressTone: "saturate(0.985) brightness(0.99)",
   releaseMs: 160,
   reducedMotionReleaseMs: 1,
+  pressDragCancelDistancePx: 8,
   tapTargetMinHeight: "44px",
   tapTargetMinWidth: "44px",
 } as const;
@@ -52,6 +55,55 @@ export function getMobileTapTargetStyle(
     minWidth: options.square ? MOBILE_INTERACTION.tapTargetMinWidth : undefined,
     touchAction: "manipulation",
     WebkitTapHighlightColor: "transparent",
+  };
+}
+
+export function getMobilePressSurfaceStyle(
+  isPhoneShell: boolean,
+  prefersReducedMotion: boolean
+): CSSProperties {
+  if (!isPhoneShell) {
+    return {};
+  }
+
+  return {
+    transitionProperty: prefersReducedMotion
+      ? "opacity, filter, background-color, border-color, box-shadow"
+      : "transform, opacity, filter, background-color, border-color, box-shadow",
+    transitionDuration: `${
+      prefersReducedMotion
+        ? MOBILE_INTERACTION.reducedMotionReleaseMs
+        : MOBILE_INTERACTION.releaseMs
+    }ms`,
+    transitionTimingFunction: prefersReducedMotion
+      ? "linear"
+      : "cubic-bezier(0.22, 1, 0.36, 1)",
+  };
+}
+
+export function getComposerControlSurfaceStyle(
+  isPhoneShell: boolean,
+  options: { variant?: "rail" | "trigger" } = {}
+): CSSProperties {
+  void isPhoneShell;
+  void options;
+  return {};
+}
+
+export function getMobileCompanionSurfaceStyle(
+  isPhoneShell: boolean,
+  state: MobileCompanionSurfaceState
+): CSSProperties {
+  if (!isPhoneShell) {
+    return {};
+  }
+
+  return {
+    color: "var(--text)",
+    background: state === "open" ? "var(--panel-bg)" : "var(--chip-bg)",
+    borderColor:
+      state === "open" ? "var(--panel-border-strong)" : "var(--chip-border)",
+    boxShadow: "none",
   };
 }
 

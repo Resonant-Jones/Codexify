@@ -516,8 +516,10 @@ export function ChatBubble({
         overscrollBehavior: "contain",
       }
     : undefined;
+  // Keep padding on the content node itself so collapsed messages still have
+  // inset text when max-height clipping is active.
   const userMessageTextClass = cn(
-    "min-w-0 text-sm leading-relaxed whitespace-pre-wrap break-words",
+    "w-full min-w-0 px-4 py-3 text-left text-sm leading-relaxed whitespace-pre-wrap break-words",
     userMessageLooksLikeCode ? "font-mono text-[13px] leading-5" : null
   );
 

@@ -237,7 +237,7 @@ Primary anchors:
 | Completion task starts but no answer arrives | chat worker down, provider timeout, or provider connectivity issue | `guardian/workers/chat_worker.py`, `guardian/core/ai_router.py`, Compose worker logs |
 | Provider appears selectable but fails at runtime | catalog/runtime mismatch for provider support | `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py` |
 | Document upload succeeds but never becomes searchable | parse failure, embed enqueue failure, or embed worker failure | `guardian/routes/media.py`, `guardian/workers/document_embed_worker.py` |
-| Command bus run stays `blocked` | policy decision, write-lane restriction, or loopback recursion guard | `guardian/command_bus/invoke.py`, `guardian/routes/tools.py` |
+| Command bus run stays `blocked` | policy decision, write-lane restriction, or loopback recursion guard | `guardian/command_bus/invoke.py`, `guardian/command_bus/loopback_http_adapter.py` |
 | Cron run is queued but never finishes | scheduler/worker split or Redis issue | `guardian/cron/scheduler.py`, `guardian/workers/cron_worker.py` |
 | Federation endpoints reject requests with `403` or `503` | feature flag disabled, trust policy invalid, or egress disallowed | `guardian/routes/federation.py`, `guardian/core/egress.py` |
 | Live UI events stop after restart | relying on process-local sync/event fanout path | `guardian/sync/bus.py`, `guardian/core/event_bus.py` |
