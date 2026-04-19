@@ -1504,6 +1504,7 @@ async def build_messages_for_llm(
     depth = str(task.depth_mode or "normal").strip().lower()
     task_user_id = str(user_id or getattr(task, "user_id", "") or "").strip()
     user_for_context = (thread_info or {}).get("user_id", "default")
+    context_user_id = task_user_id or user_for_context
     source_mode = effective_source_mode
 
     project_id_for_prompt: int | None = None
@@ -1531,7 +1532,7 @@ async def build_messages_for_llm(
             thread_id=thread_id,
             query=retrieval_query,
             depth_mode=depth,
-            user_id=user_for_context,
+            user_id=context_user_id,
             request_user_id=task_user_id or None,
             project_id=project_id_for_prompt,
             source_mode=source_mode,

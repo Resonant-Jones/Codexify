@@ -425,7 +425,6 @@ class Memoryos:
         retrieval_results = self.retriever.retrieve_context(
             user_query=query,
             user_id=self.user_id,
-            # Using default thresholds from Retriever class for now
         )
         retrieved_pages = retrieval_results["retrieved_pages"]
         retrieved_user_knowledge = retrieval_results["retrieved_user_knowledge"]
@@ -574,7 +573,10 @@ class Memoryos:
         A convenience method to query memories, aliasing the retriever.
         kwargs accepts unused params like 'timeframe' for agent compatibility.
         """
-        results = self.retriever.retrieve_context(user_query=query, limit=limit)
+        results = self.retriever.retrieve_context(
+            user_query=query,
+            user_id=self.user_id,
+        )
         # Return a list of pages for consistency with what agents might expect
         return results.get("retrieved_pages", [])
 
