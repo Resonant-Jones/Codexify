@@ -35,6 +35,7 @@ Use this note as the local map for all ADRs.
 2. [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
 3. [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 4. [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
+5. [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
 
 ---
 
@@ -88,6 +89,12 @@ Primary companion notes:
   * [[router-decision-table|Retrieval Router Decision Table]]
   * [[flows|Critical Flows]]
   * [[system-overview|System Overview]]
+  * [[00-current-state]]
+
+* [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]] links to:
+
+  * [[identity-and-runtime-mode|Identity and Runtime Mode]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[00-current-state]]
 
 ---
