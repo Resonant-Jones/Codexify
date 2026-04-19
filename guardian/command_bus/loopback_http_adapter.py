@@ -21,11 +21,7 @@ _PATH_TOKEN_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 _FORWARDED_AUTH_HEADERS = ("authorization", "x-api-key", "x-user-id", "cookie")
 logger = logging.getLogger(__name__)
 
-RECURSION_BLOCKED_PREFIXES = (
-    "/api/guardian/commands/",
-    "/tools/",
-    "/api/tools/",
-)
+RECURSION_BLOCKED_PREFIXES = ("/api/guardian/commands/",)
 
 
 def resolve_loopback_base() -> str:

@@ -370,14 +370,39 @@ describe("AppShell logo wordmark color contract", () => {
     expect(listCodexEntriesSpy).not.toHaveBeenCalled();
   });
 
-  it("honors the /persona-studio route on initial render", async () => {
-    setRoutePath("/persona-studio");
+  it("honors the /flow-builder route on initial render", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/flow-builder?mode=expertise");
 
     render(<AppShell />);
 
-    expect(
-      await screen.findByText(/configure runtime persona profiles/i)
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("flow-builder-page")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
+      "data-flow-builder-mode",
+      "expertise"
+    );
+  });
+
+  it("keeps the prior Guardian route reachable from Flow Builder even after the draft fields take focus", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+
+    await user.click(screen.getByRole("button", { name: "Flow Builder" }));
+
+    await user.click(await screen.findByTestId("flow-builder-mode-expertise"));
+
+    const objective = await screen.findByTestId("flow-builder-draft-objective");
+    objective.focus();
+
+    await user.click(screen.getByTestId("flow-builder-return-guardian"));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/chat/123");
+    });
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
   });
 });
 
@@ -708,15 +733,19 @@ describe("AppShell workspace drawer shell", () => {
       "data-shell-nav-mode",
       "scroll_rail"
     );
+    expect(screen.getByRole("button", { name: "Guardian" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
     expect(
       screen.getByRole("button", { name: "Open Workspace" })
-    ).toBeInTheDocument();
+    ).toHaveAttribute("data-workspace-affordance-state", "collapsed");
 
     await user.click(screen.getByRole("button", { name: "Open Workspace" }));
 
     expect(
       await screen.findByRole("button", { name: "Close Workspace" })
-    ).toBeInTheDocument();
+    ).toHaveAttribute("data-workspace-affordance-state", "open");
     expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
       "data-overlay-mode",
       "mobile"
@@ -736,12 +765,64 @@ describe("AppShell workspace drawer shell", () => {
 
     await user.click(screen.getByRole("button", { name: "Close Workspace" }));
 
+    expect(
+      screen.getByRole("button", { name: "Close Workspace" })
+    ).toHaveAttribute("data-workspace-affordance-state", "open");
+
     expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
       "data-workspace-motion-phase",
       "closing"
     );
     await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Open Workspace" })
+      ).toHaveAttribute("data-workspace-affordance-state", "collapsed");
       expect(screen.queryByTestId("workspace-drawer-overlay")).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the phone nav rail momentum-enabled and the selected pill tactile", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    const rail = screen.getByTestId("app-shell-top-nav-rail");
+    const railStyle = rail.getAttribute("style") ?? "";
+    expect((rail as HTMLElement).style.touchAction).toBe("pan-x");
+    expect(railStyle).toContain("scroll-padding-inline: 12px");
+    expect(railStyle).toContain("-webkit-overflow-scrolling: touch");
+
+    const guardian = screen.getByRole("button", { name: "Guardian" });
+    const guardianStyle = guardian.getAttribute("style") ?? "";
+    expect(guardian).toHaveAttribute("data-state", "active");
+    expect(guardianStyle).toContain(
+      "background: color-mix(in oklab, var(--accent-strong) 90%, var(--panel-bg) 10%)"
+    );
+    expect(guardianStyle).toContain("transition-duration: 140ms");
+    expect(guardianStyle).toContain(
+      "transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1)"
+    );
+    expect(guardianStyle).toContain(
+      "transition-property: color, background, border-color, box-shadow, transform, opacity, filter"
+    );
+    expect(guardianStyle).not.toContain("transform:");
+
+    fireEvent.pointerDown(guardian, { button: 0, pointerType: "touch" });
+    expect(guardian).toHaveAttribute("data-press-feedback", "pressed");
+
+    fireEvent.pointerUp(guardian, { button: 0, pointerType: "touch" });
+    expect(guardian).toHaveAttribute("data-press-feedback", "idle");
+
+    await user.click(screen.getByRole("button", { name: "Dashboard" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Dashboard" })).toHaveAttribute(
+        "data-state",
+        "active"
+      );
     });
   });
 

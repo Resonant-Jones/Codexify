@@ -27,6 +27,7 @@ from guardian.context.retrieval_router_policy import (
     RETRIEVAL_OVERRIDE_PERSONAL_KNOWLEDGE,
     RETRIEVAL_OVERRIDE_PROJECT,
     SOURCE_MODE_CONVERSATION,
+    SOURCE_MODE_OBSIDIAN_ONLY,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
     normalize_retrieval_override_mode,
@@ -56,6 +57,7 @@ from guardian.core.provider_registry import (
     normalize_provider,
     resolve_provider_for_model,
 )
+from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -181,6 +183,8 @@ def _effective_source_mode_for_broker_assembly(
     retrieval_override: dict[str, Any] | None,
 ) -> str:
     effective_source_mode = normalize_source_mode(source_mode)
+    if effective_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
+        return effective_source_mode
     if not isinstance(retrieval_override, dict):
         return effective_source_mode
 
@@ -235,6 +239,8 @@ def _resolve_effective_source_mode_for_assembly(
     retrieval_override: Any,
 ) -> str:
     normalized_source_mode = _normalize_source_mode(source_mode)
+    if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
+        return normalized_source_mode
     override_mode = _retrieval_override_mode(retrieval_override)
     if override_mode == "project":
         return "project"
@@ -923,6 +929,7 @@ def build_sanitized_payload_summary(
     *,
     provider: str | None,
     model: str | None,
+    requested_source_mode: str | None = None,
 ) -> dict[str, Any]:
     """Build a minimal, non-sensitive summary of the outbound provider payload.
 
@@ -1047,6 +1054,13 @@ def build_sanitized_payload_summary(
         ),
         "resolved_provider": (provider or "").strip() or None,
         "resolved_model": (model or "").strip() or None,
+        "source_mode": None,
+        "effective_source_mode": None,
+        "requested_source_mode": (
+            str(requested_source_mode).strip() or None
+            if requested_source_mode is not None
+            else None
+        ),
         "semantic_injected": semantic_injected,
         "memory_injected": memory_injected,
         "graph_injected": graph_injected,
@@ -1066,11 +1080,168 @@ def build_sanitized_payload_summary(
             "obsidian_injected",
         )
     )
+    summary["normalized_source_mode"] = summary["source_mode"]
 
     # For callers that later update to reflect a fallback provider/model.
     summary.setdefault("final_provider", summary["resolved_provider"])
     summary.setdefault("final_model", summary["resolved_model"])
     return summary
+
+
+def _namespace_from_hit(hit: Any) -> str | None:
+    if not isinstance(hit, dict):
+        return None
+    metadata = hit.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = hit.get("meta")
+    if not isinstance(metadata, dict):
+        return None
+    namespace = str(metadata.get("namespace") or "").strip()
+    return namespace or None
+
+
+def _count_items_with_namespace(
+    items: list[Any] | None,
+    namespace: str,
+) -> int:
+    if not isinstance(items, list) or not namespace:
+        return 0
+    normalized_namespace = str(namespace).strip()
+    if not normalized_namespace:
+        return 0
+    return sum(
+        1 for item in items if _namespace_from_hit(item) == normalized_namespace
+    )
+
+
+def _count_items_with_prefix(
+    items: list[Any] | None,
+    prefix: str,
+) -> int:
+    if not isinstance(items, list) or not prefix:
+        return 0
+    normalized_prefix = str(prefix).strip()
+    if not normalized_prefix:
+        return 0
+    return sum(
+        1
+        for item in items
+        if (_namespace_from_hit(item) or "").startswith(normalized_prefix)
+    )
+
+
+def _build_retrieval_provenance(
+    *,
+    requested_source_mode: str | None,
+    normalized_source_mode: str | None,
+    bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    semantic_hits = []
+    if isinstance(bundle, dict):
+        semantic_hits = [
+            item
+            for item in (bundle.get("semantic") or [])
+            if isinstance(item, dict)
+        ]
+    thread_semantic_count = _count_items_with_prefix(semantic_hits, "thread:")
+    obsidian_semantic_count = _count_items_with_namespace(
+        semantic_hits,
+        OBSIDIAN_NAMESPACE,
+    )
+    other_semantic_count = max(
+        len(semantic_hits) - thread_semantic_count - obsidian_semantic_count,
+        0,
+    )
+
+    docs = bundle.get("docs") if isinstance(bundle, dict) else None
+    project_document_count = 0
+    thread_document_count = 0
+    global_document_count = 0
+    other_document_count = 0
+    if isinstance(docs, dict):
+        for key, value in docs.items():
+            if not isinstance(value, list):
+                continue
+            count = len([item for item in value if isinstance(item, dict)])
+            if key == "project":
+                project_document_count = count
+            elif key == "thread":
+                thread_document_count = count
+            elif key == "global":
+                global_document_count = count
+            else:
+                other_document_count += count
+    elif isinstance(docs, list):
+        other_document_count = len(
+            [item for item in docs if isinstance(item, dict)]
+        )
+    memory_count = (
+        len(
+            [
+                item
+                for item in (bundle or {}).get("memory", [])
+                if isinstance(item, dict)
+            ]
+        )
+        if isinstance(bundle, dict)
+        else 0
+    )
+    graph_count = (
+        len(
+            [
+                item
+                for item in (bundle or {}).get("graph", [])
+                if isinstance(item, dict)
+            ]
+        )
+        if isinstance(bundle, dict)
+        else 0
+    )
+
+    source_hit_counts = {
+        "semantic_total": len(semantic_hits),
+        "thread_semantic": thread_semantic_count,
+        "obsidian_semantic": obsidian_semantic_count,
+        "other_semantic": other_semantic_count,
+        "project_documents": project_document_count,
+        "thread_documents": thread_document_count,
+        "global_documents": global_document_count,
+        "other_documents": other_document_count,
+        "memory": memory_count,
+        "graph": graph_count,
+    }
+
+    if obsidian_semantic_count > 0:
+        if (
+            thread_semantic_count == 0
+            and other_semantic_count == 0
+            and project_document_count == 0
+            and thread_document_count == 0
+            and global_document_count == 0
+            and other_document_count == 0
+            and memory_count == 0
+            and graph_count == 0
+        ):
+            retrieval_status = "obsidian_only_success"
+        else:
+            retrieval_status = "obsidian_with_additional_results"
+    else:
+        retrieval_status = "no_obsidian_results"
+
+    return {
+        "requested_source_mode": (
+            str(requested_source_mode).strip() or None
+            if requested_source_mode is not None
+            else None
+        ),
+        "normalized_source_mode": (
+            str(normalized_source_mode).strip() or None
+            if normalized_source_mode is not None
+            else None
+        ),
+        "source_hit_counts": source_hit_counts,
+        "retrieval_status": retrieval_status,
+    }
 
 
 def _embed_message(
@@ -1519,6 +1690,12 @@ async def build_messages_for_llm(
     else:
         trace_candidate = trace
 
+    if (
+        isinstance(bundle, dict)
+        and bundle.get("retrieval_status") == "no_obsidian_results"
+    ):
+        raise ValueError("Obsidian-only retrieval returned no results")
+
     if isinstance(bundle, dict):
         if thread_execution.persona_id:
             # Keep the request-scoped selector with the bundle so the prompt
@@ -1703,6 +1880,9 @@ def run_chat_completion_task(
     )
 
     settings = get_settings()
+    requested_source_mode = (
+        str(getattr(task, "requested_source_mode", "") or "").strip() or None
+    )
     messages_for_llm, routing_meta = _apply_image_attachment_routing(
         messages_for_llm,
         bundle=bundle,
@@ -1717,6 +1897,7 @@ def run_chat_completion_task(
         bundle,
         provider=provider,
         model=model,
+        requested_source_mode=requested_source_mode,
     )
     payload_summary.update(
         {
@@ -1738,7 +1919,14 @@ def run_chat_completion_task(
     )
     payload_summary["source_mode"] = trace_source_mode
     payload_summary["effective_source_mode"] = trace_source_mode
+    payload_summary["normalized_source_mode"] = trace_source_mode
     payload_summary["effective_policy"] = effective_policy
+    retrieval_provenance = _build_retrieval_provenance(
+        requested_source_mode=requested_source_mode,
+        normalized_source_mode=trace_source_mode,
+        bundle=bundle if isinstance(bundle, dict) else None,
+    )
+    payload_summary["retrieval_provenance"] = retrieval_provenance
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {
@@ -1823,6 +2011,7 @@ def run_chat_completion_task(
         "trace": trace,
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
+        "retrieval_provenance": retrieval_provenance,
     }
     if isinstance(trace, dict):
         result["latest_turn_message_id"] = trace.get("latest_turn_message_id")

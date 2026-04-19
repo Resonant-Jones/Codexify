@@ -31,6 +31,17 @@ type UseWorkspaceStateOptions = {
   onOpenRequest?: (request: WorkspaceOpenRequest) => void;
 };
 
+export function resolveWorkspaceOpenStateAfterSummon(
+  isPhoneShell: boolean,
+  previousOpen: boolean
+): boolean {
+  if (isPhoneShell) {
+    return previousOpen;
+  }
+
+  return true;
+}
+
 function normalizeString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -286,12 +297,9 @@ export function useWorkspaceState({
 
       setActiveDoc(nextDoc);
       // Phone shells keep Workspace collapsed until the user explicitly summons it.
-      setWorkspaceOpen((previous) => {
-        if (isPhoneShell) {
-          return previous;
-        }
-        return true;
-      });
+      setWorkspaceOpen((previous) =>
+        resolveWorkspaceOpenStateAfterSummon(isPhoneShell, previous)
+      );
       onOpenRequest?.(nextRequest);
       return true;
     },

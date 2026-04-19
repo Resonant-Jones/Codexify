@@ -66,7 +66,7 @@ export default function GuardianThreadApprovalRail({
 
     if (typeof document === "undefined") return;
     const composer = document.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Write a message…"]'
+      '[data-testid="composer-textarea"]'
     );
     composer?.focus();
   };

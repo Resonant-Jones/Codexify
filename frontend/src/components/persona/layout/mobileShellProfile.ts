@@ -10,10 +10,15 @@ export type MobileShellProfile = {
   active: boolean;
   shellMode: "default" | "mobile";
   viewportClass: ShellViewportClass;
+  surfaceActions: {
+    clusterPaddingX: string;
+    clusterPaddingY: string;
+  };
   documents: {
     layout: "grid" | "list";
     itemWidth: string;
     contentGap: string;
+    contentPadding: string;
   };
   dashboard: {
     layout: "split" | "stack";
@@ -56,17 +61,22 @@ export type MobileShellProfile = {
 
 const DESKTOP_SHELL_PROFILE = {
   shellMode: "default",
+  surfaceActions: {
+    clusterPaddingX: "calc(var(--card-pad) / 2)",
+    clusterPaddingY: "calc(var(--card-pad) / 4)",
+  },
   documents: {
     layout: "grid",
     itemWidth: "127px",
     contentGap: "var(--shell-gap)",
+    contentPadding: "var(--card-pad)",
   },
   dashboard: {
     layout: "split",
-    sectionGap: "var(--gutter)",
+    sectionGap: "var(--shell-gap)",
     threadColumns: 2,
     documentColumns: 4,
-    contentPadding: "20px",
+    contentPadding: "var(--card-pad)",
   },
   topNav: {
     scrollable: false,
@@ -102,10 +112,15 @@ const DESKTOP_SHELL_PROFILE = {
 
 const PHONE_SHELL_PROFILE = {
   shellMode: "mobile",
+  surfaceActions: {
+    clusterPaddingX: "calc(var(--card-pad) / 2)",
+    clusterPaddingY: "calc(var(--card-pad) / 4)",
+  },
   documents: {
     layout: "list",
     itemWidth: "100%",
     contentGap: "var(--shell-gap)",
+    contentPadding: "var(--card-pad)",
   },
   dashboard: {
     layout: "stack",

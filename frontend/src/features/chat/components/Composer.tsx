@@ -5,7 +5,7 @@
  * state from the runtime request contract instead of local loading guesses.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, FileText } from "lucide-react";
+import { ArrowUp, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
@@ -52,7 +52,7 @@ const ACCEPTED_ATTACHMENTS =
   ].join(",");
 const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 const MIN_COMPOSER_ROWS = 2;
-const MAX_COMPOSER_ROWS = 6;
+const MAX_COMPOSER_ROWS = 5;
 const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
@@ -301,8 +301,8 @@ export function Composer({
   threadId,
   currentRequestState,
   providerRuntimeState,
-  isSending: _isSending,
-  isTurnInFlight: _isTurnInFlight,
+  isSending = false,
+  isTurnInFlight = false,
   draftValue,
   draftScopeKey,
   draftSyncDebounceMs,
@@ -433,6 +433,7 @@ export function Composer({
   const sendInFlightRef = useRef(false);
   const [showImgGen, setShowImgGen] = useState(false);
   const mobileShellProfile = useMobileShellProfile();
+  const isPhoneShell = mobileShellProfile.active;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const hasDraftContent =
@@ -450,13 +451,31 @@ export function Composer({
   const inputLocked =
     interactionState === "submitting" || interactionState === "awaiting_model";
   const draftControlsDisabled = localSendInProgress;
-  const voiceTurnDisabled = inputLocked || localSendInProgress;
   const sendTransportDisabled = !hasDraftContent || inputLocked || localSendInProgress;
+  const turnLocked = Boolean(isTurnInFlight);
+  const transportBusy = localSendInProgress;
+  const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
+  const voiceTurnDisabled = inputLocked || localSendInProgress || turnLocked;
+  const composerSendButtonLabel =
+    interactionState === "awaiting_model"
+      ? "Warming…"
+      : interactionState === "streaming"
+        ? "Streaming…"
+        : interactionState === "submitting"
+          ? "Sending…"
+          : "Send";
+  const composerPressFeedback = usePressFeedback({
+    enabled: !sendTransportDisabled,
+    visualMode: isPhoneShell ? "mobile" : "none",
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
     try {
       window.dispatchEvent(new CustomEvent("cfy:toast", { detail: { message, kind: "error" } }));
     } catch {}
+  };
+  const notifyTurnLocked = () => {
+    showToast("Keep typing. Send unlocks when the current reply finishes.");
   };
   const notifyTransportBusy = () => {
     showToast("Finishing the current send…");
@@ -1002,10 +1021,45 @@ export function Composer({
   const showLineageCopy =
     !value.trim() && draftAttachments.length === 0 && documentTiles.length === 0;
   const lineageCopy = `Send a message to ${lineageTargetLabel}`;
+  const sendButtonLabel =
+    interactionState === "submitting"
+      ? "Sending…"
+      : interactionState === "streaming"
+        ? "Streaming…"
+        : interactionState === "awaiting_model"
+          ? "Warming…"
+          : "Send";
   const handleAttemptSend = () => {
+    if (turnLocked) {
+      notifyTurnLocked();
+      return;
+    }
     if (sendTransportDisabled) return;
     void send();
   };
+  const composerSendButtonProps = composerPressFeedback.getPressFeedbackProps({
+    className: cn(
+      "inline-flex items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
+      sendTransportDisabled
+        ? "cursor-not-allowed opacity-50"
+        : sendBlockedByTurnLock
+          ? "opacity-75"
+          : "",
+      sendTransportDisabled && "opacity-50 cursor-not-allowed",
+      interactionState === "typing"
+        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
+        : "bg-[var(--panel-bg)] text-[var(--muted)]"
+    ),
+    style: {
+      ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
+      width: "var(--composer-control-size, 2rem)",
+      height: "var(--composer-control-size, 2rem)",
+      background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+      color: "var(--text-on-accent, #111827)",
+      boxShadow: "none",
+      borderRadius: "9999px",
+    },
+  });
   const composerSurfaceStyle = useMemo<React.CSSProperties>(
     () =>
       ({
@@ -1016,7 +1070,7 @@ export function Composer({
         "--composer-control-gap": mobileShellProfile.chat.composer.controlGap,
         "--composer-control-size": mobileShellProfile.chat.composer.controlSize,
         "--composer-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
-        paddingBottom: "calc(var(--composer-pad-y, 12px) + var(--composer-safe-area-bottom, 0px))",
+        paddingBottom: "var(--composer-safe-area-bottom, 0px)",
       }) as React.CSSProperties,
     [mobileShellProfile]
   );
@@ -1025,14 +1079,14 @@ export function Composer({
     <>
       <div
         data-composer-root
-        className="flex min-w-0 flex-col flex-1 w-full py-[var(--composer-pad-y,12px)] overflow-x-hidden"
+        className="flex min-w-0 flex-col flex-1 w-full pt-[var(--composer-pad-y,12px)] pb-0 overflow-x-hidden"
         style={composerSurfaceStyle}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
         <div
           data-testid="composer-content-plane"
-          className="relative flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-[2px] px-[var(--composer-pad-x,12px)]"
         >
           {showLineageCopy ? (
             <div
@@ -1060,6 +1114,7 @@ export function Composer({
           ) : null}
           <textarea
             ref={ref}
+            data-testid="composer-textarea"
             rows={MIN_COMPOSER_ROWS}
             wrap="soft"
             value={value}
@@ -1080,7 +1135,6 @@ export function Composer({
                 closeSlashPalette(activeSlashToken?.key ?? null);
               }
             }}
-            placeholder="Write a message…"
             onPaste={onPaste}
             onKeyDown={(e) => {
               if (slashPaletteOpen) {
@@ -1132,8 +1186,10 @@ export function Composer({
                 handleAttemptSend();
               }
             }}
+            aria-label={lineageCopy}
+            placeholder=""
             className={cn(
-              "w-full rounded-[var(--radius-micro)] border border-[var(--panel-border)] bg-[var(--panel-bg)] text-[var(--text)] shadow-none resize-none text-base leading-relaxed placeholder:text-transparent focus-visible:ring-0 focus-visible:outline-none",
+              "w-full bg-transparent border-none outline-none text-[var(--text)] placeholder:text-[var(--muted)] resize-none text-base leading-relaxed",
               interactionState === "awaiting_model" &&
                 "opacity-60 cursor-not-allowed"
             )}
@@ -1284,13 +1340,20 @@ export function Composer({
             data-testid="composer-control-row"
             className={cn(
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-              "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+              isPhoneShell
+                ? "flex min-w-0 w-full items-center justify-between px-[3px] pb-[3px]"
+                : "flex min-w-0 w-full items-center justify-between px-[4px] pb-[4px]"
             )}
             style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
             <div
               data-testid="composer-controls-strip"
-              className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
+              className={cn(
+                "flex min-w-0 items-center justify-start",
+                isPhoneShell
+                  ? "flex-1 flex-nowrap overflow-x-auto pr-[6px]"
+                  : "flex-1 flex-wrap"
+              )}
               style={{ gap: "var(--composer-control-gap, 12px)" }}
             >
               <ComposerActionMenu
@@ -1366,46 +1429,17 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex shrink-0 items-center justify-center"
+              className="ml-3 flex min-w-[calc(var(--composer-control-size,2rem)+4px)] shrink-0 items-center justify-end self-center"
             >
               <button
                 type="button"
-                {...composerPressFeedback.getPressFeedbackProps({
-                  className:
-                    cn(
-                      "inline-flex h-8 w-8 min-w-0 items-center justify-center rounded-full border-0 p-0 transition-opacity focus:outline-none disabled:pointer-events-none",
-                      sendTransportDisabled
-                        ? "cursor-not-allowed opacity-50"
-                        : sendBlockedByTurnLock
-                          ? "opacity-75"
-                          : ""
-                    ),
-                  style: {
-                    ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
-                    width: "var(--composer-control-size, 2rem)",
-                    height: "var(--composer-control-size, 2rem)",
-                    background:
-                      "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
-                    color: "var(--text-on-accent, #111827)",
-                    boxShadow: "none",
-                    borderRadius: "9999px",
-                  },
-                })}
+                aria-label={composerSendButtonLabel}
+                {...composerSendButtonProps}
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
-                className={cn(
-                  "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
-                  sendTransportDisabled && "opacity-50 cursor-not-allowed",
-                  interactionState === "typing"
-                    ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
-                    : "bg-[var(--panel-bg)] text-[var(--muted)]"
-                )}
               >
-                {interactionState === "submitting" && "Sending…"}
-                {interactionState === "awaiting_model" && "Warming…"}
-                {interactionState === "streaming" && "Streaming…"}
-                {(interactionState === "idle" || interactionState === "typing") &&
-                  "Send"}
+                <span className="sr-only">{sendButtonLabel}</span>
+                <ArrowUp size={16} />
               </button>
             </div>
           </div>

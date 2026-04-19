@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeState = vi.hoisted(() => ({
@@ -22,14 +22,17 @@ vi.mock("@/lib/runtimeConfig", () => ({
 }));
 
 import DashboardGallery from "@/features/dashboard/components/DashboardGallery";
+import { normalizeMediaUrl } from "@/lib/mediaUrl";
 
 function setViewportWidth(width: number) {
-  Object.defineProperty(window, "innerWidth", {
-    configurable: true,
-    writable: true,
-    value: width,
+  act(() => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: width,
+    });
+    window.dispatchEvent(new Event("resize"));
   });
-  window.dispatchEvent(new Event("resize"));
 }
 
 describe("DashboardGallery desktop media rendering", () => {
@@ -74,5 +77,110 @@ describe("DashboardGallery desktop media rendering", () => {
       "desktop_fetch_media",
       { path: "/media/images/dashboard-tauri.png" }
     );
+  });
+});
+
+describe("DashboardGallery mobile interaction feedback", () => {
+  beforeEach(() => {
+    setViewportWidth(390);
+  });
+
+  afterEach(() => {
+    runtimeState.tauriRuntime = false;
+    runtimeState.invokeTauriCommandMock.mockReset();
+    setViewportWidth(1280);
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("applies shared press feedback to phone tiles and releases on activation", () => {
+    const onOpenPreview = vi.fn();
+    render(
+      <DashboardGallery
+        items={[
+          {
+            id: "dashboard-image-1",
+            src: "/media/images/dashboard-touch.png",
+            prompt: "Dashboard image",
+          },
+        ]}
+        onOpenPreview={onOpenPreview}
+      />
+    );
+
+    const tile = screen.getByRole("button", { name: "Dashboard image" });
+    expect(tile).toHaveClass("mobile-press-feedback");
+    expect(tile).toHaveAttribute("data-press-feedback", "idle");
+
+    fireEvent.pointerDown(tile, {
+      button: 0,
+      buttons: 1,
+      isPrimary: true,
+      pointerType: "touch",
+    });
+    expect(tile).toHaveAttribute("data-press-feedback", "pressed");
+
+    fireEvent.click(tile);
+    expect(tile).toHaveAttribute("data-press-feedback", "idle");
+    expect(onOpenPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks the active preview tile and keeps badges tokenized", () => {
+    const item = {
+      id: "dashboard-image-active",
+      src: "/media/images/dashboard-active.png",
+      prompt: "Dashboard image",
+      source_tag: "generated",
+    };
+
+    render(
+      <DashboardGallery
+        items={[item]}
+        activeItemSrc={normalizeMediaUrl(item.src)}
+        onOpenPreview={vi.fn()}
+      />
+    );
+
+    const tile = screen.getByRole("button", { name: "Dashboard image" });
+    expect(tile).toHaveAttribute("data-state", "active");
+
+    const badge = screen.getByText("Generated");
+    expect(badge).toHaveStyle({
+      right: "calc(var(--card-pad) / 2)",
+      bottom: "calc(var(--card-pad) / 2)",
+      padding: "calc(var(--card-pad) / 6) calc(var(--card-pad) / 2)",
+      borderRadius: "999px",
+    });
+  });
+
+  it("shares press feedback with the overflow affordance", () => {
+    render(
+      <DashboardGallery
+        items={[
+          { id: "dashboard-image-1", src: "/media/images/dashboard-1.png", prompt: "One" },
+          { id: "dashboard-image-2", src: "/media/images/dashboard-2.png", prompt: "Two" },
+          { id: "dashboard-image-3", src: "/media/images/dashboard-3.png", prompt: "Three" },
+          { id: "dashboard-image-4", src: "/media/images/dashboard-4.png", prompt: "Four" },
+          { id: "dashboard-image-5", src: "/media/images/dashboard-5.png", prompt: "Five" },
+        ]}
+        onOpenPreview={vi.fn()}
+      />
+    );
+
+    const overflowButton = screen.getByRole("button", { name: "Show 1 more image" });
+    expect(overflowButton).toHaveClass("mobile-press-feedback");
+    expect(overflowButton).toHaveAttribute("data-press-feedback", "idle");
+
+    fireEvent.pointerDown(overflowButton, {
+      button: 0,
+      buttons: 1,
+      isPrimary: true,
+      pointerType: "touch",
+    });
+    expect(overflowButton).toHaveAttribute("data-press-feedback", "pressed");
+
+    fireEvent.click(overflowButton);
+    expect(screen.getByRole("button", { name: "Show fewer images" })).toBeInTheDocument();
+    expect(overflowButton).toHaveAttribute("data-press-feedback", "idle");
   });
 });

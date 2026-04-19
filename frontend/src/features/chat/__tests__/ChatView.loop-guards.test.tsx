@@ -206,6 +206,94 @@ describe("ChatView loop guards", () => {
     expect(screen.getByRole("button", { name: "Read Aloud" })).toBeEnabled();
   });
 
+  it("renders a visible loading state before any messages arrive", () => {
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[]}
+        loading
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("chat-surface-state")).toHaveTextContent(
+      "Loading Guardian chat"
+    );
+    expect(screen.getByText("Fetching the thread history.")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-loading")).not.toBeInTheDocument();
+  });
+
+  it("renders a visible empty state when a thread has no messages", () => {
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("chat-surface-state")).toHaveTextContent(
+      "No messages yet"
+    );
+    expect(
+      screen.getByText("This thread is ready. Start the conversation below.")
+    ).toBeInTheDocument();
+  });
+
+  it("renders a visible error state instead of collapsing the lane", () => {
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[]}
+        loading={false}
+        error="Unable to refresh messages right now."
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("chat-surface-state")).toHaveTextContent(
+      "Failed to load messages"
+    );
+    expect(screen.getByText("Unable to refresh messages right now.")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-error")).not.toBeInTheDocument();
+  });
+
+  it("renders a visible unavailable state for temporary backend backpressure", () => {
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[]}
+        loading={false}
+        error="Guardian chat is temporarily unavailable right now. Please retry in a moment."
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("chat-surface-state")).toHaveTextContent(
+      "Chat unavailable"
+    );
+    expect(
+      screen.getByText(
+        "Guardian chat is temporarily unavailable right now. Please retry in a moment."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("adds safe-area bottom padding for phone shells", () => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,

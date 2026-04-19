@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
   FocusEventHandler,
@@ -27,6 +27,7 @@ type PressFeedbackButtonProps = {
   onPointerUp?: PointerEventHandler<HTMLButtonElement>;
   onPointerCancel?: PointerEventHandler<HTMLButtonElement>;
   onPointerLeave?: PointerEventHandler<HTMLButtonElement>;
+  onPointerMove?: PointerEventHandler<HTMLButtonElement>;
   onBlur?: FocusEventHandler<HTMLButtonElement>;
   onKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
   onKeyUp?: KeyboardEventHandler<HTMLButtonElement>;
@@ -34,6 +35,7 @@ type PressFeedbackButtonProps = {
 
 type UsePressFeedbackOptions = {
   enabled: boolean;
+  visualMode?: "mobile" | "none";
 };
 
 function usePrefersReducedMotion(): boolean {
@@ -66,18 +68,29 @@ function usePrefersReducedMotion(): boolean {
   return prefersReducedMotion;
 }
 
-export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
+export function usePressFeedback({
+  enabled,
+  visualMode = "mobile",
+}: UsePressFeedbackOptions) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [pressed, setPressed] = useState(false);
+  const pressedPointerIdRef = useRef<number | null>(null);
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!enabled && pressed) {
       setPressed(false);
     }
+    if (!enabled) {
+      pressedPointerIdRef.current = null;
+      pointerStartRef.current = null;
+    }
   }, [enabled, pressed]);
 
   const clearPressed = useCallback(() => {
     setPressed(false);
+    pressedPointerIdRef.current = null;
+    pointerStartRef.current = null;
   }, []);
 
   const handlePointerDown = useCallback<
@@ -85,6 +98,8 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
   >((event) => {
     if (!enabled) return;
     if (event.button != null && event.button !== 0) return;
+    pressedPointerIdRef.current = event.pointerId;
+    pointerStartRef.current = { x: event.clientX, y: event.clientY };
     setPressed(true);
   }, [enabled]);
 
@@ -93,6 +108,24 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
   >(() => {
     if (!enabled) return;
     clearPressed();
+  }, [clearPressed, enabled]);
+
+  const handlePointerMove = useCallback<
+    NonNullable<PressFeedbackButtonProps["onPointerMove"]>
+  >((event) => {
+    if (!enabled || pressedPointerIdRef.current == null) return;
+    if (event.pointerId !== pressedPointerIdRef.current) return;
+
+    const start = pointerStartRef.current;
+    if (!start) return;
+
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    const movedDistance = Math.hypot(dx, dy);
+
+    if (movedDistance >= MOBILE_INTERACTION.pressDragCancelDistancePx) {
+      clearPressed();
+    }
   }, [clearPressed, enabled]);
 
   const handlePointerCancel = useCallback<
@@ -134,14 +167,21 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
   return useMemo(() => {
     const baseProps: PressFeedbackButtonProps = enabled
       ? {
-          className: MOBILE_INTERACTION_CLASS.pressFeedback,
-          style: getMobilePressFeedbackStyle(prefersReducedMotion),
+          className:
+            visualMode === "mobile"
+              ? MOBILE_INTERACTION_CLASS.pressFeedback
+              : undefined,
+          style:
+            visualMode === "mobile"
+              ? getMobilePressFeedbackStyle(prefersReducedMotion)
+              : undefined,
           "data-press-feedback": pressed ? "pressed" : "idle",
           "data-press-feedback-motion": prefersReducedMotion ? "reduced" : "normal",
           onPointerDown: handlePointerDown,
           onPointerUp: handlePointerUp,
           onPointerCancel: handlePointerCancel,
           onPointerLeave: handlePointerLeave,
+          onPointerMove: handlePointerMove,
           onBlur: handleBlur,
           onKeyDown: handleKeyDown,
           onKeyUp: handleKeyUp,
@@ -151,6 +191,7 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
     return {
       pressed,
       prefersReducedMotion,
+      releasePressed: clearPressed,
       getPressFeedbackProps: ({
         className,
         style,
@@ -171,9 +212,11 @@ export function usePressFeedback({ enabled }: UsePressFeedbackOptions) {
     handlePointerCancel,
     handlePointerDown,
     handlePointerLeave,
+    handlePointerMove,
     handlePointerUp,
     prefersReducedMotion,
     pressed,
+    visualMode,
   ]);
 }
 

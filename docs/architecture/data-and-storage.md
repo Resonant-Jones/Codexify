@@ -71,7 +71,7 @@ Source anchors:
 | `event_graph_events` | Idempotent event lineage | `idempotency_key` uniqueness is relied on |
 | `inference_providers` | Catalog-backed provider inventory | synced from `/api/llm/catalog` at startup |
 | `inference_provider_runtime` | Runtime health and capability state | kept in sync with provider catalog bootstrap |
-| `tool_jobs` | Durable tool orchestration table | exists in schema even though legacy `/tools` still uses in-memory state too |
+| `tool_jobs` | Orphaned tool orchestration table | historical migration artifact; ORM model removed, and upgraded databases may still carry inert rows/tables until a dedicated drop migration is applied |
 | `command_runs` | Command bus execution record | captures actor, auth subject, status, args hash, idempotency |
 | `command_run_events` | Streamable command bus events | ordered by run-local sequence |
 | `cron_jobs` | Saved schedules | validation constrains schedule grammar and target types |

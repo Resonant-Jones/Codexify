@@ -6,7 +6,8 @@
     "build": "pnpm --dir frontend/src build",
     "test": "pnpm --dir frontend/src exec vitest run",
     "format": "pnpm --dir frontend/src format",
-    "format:check": "pnpm --dir frontend/src format:check"
+    "format:check": "pnpm --dir frontend/src format:check",
+    "process-logs": "npx tsx scripts/process_logs.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
