@@ -219,7 +219,7 @@ sequenceDiagram
 ## 4) Tool Execution and Job Flow
 
 Trigger:
-- A caller invokes `/api/guardian/commands/invoke`, `/api/tools/call`, `/api/tools/execute`, or creates a cron job that later queues work.
+- A caller invokes `/api/guardian/commands/invoke` or creates a cron job that later queues work.
 
 Sequence:
 1. The command bus derives a manifest from the app's OpenAPI surface.
@@ -227,14 +227,13 @@ Sequence:
 3. Tool policy is evaluated and the run is persisted through `CommandBusStore`.
 4. Allowed commands execute via loopback HTTP back into the same backend, guarded against recursion.
 5. Run events are appended and can be streamed from `/api/guardian/commands/runs/{run_id}/events`.
-6. The legacy `/tools` layer derives tool specs from the command manifest but still keeps some process-local job state.
-7. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
+6. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
 
 Outputs:
 - Command bus run record plus event stream
 - HTTP side effects for invoked read or allowed write commands
 - Cron run history in Postgres
-- Legacy shim responses for `/api/tools/*`
+- Command bus run record plus event stream are the only supported tool-execution outputs
 
 Failure modes:
 - Policy block or missing confirmation leaves runs in `blocked`
@@ -247,7 +246,6 @@ Concrete anchors:
 - `guardian/command_bus/invoke.py`
 - `guardian/command_bus/store.py`
 - `guardian/command_bus/loopback_http_adapter.py`
-- `guardian/routes/tools.py`
 - `guardian/routes/cron.py`
 - `guardian/cron/scheduler.py`
 - `guardian/workers/cron_worker.py`
