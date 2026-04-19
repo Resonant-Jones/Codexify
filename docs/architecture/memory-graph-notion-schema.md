@@ -86,6 +86,7 @@ Runtime alignment:
 
 - this log shape must align with the RAG trace fields proven in runtime
 - if the runtime exports a richer retrieval provenance envelope, this database should preserve the meaningful subset needed for offline reconstruction
+- offline export should stay identity-scoped so one account's data does not get blended with another account, project, or thread during inspection
 
 ## 5. Offline RAG Workflow
 
@@ -104,6 +105,7 @@ Operational rule:
 
 - offline export is for inspection and audit
 - it does not replace the canonical runtime storage contract
+- the companion Notion page should be treated as an analysis surface, not as a second source of truth
 
 ## 6. Use Cases
 
@@ -113,4 +115,3 @@ Operational rule:
 - export inspection
 
 This schema is intended for practical review, not for speculative workflow design.
-

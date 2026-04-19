@@ -29,6 +29,15 @@ The purpose of this layer is to give the system a consistent way to answer:
 - what artifact or document supported that memory
 - how those pieces relate across threads, projects, and time
 
+The useful draft idea to preserve here is identity-aware partitioning at every layer:
+
+- account scope
+- project scope
+- thread scope
+- source-family scope
+
+That idea survives only when expressed in the repo's actual identity model, not as persona-specific storage assumptions.
+
 Non-goals:
 
 - no runtime mutation of canonical Postgres truth
@@ -121,6 +130,7 @@ Identity rules:
 - `source_id` always wins as the origin pointer for rehydration and provenance.
 - `node_id` must be stable within the graph index, but it must not replace the originating relational ID.
 - `embedding_id` links semantic retrieval back to the chunk or source record that produced it.
+- graph projection jobs must preserve the same account/project/thread boundaries that the relational layer already enforces
 
 This separation is what prevents graph or vector layers from silently collapsing distinct runtime identities.
 
@@ -245,6 +255,7 @@ Convergence rules:
 - graph may add provenance or relationship context after semantic selection
 - graph output should be readable as enrichment over an already-assembled retrieval set
 - graph contribution should be visible in diagnostics, not silently merged into unrelated context
+- the practical tradeoff is still the same as the draft: Postgres preserves fidelity, vectors preserve recall, and graph preserves relationship structure
 
 ## 9. Observability + Diagnostics
 
@@ -313,4 +324,3 @@ Mitigations:
 - [ ] Add graph retrieval adapter in `ContextBroker`
 - [ ] Add diagnostics surface for graph inspection
 - [ ] Validate against export/restore contract
-
