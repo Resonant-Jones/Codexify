@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-13
+2026-04-19
 
 ## Interpretation rule
 This file is authoritative for:
@@ -36,6 +36,15 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
   - Supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam).
   - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
   - Broker/source-mode reconciliation (`effective_source_mode` derived from `source_mode` + `retrieval_override`).
+
+## Identity and Runtime Mode
+
+- Codexify now defines `single_user` and `multi_user` runtime modes.
+- `multi_user` mode introduces strict `user_id` enforcement across:
+  - API routes
+  - retrieval
+  - persistence
+- exportability is now a first-class invariant.
 
 ## Not yet true / do not assume
 - Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.
