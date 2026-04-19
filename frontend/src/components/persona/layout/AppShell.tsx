@@ -20,7 +20,7 @@
  */
 import api from "@/lib/api";
 import { Settings2 } from "lucide-react";
-import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
+import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -35,6 +35,7 @@ import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
+import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
@@ -87,14 +88,24 @@ import {
 import {
   getMobileTopNavDockStyle,
   getMobileNavigationControlStyle,
-  getMobileTopNavRailStyle,
-  getMobileWorkspaceSummonCopy,
-  getMobileNavPillFeedbackStyle,
-  getMobileWorkspaceSummonFeedbackStyle,
   type MobileNavPillFeedbackContext,
+  getMobileTopNavRailStyle,
+  getMobileNavPillSelectionStyle,
+  getMobileWorkspaceSummonFeedbackStyle,
 } from "./mobileNavigationContract";
+import {
+  getWorkspaceAffordanceCopy,
+  getWorkspaceAffordanceIcon,
+  getWorkspaceAffordanceState,
+  getWorkspaceAffordanceSurfaceStyle,
+  WORKSPACE_AFFORDANCE,
+} from "./workspaceAffordanceContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
-import { cn } from "@/lib/utils";
+import {
+  DEFAULT_FLOW_BUILDER_MODE,
+  getFlowBuilderPath,
+  type FlowBuilderMode,
+} from "@/features/flowBuilder/flowBuilderRoute";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -126,6 +137,7 @@ type AppShellView =
   | "documents"
   | "gallery"
   | "guardian"
+  | "flowBuilder"
   | "settings"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
@@ -134,12 +146,94 @@ type AppShellProps = PropsWithChildren<{
   startupLocked?: boolean;
   startupOverlay?: React.ReactNode;
 }>;
+type PhonePressButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  isPhoneShell: boolean;
+  square?: boolean;
+};
+
+function PhonePressButton({
+  isPhoneShell,
+  square = false,
+  className,
+  style,
+  children,
+  ...buttonProps
+}: PhonePressButtonProps) {
+  const pressFeedback = usePressFeedback({ enabled: isPhoneShell });
+  const { releasePressed } = pressFeedback;
+  const { onClick, ...restButtonProps } = buttonProps;
+  const handleClick = useCallback<React.MouseEventHandler<HTMLButtonElement>>(
+    (event) => {
+      releasePressed();
+      onClick?.(event);
+    },
+    [onClick, releasePressed]
+  );
+
+  return (
+    <button
+      {...restButtonProps}
+      {...pressFeedback.getPressFeedbackProps({
+        className,
+        style: {
+          ...getMobileNavigationControlStyle(isPhoneShell, { square }),
+          ...style,
+        },
+      })}
+      onClick={handleClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
+    const media = window.matchMedia(query);
+    const syncMatches = () => setMatches(media.matches);
+
+    syncMatches();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", syncMatches);
+      return () => media.removeEventListener("change", syncMatches);
+    }
+
+    media.addListener(syncMatches);
+    return () => media.removeListener(syncMatches);
+  }, [query]);
+
+  return matches;
+}
+
+function useMobileNavFeedbackContext(
+  isPhoneShell: boolean
+): MobileNavPillFeedbackContext {
+  const isCoarsePointer = useMediaQuery("(pointer: coarse)");
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+
+  return useMemo(
+    () => ({
+      isPhoneShell,
+      isCoarsePointer,
+      prefersReducedMotion,
+    }),
+    [isCoarsePointer, isPhoneShell, prefersReducedMotion]
+  );
+}
 
 const APP_SHELL_VIEWS = [
   "dashboard",
   "documents",
   "gallery",
   "guardian",
+  "flowBuilder",
   "settings",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
@@ -151,6 +245,7 @@ function isAppShellView(value: string | null): value is AppShellView {
 }
 
 function resolveViewFromPathname(pathname: string): AppShellView | null {
+  if (pathname.startsWith("/flow-builder")) return "flowBuilder";
   if (pathname.startsWith("/persona-studio")) return "personaStudio";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/gallery")) return "gallery";
@@ -164,6 +259,8 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
   switch (view) {
     case "guardian":
       return threadId != null ? `/chat/${threadId}` : "/chat";
+    case "flowBuilder":
+      return getFlowBuilderPath(resolvePersistedFlowBuilderMode());
     case "documents":
       return "/documents";
     case "gallery":
@@ -175,6 +272,21 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
     case "dashboard":
     default:
       return "/dashboard";
+  }
+}
+
+function resolvePersistedFlowBuilderMode(): FlowBuilderMode {
+  if (typeof window === "undefined") {
+    return DEFAULT_FLOW_BUILDER_MODE;
+  }
+
+  try {
+    const raw = window.localStorage.getItem("cfy.flowBuilder.mode");
+    return raw === "expertise" || raw === "process"
+      ? raw
+      : DEFAULT_FLOW_BUILDER_MODE;
+  } catch {
+    return DEFAULT_FLOW_BUILDER_MODE;
   }
 }
 
@@ -1037,6 +1149,11 @@ export default function AppShell({
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
+  const lastGuardianPathRef = useRef<string | null>(
+    typeof window !== "undefined" && resolveViewFromPathname(window.location.pathname) === "guardian"
+      ? resolvePathForView("guardian", readRouteThreadId())
+      : null
+  );
   const [generalProjectId, setGeneralProjectId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem("cfy.generalProjectId");
@@ -1067,6 +1184,12 @@ export default function AppShell({
   useEffect(() => {
     setDocumentScope(activeRouteThreadId != null ? "thread" : "project");
   }, [activeRouteThreadId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (view !== "guardian") return;
+
+    lastGuardianPathRef.current = resolvePathForView("guardian", activeRouteThreadId);
+  }, [activeRouteThreadId, view]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
       setView(nextView);
@@ -1080,6 +1203,16 @@ export default function AppShell({
     },
     [activeRouteThreadId]
   );
+  const returnToGuardian = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const nextPath =
+      lastGuardianPathRef.current ?? resolvePathForView("guardian", activeRouteThreadId);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [activeRouteThreadId]);
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
@@ -1456,30 +1589,27 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
-  const mobilePressFeedback = usePressFeedback({ enabled: isPhoneShell });
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
     [mobileShellProfile]
   );
-  const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
-    () => getMobileTopNavRailStyle(mobileShellProfile),
-    [mobileShellProfile]
+  const mobileTopNavRailMotionState = useMemo(
+    () => ({
+      isPhoneShell,
+      allowMomentumScroll: isPhoneShell,
+    }),
+    [isPhoneShell]
   );
-  const getMobilePressProps = useCallback(
-    (
-      className: string,
-      style?: React.CSSProperties,
-      options: { square?: boolean } = {}
-    ) =>
-      mobilePressFeedback.getPressFeedbackProps({
-        className: cn(className),
-        style: {
-          ...getMobileNavigationControlStyle(isPhoneShell, options),
-          ...style,
-        },
-      }),
-    [isPhoneShell, mobilePressFeedback]
+  const mobileTopNavRailStyle = useMemo<React.CSSProperties>(
+    () => getMobileTopNavRailStyle(mobileShellProfile, mobileTopNavRailMotionState),
+    [mobileShellProfile, mobileTopNavRailMotionState]
+  );
+  const mobileInteractionContext = useMobileNavFeedbackContext(isPhoneShell);
+  const getMobileNavPillStyle = useCallback(
+    (navView: AppShellView) =>
+      getMobileNavPillSelectionStyle(mobileInteractionContext, view === navView),
+    [mobileInteractionContext, view]
   );
 
   /* ─────────────────────────────────────────────────────────────────────────────
@@ -2206,22 +2336,37 @@ export default function AppShell({
   const runtimeLastHealthy = runtimeHealth.lastSuccessAt
     ? new Date(runtimeHealth.lastSuccessAt).toLocaleString()
     : "never";
-  const workspaceSummonCopy = getMobileWorkspaceSummonCopy(workspaceDrawerOpen);
-
+  const workspaceAffordanceState = getWorkspaceAffordanceState({
+    isPhoneShell,
+    isOpen: workspaceDrawerOpen,
+    isClosing: workspaceDrawerMotionPhase === "closing",
+  });
+  const workspaceSummonCopy = getWorkspaceAffordanceCopy(workspaceAffordanceState);
+  const WorkspaceAffordanceGlyph = getWorkspaceAffordanceIcon(
+    workspaceAffordanceState
+  );
   // Mobile micro-interaction feedback styles
   const mobileWorkspaceSummonFeedbackStyle = useMemo<React.CSSProperties>(
     () =>
-      getMobilePressFeedbackStyle(mobileInteractionContext, workspaceDrawerOpen ? "idle" : "idle"),
-    [mobileInteractionContext, workspaceDrawerOpen]
+      getMobileWorkspaceSummonFeedbackStyle(
+        mobileInteractionContext,
+        workspaceAffordanceState === "open"
+      ),
+    [mobileInteractionContext, workspaceAffordanceState]
   );
-
   const workspaceDrawerToggle = workspaceShellEnabled ? (
-    <button
+    <PhonePressButton
       type="button"
-      {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
-      data-state={workspaceDrawerOpen ? "active" : "inactive"}
+      isPhoneShell={isPhoneShell}
+      className="pill-tab shrink-0 whitespace-nowrap"
+      style={{
+        ...getWorkspaceAffordanceSurfaceStyle(isPhoneShell, workspaceAffordanceState),
+        ...mobileWorkspaceSummonFeedbackStyle,
+      }}
+      data-state={workspaceAffordanceState === "open" ? "active" : "inactive"}
+      data-workspace-affordance-state={workspaceAffordanceState}
       data-testid="workspace-drawer-toggle"
-      aria-pressed={workspaceDrawerOpen}
+      aria-pressed={workspaceAffordanceState === "open"}
       aria-label={
         isPhoneShell
           ? workspaceSummonCopy.ariaLabel
@@ -2235,17 +2380,29 @@ export default function AppShell({
             : "Open workspace drawer"
       }
       onClick={toggleWorkspaceDrawer}
-      style={isPhoneShell ? mobileWorkspaceSummonFeedbackStyle : undefined}
     >
-      {isPhoneShell ? workspaceSummonCopy.label : "Workspace"}
-    </button>
+      {isPhoneShell ? (
+        <span
+          className="inline-flex items-center"
+          style={{ gap: WORKSPACE_AFFORDANCE.labelGap }}
+        >
+          <WorkspaceAffordanceGlyph
+            className={WORKSPACE_AFFORDANCE.iconClassName}
+            aria-hidden="true"
+          />
+          <span>{workspaceSummonCopy.label}</span>
+        </span>
+      ) : (
+        "Workspace"
+      )}
+    </PhonePressButton>
   ) : null;
   const settingsUtilityAction = (
-    <button
+    <PhonePressButton
       type="button"
-      {...getMobilePressProps("pill-tab h-9 w-9 shrink-0 p-0", undefined, {
-        square: true,
-      })}
+      isPhoneShell={isPhoneShell}
+      className="pill-tab h-9 w-9 shrink-0 p-0"
+      square
       data-state={view === "settings" ? "active" : "inactive"}
       data-testid="settings-utility-toggle"
       aria-label="Settings"
@@ -2253,7 +2410,7 @@ export default function AppShell({
       onClick={openSettings}
     >
       <Settings2 className="h-4 w-4" aria-hidden="true" />
-    </button>
+    </PhonePressButton>
   );
   const shareUtilityAction = activeRouteThreadId != null ? (
     <ShareButton
@@ -2433,15 +2590,15 @@ export default function AppShell({
 
             <div
               className="inline-flex min-w-0 items-center"
+              data-testid="app-shell-top-nav-rail"
               style={mobileTopNavRailStyle}
             >
               {/* brand badge — doubles as layout mode toggle */}
-              <button
+              <PhonePressButton
                 type="button"
-                {...getMobilePressProps(
-                  "pill-tab brand-tab shrink-0 whitespace-nowrap",
-                  { color: "var(--text-on-accent)" }
-                )}
+                isPhoneShell={isPhoneShell}
+                className="pill-tab brand-tab shrink-0 whitespace-nowrap"
+                style={{ color: "var(--text-on-accent)" }}
                 title={
                   layoutMode === "zen"
                     ? "Zen layout — click to switch to Focus"
@@ -2452,7 +2609,7 @@ export default function AppShell({
                 }
               >
                 Codexify
-              </button>
+              </PhonePressButton>
 
               {/* beta release indicator — persistent across navigation */}
               <span
@@ -2469,46 +2626,66 @@ export default function AppShell({
               </span>
 
               {/* nav tabs */}
-              <button
-                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "guardian" ? "active" : "inactive"}
+                aria-current={view === "guardian" ? "page" : undefined}
                 onClick={() => navigateToView("guardian")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "guardian") : undefined}
+                style={getMobileNavPillStyle("guardian")}
               >
                 Guardian
-              </button>
-              <button
-                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "dashboard" ? "active" : "inactive"}
+                aria-current={view === "dashboard" ? "page" : undefined}
                 onClick={() => navigateToView("dashboard")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "dashboard") : undefined}
+                style={getMobileNavPillStyle("dashboard")}
               >
                 Dashboard
-              </button>
-              <button
-                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
+                aria-current={view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "documents") : undefined}
+                style={getMobileNavPillStyle("documents")}
               >
                 Documents
-              </button>
-              <button
-                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "gallery" ? "active" : "inactive"}
+                aria-current={view === "gallery" ? "page" : undefined}
                 onClick={() => navigateToView("gallery")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "gallery") : undefined}
+                style={getMobileNavPillStyle("gallery")}
               >
                 Gallery
-              </button>
-              <button
-                {...getMobilePressProps("pill-tab shrink-0 whitespace-nowrap")}
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "flowBuilder" ? "active" : "inactive"}
+                aria-current={view === "flowBuilder" ? "page" : undefined}
+                onClick={() => navigateToView("flowBuilder")}
+                style={getMobileNavPillStyle("flowBuilder")}
+              >
+                Flow Builder
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
+                aria-current={view === "personaStudio" ? "page" : undefined}
                 onClick={() => navigateToView("personaStudio")}
-                style={isPhoneShell ? getMobileNavPillFeedbackStyle(mobileInteractionContext, view === "personaStudio") : undefined}
+                style={getMobileNavPillStyle("personaStudio")}
               >
                 Persona Studio
-              </button>
+              </PhonePressButton>
             </div>
           </div>
         </div>
@@ -2883,6 +3060,24 @@ export default function AppShell({
                 </ErrorBoundary>
               </div>
             </FrameCard>
+          )}
+          {!startupLocked && view === "flowBuilder" && (
+            <div
+              className="h-full w-full isolate"
+              data-active-view="flowBuilder"
+              data-active-view-contract="single-panel"
+              data-thread-rail="absent"
+              data-view-family="flowBuilder"
+            >
+              <FrameCard
+                refractiveFallback
+                shimmerMode="subtle"
+                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+                data-testid="flow-builder-framecard"
+              >
+                <FlowBuilderPage onReturnToGuardian={returnToGuardian} />
+              </FrameCard>
+            </div>
           )}
           {!startupLocked && view === "personaStudio" && (
             <div

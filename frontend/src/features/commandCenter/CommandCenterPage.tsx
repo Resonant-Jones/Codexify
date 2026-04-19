@@ -10,7 +10,10 @@ import TraceWorkbench, {
   describeRetrievalPostureChange,
   RetrievalPosturePanel,
   RetrievalPostureSummaryRow,
+  type PinnedRetrievalPostureState,
   type RetrievalPostureDiff,
+  type RetrievalPostureHistoryFilter,
+  type RetrievalPostureHistoryWindowSize,
 } from "@/features/commandCenter/components/TraceWorkbench";
 import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
@@ -22,6 +25,7 @@ import {
   filterCommandCenterRuns,
 } from "@/features/commandCenter/commandCenterObservability";
 import type {
+  CommandCenterRetrievalPosture,
   CommandCenterRetrievalPostureHistoryItem,
   CommandCenterRun,
   CommandCenterTraceFilters,
@@ -326,8 +330,10 @@ function latestRetrievalPostureComparison(
 }
 
 function RecentRetrievalPosturePanel({
+  onPinHistoryPosture,
   threadId,
 }: {
+  onPinHistoryPosture?: (item: CommandCenterRetrievalPostureHistoryItem) => void;
   threadId: number | null;
 }) {
   const { error, items, loading, status } = useRetrievalPostureHistory(threadId);
@@ -400,6 +406,7 @@ function RecentRetrievalPosturePanel({
               <RetrievalPostureSummaryRow
                 key={`${item.task_id}:${item.created_at}`}
                 createdAt={item.created_at}
+                onPinPosture={onPinHistoryPosture ? () => onPinHistoryPosture(item) : undefined}
                 posture={item.retrieval_posture}
                 taskId={item.task_id}
               />
@@ -426,6 +433,12 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const [selectedRunKey, setSelectedRunKey] = React.useState<string | null>(null);
   const [traceFilters, setTraceFilters] =
     React.useState<CommandCenterTraceFilters>(filtersDefault);
+  const [retrievalPostureHistoryFilter, setRetrievalPostureHistoryFilter] =
+    React.useState<RetrievalPostureHistoryFilter>("all");
+  const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
+    React.useState<RetrievalPostureHistoryWindowSize>(5);
+  const [pinnedRetrievalPosture, setPinnedRetrievalPosture] =
+    React.useState<PinnedRetrievalPostureState>(null);
 
   const consoleRows = React.useMemo(() => buildCommandCenterEventConsoleRows(events), [events]);
   const visibleRuns = React.useMemo(
@@ -441,6 +454,31 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const activeThreadId = React.useMemo<number | null>(() => {
     return selectedRun?.threadId ?? visibleRuns[0]?.threadId ?? null;
   }, [selectedRun, visibleRuns]);
+
+  React.useEffect(() => {
+    setPinnedRetrievalPosture(null);
+  }, [activeThreadId]);
+
+  const onPinCurrentRetrievalPosture = React.useCallback((posture: CommandCenterRetrievalPosture) => {
+    setPinnedRetrievalPosture({
+      createdAt: null,
+      posture: { ...posture },
+      source: "current",
+      taskId: null,
+    });
+  }, []);
+
+  const onPinHistoryRetrievalPosture = React.useCallback(
+    (item: CommandCenterRetrievalPostureHistoryItem) => {
+      setPinnedRetrievalPosture({
+        createdAt: item.created_at,
+        posture: { ...item.retrieval_posture },
+        source: "history",
+        taskId: item.task_id,
+      });
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (visibleRuns.length === 0) {
@@ -549,33 +587,43 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           }}
         >
           {activeThreadId !== null ? (
-            <div className="space-y-4">
-              <RecentRetrievalPosturePanel threadId={activeThreadId} />
+            <div className="mb-4">
               <RetrievalPosturePanel
                 compact
+                historyFilter={retrievalPostureHistoryFilter}
+                historyWindowSize={retrievalPostureHistoryWindowSize}
+                onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
+                onHistoryFilterChange={setRetrievalPostureHistoryFilter}
+                onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
+                onPinCurrentPosture={onPinCurrentRetrievalPosture}
+                onPinHistoryPosture={onPinHistoryRetrievalPosture}
+                pinnedRetrievalPosture={pinnedRetrievalPosture}
+                showHistorySection
+                showComparisonStrip
+                showTrendBadge
                 testId="command-center-thread-posture-panel"
                 threadId={activeThreadId}
                 title="Thread retrieval posture"
-                showComparisonStrip
               />
             </div>
           ) : null}
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <TraceWorkbench
-              allRuns={runs}
-              filters={traceFilters}
-              onFiltersChange={setTraceFilters}
-              onSelectRun={setSelectedRunKey}
-              selectedRun={selectedRun}
-              selectedRunKey={selectedRunKey}
-              visibleRuns={visibleRuns}
-            />
-          </div>
+          <TraceWorkbench
+            allRuns={runs}
+            filters={traceFilters}
+            onFiltersChange={setTraceFilters}
+            onSelectRun={setSelectedRunKey}
+            selectedRun={selectedRun}
+            selectedRunKey={selectedRunKey}
+            visibleRuns={visibleRuns}
+          />
+        </div>
 
-          <div
-            className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
+        <RecentRetrievalPosturePanel
+          onPinHistoryPosture={onPinHistoryRetrievalPosture}
+          threadId={activeThreadId}
+        />
+
+          <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
             <EventConsole
               connectionDetail={connectionDetail}
               connectionState={connectionState}
@@ -583,7 +631,6 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
               rows={consoleRows}
             />
           </div>
-        </div>
       </div>
     </main>
   );
