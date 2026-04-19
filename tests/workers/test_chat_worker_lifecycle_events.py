@@ -41,6 +41,7 @@ def _build_task(
     thread_id: int = 7,
 ) -> ChatCompletionTask:
     task = ChatCompletionTask(
+        user_id="local",
         task_id=task_id,
         thread_id=thread_id,
         provider="local",

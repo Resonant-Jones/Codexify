@@ -118,7 +118,9 @@ async def test_completion_assembly_emits_retrieval_plan_when_trace_exists(
         trace_payload={"documents": [], "graph": []},
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         _messages,
         _provider,
@@ -143,7 +145,9 @@ async def test_conversation_style_query_resolves_to_no_retrieval(
         trace_payload={"documents": [], "graph": []},
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         _messages,
         _provider,
@@ -168,7 +172,9 @@ async def test_timeline_style_query_resolves_to_chronological_time_mode(
         trace_payload={"documents": [], "graph": []},
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         _messages,
         _provider,
@@ -193,7 +199,9 @@ async def test_provenance_style_query_resolves_to_graph_permissive_plan(
         trace_payload={"documents": [], "graph": []},
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         _messages,
         _provider,
@@ -220,6 +228,7 @@ async def test_retrieval_plan_tracing_does_not_mutate_broker_inputs(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model=None,
@@ -245,7 +254,9 @@ async def test_emitted_retrieval_plan_values_are_debug_safe_scalars_and_lists(
         trace_payload={"documents": [], "graph": []},
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         _messages,
         _provider,
@@ -300,6 +311,7 @@ async def test_build_messages_persists_trace_candidate_for_completed_task(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         task_id=task_id,
         thread_id=1,
         provider="local",
@@ -350,7 +362,9 @@ async def test_build_messages_skips_trace_candidate_when_trace_missing(
         or True,
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     await chat_completion_service.build_messages_for_llm(task)
 
     assert persisted == []

@@ -7,6 +7,7 @@ This worker is intentionally thin: orchestration and routing live in
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -1372,6 +1373,7 @@ def _sync_build_messages_compat_seams() -> None:
 
 async def _build_messages_for_llm(
     task: ChatCompletionTask,
+    user_id: str | None = None,
 ) -> tuple[
     list[dict[str, str]],
     str,
@@ -1384,7 +1386,7 @@ async def _build_messages_for_llm(
     resolved_task = _compat_resolve_task(task)
     _sync_build_messages_compat_seams()
     messages, provider, model, bundle, trace = _coerce_build_messages_result(
-        await _ORIGINAL_BUILD_MESSAGES_FOR_LLM(resolved_task)
+        await _ORIGINAL_BUILD_MESSAGES_FOR_LLM(resolved_task, user_id=user_id)
     )
     provider = _normalize_provider_override(resolved_task.provider) or provider
     model = _normalize_model_override(resolved_task.model) or model
@@ -1408,16 +1410,48 @@ async def _build_messages_for_llm(
     return merged_messages, provider, model, bundle, None, None, trace
 
 
+async def _build_messages_for_llm_compat(
+    task: ChatCompletionTask,
+    *,
+    user_id: str | None = None,
+) -> tuple[
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    Any,
+    Any,
+    dict[str, Any] | None,
+]:
+    builder = _build_messages_for_llm
+    try:
+        signature = inspect.signature(builder)
+    except (TypeError, ValueError):
+        signature = None
+    accepts_user_id = False
+    if signature is not None:
+        accepts_user_id = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "user_id"
+            for name, parameter in signature.parameters.items()
+        )
+    if accepts_user_id:
+        return await builder(task, user_id=user_id)
+    return await builder(task)
+
+
 def _run_chat_completion_task_compat(
     task: ChatCompletionTask,
     *,
+    user_id: str | None = None,
     token_callback: Any = None,
     chunk_callback: Any = None,
     cancel_check: Any = None,
     persist_assistant_message: bool = True,
     state_callback: Any = None,
 ) -> dict[str, Any]:
-    build_result = asyncio.run(_build_messages_for_llm(task))
+    build_result = asyncio.run(
+        _build_messages_for_llm_compat(task, user_id=user_id)
+    )
     (
         messages_for_llm,
         provider,
@@ -1839,6 +1873,8 @@ run_chat_completion_task = _run_chat_completion_task_compat
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
+    if not str(getattr(task, "user_id", "") or "").strip():
+        raise ValueError("ChatCompletionTask missing user_id")
     run_id = uuid.uuid4().hex
     started = time.monotonic()
     turn_id = _extract_turn_id(task)
@@ -2029,6 +2065,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
 
         result = run_chat_completion_task(
             task,
+            user_id=task.user_id,
             token_callback=lambda token: _safe_publish(
                 task.task_id,
                 "task.progress",

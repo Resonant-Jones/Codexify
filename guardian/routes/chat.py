@@ -2709,6 +2709,7 @@ async def chat_complete(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
         provider=provider,

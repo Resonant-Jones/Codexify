@@ -444,9 +444,10 @@ class WarmupTask(BaseTask):
         return cls(models=list(models), **base)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ChatCompletionTask(BaseTask):
     type: str = "chat_completion"
+    user_id: str
     thread_id: int = 0
     latest_turn_message_id: int | None = None
     model: str | None = None
@@ -469,6 +470,11 @@ class ChatCompletionTask(BaseTask):
     def from_dict(cls, payload: dict[str, Any]) -> ChatCompletionTask:
         base = _base_kwargs(payload or {})
         base.setdefault("type", cls.type)
+        user_id = _coerce_optional_text(
+            payload.get("user_id") or payload.get("userId")
+        )
+        if not user_id:
+            raise ValueError("ChatCompletionTask missing user_id")
         raw_temperature = payload.get("temperature")
         temperature: float | None
         if raw_temperature is None:
@@ -479,6 +485,7 @@ class ChatCompletionTask(BaseTask):
             except (TypeError, ValueError):
                 temperature = None
         return cls(
+            user_id=user_id,
             thread_id=int(payload.get("thread_id") or 0),
             latest_turn_message_id=_coerce_optional_positive_int(
                 payload.get("latest_turn_message_id")
