@@ -44,6 +44,11 @@ _SCHEMA_VERIFIED_URLS: set[str] = set()
 _SCHEMA_VERIFY_LOCK = Lock()
 _GUARDIAN_DB_CACHE: dict[str, "GuardianDB"] = {}
 _GUARDIAN_DB_CACHE_LOCK = Lock()
+_DEFAULT_USER_ID = "local"
+
+
+def _default_user_id() -> str:
+    return _DEFAULT_USER_ID
 
 
 def verify_schema_consistency(engine) -> None:
@@ -125,15 +130,28 @@ class _PostgresGuardianDB:
             if project:
                 return project.id
 
-            new_project = Project(name=name, description=description)
+            new_project = Project(
+                user_id=_default_user_id(),
+                name=name,
+                description=description,
+            )
             session.add(new_project)
             session.commit()
             return new_project.id
 
-    def create_project(self, name: str, description: str = "") -> int:
+    def create_project(
+        self, name: str, description: str = "", user_id: str | None = None
+    ) -> int:
         """Create a new project."""
         with self.get_session() as session:
-            project = Project(name=name, description=description)
+            resolved_user_id = (
+                str(user_id or _default_user_id()).strip() or _default_user_id()
+            )
+            project = Project(
+                user_id=resolved_user_id,
+                name=name,
+                description=description,
+            )
             session.add(project)
             session.commit()
             return project.id
@@ -164,6 +182,7 @@ class _PostgresGuardianDB:
             return [
                 {
                     "id": p.id,
+                    "user_id": p.user_id,
                     "name": p.name,
                     "description": p.description,
                     "icon": p.icon,
@@ -539,12 +558,23 @@ class _PostgresGuardianDB:
         kind: str = "chat",
         event_at: Optional[datetime] = None,
         extra_meta: Optional[dict] = None,
+        user_id: str | None = None,
     ) -> int:
         """Create a new message in a thread."""
         now = datetime.now(timezone.utc)
         with self.get_session() as session:
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            resolved_user_id = (
+                str(
+                    user_id
+                    or getattr(thread, "user_id", "")
+                    or _default_user_id()
+                ).strip()
+                or _default_user_id()
+            )
             message = ChatMessage(
                 thread_id=thread_id,
+                user_id=resolved_user_id,
                 role=role,
                 content=content,
                 kind=kind,
@@ -552,7 +582,6 @@ class _PostgresGuardianDB:
                 extra_meta=extra_meta or {},
             )
             session.add(message)
-            thread = session.query(ChatThread).filter_by(id=thread_id).first()
             if thread is not None:
                 thread.updated_at = now
                 thread.last_interaction_at = now
