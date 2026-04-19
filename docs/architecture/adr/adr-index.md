@@ -38,6 +38,7 @@ Use this note as the local map for all ADRs.
 5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
 6. [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
 7. [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] — derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
+8. [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] — backend-only candidate-output diagnostic surface, TTL-bound and excluded from export.
 
 ---
 
@@ -114,6 +115,14 @@ Primary companion notes:
   * [[router-decision-table|Retrieval Router Decision Table]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[flows|Critical Flows]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[completion_pipeline|Completion Request Pipeline]]
   * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 

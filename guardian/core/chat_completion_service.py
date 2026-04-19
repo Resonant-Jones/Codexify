@@ -40,6 +40,7 @@ from guardian.core.ai_router import (
     chat_with_ai,
     stream_local,
 )
+from guardian.core.candidate_trace_store import store_candidate_trace
 from guardian.core.chat_attachments import (
     extract_attachments_and_text,
     render_content_for_inference,
@@ -264,6 +265,40 @@ def _task_routing_debug_metadata(task: Any) -> dict[str, Any]:
     if retrieval_override is not None:
         metadata["retrieval_override"] = retrieval_override
     return metadata
+
+
+def _completion_request_id(task: Any) -> str:
+    request_id = str(getattr(task, "request_id", "") or "").strip()
+    if request_id:
+        return request_id
+    return str(getattr(task, "task_id", "") or "").strip()
+
+
+def _build_candidate_trace(
+    task: Any,
+    *,
+    assistant_text: str,
+    provider: str | None,
+    model: str | None,
+) -> dict[str, Any] | None:
+    request_id = _completion_request_id(task)
+    thread_id = str(getattr(task, "thread_id", "") or "").strip()
+    if not request_id or not thread_id:
+        return None
+    return {
+        "thread_id": thread_id,
+        "request_id": request_id,
+        "candidates": [
+            {
+                "content": assistant_text,
+                "provider": provider,
+                "model": model,
+                "selected": True,
+            }
+        ],
+        "selection_strategy": "single_candidate",
+        "created_at": datetime.now(UTC).isoformat(),
+    }
 
 
 @dataclass(frozen=True)
@@ -2002,6 +2037,23 @@ def run_chat_completion_task(
         )
         if token_callback:
             token_callback(assistant_text)
+
+    candidate_trace = _build_candidate_trace(
+        task,
+        assistant_text=assistant_text,
+        provider=provider,
+        model=model,
+    )
+    if candidate_trace is not None:
+        try:
+            store_candidate_trace(candidate_trace)
+        except Exception:
+            logger.warning(
+                "[chat-completion] candidate_trace_store_failed thread_id=%s request_id=%s",
+                task.thread_id,
+                _completion_request_id(task),
+                exc_info=True,
+            )
 
     result: dict[str, Any] = {
         "assistant_text": assistant_text,
