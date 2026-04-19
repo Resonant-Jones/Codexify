@@ -2104,6 +2104,7 @@ async def _build_doc_context_override(
     thread_id: int,
     depth_mode: str,
     project_id: Optional[int],
+    user_id: str,
 ) -> Optional[str]:
     if depth_mode == "shallow":
         return None
@@ -2118,6 +2119,7 @@ async def _build_doc_context_override(
         docs_bundle = await broker.get_scoped_documents(
             thread_id=thread_id,
             project_id=project_id,
+            user_id=user_id,
             k_project_docs=DOC_SCOPE_K_PROJECT,
             k_thread_docs=DOC_SCOPE_K_THREAD,
             doc_excerpt_chars=DOC_EXCERPT_CHARS,
@@ -2563,7 +2565,15 @@ async def chat_complete(
     source_mode = thread_execution.source_mode
 
     limit = int(body.max_context or 50)
-    items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
+    try:
+        items = chatlog_db.list_messages(
+            thread_id,
+            limit=limit,
+            offset=0,
+            user_id=_request_account_id(request_user_scope),
+        )
+    except TypeError:
+        items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
     try:
         items = sorted(items, key=lambda m: m.get("id") or 0)
     except Exception:
@@ -2695,6 +2705,7 @@ async def chat_complete(
         thread_id=thread_id,
         depth_mode=internal_depth_mode,
         project_id=thread_project_id,
+        user_id=_request_account_id(request_user_scope),
     )
     merged_system_override = user_system_override
     if doc_context_override:

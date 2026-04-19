@@ -325,6 +325,9 @@ class ContextBroker:
                 - "graph": List of {node_id, kind, text}
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
+        resolved_user_id = str(user_id or "").strip()
+        if not resolved_user_id:
+            raise ValueError("ContextBroker requires user_id")
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
         base_policy = derive_default_retrieval_policy(source_mode)
         effective_policy = merge_retrieval_policy(
@@ -349,15 +352,14 @@ class ContextBroker:
         resolved_project_id = await self._resolve_project_id(
             thread_id=thread_id, project_id=project_id
         )
-        resolved_user_id = await self._resolve_user_id(
-            thread_id=thread_id, user_id=user_id
-        )
 
         context: Dict[str, Any] = {}
 
         # Always include recent messages
         try:
-            messages = await self._fetch_messages(thread_id, n_messages)
+            messages = await self._fetch_messages(
+                thread_id, n_messages, user_id=resolved_user_id
+            )
             context["messages"] = messages
         except Exception as e:
             logger.warning(
@@ -395,6 +397,7 @@ class ContextBroker:
                             query,
                             k_semantic,
                             namespace=OBSIDIAN_NAMESPACE,
+                            user_id=resolved_user_id,
                         )
                     except Exception as exc:
                         logger.warning(
@@ -421,6 +424,7 @@ class ContextBroker:
                 scoped_docs = await self.get_scoped_documents(
                     thread_id=thread_id,
                     project_id=resolved_project_id,
+                    user_id=resolved_user_id,
                     k_project_docs=k_project_docs,
                     k_thread_docs=k_thread_docs,
                     doc_excerpt_chars=doc_excerpt_chars,
@@ -751,7 +755,7 @@ class ContextBroker:
             return False
 
     async def _fetch_messages(
-        self, thread_id: int, n: int
+        self, thread_id: int, n: int, *, user_id: str
     ) -> List[Dict[str, Any]]:
         """Fetch recent messages from a thread.
 
@@ -760,14 +764,27 @@ class ContextBroker:
         """
         # Preferred: use last_messages if adapter provides it (ordered newest→oldest)
         if hasattr(self.chatlog, "last_messages"):
-            result = self.chatlog.last_messages(thread_id, n=n)
+            try:
+                result = self.chatlog.last_messages(
+                    thread_id, n=n, user_id=user_id
+                )
+            except TypeError:
+                result = self.chatlog.last_messages(thread_id, n=n)
         # Fallback for adapters that only expose list_messages (e.g., ChatDB/PgDB)
         elif hasattr(self.chatlog, "list_messages"):
-            result = self.chatlog.list_messages(
-                thread_id,
-                limit=n,
-                offset=0,
-            )
+            try:
+                result = self.chatlog.list_messages(
+                    thread_id,
+                    limit=n,
+                    offset=0,
+                    user_id=user_id,
+                )
+            except TypeError:
+                result = self.chatlog.list_messages(
+                    thread_id,
+                    limit=n,
+                    offset=0,
+                )
         else:
             return []
 
@@ -783,17 +800,43 @@ class ContextBroker:
         k: int,
         *,
         namespace: Optional[str] = None,
+        user_id: str,
     ) -> List[Dict[str, Any]]:
         """Search for semantic matches via vector store."""
         if hasattr(self.vector, "search"):
             try:
-                result = self.vector.search(query, k=k, namespace=namespace)
+                result = self.vector.search(
+                    query,
+                    k=k,
+                    namespace=namespace,
+                    user_id=user_id,
+                )
             except TypeError:
-                result = self.vector.search(query, k=k)
+                result = self.vector.search(
+                    query,
+                    k=k,
+                    namespace=namespace,
+                )
             # Handle both sync and async returns
             if hasattr(result, "__await__"):
-                return await result
-            return result if isinstance(result, list) else []
+                result = await result
+            if not isinstance(result, list):
+                return []
+            normalized_user_id = str(user_id or "").strip()
+            return [
+                item
+                for item in result
+                if str(
+                    (
+                        item.get("user_id")
+                        or item.get("owner_user_id")
+                        or item.get("metadata", {}).get("user_id")
+                        or item.get("metadata", {}).get("owner_user_id")
+                    )
+                    or ""
+                ).strip()
+                == normalized_user_id
+            ]
         return []
 
     async def _search_memory(
@@ -802,6 +845,7 @@ class ContextBroker:
         k: int,
         *,
         namespace: Optional[str] = None,
+        user_id: str,
     ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Search for related memory entries using MemoryOS semantic retriever.
 
@@ -824,6 +868,7 @@ class ContextBroker:
                         query,
                         limit=k,
                         namespace=namespace,
+                        user_id=user_id,
                     )
                 else:
                     try:
@@ -831,10 +876,11 @@ class ContextBroker:
                             query,
                             limit=k,
                             namespace=namespace,
+                            user_id=user_id,
                         )
                     except TypeError:
                         memory_results = await self.memory_retriever.retrieve(
-                            query, limit=k
+                            query, limit=k, user_id=user_id
                         )
                     retriever_trace = {
                         "attempted": True,
@@ -846,6 +892,26 @@ class ContextBroker:
                         "reason": ("results" if memory_results else "no_hits"),
                         "count": len(memory_results),
                     }
+                if isinstance(memory_results, list):
+                    normalized_user_id = str(user_id or "").strip()
+                    memory_results = [
+                        item
+                        for item in memory_results
+                        if str(
+                            (
+                                item.get("user_id")
+                                or item.get("owner_user_id")
+                                or item.get("metadata", {}).get("user_id")
+                                or item.get("metadata", {}).get("owner_user_id")
+                            )
+                            or ""
+                        ).strip()
+                        == normalized_user_id
+                    ]
+                    retriever_trace["count"] = len(memory_results)
+                    if not memory_results:
+                        retriever_trace["status"] = "attempted_no_hits"
+                        retriever_trace["reason"] = "no_hits"
                 trace = {"attempted": True, **retriever_trace}
                 logger.debug(
                     f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
@@ -871,25 +937,45 @@ class ContextBroker:
             and hasattr(self.memory, "search_related")
         ):
             try:
-                result = self.memory.search_related(query, limit=k)
+                try:
+                    result = self.memory.search_related(
+                        query, limit=k, user_id=user_id
+                    )
+                except TypeError:
+                    result = self.memory.search_related(query, limit=k)
                 if hasattr(result, "__await__"):
                     result = await result
                 if isinstance(result, list):
+                    normalized_user_id = str(user_id or "").strip()
+                    filtered = [
+                        item
+                        for item in result
+                        if str(
+                            (
+                                item.get("user_id")
+                                or item.get("owner_user_id")
+                                or item.get("metadata", {}).get("user_id")
+                                or item.get("metadata", {}).get("owner_user_id")
+                            )
+                            or ""
+                        ).strip()
+                        == normalized_user_id
+                    ]
                     trace = {
                         "attempted": True,
                         "status": (
-                            "contributed" if result else "attempted_no_hits"
+                            "contributed" if filtered else "attempted_no_hits"
                         ),
                         "reason": (
-                            "legacy_results" if result else "legacy_no_hits"
+                            "legacy_results" if filtered else "legacy_no_hits"
                         ),
-                        "count": len(result),
+                        "count": len(filtered),
                     }
                     logger.debug(
-                        f"[ContextBroker] Fallback: Retrieved {len(result)} "
+                        f"[ContextBroker] Fallback: Retrieved {len(filtered)} "
                         f"results from legacy memory_store"
                     )
-                    return result, trace
+                    return filtered, trace
             except Exception as fallback_error:
                 logger.warning(
                     f"[ContextBroker] Legacy memory_store also failed: {fallback_error}"
@@ -951,7 +1037,7 @@ class ContextBroker:
         query: str,
         k: int,
         thread_id: int,
-        user_id: Optional[str],
+        user_id: str,
         project_id: Optional[int],
         source_mode: str,
         search_fn: Any,
@@ -980,6 +1066,7 @@ class ContextBroker:
                 query,
                 k,
                 namespace=_thread_namespace(thread_id),
+                user_id=user_id,
             )
         except Exception as exc:
             diagnostics.update(
@@ -1095,6 +1182,7 @@ class ContextBroker:
                     query,
                     request_k,
                     namespace=_thread_namespace(candidate_id),
+                    user_id=user_id,
                 )
             except Exception as exc:
                 diagnostics.update(
@@ -1332,6 +1420,7 @@ class ContextBroker:
         self,
         *,
         thread_id: int,
+        user_id: str,
         project_id: Optional[int] = None,
         k_project_docs: int = 4,
         k_thread_docs: int = 4,
@@ -1344,6 +1433,7 @@ class ContextBroker:
         return self._fetch_scoped_documents(
             thread_id=thread_id,
             project_id=resolved_project_id,
+            user_id=user_id,
             k_project_docs=k_project_docs,
             k_thread_docs=k_thread_docs,
             doc_excerpt_chars=doc_excerpt_chars,
@@ -1379,6 +1469,7 @@ class ContextBroker:
         *,
         thread_id: int,
         project_id: Optional[int],
+        user_id: str,
         k_project_docs: int,
         k_thread_docs: int,
         doc_excerpt_chars: int,
@@ -1415,6 +1506,7 @@ class ContextBroker:
                     docs["project"] = self._query_project_docs(
                         managed_session,
                         project_id=project_id,
+                        user_id=user_id,
                         k_docs=k_project_docs,
                         doc_excerpt_chars=doc_excerpt_chars,
                         generated_model=GeneratedDocument,
@@ -1424,6 +1516,7 @@ class ContextBroker:
                     docs["thread"] = self._query_thread_docs(
                         managed_session,
                         thread_id=thread_id,
+                        user_id=user_id,
                         k_docs=k_thread_docs,
                         doc_excerpt_chars=doc_excerpt_chars,
                         generated_model=GeneratedDocument,
@@ -1435,6 +1528,7 @@ class ContextBroker:
             docs["project"] = self._query_project_docs(
                 session,
                 project_id=project_id,
+                user_id=user_id,
                 k_docs=k_project_docs,
                 doc_excerpt_chars=doc_excerpt_chars,
                 generated_model=GeneratedDocument,
@@ -1444,6 +1538,7 @@ class ContextBroker:
             docs["thread"] = self._query_thread_docs(
                 session,
                 thread_id=thread_id,
+                user_id=user_id,
                 k_docs=k_thread_docs,
                 doc_excerpt_chars=doc_excerpt_chars,
                 generated_model=GeneratedDocument,
@@ -1471,6 +1566,7 @@ class ContextBroker:
         session: Any,
         *,
         project_id: Optional[int],
+        user_id: str,
         k_docs: int,
         doc_excerpt_chars: int,
         generated_model: Any,
@@ -1506,6 +1602,7 @@ class ContextBroker:
                 session=session,
                 doc_id=doc_id,
                 doc_type=doc_type,
+                user_id=user_id,
                 generated_model=generated_model,
                 uploaded_model=uploaded_model,
             )
@@ -1532,6 +1629,7 @@ class ContextBroker:
         session: Any,
         *,
         thread_id: int,
+        user_id: str,
         k_docs: int,
         doc_excerpt_chars: int,
         generated_model: Any,
@@ -1559,6 +1657,7 @@ class ContextBroker:
             loaded = self._load_doc_from_thread_link(
                 session=session,
                 doc_id=doc_id,
+                user_id=user_id,
                 generated_model=generated_model,
                 uploaded_model=uploaded_model,
             )
@@ -1590,6 +1689,7 @@ class ContextBroker:
         session: Any,
         doc_id: str,
         doc_type: str,
+        user_id: str,
         generated_model: Any,
         uploaded_model: Any,
     ) -> Any | None:
@@ -1600,6 +1700,9 @@ class ContextBroker:
                 .first()
             )
             if row and getattr(row, "deleted_at", None) is None:
+                row_user_id = str(getattr(row, "user_id", "") or "").strip()
+                if row_user_id != str(user_id).strip():
+                    return None
                 return row
             return None
 
@@ -1609,6 +1712,9 @@ class ContextBroker:
             .first()
         )
         if row and getattr(row, "deleted_at", None) is None:
+            row_user_id = str(getattr(row, "user_id", "") or "").strip()
+            if row_user_id != str(user_id).strip():
+                return None
             return row
         return None
 
@@ -1617,6 +1723,7 @@ class ContextBroker:
         *,
         session: Any,
         doc_id: str,
+        user_id: str,
         generated_model: Any,
         uploaded_model: Any,
     ) -> tuple[Any, str] | None:
@@ -1624,6 +1731,7 @@ class ContextBroker:
             session=session,
             doc_id=doc_id,
             doc_type="generated",
+            user_id=user_id,
             generated_model=generated_model,
             uploaded_model=uploaded_model,
         )
@@ -1634,6 +1742,7 @@ class ContextBroker:
             session=session,
             doc_id=doc_id,
             doc_type="uploaded",
+            user_id=user_id,
             generated_model=generated_model,
             uploaded_model=uploaded_model,
         )
