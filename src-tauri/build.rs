@@ -199,6 +199,15 @@ fn bundle_source_metadata(
             }
         };
 
+        if target_metadata.is_dir() {
+            println!(
+                "cargo:warning=skipping symlinked bundle directory {} -> {}",
+                source_path.display(),
+                link_target.display()
+            );
+            return Ok(None);
+        }
+
         return Ok(Some(target_metadata));
     }
 
