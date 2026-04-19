@@ -248,6 +248,7 @@ def test_chat_completion_task_uses_backend_temperature_through_completion_routin
         )
 
         task = ChatCompletionTask(
+            user_id="local",
             task_id="task-runtime",
             thread_id=42,
             origin="test",

@@ -312,6 +312,7 @@ def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model="mock-model",

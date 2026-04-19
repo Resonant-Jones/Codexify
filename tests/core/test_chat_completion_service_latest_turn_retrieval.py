@@ -127,7 +127,9 @@ async def test_build_messages_for_llm_uses_newest_user_turn_for_retrieval_query(
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         messages,
         provider,
@@ -165,7 +167,9 @@ async def test_build_messages_for_llm_keeps_older_user_turns_out_of_retrieval_ta
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         messages,
         _provider,
@@ -210,7 +214,9 @@ async def test_build_messages_for_llm_keeps_single_turn_retrieval_normal(
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         messages,
         provider,
@@ -243,7 +249,9 @@ async def test_build_messages_for_llm_fails_safe_without_latest_user_turn(
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
 
     with pytest.raises(ValueError, match="thread_has_no_usable_context"):
         await chat_completion_service.build_messages_for_llm(task)

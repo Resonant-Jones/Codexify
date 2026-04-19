@@ -163,6 +163,7 @@ async def test_build_messages_for_llm_defaults_to_project_for_missing_or_malform
     captured = _seed_completion_service(monkeypatch)
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model=None,
@@ -223,6 +224,7 @@ async def test_build_messages_for_llm_applies_explicit_retrieval_override_when_p
     captured = _seed_completion_service(monkeypatch)
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model=None,
@@ -262,6 +264,7 @@ async def test_build_messages_for_llm_keeps_requested_source_mode_without_overri
     captured = _seed_completion_service(monkeypatch)
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model=None,
@@ -322,6 +325,7 @@ async def test_build_messages_for_llm_applies_explicit_retrieval_override_modes_
     captured = _seed_completion_service(monkeypatch)
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model=None,
@@ -357,6 +361,7 @@ def test_run_chat_completion_task_preserves_routing_debug_metadata_in_payload_su
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model="mock-model",
