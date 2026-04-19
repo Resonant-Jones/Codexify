@@ -276,9 +276,14 @@ def create_project(
             persisted_description = _encode_project_description(
                 persisted_description, owner_id
             )
-        project_id = chatlog_db.create_project(
-            requested_name, persisted_description
-        )
+        if getattr(request_user_scope, "multi_user_enabled", False):
+            project_id = chatlog_db.create_project(
+                requested_name, persisted_description, user_id=owner_id
+            )
+        else:
+            project_id = chatlog_db.create_project(
+                requested_name, persisted_description
+            )
         return {
             "id": project_id,
             "name": requested_name,

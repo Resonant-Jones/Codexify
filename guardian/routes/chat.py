@@ -140,6 +140,12 @@ def _request_account_id(request_user_scope: RequestUserScope) -> str:
     return account_id or get_single_user_id()
 
 
+def resolve_user_id() -> str:
+    """Temporary bootstrap resolver for chat execution identity."""
+
+    return "local"
+
+
 def _resolve_thread_owner_hint(
     raw_user_id: Any,
     request_user_scope: RequestUserScope,
@@ -153,7 +159,7 @@ def _resolve_thread_owner_hint(
                 detail="Requested user_id does not match the authenticated account",
             )
         return account_id
-    return requested_user_id or "default"
+    return requested_user_id or account_id
 
 
 def _scope_query_user_id(
@@ -2739,7 +2745,7 @@ async def chat_complete(
     )
 
     task = ChatCompletionTask(
-        user_id="local",
+        user_id=resolve_user_id(),
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
         provider=provider,
