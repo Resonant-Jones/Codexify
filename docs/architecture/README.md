@@ -52,6 +52,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Flow Builder Elicitation Lane ADR](./adr/005-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
+- [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
