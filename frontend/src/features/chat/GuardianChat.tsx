@@ -37,8 +37,10 @@ import api, {
   buildChatCompletePath,
   clearInFlightCompletionTurnId,
   getInFlightCompletionTurnId,
+  invokeCommandBus,
   moveChatThread,
   updateThreadConfig,
+  OptionalSurfaceError,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
@@ -110,6 +112,8 @@ const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
 const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
+const PROFILE_SWITCH_COMMAND_ID = "op::guardian.profile.switch";
+const COMMAND_BUS_ACTOR_ID = "local";
 
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -1198,7 +1202,9 @@ export function GuardianChat({
   const applePlatform = useMemo(() => isApplePlatform(), []);
   const focusComposer = useCallback(() => {
     if (typeof document === "undefined") return;
-    const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a message…"]');
+    const composer = document.querySelector<HTMLTextAreaElement>(
+      '[data-testid="composer-textarea"]'
+    );
     composer?.focus();
   }, []);
   const mobileComposerShellMotionStyle = useMemo<CSSProperties>(
@@ -1864,11 +1870,19 @@ export function GuardianChat({
       const data = await fetchSystemPromptSummary(params);
       setPromptCostSummary(data ?? null);
     } catch (error) {
-      markRuntimeRouteUnavailableIfNotFound(
-        SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT,
-        error
-      );
-      console.debug("[guardian] prompt cost summary refresh failed", error);
+      if (error instanceof OptionalSurfaceError) {
+        if (error.kind === "forbidden") {
+          console.debug("[guardian] prompt cost summary forbidden — unavailable in this posture");
+        } else {
+          markRuntimeRouteUnavailableIfNotFound(
+            SUPPORTED_PROFILE_ROUTE_LABELS.SYSTEM_PROMPT,
+            error
+          );
+          console.debug("[guardian] prompt cost summary route absent — unavailable in this runtime");
+        }
+      } else {
+        console.debug("[guardian] prompt cost summary refresh failed", error);
+      }
       setPromptCostSummary(null);
     }
   }, [systemPromptCapability, systemPromptCapabilityReady]);
@@ -2011,11 +2025,35 @@ export function GuardianChat({
     async (threadId: number, profileId: string): Promise<boolean> => {
       setProfileSwitching(true);
       try {
-        const response = await api.post("/tools/execute", {
-          name: "guardian.profile.switch",
-          args: { thread_id: threadId, profile_id: profileId },
+        const response = await invokeCommandBus({
+          invoke_version: "1.0",
+          command_id: PROFILE_SWITCH_COMMAND_ID,
+          actor: {
+            kind: "human",
+            id: COMMAND_BUS_ACTOR_ID,
+          },
+          arguments: {
+            path_params: {
+              thread_id: threadId,
+            },
+            body: {
+              profile_id: profileId,
+            },
+          },
         });
-        const result = response?.data?.result;
+        const result = (response?.inline_result ?? {}) as {
+          ok?: boolean;
+          error?: unknown;
+        };
+        if (response?.status !== "completed") {
+          const detail =
+            typeof response?.error === "string"
+              ? response.error
+              : typeof result?.error === "string"
+                ? result.error
+                : "Profile switch failed";
+          throw new Error(detail);
+        }
         if (result && result.ok === false) {
           const detail =
             typeof result.error === "string"

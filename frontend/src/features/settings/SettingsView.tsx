@@ -16,6 +16,10 @@ import SettingsPanelDock from "@/features/settings/components/SettingsPanelDock"
 import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
 import SettingsSectionCard from "@/features/settings/components/SettingsSectionCard";
 import {
+  SETTINGS_DENSITY,
+  getSettingsHeadingRowStyle,
+} from "./settingsDensityContract";
+import {
   ChatGPTImportModal,
   type MigrationStats,
 } from "@/components/modals/ChatGPTImportModal";
@@ -1202,46 +1206,46 @@ export function SettingsView({
             role="tabpanel"
             id={getSettingsTabPanelId("system")}
             aria-labelledby={getSettingsTabButtonId("system")}
-            className="space-y-4"
+            className="space-y-[var(--shell-gap)]"
           >
             <div
-              className="space-y-2 rounded-[var(--tile-radius,19px)] border p-4"
+              className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border p-[var(--card-pad)]"
               style={{
                 borderColor: "var(--panel-border)",
                 background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
               }}
             >
-              <div className="space-y-1">
-                <div className="text-sm font-semibold">Local Preview</div>
+              <div className="space-y-[calc(var(--radius-micro)/2)]">
+                <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Local Preview</div>
                 <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
                   These values are local preview context only. The backend proposal
                   truth is generated and reviewed in the Imprint workspace below.
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Guardian Nickname</div>
+              <div className="grid grid-cols-1 gap-[var(--radius-micro)] sm:grid-cols-2">
+                <div className="space-y-[calc(var(--radius-micro)/2)]">
+                  <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Guardian Nickname</div>
                   <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
                 </div>
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">User Nickname</div>
+                <div className="space-y-[calc(var(--radius-micro)/2)]">
+                  <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>User Nickname</div>
                   <Input value={uName} onChange={(e) => setUName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
                 </div>
-                <div className="space-y-1 sm:col-span-2">
-                  <div className="text-sm font-medium">Occupation / Role</div>
+                <div className="space-y-[calc(var(--radius-micro)/2)] sm:col-span-2">
+                  <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Occupation / Role</div>
                   <Input value={uRole} onChange={(e) => setURole(e.target.value)} className="h-9" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
                 </div>
               </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Preview Prompt</div>
+              <div className="space-y-[calc(var(--radius-micro)/2)]">
+                <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Preview Prompt</div>
                 <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
               </div>
-              <div className="space-y-1">
-                <div className="text-sm font-medium">Notes</div>
+              <div className="space-y-[calc(var(--radius-micro)/2)]">
+                <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Notes</div>
                 <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={4} className="w-full" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
               </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-[calc(var(--radius-micro)/2)]">
+                <div className="flex items-center gap-[calc(var(--radius-micro)/2)]">
                   <Button
                     type="button"
                     onClick={handleSave}
@@ -1253,7 +1257,7 @@ export function SettingsView({
                   {systemPromptSaveMessage &&
                     systemPromptSaveStatus !== "saving" && (
                       <span
-                        className="text-xs opacity-70"
+                        className="text-xs"
                         style={{
                           color:
                             systemPromptSaveStatus === "error"
@@ -1275,17 +1279,17 @@ export function SettingsView({
 
             <SettingsSectionCard
               data-testid="imprint-workspace"
-              className="space-y-4"
+              className="space-y-[var(--shell-gap)]"
             >
-              <div className="space-y-1">
-                <div className="text-sm font-semibold">Imprint Workspace</div>
+              <div className="space-y-[calc(var(--radius-micro)/2)]">
+                <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Imprint Workspace</div>
                 <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
                   Generate Proposal uses the backend authority path. Review, edit,
                   and inspect the returned proposal through the mounted panels.
                 </p>
               </div>
               <ImprintReviewPanel />
-              <div className="grid gap-4 xl:grid-cols-2">
+              <div className="grid gap-[var(--shell-gap)] xl:grid-cols-2">
                 <PersonalFactsPanel />
                 <SystemPromptInspector />
               </div>
@@ -1299,16 +1303,16 @@ export function SettingsView({
             role="tabpanel"
             id={getSettingsTabPanelId("appearance")}
             aria-labelledby={getSettingsTabButtonId("appearance")}
-            className="space-y-5"
+            className="space-y-[var(--shell-gap)]"
           >
-            <div className="space-y-2">
-              <div className="text-sm font-semibold">Theme</div>
+            <div className="space-y-[calc(var(--radius-micro)/2)]">
+              <div style={SETTINGS_DENSITY.sectionTitle}>Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
-              <div className="text-xs opacity-80">Resolved: {resolved}</div>
+              <div className="text-xs" style={{ color: "var(--muted)" }}>Resolved: {resolved}</div>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-sm font-semibold">Wallpaper</div>
+            <div className="space-y-[calc(var(--radius-micro)/2)]">
+              <div style={SETTINGS_DENSITY.sectionTitle}>Wallpaper</div>
               <div className="flex items-center gap-2">
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
                 <Button type="button" variant="ghost" size="sm" className="rounded-[var(--tile-radius,19px)] flex items-center gap-2" onClick={triggerFile}>
@@ -1320,13 +1324,13 @@ export function SettingsView({
                     Clear
                   </Button>
                 )}
-                <span className="text-xs opacity-70">{fileLabel}</span>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>{fileLabel}</span>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-base font-semibold">Background Accents</div>
-              <div className="text-xs opacity-80">Base color (used when no wallpaper)</div>
+            <div className="space-y-[calc(var(--radius-micro)/2)]">
+              <div style={SETTINGS_DENSITY.sectionTitle}>Background Accents</div>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>Base color (used when no wallpaper)</p>
               <Input
                 type="color"
                 value={baseColor}
@@ -1336,57 +1340,57 @@ export function SettingsView({
               />
             </div>
 
-            <div className="space-y-2">
-              <div className="text-base font-semibold">File Type Colors</div>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-4 max-w-md">
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">PDF</span>
+            <div className="space-y-[calc(var(--radius-micro)/2)]">
+              <div style={SETTINGS_DENSITY.sectionTitle}>File Type Colors</div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-[var(--shell-gap)] max-w-md">
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>PDF</span>
                   <Input id="color-pdf" type="color" value={extColors.pdf} onChange={(e) => setExtColors({ ...extColors, pdf: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">DOC</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>DOC</span>
                   <Input id="color-doc" type="color" value={extColors.doc} onChange={(e) => setExtColors({ ...extColors, doc: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">MD</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>MD</span>
                   <Input id="color-md" type="color" value={extColors.md} onChange={(e) => setExtColors({ ...extColors, md: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">PNG</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>PNG</span>
                   <Input id="color-png" type="color" value={extColors.png} onChange={(e) => setExtColors({ ...extColors, png: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">SKETCH</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>SKETCH</span>
                   <Input id="color-sketch" type="color" value={extColors.sketch} onChange={(e) => setExtColors({ ...extColors, sketch: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">TXT</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>TXT</span>
                   <Input id="color-txt" type="color" value={extColors.txt} onChange={(e) => setExtColors({ ...extColors, txt: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">DOCX</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>DOCX</span>
                   <Input id="color-docx" type="color" value={extColors.docx} onChange={(e) => setExtColors({ ...extColors, docx: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">JPEG</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>JPEG</span>
                   <Input id="color-jpeg" type="color" value={extColors.jpeg} onChange={(e) => setExtColors({ ...extColors, jpeg: e.target.value })} className="color-swatch" />
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs">CODEX</span>
+                <div className="flex flex-col items-center gap-[calc(var(--radius-micro)/2)]">
+                  <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>CODEX</span>
                   <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="color-swatch" />
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-base font-semibold">Dashboard Layout</div>
-              <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Recent thread rows</div>
-                    <div className="text-xs opacity-70">Controls the 2 × N grid for Recent Threads.</div>
+            <div className="space-y-[calc(var(--radius-micro)/2)]">
+              <div style={SETTINGS_DENSITY.sectionTitle}>Dashboard Layout</div>
+              <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+                <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
+                  <div className="space-y-[calc(var(--radius-micro)/4)]">
+                    <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Recent thread rows</div>
+                    <p className="text-xs" style={{ color: "var(--muted)" }}>Controls the 2 × N grid for Recent Threads.</p>
                   </div>
-                  <span className="text-xs font-semibold">
+                  <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>
                     {dashboardThreadRows} {dashboardThreadRows === 1 ? "row" : "rows"}
                   </span>
                 </div>
@@ -1402,15 +1406,15 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="flex flex-col items-center space-y-4">
-              <div className="space-y-2 text-center">
-                <div className="text-sm font-semibold">Depth</div>
+            <div className="flex flex-col items-center gap-[var(--shell-gap)]">
+              <div className="space-y-[calc(var(--radius-micro)/2)] text-center">
+                <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Depth</div>
                 <div className="w-[300px] max-w-full mx-auto">
                   <Input type="range" min={0} max={1} step={0.01} value={depth} onChange={(e) => setDepth(Number(e.target.value))} />
                 </div>
               </div>
-              <div className="space-y-2 text-center">
-                <div className="text-sm font-semibold">Fade</div>
+              <div className="space-y-[calc(var(--radius-micro)/2)] text-center">
+                <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Fade</div>
                 <div className="w-[300px] max-w-full mx-auto">
                   <Input type="range" min={0} max={1} step={0.01} value={fade} onChange={(e) => setFade(Number(e.target.value))} />
                 </div>
@@ -1426,21 +1430,21 @@ export function SettingsView({
             role="tabpanel"
             id={getSettingsTabPanelId("connectors")}
             aria-labelledby={getSettingsTabButtonId("connectors")}
-            className="space-y-4"
+            className="space-y-[var(--shell-gap)]"
           >
             {runtimeCapabilitiesReady &&
               connectorsCapability === "unavailable" && (
-                <div className="text-sm opacity-70">
+                <div className="text-sm" style={{ color: "var(--muted)" }}>
                   Connectors are unavailable in this runtime profile.
                 </div>
               )}
             {!runtimeCapabilitiesReady && (
-              <div className="text-sm opacity-70">
+              <div className="text-sm" style={{ color: "var(--muted)" }}>
                 Checking connector availability…
               </div>
             )}
-            {loading && <div className="text-sm opacity-70">Loading connectors…</div>}
-            {error && <div className="text-sm text-red-500">{error}</div>}
+            {loading && <div className="text-sm" style={{ color: "var(--muted)" }}>Loading connectors…</div>}
+            {error && <div className="text-sm" style={{ color: "var(--danger-text)" }}>{error}</div>}
             {runtimeCapabilitiesReady &&
             connectorsCapability !== "unavailable" &&
             Array.isArray(connectors) &&
@@ -1460,7 +1464,7 @@ export function SettingsView({
               connectorsCapability !== "unavailable" &&
               !loading &&
               !error && (
-                <div className="text-sm opacity-70">No connectors available</div>
+                <div className="text-sm" style={{ color: "var(--muted)" }}>No connectors available</div>
               )
             )}
           </SettingsSectionCard>
@@ -1472,15 +1476,15 @@ export function SettingsView({
             role="tabpanel"
             id={getSettingsTabPanelId("data")}
             aria-labelledby={getSettingsTabButtonId("data")}
-            className="space-y-4"
+            className="space-y-[var(--shell-gap)]"
           >
-            <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-2">
-                  <div className="text-sm font-semibold">
+            <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+              <div className="flex items-start justify-between gap-[var(--radius-micro)]">
+                <div className="space-y-[calc(var(--radius-micro)/2)]">
+                  <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>
                     Migrate from ChatGPT
                   </div>
-                  <p className="text-xs opacity-70 leading-relaxed">
+                  <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
                     Import your ChatGPT export. Codexify will preserve project
                     grouping and remove tool-output noise from the user-visible
                     transcript.
@@ -1501,7 +1505,7 @@ export function SettingsView({
                 </div>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-[var(--radius-micro)] sm:grid-cols-2">
                 <Button
                   type="button"
                   onClick={() => {
@@ -1524,9 +1528,9 @@ export function SettingsView({
               </div>
 
               {shouldShowImportStatusPanel && (
-                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
+                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[calc(var(--card-pad)*0.75)]">
+                  <div className="flex items-center justify-between gap-[var(--radius-micro)]">
+                    <div className="flex items-center gap-[calc(var(--radius-micro)/2)]">
                       {isImportActive && (
                         <span className="inline-block h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                       )}
@@ -1560,24 +1564,24 @@ export function SettingsView({
                       {isImportTerminal ? "Dismiss" : "Hide"}
                     </Button>
                   </div>
-                  <div className="mt-2 text-xs opacity-80">
+                  <div className="mt-[calc(var(--radius-micro)/2)] text-xs" style={{ color: "var(--muted)" }}>
                     Elapsed: {importElapsed}
                     {importLastEventAt > 0 ? " • Live updates active" : ""}
                   </div>
                   {importTaskId && (
-                    <div className="mt-1 text-[11px] opacity-70 break-all">
+                    <div className="mt-[calc(var(--radius-micro)/4)] text-[11px] break-all" style={{ color: "var(--muted)" }}>
                       Task ID: {importTaskId}
                     </div>
                   )}
-                  <div className="mt-1 text-xs">{importDetail || "Import task running."}</div>
-                  <div className="mt-2 text-xs opacity-70">
+                  <div className="mt-[calc(var(--radius-micro)/4)] text-xs">{importDetail || "Import task running."}</div>
+                  <div className="mt-[calc(var(--radius-micro)/2)] text-xs" style={{ color: "var(--muted)" }}>
                     You can navigate away; this continues in the background.
                   </div>
                 </div>
               )}
 
               {!shouldShowImportStatusPanel && isImportActive && (
-                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-3 text-xs flex items-center justify-between gap-3">
+                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[calc(var(--card-pad)*0.75)] text-xs flex items-center justify-between gap-[var(--radius-micro)]">
                   <span>Import is running in the background.</span>
                   <Button
                     type="button"
@@ -1606,11 +1610,11 @@ export function SettingsView({
               )}
 
               {migrationStats && (
-                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[calc(var(--card-pad)*0.75)]">
+                  <div className="text-xs font-semibold uppercase tracking-wide" style={SETTINGS_DENSITY.metaLabel}>
                     Import Summary
                   </div>
-                  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  <div className="mt-[calc(var(--radius-micro)/2)] grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                     <div>Threads imported</div>
                     <div className="text-right tabular-nums">
                       {migrationStats.threads_imported ?? 0}
@@ -1636,7 +1640,7 @@ export function SettingsView({
               )}
 
               {migrationStepSkipped && !migrationStats && (
-                <p className="text-xs opacity-70 leading-relaxed">
+                <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
                   Migration step skipped for this session. You can come back to
                   import any time.
                 </p>
@@ -1661,23 +1665,23 @@ export function SettingsView({
             role="tabpanel"
             id={getSettingsTabPanelId("connection")}
             aria-labelledby={getSettingsTabButtonId("connection")}
-            className="space-y-4"
+            className="space-y-[var(--shell-gap)]"
           >
-            <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
-              <div className="text-sm font-semibold">Desktop Connection</div>
-              <p className="text-xs opacity-70">
+            <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+              <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Desktop Connection</div>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
                 Configure backend routing and the public base URL used for copied share links.
               </p>
-              <div className="space-y-2">
-                <label className="text-xs opacity-80">Backend Base URL</label>
+              <div className="space-y-[calc(var(--radius-micro)/2)]">
+                <label className="text-xs" style={{ color: "var(--muted)" }}>Backend Base URL</label>
                 <Input
                   value={desktopBackendBaseUrl}
                   onChange={(event) => setDesktopBackendBaseUrl(event.target.value)}
                   placeholder="http://127.0.0.1:8888"
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-xs opacity-80">Share Public Base URL</label>
+              <div className="space-y-[calc(var(--radius-micro)/2)]">
+                <label className="text-xs" style={{ color: "var(--muted)" }}>Share Public Base URL</label>
                 <Input
                   value={desktopShareBaseUrl}
                   onChange={(event) => setDesktopShareBaseUrl(event.target.value)}
@@ -1686,11 +1690,12 @@ export function SettingsView({
               </div>
               {runtimeConfigSnapshot ? (
                 <div
-                  className="rounded-[14px] border px-3 py-2 text-[11px] opacity-80"
+                  className="rounded-[14px] border px-3 py-2 text-[11px]"
                   style={{
                     borderColor: "var(--panel-border)",
                     background:
                       "color-mix(in oklab, var(--panel-sheet) 92%, transparent)",
+                    color: "var(--muted)",
                   }}
                 >
                   <div>Active backend: {runtimeConfigSnapshot.backendBaseUrl || "(not set)"}</div>
@@ -1698,7 +1703,7 @@ export function SettingsView({
                   <div>Active events endpoint: {runtimeConfigSnapshot.sseUrl || "(not set)"}</div>
                 </div>
               ) : null}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-[var(--radius-micro)]">
                 <Button
                   type="button"
                   onClick={handleSaveConnectionSettings}
@@ -1719,9 +1724,9 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="space-y-3 rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-4">
-              <div className="text-sm font-semibold">Local API Key (Secure Store)</div>
-              <p className="text-xs opacity-70">
+            <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+              <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Local API Key (Secure Store)</div>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
                 Stored in macOS keychain for desktop local-safe auth.
               </p>
               <Input
@@ -1730,7 +1735,7 @@ export function SettingsView({
                 onChange={(event) => setDesktopApiKeyInput(event.target.value)}
                 placeholder="Enter Guardian API key"
               />
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-[var(--radius-micro)]">
                 <Button
                   type="button"
                   onClick={handleSaveDesktopApiKey}
@@ -1752,10 +1757,10 @@ export function SettingsView({
             </div>
 
             {connectionMessage && (
-              <div className="text-xs text-emerald-300">{connectionMessage}</div>
+              <div className="text-xs" style={{ color: "rgb(134, 239, 172)" }}>{connectionMessage}</div>
             )}
             {connectionError && (
-              <div className="text-xs text-red-400">{connectionError}</div>
+              <div className="text-xs" style={{ color: "var(--danger-text)" }}>{connectionError}</div>
             )}
           </SettingsSectionCard>
         )}

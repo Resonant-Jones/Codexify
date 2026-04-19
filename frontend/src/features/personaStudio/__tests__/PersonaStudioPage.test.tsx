@@ -26,7 +26,7 @@ describe("Persona Studio Page", () => {
     const shell = screen.getByTestId("persona-studio-shell");
     const supportSurfaces = screen.getByTestId("persona-studio-support-surfaces");
 
-    expect(within(shell).queryByTestId("persona-studio-utility-pane")).not.toBeInTheDocument();
+    expect(within(shell).getByTestId("persona-studio-utility-pane")).toBeVisible();
     expect(within(shell).getByTestId("persona-studio-editor")).toBeVisible();
     expect(within(shell).getByTestId("persona-studio-ephemeral-chat-lane")).toBeVisible();
     expect(supportSurfaces).toBeVisible();
@@ -67,7 +67,7 @@ describe("Persona Studio Page", () => {
     expect(within(header).getByText(/^ephemeral$/i)).toBeVisible();
     expect(within(composer).getByRole("button", { name: /clear ephemeral session/i })).toBeVisible();
     expect(within(configurationLane).queryByTestId("persona-studio-utility-pane")).not.toBeInTheDocument();
-    expect(within(shell).queryByTestId("persona-studio-support-surfaces")).not.toBeInTheDocument();
+    expect(within(shell).getByTestId("persona-studio-support-surfaces")).toBeVisible();
     expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
     expect(screen.getByText(/^session-local$/i)).toBeVisible();
     expect(screen.getByText(/^non-runtime$/i)).toBeVisible();
@@ -105,19 +105,36 @@ describe("Persona Studio Page", () => {
 
     await user.click(screen.getByRole("button", { name: /^planning$/i }));
 
-    const nameInput = screen.getByPlaceholderText("Enter persona name");
-    await user.clear(nameInput);
-    await user.type(nameInput, "Shadow Guardian");
+    await user.type(
+      screen.getByRole("textbox", { name: /ephemeral chat prompt/i }),
+      "Refine the answer"
+    );
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("persona-studio-ephemeral-chat-transcript")
+      ).toHaveTextContent(/current draft snapshot:/i)
+    );
 
-    expect(screen.getByText(/draft changed since the last reply/i)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /model/i }));
+    await user.selectOptions(screen.getByRole("combobox", { name: /provider/i }), "anthropic");
 
-    await user.type(screen.getByRole("textbox", { name: /ephemeral chat prompt/i }), "Refine the answer");
+    await waitFor(() =>
+      expect(screen.getByText(/draft changed since the last reply/i)).toBeVisible()
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ephemeral chat prompt/i }),
+      "Refine the answer again"
+    );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
-    expect(within(transcript).getByText(/guardian default is the active persona draft right now/i)).toBeVisible();
-    expect(within(transcript).getByText(/shadow guardian is the active persona draft right now/i)).toBeVisible();
-    expect(within(transcript).getByText(/^earlier draft$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
+    expect(within(transcript).getAllByText(/anthropic \/ gpt-4o/i).length).toBeGreaterThan(0);
+    expect(within(transcript).getAllByText(/^earlier draft$/i).length).toBeGreaterThan(0);
     expect(within(transcript).getByText(/^current draft$/i)).toBeVisible();
   });
 
@@ -241,10 +258,9 @@ describe("Persona Studio Page", () => {
   it("renders the section tabs in the header area", () => {
     renderPage();
 
-    const header = screen.getByTestId("persona-studio-page-header");
-    const sectionTabs = within(header).getByTestId("persona-studio-section-tabs");
+    const sectionTabs = screen.getByTestId("persona-studio-tabs");
     expect(sectionTabs).toBeVisible();
-    expect(within(screen.getByTestId("persona-studio-editor")).queryByTestId("persona-studio-section-tabs")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("persona-studio-editor")).queryByTestId("persona-studio-tabs")).not.toBeInTheDocument();
   });
 
   it("keeps the active profile presentation only in the main editor", () => {
