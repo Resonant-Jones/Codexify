@@ -21,6 +21,9 @@ def _utc_now_iso() -> str:
 def _base_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
     base: dict[str, Any] = {
         "task_id": str(payload.get("task_id") or uuid.uuid4()),
+        "request_id": str(
+            payload.get("request_id") or payload.get("requestId") or ""
+        ),
         "created_at": str(payload.get("created_at") or _utc_now_iso()),
         "origin": str(payload.get("origin") or "unknown"),
     }
@@ -416,9 +419,13 @@ class DelegationSummary:
 @dataclass
 class BaseTask:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    request_id: str = ""
     type: str = "base"
     created_at: str = field(default_factory=_utc_now_iso)
     origin: str = "unknown"
+
+    def __post_init__(self) -> None:
+        self.request_id = _coerce_optional_text(self.request_id) or ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

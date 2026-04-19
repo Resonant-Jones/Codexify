@@ -46,6 +46,9 @@ from starlette.responses import StreamingResponse
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
+from guardian.core.candidate_trace_store import (
+    get_latest_candidate_trace as _get_latest_candidate_trace,
+)
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -2765,6 +2768,7 @@ async def chat_complete(
         )
         raise _completion_service_unavailable("task_identity_invalid")
     task.task_id = task_identity
+    task.request_id = str(request_id or task_identity).strip() or task_identity
     task.turn_lock_owner = task_identity
 
     locked = _run_completion_redis_op(
@@ -3680,6 +3684,49 @@ def get_latest_rag_trace(
     return trace
 
 
+def _empty_candidate_trace(thread_id: int) -> dict[str, Any]:
+    return {
+        "thread_id": str(thread_id),
+        "request_id": "",
+        "candidates": [],
+        "selection_strategy": "",
+        "created_at": "",
+    }
+
+
+@router.get("/{thread_id}/debug/candidate-trace/latest", tags=["Debug"])
+def get_latest_candidate_trace(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """
+    [DEV ONLY] Get the latest candidate trace for this thread.
+
+    Returns an empty diagnostic surface when no candidate trace is available.
+    """
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    trace = _get_latest_candidate_trace(str(thread_id))
+    if not trace:
+        return _empty_candidate_trace(thread_id)
+
+    candidate_trace = dict(trace)
+    candidate_trace.setdefault("thread_id", str(thread_id))
+    candidate_trace.setdefault("request_id", "")
+    candidate_trace.setdefault("candidates", [])
+    candidate_trace.setdefault("selection_strategy", "")
+    candidate_trace.setdefault("created_at", "")
+    return candidate_trace
+
+
 def _synthesize_retrieval_posture(
     trace: Dict[str, Any],
     payload_summary: Dict[str, Any] | None,
@@ -4147,6 +4194,22 @@ def api_get_latest_rag_trace(
 ):
     """Compat alias for GET /chat/debug/rag-trace/{thread_id}/latest."""
     return get_latest_rag_trace(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get(
+    "/{thread_id}/debug/candidate-trace/latest", tags=["Debug"]
+)
+def api_get_latest_candidate_trace(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Compat alias for GET /chat/{thread_id}/debug/candidate-trace/latest."""
+    return get_latest_candidate_trace(
         thread_id,
         api_key=api_key,
         request_user_scope=request_user_scope,
