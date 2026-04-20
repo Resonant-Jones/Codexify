@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat as chat_routes
+from tests.utils import get_test_user_id
 
 
 def _patch_chat_db(monkeypatch, db: MagicMock) -> None:
@@ -14,6 +15,7 @@ def _patch_chat_db(monkeypatch, db: MagicMock) -> None:
 
 
 def test_single_user_create_thread_keeps_legacy_owner_hint(monkeypatch):
+    expected_user_id = get_test_user_id()
     db = MagicMock()
     db.get_recent_thread.return_value = None
     db.create_chat_thread.return_value = {
@@ -32,8 +34,8 @@ def test_single_user_create_thread_keeps_legacy_owner_hint(monkeypatch):
         {"title": "Legacy", "user_id": "legacy-user"},
         api_key="test-api-key",
         request_user_scope=RequestUserScope(
-            user_id="local",
-            account_id="local",
+            user_id=expected_user_id,
+            account_id=expected_user_id,
             multi_user_enabled=False,
         ),
     )
