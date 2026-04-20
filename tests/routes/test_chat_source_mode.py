@@ -12,6 +12,7 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_PROJECT,
 )
 from guardian.tasks.types import task_from_dict
+from tests.utils import get_test_user_id
 
 
 @pytest.mark.parametrize(
@@ -28,9 +29,10 @@ from guardian.tasks.types import task_from_dict
 def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     test_client, mock_db, monkeypatch, raw_source_mode, expected_source_mode
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
     }
@@ -111,9 +113,10 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
 def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
     test_client, mock_db, monkeypatch, slash_intent, expected_retrieval_override
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
     }
@@ -202,9 +205,10 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
 def test_chat_complete_rejects_invalid_slash_intent_values(
     test_client, mock_db, invalid_slash_intent
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
     }
@@ -267,11 +271,13 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
 async def test_context_broker_merges_retrieval_override_without_skipping_thread_first(
     monkeypatch, retrieval_override, expected_policy, expected_widening_enabled
 ):
+    expected_user_id = get_test_user_id()
+
     class _Chatlog:
         def get_chat_thread(self, thread_id):
             return {
                 "id": thread_id,
-                "user_id": "test_user",
+                "user_id": expected_user_id,
                 "project_id": 7,
                 "archived_at": None,
             }

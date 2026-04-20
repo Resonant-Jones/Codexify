@@ -30,8 +30,18 @@ def test_single_user_create_and_list_preserve_legacy_behavior(monkeypatch):
     expected_user_id = get_test_user_id()
     db = MagicMock()
     db.list_projects.return_value = [
-        {"id": 1, "name": "Imports", "description": "Legacy"},
-        {"id": 2, "name": "General", "description": ""},
+        {
+            "id": 1,
+            "name": "Imports",
+            "description": "Legacy",
+            "user_id": expected_user_id,
+        },
+        {
+            "id": 2,
+            "name": "General",
+            "description": "",
+            "user_id": expected_user_id,
+        },
     ]
     db.create_project.return_value = 7
     _patch_projects_db(monkeypatch, db)
@@ -61,13 +71,20 @@ def test_single_user_create_and_list_preserve_legacy_behavior(monkeypatch):
         "description": "Legacy description",
     }
     assert listed == [
-        {"id": 1, "name": "Imports", "description": "Legacy"},
+        {
+            "id": 1,
+            "name": "Imports",
+            "description": "Legacy",
+            "user_id": expected_user_id,
+        },
         {
             "id": 2,
             "name": "General",
             "description": "Default project for content without a specified project",
+            "user_id": expected_user_id,
         },
     ]
+    assert all(project["user_id"] == expected_user_id for project in listed)
     db.create_project.assert_called_once_with(
         "New Project", "Legacy description"
     )
