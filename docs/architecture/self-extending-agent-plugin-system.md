@@ -2,6 +2,8 @@
 
 This note is the companion architecture reference for ADR-010. It explains the governed shape of Codexify's self-extending model without claiming runtime implementation.
 
+Implementation status: extension proposal persistence exists on the backend; sandbox execution, install/enable flows, runtime binding, and plugin execution do not.
+
 ## Purpose
 
 Codexify needs a way to author new capabilities from within the system without turning the assistant into a freeform self-modifying agent.

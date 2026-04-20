@@ -82,6 +82,11 @@ PAYLOAD_ORDER = (
         "entities/project_document_links.json",
         "fetch_account_export_project_document_links_for_user",
     ),
+    (
+        "extension_proposals",
+        "entities/extension_proposals.json",
+        "fetch_account_export_extension_proposals_for_user",
+    ),
 )
 
 PAYLOAD_FAMILIES = tuple(entry[0] for entry in PAYLOAD_ORDER)

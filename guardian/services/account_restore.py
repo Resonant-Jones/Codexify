@@ -36,6 +36,7 @@ RESTORE_ORDER = (
     "generated_images",
     "thread_documents",
     "project_document_links",
+    "extension_proposals",
 )
 
 RESTORE_METHODS = {
@@ -1183,6 +1184,9 @@ class AccountRestoreService:
             "project_document_links": self._sort_project_document_links(
                 parsed.payload_rows["project_document_links"]
             ),
+            "extension_proposals": self._sort_extension_proposals(
+                parsed.payload_rows["extension_proposals"]
+            ),
         }
 
         try:
@@ -1417,6 +1421,17 @@ class AccountRestoreService:
                 _sort_text(row.get("project_id")),
                 _sort_text(row.get("attached_at")),
                 _sort_text(row.get("id")),
+            ),
+        )
+
+    def _sort_extension_proposals(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return sorted(
+            rows,
+            key=lambda row: (
+                _sort_text(row.get("created_at")),
+                _sort_text(row.get("proposal_id") or row.get("id")),
             ),
         )
 
