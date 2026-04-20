@@ -130,6 +130,7 @@ def test_explicit_provider_wins_over_profile_override(monkeypatch):
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model=None,
@@ -154,6 +155,7 @@ def test_explicit_model_unavailable_fails_instead_of_fallback(monkeypatch):
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model="missing-model",
@@ -178,6 +180,7 @@ def test_explicit_model_selects_provider_even_with_profile_override(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider=None,
         model="moonshotai/kimi-k2-instruct-0905",
@@ -223,6 +226,7 @@ def test_resolution_uses_degraded_model_fallback_on_classification_failure(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model=None,

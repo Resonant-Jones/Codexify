@@ -154,6 +154,7 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
         if task.turn_id:
             completion_origin = f"{completion_origin}|turn_id={task.turn_id}"
         completion_task = ChatCompletionTask(
+            user_id="local",
             thread_id=task.thread_id,
             provider=task.completion_provider,
             model=task.completion_model,
@@ -178,6 +179,7 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
             completion_future = completion_pool.submit(
                 run_chat_completion_task,
                 completion_task,
+                user_id=completion_task.user_id,
                 token_callback=lambda token: _safe_publish(
                     task.task_id,
                     "task.progress",

@@ -46,6 +46,7 @@ def _build_task(
     model: str = "test-model",
 ) -> ChatCompletionTask:
     task = ChatCompletionTask(
+        user_id="local",
         task_id=task_id,
         thread_id=thread_id,
         provider=provider,

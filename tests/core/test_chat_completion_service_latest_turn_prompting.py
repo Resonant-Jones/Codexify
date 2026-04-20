@@ -121,7 +121,9 @@ async def test_build_messages_for_llm_adds_latest_turn_only_instruction(
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         messages,
         provider,
@@ -163,7 +165,9 @@ async def test_build_messages_for_llm_keeps_normal_single_turn_threads_functiona
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         messages,
         provider,
