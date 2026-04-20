@@ -32,7 +32,11 @@ Sequence:
 5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
 7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, and resolves provider/model/profile settings.
-8. The provider call executes through `guardian/core/ai_router.py`. If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
+8. The provider call executes through `guardian/core/ai_router.py`.
+   - If the provider returns plain assistant text, the existing completion path continues.
+   - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
+   - No second tool turn is permitted in this slice.
+   - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. The worker publishes terminal task events and releases the turn lock in `finally`.
 
@@ -49,6 +53,7 @@ Failure modes:
 - Provider connectivity or timeout failures that become `task.failed`
 - Cloud-provider failure that rescues to local execution instead of failing outright
 - Blank or malformed provider output forcing fallback assistant text
+- Structured tool-decision failure that stops after one bounded tool turn and surfaces explicit loop-stop metadata
 - Worker downtime causing tasks to queue without completion
 - Task-event publish failures that degrade progress or terminal visibility without necessarily stopping execution
 
@@ -227,7 +232,10 @@ Sequence:
 3. Tool policy is evaluated and the run is persisted through `CommandBusStore`.
 4. Allowed commands execute via loopback HTTP back into the same backend, guarded against recursion.
 5. Run events are appended and can be streamed from `/api/guardian/commands/runs/{run_id}/events`.
-6. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
+6. The legacy `/tools` layer derives tool specs from the command manifest but still keeps some process-local job state.
+7. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
+8. The bounded chat tool-turn slice also lands on this command-bus lane, but it remains one turn only and does not become a recursive agent loop.
+9. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
 
 Outputs:
 - Command bus run record plus event stream
