@@ -1,8 +1,8 @@
 # Agent Tool Loop Contract
 
-Purpose: define the canonical bounded contract for future ReAct / function-calling orchestration so runtime semantics and transcript integrity have one stable vocabulary before any live loop is implemented.
+Purpose: define the canonical bounded contract for the one-turn tool-augmented completion slice so runtime semantics and transcript integrity keep one stable vocabulary while the broader loop remains bounded.
 
-Last updated: 2026-04-17
+Last updated: 2026-04-20
 
 Source anchors:
 - docs/architecture/00-current-state.md
@@ -20,26 +20,27 @@ Source anchors:
 
 ## Scope
 
-- This is a contract for future bounded tool-calling orchestration.
-- The current runtime is still queue-backed single-pass completion and does not yet emit this loop contract.
+- This is the contract for the implemented first bounded tool-augmented completion slice.
+- The current runtime can still return a plain assistant answer with no tool turn, but it can now also execute exactly one model-chosen command-bus invoke, reinject the result, and request one final assistant answer.
 - This document is about runtime semantics and transcript integrity, not UI design.
-- It intentionally avoids live provider tool-calling, loop execution, or any claim that the supported beta already ships autonomous coding-agent execution.
+- It intentionally avoids any claim that the supported beta ships recursive or autonomous coding-agent execution.
 
 ## Current Truth Anchors
 
 ### What is true now
 
-- Chat completion is still single-pass. `run_chat_completion_task()` assembles one provider-ready bundle, calls one provider path, and persists one assistant message when persistence is enabled. (`guardian/core/chat_completion_service.py`)
-- Provider execution currently returns assistant content, not a looped tool-turn runtime object. `chat_with_ai()` returns the provider response text (or a provider response wrapper), and `run_chat_completion_task()` persists that assistant text. (`guardian/core/ai_router.py`, `guardian/core/chat_completion_service.py`)
+- Chat completion is still bounded. `run_chat_completion_task()` assembles one provider-ready bundle, returns a plain assistant answer when no tool is chosen, and when the model emits a structured tool decision it executes exactly one command-bus invoke, reinjects the tool result, and requests one final assistant answer. (`guardian/core/chat_completion_service.py`)
+- Provider execution can now return either assistant content or a bounded tool-decision result. `chat_with_ai()` still returns the provider response text or wrapper, and `normalize_completion_output()` classifies the response into assistant, tool decision, or malformed tool decision. (`guardian/core/ai_router.py`, `guardian/core/chat_completion_service.py`)
+- The runtime now surfaces bounded tool-loop observability fields at the completion seam: `messageId`, `requestId`, `toolTurnId`, `toolTurnState`, `loopStopReason`, and `commandRunId`. (`guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`)
 - The command bus already exists as the durable execution substrate for command-style work, with persisted runs, run events, idempotency, and policy gating. (`guardian/command_bus/contracts.py`, `guardian/command_bus/invoke.py`)
 - The legacy `/api/tools` compatibility shim has been removed; future loop semantics should build on the command bus rather than reintroducing a parallel tools route.
 - Policy, approval, and idempotency semantics already exist at the command bus and tool helper layers. (`guardian/command_bus/contracts.py`, `guardian/command_bus/invoke.py`, `guardian/tools/spec.py`)
 
 ### What is not yet true
 
-- Bounded ReAct-style orchestration is not part of the current supported beta promise. The supported current release state still describes queue-backed completion, not autonomous tool-loop execution. (`docs/architecture/00-current-state.md`)
-- The current supported runtime does not yet emit `AgentLoopRun` or `ToolCallTurn` objects.
-- There is no live provider tool-calling loop in the current backend path.
+- Recursive or open-ended ReAct-style orchestration is not part of the current supported beta promise.
+- The runtime does not yet emit durable `AgentLoopRun` or `ToolCallTurn` records.
+- There is still no live provider loop that can choose more than one tool turn.
 - `/tools` behavior is not the canonical long-term execution semantics for future agent loops.
 
 ### What this task may assume

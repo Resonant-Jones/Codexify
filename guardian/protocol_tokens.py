@@ -19,6 +19,23 @@ class TaskEventType(str, Enum):
     TASK_EVENT = "task.event"
 
 
+class ToolTurnState(str, Enum):
+    NOT_STARTED = "not_started"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+class LoopStopReason(str, Enum):
+    MODEL_FINAL_ANSWER = "model_final_answer"
+    TOOL_TURN_COMPLETED = "tool_turn_completed"
+    TOOL_TURN_BLOCKED = "tool_turn_blocked"
+    TOOL_TURN_FAILED = "tool_turn_failed"
+    TOOL_TURN_MALFORMED = "tool_turn_malformed"
+    TOOL_TURN_LIMIT_REACHED = "tool_turn_limit_reached"
+
+
 class DelegationJobStatus(str, Enum):
     DRAFT = "draft"
     APPROVED = "approved"
@@ -119,6 +136,12 @@ ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
 TASK_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in TaskEventType}
 )
+TOOL_TURN_STATES: frozenset[str] = frozenset(
+    {state.value for state in ToolTurnState}
+)
+LOOP_STOP_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in LoopStopReason}
+)
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
 )
@@ -173,6 +196,8 @@ EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
 __all__ = [
     "AcceptanceStatus",
     "TaskEventType",
+    "ToolTurnState",
+    "LoopStopReason",
     "DelegationJobStatus",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
@@ -188,6 +213,8 @@ __all__ = [
     "EmbeddingLifecycleStatus",
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
+    "TOOL_TURN_STATES",
+    "LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",

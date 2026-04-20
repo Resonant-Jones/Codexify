@@ -10,6 +10,7 @@ import asyncio
 import inspect
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Optional
@@ -21,6 +22,13 @@ from guardian.cognition.prompts import (
     build_context_system_message as _compat_build_context_system_message,
 )
 from guardian.cognition.prompts import build_context_system_message_with_meta
+from guardian.command_bus.contracts import (
+    CommandBusInvokeResult,
+    InvokeArguments,
+    InvokeRequest,
+)
+from guardian.command_bus.invoke import execute_invoke
+from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
 from guardian.context.retrieval_router_policy import (
     RETRIEVAL_OVERRIDE_CONVERSATION,
@@ -39,6 +47,7 @@ from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
     build_openai_vision_content,
     chat_with_ai,
+    normalize_completion_output,
     stream_local,
 )
 from guardian.core.candidate_trace_store import store_candidate_trace
@@ -60,6 +69,7 @@ from guardian.core.provider_registry import (
     resolve_provider_for_model,
 )
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
+from guardian.protocol_tokens import LoopStopReason, ToolTurnState
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
     get_redis_connection,
@@ -336,6 +346,200 @@ def _build_candidate_trace(
 def _enqueue_candidate_ingest(task_payload: dict[str, Any]) -> None:
     redis = get_redis_connection()
     redis.rpush(CANDIDATE_INGEST_QUEUE, json.dumps(task_payload, default=str))
+
+
+def _tool_loop_observability(
+    task: Any,
+    *,
+    tool_turn_state: ToolTurnState = ToolTurnState.NOT_STARTED,
+    loop_stop_reason: LoopStopReason = LoopStopReason.MODEL_FINAL_ANSWER,
+    tool_turn_id: str | None = None,
+    command_run_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "messageId": _coerce_message_id(
+            getattr(task, "latest_turn_message_id", None)
+        ),
+        "requestId": _completion_request_id(task),
+        "toolTurnId": tool_turn_id,
+        "toolTurnState": tool_turn_state.value,
+        "loopStopReason": loop_stop_reason.value,
+        "commandRunId": command_run_id,
+    }
+
+
+def _resolve_command_bus_app() -> Any:
+    from guardian.guardian_api import app as guardian_app
+
+    return guardian_app
+
+
+def _build_tool_result_reinjection_message(
+    *,
+    tool_loop: dict[str, Any],
+    command_result: dict[str, Any],
+    tool_decision: dict[str, Any],
+) -> dict[str, str]:
+    payload = {
+        "tool_loop": dict(tool_loop),
+        "command_result": dict(command_result),
+        "tool_decision": dict(tool_decision),
+    }
+    return {
+        "role": "system",
+        "content": (
+            "Bounded tool result for one final assistant answer:\n"
+            f"{json.dumps(payload, default=str, sort_keys=True)}"
+        ),
+    }
+
+
+def _attach_tool_loop_metadata(
+    payload_summary: dict[str, Any],
+    *,
+    tool_loop: dict[str, Any],
+    request_id: str,
+) -> None:
+    payload_summary["tool_loop"] = dict(tool_loop)
+    payload_summary["command_run_id"] = tool_loop.get("commandRunId")
+    payload_summary["tool_turn_state"] = tool_loop.get("toolTurnState")
+    payload_summary["loop_stop_reason"] = tool_loop.get("loopStopReason")
+    payload_summary["tool_turn_id"] = tool_loop.get("toolTurnId")
+    payload_summary["request_id"] = request_id
+    payload_summary["message_id"] = tool_loop.get("messageId")
+    payload_summary["requestId"] = request_id
+    payload_summary["messageId"] = tool_loop.get("messageId")
+
+
+def _execute_bounded_tool_turn(
+    *,
+    task: Any,
+    tool_decision: dict[str, Any],
+    request_id: str,
+    tool_turn_id: str,
+    messages_for_llm: list[dict[str, str]],
+    provider: str,
+    model: str,
+    reasoning_mode: Any,
+    temperature: Any,
+    token_callback: Callable[[str], None] | None,
+    chunk_callback: Callable[[str], None] | None,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    command_id = str(tool_decision.get("command_id") or "").strip()
+    arguments = tool_decision.get("arguments") or {}
+    tool_loop = _tool_loop_observability(
+        task,
+        tool_turn_state=ToolTurnState.RUNNING,
+        loop_stop_reason=LoopStopReason.TOOL_TURN_COMPLETED,
+        tool_turn_id=tool_turn_id,
+    )
+
+    store = CommandBusStore(db=getattr(dependencies, "chatlog_db", None))
+    invoke_request = InvokeRequest(
+        invoke_version="1.0",
+        command_id=command_id,
+        actor={
+            "kind": "human",
+            "id": str(getattr(task, "user_id", "") or "").strip() or "local",
+        },
+        arguments=InvokeArguments.model_validate(arguments),
+        idempotency_key=f"{request_id}:{tool_turn_id}",
+    )
+    command_status = "failed"
+    try:
+        command_bus_result = asyncio.run(
+            execute_invoke(
+                payload=invoke_request,
+                auth_subject=str(getattr(task, "user_id", "") or "").strip()
+                or "local",
+                inbound_headers={},
+                store=store,
+                app=_resolve_command_bus_app(),
+                execution_lane="tools",
+                allow_write_execution=True,
+                confirmation_granted=False,
+            )
+        )
+        command_result = CommandBusInvokeResult.model_validate(
+            command_bus_result
+        ).model_dump(mode="json")
+        tool_loop["commandRunId"] = command_result["run_id"]
+
+        command_status = str(command_result.get("status") or "").strip().lower()
+        if command_status == "blocked":
+            tool_loop["toolTurnState"] = ToolTurnState.BLOCKED.value
+            tool_loop["loopStopReason"] = LoopStopReason.TOOL_TURN_BLOCKED.value
+        elif command_status == "failed":
+            tool_loop["toolTurnState"] = ToolTurnState.FAILED.value
+            tool_loop["loopStopReason"] = LoopStopReason.TOOL_TURN_FAILED.value
+        else:
+            tool_loop["toolTurnState"] = ToolTurnState.COMPLETED.value
+    except Exception as exc:
+        command_result = {
+            "run_id": None,
+            "status": "failed",
+            "error": str(exc),
+            "events_url": None,
+            "warning": None,
+            "policy_warnings": [],
+        }
+        tool_loop["toolTurnState"] = ToolTurnState.FAILED.value
+        tool_loop["loopStopReason"] = LoopStopReason.TOOL_TURN_FAILED.value
+
+    followup_messages = list(messages_for_llm)
+    followup_messages.append(
+        _build_tool_result_reinjection_message(
+            tool_loop=tool_loop,
+            command_result=command_result,
+            tool_decision=tool_decision,
+        )
+    )
+    final_raw_output = chat_with_ai(
+        followup_messages,
+        model=model,
+        provider=provider,
+        reasoning_mode=reasoning_mode,
+        temperature=temperature,
+        prompt_meta=None,
+    )
+    final_normalized = normalize_completion_output(final_raw_output)
+    if final_normalized["kind"] == "assistant":
+        final_text = str(final_normalized.get("assistant_text") or "")
+        if final_text.strip() and token_callback:
+            token_callback(final_text)
+        if command_status not in {"blocked", "failed"}:
+            tool_loop[
+                "loopStopReason"
+            ] = LoopStopReason.TOOL_TURN_COMPLETED.value
+        return final_text, tool_loop, command_result
+
+    def _apply_tool_turn_limit() -> None:
+        if tool_loop["toolTurnState"] not in {
+            ToolTurnState.FAILED.value,
+            ToolTurnState.BLOCKED.value,
+        }:
+            tool_loop["toolTurnState"] = ToolTurnState.BLOCKED.value
+        if tool_loop["loopStopReason"] not in {
+            LoopStopReason.TOOL_TURN_FAILED.value,
+            LoopStopReason.TOOL_TURN_BLOCKED.value,
+            LoopStopReason.TOOL_TURN_MALFORMED.value,
+        }:
+            tool_loop[
+                "loopStopReason"
+            ] = LoopStopReason.TOOL_TURN_LIMIT_REACHED.value
+
+    if final_normalized["kind"] == "malformed_tool_decision":
+        _apply_tool_turn_limit()
+        final_text = "Tool loop stopped after one bounded turn."
+        if token_callback:
+            token_callback(final_text)
+        return final_text, tool_loop, command_result
+
+    _apply_tool_turn_limit()
+    final_text = "Tool loop stopped after one bounded turn."
+    if token_callback:
+        token_callback(final_text)
+    return final_text, tool_loop, command_result
 
 
 @dataclass(frozen=True)
@@ -2027,9 +2231,12 @@ def run_chat_completion_task(
         }
         bundle["_prompt_meta"] = prompt_meta
 
+    request_id = _completion_request_id(task)
+    tool_loop = _tool_loop_observability(task)
+    assistant_raw_output: Any = ""
     assistant_text = ""
+    streamed_any = False
     if provider == "local":
-        streamed_any = False
         token_stream = stream_local(
             messages_for_llm,
             model,
@@ -2055,28 +2262,7 @@ def run_chat_completion_task(
         # We still want a completion persisted, but we must avoid emitting a duplicate
         # message to the UI when streaming already happened.
         if not assistant_text.strip():
-            assistant_text = str(
-                chat_with_ai(
-                    messages_for_llm,
-                    model=model,
-                    provider=provider,
-                    reasoning_mode=getattr(task, "reasoning_mode", None),
-                    temperature=getattr(task, "temperature", None),
-                    prompt_meta=(
-                        dict(bundle.get("_prompt_meta") or {})
-                        if isinstance(bundle, dict)
-                        else None
-                    ),
-                )
-            )
-            # Only emit via callback when nothing was streamed.
-            if token_callback and (not streamed_any) and assistant_text:
-                token_callback(assistant_text)
-    else:
-        if cancel_check and cancel_check():
-            raise ChatTaskCancelled("task_cancelled")
-        assistant_text = str(
-            chat_with_ai(
+            assistant_raw_output = chat_with_ai(
                 messages_for_llm,
                 model=model,
                 provider=provider,
@@ -2088,8 +2274,84 @@ def run_chat_completion_task(
                     else None
                 ),
             )
+            normalized = normalize_completion_output(assistant_raw_output)
+            assistant_text = str(normalized.get("assistant_text") or "")
+        else:
+            assistant_raw_output = assistant_text
+    else:
+        if cancel_check and cancel_check():
+            raise ChatTaskCancelled("task_cancelled")
+        assistant_raw_output = chat_with_ai(
+            messages_for_llm,
+            model=model,
+            provider=provider,
+            reasoning_mode=getattr(task, "reasoning_mode", None),
+            temperature=getattr(task, "temperature", None),
+            prompt_meta=(
+                dict(bundle.get("_prompt_meta") or {})
+                if isinstance(bundle, dict)
+                else None
+            ),
         )
+        assistant_text = str(assistant_raw_output or "")
         if token_callback:
+            token_callback(assistant_text)
+
+    normalized_output = normalize_completion_output(assistant_raw_output)
+    if normalized_output["kind"] == "tool_decision":
+        tool_decision = dict(normalized_output["tool_decision"] or {})
+        tool_turn_id = str(uuid.uuid4())
+        assistant_text, tool_loop, command_result = _execute_bounded_tool_turn(
+            task=task,
+            tool_decision=tool_decision,
+            request_id=request_id,
+            tool_turn_id=tool_turn_id,
+            messages_for_llm=messages_for_llm,
+            provider=provider,
+            model=model,
+            reasoning_mode=getattr(task, "reasoning_mode", None),
+            temperature=getattr(task, "temperature", None),
+            token_callback=token_callback,
+            chunk_callback=chunk_callback,
+        )
+        _attach_tool_loop_metadata(
+            payload_summary,
+            tool_loop=tool_loop,
+            request_id=request_id,
+        )
+        normalized_output = {
+            "kind": "assistant",
+            "assistant_text": assistant_text,
+        }
+    elif normalized_output["kind"] == "malformed_tool_decision":
+        tool_loop = _tool_loop_observability(
+            task,
+            tool_turn_state=ToolTurnState.FAILED,
+            loop_stop_reason=LoopStopReason.TOOL_TURN_MALFORMED,
+        )
+        _attach_tool_loop_metadata(
+            payload_summary,
+            tool_loop=tool_loop,
+            request_id=request_id,
+        )
+        assistant_text = (
+            str(normalized_output.get("assistant_text") or "").strip()
+            or "Tool decision was malformed."
+        )
+        if token_callback and assistant_text:
+            token_callback(assistant_text)
+        normalized_output = {
+            "kind": "assistant",
+            "assistant_text": assistant_text,
+        }
+    else:
+        assistant_text = str(normalized_output.get("assistant_text") or "")
+        _attach_tool_loop_metadata(
+            payload_summary,
+            tool_loop=tool_loop,
+            request_id=request_id,
+        )
+        if token_callback and assistant_text and not streamed_any:
             token_callback(assistant_text)
 
     candidate_trace = _build_candidate_trace(
@@ -2147,6 +2409,13 @@ def run_chat_completion_task(
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
         "retrieval_provenance": retrieval_provenance,
+        "messageId": payload_summary.get("message_id"),
+        "requestId": request_id,
+        "toolTurnId": payload_summary.get("tool_turn_id"),
+        "toolTurnState": payload_summary.get("tool_turn_state"),
+        "loopStopReason": payload_summary.get("loop_stop_reason"),
+        "commandRunId": payload_summary.get("command_run_id"),
+        "tool_loop": dict(payload_summary.get("tool_loop") or {}),
     }
     if isinstance(trace, dict):
         result["latest_turn_message_id"] = trace.get("latest_turn_message_id")

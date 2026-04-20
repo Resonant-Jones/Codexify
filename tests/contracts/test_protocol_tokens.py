@@ -15,7 +15,9 @@ from guardian.protocol_tokens import (
     EXECUTOR_EVENT_TYPES,
     EXECUTOR_IDS,
     EXECUTOR_RELEASE_POSTURES,
+    LOOP_STOP_REASONS,
     TASK_EVENT_TYPES,
+    TOOL_TURN_STATES,
     AcceptanceStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -29,7 +31,9 @@ from guardian.protocol_tokens import (
     ExecutorEventType,
     ExecutorId,
     ExecutorReleasePosture,
+    LoopStopReason,
     TaskEventType,
+    ToolTurnState,
 )
 
 
@@ -260,4 +264,37 @@ def test_embedding_lifecycle_tokens() -> None:
         "processing",
         "ready",
         "failed",
+    }
+
+
+def test_tool_loop_tokens() -> None:
+    assert ToolTurnState.NOT_STARTED.value == "not_started"
+    assert ToolTurnState.RUNNING.value == "running"
+    assert ToolTurnState.COMPLETED.value == "completed"
+    assert ToolTurnState.BLOCKED.value == "blocked"
+    assert ToolTurnState.FAILED.value == "failed"
+    assert TOOL_TURN_STATES == {
+        "not_started",
+        "running",
+        "completed",
+        "blocked",
+        "failed",
+    }
+
+    assert LoopStopReason.MODEL_FINAL_ANSWER.value == "model_final_answer"
+    assert LoopStopReason.TOOL_TURN_COMPLETED.value == "tool_turn_completed"
+    assert LoopStopReason.TOOL_TURN_BLOCKED.value == "tool_turn_blocked"
+    assert LoopStopReason.TOOL_TURN_FAILED.value == "tool_turn_failed"
+    assert LoopStopReason.TOOL_TURN_MALFORMED.value == "tool_turn_malformed"
+    assert (
+        LoopStopReason.TOOL_TURN_LIMIT_REACHED.value
+        == "tool_turn_limit_reached"
+    )
+    assert LOOP_STOP_REASONS == {
+        "model_final_answer",
+        "tool_turn_completed",
+        "tool_turn_blocked",
+        "tool_turn_failed",
+        "tool_turn_malformed",
+        "tool_turn_limit_reached",
     }
