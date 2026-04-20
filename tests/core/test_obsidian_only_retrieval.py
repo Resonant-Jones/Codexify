@@ -28,12 +28,13 @@ async def test_obsidian_only_retrieval_returns_only_obsidian_hits() -> None:
     )
     vector_store = AsyncMock()
 
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "obsidian:local":
             return [
                 {
                     "id": "obs-1",
                     "text": "obsidian note hit",
+                    "user_id": "user-1",
                     "metadata": {"filename": "note.md"},
                     "score": 0.99,
                 }
@@ -60,6 +61,7 @@ async def test_obsidian_only_retrieval_returns_only_obsidian_hits() -> None:
         query="Find the note",
         depth_mode="normal",
         source_mode="obsidian_only",
+        user_id="user-1",
     )
 
     assert context["semantic"] == []
@@ -69,6 +71,7 @@ async def test_obsidian_only_retrieval_returns_only_obsidian_hits() -> None:
         {
             "id": "obs-1",
             "text": "obsidian note hit",
+            "user_id": "user-1",
             "metadata": {"filename": "note.md"},
             "score": 0.99,
         }
@@ -192,6 +195,7 @@ async def test_obsidian_only_retrieval_raises_when_no_obsidian_hits(
         provider="local",
         model=None,
         origin="api:chat.complete|turn_id=abc|source_mode=obsidian_only",
+        user_id="user-1",
     )
 
     with pytest.raises(

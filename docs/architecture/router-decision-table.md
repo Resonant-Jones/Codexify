@@ -98,6 +98,12 @@ introduces live retrieval behavior changes in this task.
 | `relationship_trace` | yes | `local` | `none` | `prefer_enrichment` | `deep` | `thread_messages -> thread_semantic -> graph_enrichment -> project_docs -> adjacent_local` | stop once the relationship path is explainable |
 | `obsidian_only` | yes | `local` | `none` | `disallow` | `normal` | `thread_messages -> obsidian_documents` | stop once Obsidian-backed evidence is sufficient, or fail closed if no Obsidian hits exist |
 
+## Retrieval Boundary Rules
+
+- Every retrieval operation must be scoped by `user_id`.
+- Any widening beyond thread scope must set an explicit `widen_reason` in the trace payload.
+- `source_mode` and `widen_reason` must remain truthful and stable after assembly; the trace cannot silently widen later.
+
 ## Design Rules
 
 - Retrieval is optional.

@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-19
+2026-04-20
 
 ## Interpretation rule
 This file is authoritative for:
@@ -44,6 +44,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
   - API routes
   - retrieval
   - persistence
+- Retrieval now enforces strict user isolation and explicit widening semantics at the broker boundary.
 - exportability is now a first-class invariant.
 
 ## Not yet true / do not assume

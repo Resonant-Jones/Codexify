@@ -318,7 +318,14 @@ async def test_context_broker_merges_retrieval_override_without_skipping_thread_
             }
         )
         return (
-            [{"id": "doc-1", "score": 0.9, "text": "thread hit"}],
+            [
+                {
+                    "id": "doc-1",
+                    "score": 0.9,
+                    "text": "thread hit",
+                    "user_id": user_id,
+                }
+            ],
             "none",
             {
                 "attempted": True,
