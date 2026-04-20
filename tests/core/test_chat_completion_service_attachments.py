@@ -113,7 +113,9 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
         raising=False,
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
 
     (
         messages_for_llm,
@@ -243,7 +245,9 @@ async def test_build_messages_for_llm_no_doc_injection_when_empty(
         raising=False,
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         messages_for_llm,
         provider,

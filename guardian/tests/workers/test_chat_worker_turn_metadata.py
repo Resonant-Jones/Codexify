@@ -9,6 +9,7 @@ from guardian.workers import chat_worker
 def _task_with_turn_id() -> ChatCompletionTask:
     turn_id = str(uuid.uuid4())
     return ChatCompletionTask(
+        user_id="local",
         task_id="task-1",
         thread_id=123,
         origin=f"test|turn_id={turn_id}",
@@ -66,6 +67,8 @@ def test_missing_assistant_message_id_still_fails_task(monkeypatch):
 
     assert "task.failed" in published
     assert "task.completed" not in published
+
+
 def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
     events: list[str] = []
     run_calls: list[bool] = []
@@ -95,7 +98,11 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
 
     monkeypatch.setattr(chat_worker, "_safe_publish", fake_publish)
 
-    task = ChatCompletionTask(thread_id=10, origin="api|turn_id=11111111-1111-1111-1111-111111111111")
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=10,
+        origin="api|turn_id=11111111-1111-1111-1111-111111111111",
+    )
     chat_worker._run_chat_task(task)
 
     assert run_calls == [True]

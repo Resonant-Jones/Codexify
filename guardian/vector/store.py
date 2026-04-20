@@ -30,6 +30,22 @@ def _metadata_namespace(meta: Dict[str, Any]) -> str:
     return DEFAULT_NAMESPACE
 
 
+def _metadata_user_id(meta: Dict[str, Any]) -> Optional[str]:
+    explicit = _normalize_namespace(meta.get("user_id"))
+    if explicit:
+        return explicit
+    owner_user_id = _normalize_namespace(meta.get("owner_user_id"))
+    if owner_user_id:
+        return owner_user_id
+    return _normalize_namespace(meta.get("actor_user_id"))
+
+
+def _default_user_id() -> str:
+    from guardian.core.dependencies import get_single_user_id
+
+    return str(get_single_user_id())
+
+
 def _coerce_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
     coerced: Dict[str, Any] = {}
     for key, value in meta.items():
@@ -110,6 +126,18 @@ class VectorStore:
                 if top_level_namespace:
                     meta["namespace"] = top_level_namespace
             meta["namespace"] = _metadata_namespace(meta)
+            if "user_id" not in meta:
+                normalized_user_id = _normalize_namespace(item.get("user_id"))
+                if normalized_user_id:
+                    meta["user_id"] = normalized_user_id
+                else:
+                    fallback_user_id = _metadata_user_id(meta)
+                    if fallback_user_id:
+                        meta["user_id"] = fallback_user_id
+                    else:
+                        meta["user_id"] = _normalize_namespace(
+                            _default_user_id()
+                        )
             if self.store == "chroma":
                 meta = _coerce_chroma_metadata(meta)
             metas.append(meta)
@@ -132,17 +160,44 @@ class VectorStore:
         k: int = 5,
         *,
         namespace: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         normalized_namespace = _normalize_namespace(namespace)
+        normalized_user_id = _normalize_namespace(user_id)
+        if not normalized_user_id:
+            normalized_user_id = _normalize_namespace(_default_user_id())
+        if not normalized_user_id:
+            raise ValueError("VectorStore.search requires user_id")
         try:
             return self.embedder.search(
                 query,
                 k=k,
                 namespace=normalized_namespace,
+                user_id=normalized_user_id,
             )
         except TypeError:
             # Backward compatibility for alternate embedder implementations.
-            return self.embedder.search(query, k=k)
+            try:
+                results = self.embedder.search(
+                    query,
+                    k=k,
+                    namespace=normalized_namespace,
+                )
+            except TypeError:
+                results = self.embedder.search(query, k=k)
+            if not isinstance(results, list):
+                return []
+            return [
+                item
+                for item in results
+                if _normalize_namespace(
+                    (item.get("metadata") or {}).get("user_id")
+                    or (item.get("metadata") or {}).get("owner_user_id")
+                    or item.get("user_id")
+                    or item.get("owner_user_id")
+                )
+                == normalized_user_id
+            ]
 
     def health(self) -> Dict[str, Any]:
         try:

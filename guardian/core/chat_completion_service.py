@@ -7,6 +7,7 @@ fork context assembly, prompt construction, provider routing, or persistence.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 from dataclasses import dataclass
@@ -91,6 +92,33 @@ except Exception:  # pragma: no cover - optional dependency
 
 class ChatTaskCancelled(RuntimeError):
     """Raised when a caller-provided cancellation check aborts completion."""
+
+
+async def _build_messages_for_llm_compat(
+    task: ChatCompletionTask,
+    *,
+    user_id: str | None = None,
+) -> tuple[
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    dict[str, Any] | None,
+]:
+    builder = build_messages_for_llm
+    try:
+        signature = inspect.signature(builder)
+    except (TypeError, ValueError):
+        signature = None
+    accepts_user_id = False
+    if signature is not None:
+        accepts_user_id = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "user_id"
+            for name, parameter in signature.parameters.items()
+        )
+    if accepts_user_id:
+        return await builder(task, user_id=user_id)
+    return await builder(task)
 
 
 def build_context_system_message(bundle: dict[str, Any] | None) -> str | None:
@@ -496,7 +524,9 @@ async def _assemble_context_bundle(
     project_id: int | None,
     source_mode: str,
     retrieval_override: dict[str, Any] | None = None,
+    request_user_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    _ = request_user_id
     try:
         return await broker.assemble(
             thread_id,
@@ -1517,6 +1547,8 @@ def _persist_thread_trace_candidate(
 
 async def build_messages_for_llm(
     task: ChatCompletionTask,
+    *,
+    user_id: str | None = None,
 ) -> tuple[
     list[dict[str, str]],
     str,
@@ -1685,7 +1717,9 @@ async def build_messages_for_llm(
         raise ValueError("thread_has_no_usable_context")
 
     depth = str(task.depth_mode or "normal").strip().lower()
+    task_user_id = str(user_id or getattr(task, "user_id", "") or "").strip()
     user_for_context = (thread_info or {}).get("user_id", "default")
+    context_user_id = task_user_id or user_for_context
     source_mode = effective_source_mode
 
     project_id_for_prompt: int | None = None
@@ -1713,7 +1747,8 @@ async def build_messages_for_llm(
             thread_id=thread_id,
             query=retrieval_query,
             depth_mode=depth,
-            user_id=user_for_context,
+            user_id=context_user_id,
+            request_user_id=task_user_id or None,
             project_id=project_id_for_prompt,
             source_mode=source_mode,
             retrieval_override=routing_debug_metadata.get("retrieval_override"),
@@ -1724,6 +1759,10 @@ async def build_messages_for_llm(
             bundle["requested_persona"] = thread_execution.persona_id
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
+        if task_user_id:
+            prompt_meta = dict(bundle.get("_prompt_meta") or {})
+            prompt_meta["request_user_id"] = task_user_id
+            bundle["_prompt_meta"] = prompt_meta
     except Exception as exc:
         logger.warning(
             "[chat-completion] context assemble failed depth=%s err=%s",
@@ -1913,15 +1952,21 @@ async def build_messages_for_llm(
 def run_chat_completion_task(
     task: ChatCompletionTask,
     *,
+    user_id: str | None = None,
     token_callback: Callable[[str], None] | None = None,
     chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     persist_assistant_message: bool = True,
 ) -> dict[str, Any]:
     """Execute one completion with shared context assembly/provider routing."""
-    messages_for_llm, provider, model, bundle, trace = asyncio.run(
-        build_messages_for_llm(task)
-    )
+    build_result: tuple[
+        list[dict[str, str]],
+        str,
+        str,
+        dict[str, Any],
+        dict[str, Any] | None,
+    ] = asyncio.run(_build_messages_for_llm_compat(task, user_id=user_id))
+    messages_for_llm, provider, model, bundle, trace = build_result
 
     settings = get_settings()
     requested_source_mode = (

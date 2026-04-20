@@ -188,6 +188,13 @@ def _namespace_matches(meta: dict[str, Any], namespace: str | None) -> bool:
     return _normalize_namespace(meta.get("namespace")) == namespace
 
 
+def _metadata_user_id(meta: dict[str, Any]) -> str | None:
+    user_id = _normalize_namespace(meta.get("user_id"))
+    if user_id:
+        return user_id
+    return _normalize_namespace(meta.get("owner_user_id"))
+
+
 def _get_embeddings_backend() -> str:
     """Get the configured embeddings backend from environment."""
     backend = os.getenv(_ENV_BACKEND, _BACKEND_SENTENCE_TRANSFORMER)
@@ -531,6 +538,7 @@ class LocalSemanticEmbedder:
         query: str,
         k: int = 5,
         namespace: str | None = None,
+        user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Search the configured vector store for semantically similar text."""
         if not query or not str(query).strip():
@@ -538,6 +546,9 @@ class LocalSemanticEmbedder:
         if k <= 0:
             return []
         normalized_namespace = _normalize_namespace(namespace)
+        normalized_user_id = _normalize_namespace(user_id)
+        if not normalized_user_id:
+            raise ValueError("Vector search requires user_id")
 
         if self.store == "faiss":
             if self._index is None or not self._texts:
@@ -547,7 +558,10 @@ class LocalSemanticEmbedder:
                 return []
             vectors = _normalize_embeddings(vectors)
             search_k = (
-                len(self._texts) if normalized_namespace is not None else k
+                len(self._texts)
+                if normalized_namespace is not None
+                or normalized_user_id is not None
+                else k
             )
             scores, indices = self._index.search(vectors, search_k)
             results: list[dict[str, Any]] = []
@@ -556,6 +570,8 @@ class LocalSemanticEmbedder:
                     continue
                 meta = self._metadatas[idx]
                 if not _namespace_matches(meta, normalized_namespace):
+                    continue
+                if _metadata_user_id(meta) != normalized_user_id:
                     continue
                 results.append(
                     {
@@ -578,8 +594,13 @@ class LocalSemanticEmbedder:
             "query_embeddings": vectors.tolist(),
             "n_results": k,
         }
+        where_clauses: list[dict[str, Any]] = [{"user_id": normalized_user_id}]
         if normalized_namespace is not None:
-            query_kwargs["where"] = {"namespace": normalized_namespace}
+            where_clauses.append({"namespace": normalized_namespace})
+        if len(where_clauses) == 1:
+            query_kwargs["where"] = where_clauses[0]
+        else:
+            query_kwargs["where"] = {"$and": where_clauses}
         result = self._chroma_collection.query(**query_kwargs)
         docs = result.get("documents", [[]])[0] or []
         metas = result.get("metadatas", [[]])[0] or []
@@ -588,6 +609,10 @@ class LocalSemanticEmbedder:
         matches: list[dict[str, Any]] = []
         for idx, doc in enumerate(docs):
             meta = metas[idx] if idx < len(metas) else {}
+            if _metadata_user_id(meta) != normalized_user_id:
+                continue
+            if not _namespace_matches(meta, normalized_namespace):
+                continue
             dist = float(distances[idx]) if idx < len(distances) else 0.0
             score = 1.0 - dist
             entry: dict[str, Any] = {
