@@ -41,6 +41,21 @@ Normalization now occurs inside the ingest worker, but it remains a pure inspect
 - the worker remains inspection-only in this phase
 - future graph/entity persistence remains explicitly deferred
 
+## Graph-Candidate Mapping Step
+
+Normalized candidate entities now feed a pure graph-candidate mapping seam.
+
+This mapping remains:
+
+- deterministic
+- non-persistent
+- provenance-preserving
+- outside export/restore lineage
+- outside retrieval consumption
+
+The mapper produces derived graph candidates for future graph/entity work, but
+it does not create canonical records or semantic truth.
+
 ## Non-Canonical Constraint
 
 The ingest task is derived runtime data.
