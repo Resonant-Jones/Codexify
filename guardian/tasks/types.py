@@ -6,7 +6,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, TypedDict
 
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
@@ -120,6 +120,14 @@ def _normalize_executor_id(raw: Any) -> str:
         if value is not None
         else ""
     )
+
+
+class CandidateTraceIngestTask(TypedDict):
+    request_id: str
+    thread_id: int
+    candidate_trace_id: str
+    created_at: str
+    payload: dict[str, Any]
 
 
 @dataclass

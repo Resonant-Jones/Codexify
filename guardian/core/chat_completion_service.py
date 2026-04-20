@@ -59,6 +59,10 @@ from guardian.core.provider_registry import (
     resolve_provider_for_model,
 )
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
+from guardian.queue.redis_queue import (
+    CANDIDATE_INGEST_QUEUE,
+    get_redis_connection,
+)
 from guardian.tasks.types import ChatCompletionTask
 
 logger = logging.getLogger(__name__)
@@ -299,6 +303,11 @@ def _build_candidate_trace(
         "selection_strategy": "single_candidate",
         "created_at": datetime.now(UTC).isoformat(),
     }
+
+
+def _enqueue_candidate_ingest(task_payload: dict[str, Any]) -> None:
+    redis = get_redis_connection()
+    redis.rpush(CANDIDATE_INGEST_QUEUE, json.dumps(task_payload, default=str))
 
 
 @dataclass(frozen=True)
@@ -2054,6 +2063,35 @@ def run_chat_completion_task(
                 _completion_request_id(task),
                 exc_info=True,
             )
+        request_id = str(candidate_trace.get("request_id") or "").strip()
+        thread_id_raw = getattr(task, "thread_id", None)
+        try:
+            thread_id = int(thread_id_raw)
+        except (TypeError, ValueError):
+            thread_id = 0
+        if request_id and thread_id > 0:
+            task_payload = {
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": request_id,
+                "created_at": str(candidate_trace.get("created_at") or ""),
+                "payload": dict(candidate_trace),
+            }
+            try:
+                _enqueue_candidate_ingest(task_payload)
+                logger.info(
+                    "[chat-completion] candidate_trace_ingest_enqueued thread_id=%s request_id=%s candidate_trace_id=%s",
+                    thread_id,
+                    request_id,
+                    request_id,
+                )
+            except Exception:
+                logger.warning(
+                    "[chat-completion] candidate_trace_ingest_enqueue_failed thread_id=%s request_id=%s",
+                    thread_id,
+                    request_id,
+                    exc_info=True,
+                )
 
     result: dict[str, Any] = {
         "assistant_text": assistant_text,

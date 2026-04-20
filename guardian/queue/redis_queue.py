@@ -38,6 +38,7 @@ CHAT_IMPORT_EMBED_QUEUE_NAME = os.getenv(
     "codexify:queue:chat-import-embed",
 )
 CHAT_IMPORT_EMBED_TASK_TYPE = "chat_import_embed"
+CANDIDATE_INGEST_QUEUE = "codexify:queue:candidate_ingest"
 QUEUE_ENQUEUE_ERROR_CODE = ErrorCode.QUEUE_ENQUEUE_FAILED.value
 _CLIENT: Any = None
 _QUEUE_CLIENT: Any = None
@@ -148,6 +149,10 @@ class _InMemoryRedis:
 
     def lpush(self, name: str, value: str) -> int:
         self._lists.setdefault(name, []).insert(0, value)
+        return len(self._lists[name])
+
+    def rpush(self, name: str, value: str) -> int:
+        self._lists.setdefault(name, []).append(value)
         return len(self._lists[name])
 
     def lpop(self, name: str) -> str | None:
@@ -666,3 +671,9 @@ def get_redis_client() -> Any:
     # This client is NOT safe for blocking operations.
     # Do NOT use for BLPOP/BRPOP. Use queue_redis instead.
     return get_request_redis_client()
+
+
+def get_redis_connection() -> Any:
+    """Return the queue-safe Redis client for enqueue/dequeue workers."""
+
+    return get_queue_redis_client()
