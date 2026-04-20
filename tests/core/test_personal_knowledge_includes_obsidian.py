@@ -37,16 +37,20 @@ def _build_broker(vector_search_side_effect):
         sensors=None,
         settings=SimpleNamespace(GUARDIAN_ENABLE_GRAPH_CONTEXT=False),
     )
+    broker.get_scoped_documents = AsyncMock(
+        return_value={"project": [], "thread": [], "global": []}
+    )
     return broker, vector_store
 
 
 @pytest.mark.asyncio
 async def test_personal_knowledge_includes_obsidian_when_hits_exist() -> None:
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return [
                 {
                     "text": "thread semantic hit",
+                    "user_id": "user-1",
                     "metadata": {"message_id": 1},
                     "score": 0.92,
                 }
@@ -55,6 +59,7 @@ async def test_personal_knowledge_includes_obsidian_when_hits_exist() -> None:
             return [
                 {
                     "text": "obsidian semantic hit",
+                    "user_id": "user-1",
                     "metadata": {"filename": "note.md"},
                     "score": 0.97,
                 }
@@ -68,12 +73,14 @@ async def test_personal_knowledge_includes_obsidian_when_hits_exist() -> None:
         query="What changed?",
         depth_mode="normal",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id="user-1",
     )
 
     assert context["semantic"]
     assert context["obsidian"] == [
         {
             "text": "obsidian semantic hit",
+            "user_id": "user-1",
             "metadata": {"filename": "note.md"},
             "score": 0.97,
         }
@@ -88,11 +95,12 @@ async def test_personal_knowledge_includes_obsidian_when_hits_exist() -> None:
 
 @pytest.mark.asyncio
 async def test_personal_knowledge_warns_when_obsidian_is_empty() -> None:
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return [
                 {
                     "text": "thread semantic hit",
+                    "user_id": "user-1",
                     "metadata": {"message_id": 1},
                     "score": 0.91,
                 }
@@ -108,6 +116,7 @@ async def test_personal_knowledge_warns_when_obsidian_is_empty() -> None:
         query="What changed?",
         depth_mode="normal",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id="user-1",
     )
 
     assert context["semantic"]
