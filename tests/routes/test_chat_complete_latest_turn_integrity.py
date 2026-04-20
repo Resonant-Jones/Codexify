@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.utils import get_test_user_id
+
 
 def _thread_config_snapshot() -> dict[str, object]:
     return {
@@ -14,9 +16,10 @@ def _thread_config_snapshot() -> dict[str, object]:
 def test_chat_complete_queues_latest_user_turn_identity(
     test_client, mock_db, monkeypatch
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 1,
         "thread_config": _thread_config_snapshot(),
     }
@@ -65,9 +68,10 @@ def test_chat_complete_queues_latest_user_turn_identity(
 def test_chat_complete_rejects_threads_without_a_user_turn(
     test_client, mock_db, monkeypatch
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 1,
         "thread_config": _thread_config_snapshot(),
     }

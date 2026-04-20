@@ -306,6 +306,7 @@ class TestChatThreadsGet:
 
     def test_list_threads_success(self, test_client, mock_db):
         """Test successful thread listing returns 200 with threads array."""
+        expected_user_id = get_test_user_id()
         response = test_client.get("/chat/threads")
 
         assert response.status_code == 200
@@ -313,7 +314,10 @@ class TestChatThreadsGet:
         assert data["ok"] is True
         assert "threads" in data
         assert isinstance(data["threads"], list)
-        assert len(data["threads"]) >= 0
+        assert len(data["threads"]) >= 1
+        assert all(
+            thread["user_id"] == expected_user_id for thread in data["threads"]
+        )
 
     def test_list_threads_empty(self, test_client, mock_db):
         """Test thread listing with no threads returns empty list."""

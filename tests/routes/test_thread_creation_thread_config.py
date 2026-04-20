@@ -9,9 +9,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from guardian.core.dependencies import RequestUserScope
 from guardian.core.pgdb import PgDB
 from guardian.db.models import Base, ChatThread
 from guardian.routes import chat as chat_routes
+from tests.utils import get_test_user_id
 
 
 @contextmanager
@@ -176,10 +178,19 @@ def test_chat_thread_create_snapshots_runtime_defaults(
     monkeypatch.setattr(chat_routes, "chatlog_db", backend)
     _set_local_runtime_defaults(monkeypatch)
 
-    result = chat_routes.chat_create_thread({}, api_key="test-api-key")
+    expected_user_id = get_test_user_id()
+    result = chat_routes.chat_create_thread(
+        {},
+        api_key="test-api-key",
+        request_user_scope=RequestUserScope(
+            user_id=expected_user_id,
+            account_id=expected_user_id,
+            multi_user_enabled=False,
+        ),
+    )
 
     assert result["ok"] is True
-    assert "thread_config" not in result["thread"]
+    assert result["thread"]["user_id"] == expected_user_id
     assert backend.created_thread_calls
     assert "thread_config" not in backend.created_thread_calls[0]
 
@@ -210,10 +221,19 @@ def test_chat_thread_create_uses_explicit_thread_config_values(
         "personaId": "persona-7",
     }
 
-    result = chat_routes.chat_create_thread(body, api_key="test-api-key")
+    expected_user_id = get_test_user_id()
+    result = chat_routes.chat_create_thread(
+        body,
+        api_key="test-api-key",
+        request_user_scope=RequestUserScope(
+            user_id=expected_user_id,
+            account_id=expected_user_id,
+            multi_user_enabled=False,
+        ),
+    )
 
     assert result["ok"] is True
-    assert "thread_config" not in result["thread"]
+    assert result["thread"]["user_id"] == expected_user_id
     assert backend.created_thread_calls
     assert "thread_config" not in backend.created_thread_calls[0]
 
@@ -230,10 +250,11 @@ def test_chat_thread_create_uses_explicit_thread_config_values(
 def test_chat_thread_create_keeps_legacy_backend_working(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    expected_user_id = get_test_user_id()
     mock_db = MagicMock()
     mock_db.create_chat_thread.return_value = {
         "id": 17,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "title": "Legacy Thread",
         "summary": "Legacy summary",
         "project_id": 1,
@@ -250,11 +271,17 @@ def test_chat_thread_create_keeps_legacy_backend_working(
     monkeypatch.setattr(chat_routes, "chatlog_db", mock_db)
 
     result = chat_routes.chat_create_thread(
-        {"title": "Legacy Thread"}, api_key="test-api-key"
+        {"title": "Legacy Thread"},
+        api_key="test-api-key",
+        request_user_scope=RequestUserScope(
+            user_id=expected_user_id,
+            account_id=expected_user_id,
+            multi_user_enabled=False,
+        ),
     )
 
     assert result["ok"] is True
     assert result["id"] == 17
-    assert "thread_config" not in result["thread"]
+    assert result["thread"]["user_id"] == expected_user_id
     mock_db.create_chat_thread.assert_called_once()
     assert "thread_config" not in mock_db.create_chat_thread.call_args.kwargs
