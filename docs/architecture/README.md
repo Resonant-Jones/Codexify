@@ -75,6 +75,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Inference Providers](./providers.md): provider notes; supplementary only and verify against current catalog/router/health behavior.
 - [Guardian Agent Delegation Recon](./guardian-agent-delegation-recon.md): focused planning/recon notes on delegation and agent runtime work; use only as supplementary planning context.
 - [Solo Operator Runtime Bootcamp](./solo-operator-runtime-bootcamp.md): operational bootstrapping guide for solo runtime work.
+- [Auth and Runtime Mode Audit 2026-04-20](./2026-04-20-auth-runtime-mode-audit.md): read-only audit of auth, runtime-mode, and Alembic state after DB reset; identifies multi-head migration fork and `X-User-Id` header conflation risk.
 
 ## Where Do I Change X?
 
