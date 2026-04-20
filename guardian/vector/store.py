@@ -40,6 +40,12 @@ def _metadata_user_id(meta: Dict[str, Any]) -> Optional[str]:
     return _normalize_namespace(meta.get("actor_user_id"))
 
 
+def _default_user_id() -> str:
+    from guardian.core.dependencies import get_single_user_id
+
+    return str(get_single_user_id())
+
+
 def _coerce_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
     coerced: Dict[str, Any] = {}
     for key, value in meta.items():
@@ -128,6 +134,10 @@ class VectorStore:
                     fallback_user_id = _metadata_user_id(meta)
                     if fallback_user_id:
                         meta["user_id"] = fallback_user_id
+                    else:
+                        meta["user_id"] = _normalize_namespace(
+                            _default_user_id()
+                        )
             if self.store == "chroma":
                 meta = _coerce_chroma_metadata(meta)
             metas.append(meta)
@@ -155,6 +165,8 @@ class VectorStore:
         normalized_namespace = _normalize_namespace(namespace)
         normalized_user_id = _normalize_namespace(user_id)
         if not normalized_user_id:
+            normalized_user_id = _normalize_namespace(_default_user_id())
+        if not normalized_user_id:
             raise ValueError("VectorStore.search requires user_id")
         try:
             return self.embedder.search(
@@ -165,11 +177,14 @@ class VectorStore:
             )
         except TypeError:
             # Backward compatibility for alternate embedder implementations.
-            results = self.embedder.search(
-                query,
-                k=k,
-                namespace=normalized_namespace,
-            )
+            try:
+                results = self.embedder.search(
+                    query,
+                    k=k,
+                    namespace=normalized_namespace,
+                )
+            except TypeError:
+                results = self.embedder.search(query, k=k)
             if not isinstance(results, list):
                 return []
             return [

@@ -140,12 +140,6 @@ def _request_account_id(request_user_scope: RequestUserScope) -> str:
     return account_id or get_single_user_id()
 
 
-def resolve_user_id() -> str:
-    """Temporary bootstrap resolver for chat execution identity."""
-
-    return "local"
-
-
 def _resolve_thread_owner_hint(
     raw_user_id: Any,
     request_user_scope: RequestUserScope,
@@ -2726,11 +2720,12 @@ async def chat_complete(
     internal_depth_mode = map_internal_depth_mode(
         requested_depth_raw, effective_depth_mode
     )
+    account_id = _request_account_id(request_user_scope)
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
         depth_mode=internal_depth_mode,
         project_id=thread_project_id,
-        user_id=_request_account_id(request_user_scope),
+        user_id=account_id,
     )
     merged_system_override = user_system_override
     if doc_context_override:
@@ -2745,7 +2740,7 @@ async def chat_complete(
     )
 
     task = ChatCompletionTask(
-        user_id=resolve_user_id(),
+        user_id=account_id,
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
         provider=provider,
