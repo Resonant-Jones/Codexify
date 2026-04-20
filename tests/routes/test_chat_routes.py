@@ -11,6 +11,9 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.orm.exc import DetachedInstanceError
 
+from guardian.routes import chat as chat_routes
+from tests.utils import get_test_user_id
+
 
 @pytest.fixture(autouse=True)
 def _ensure_groq_key(monkeypatch):
@@ -206,6 +209,7 @@ class TestChatThreadsPost:
 
     def test_create_thread_minimal_payload(self, test_client, mock_db):
         """Test thread creation with minimal payload uses defaults."""
+        expected_user_id = get_test_user_id()
         response = test_client.post("/chat/threads", json={})
 
         assert response.status_code == 200
@@ -216,7 +220,7 @@ class TestChatThreadsPost:
         mock_db.ensure_default_project.assert_called_once_with()
         call_kwargs = mock_db.create_chat_thread.call_args[1]
         assert call_kwargs["title"] == "New Chat"
-        assert call_kwargs["user_id"] == "default"
+        assert call_kwargs["user_id"] == expected_user_id
         assert (
             call_kwargs["project_id"]
             == mock_db.ensure_default_project.return_value
@@ -1657,10 +1661,11 @@ class TestChatThreadMove:
     def test_move_thread_records_audit_and_updates_project(
         self, test_client, mock_db
     ):
+        expected_user_id = get_test_user_id()
         mock_db.get_chat_thread.side_effect = [
             {
                 "id": 1,
-                "user_id": "test_user",
+                "user_id": expected_user_id,
                 "title": "Test Thread",
                 "summary": "Test summary",
                 "project_id": 1,
@@ -1673,7 +1678,7 @@ class TestChatThreadMove:
             },
             {
                 "id": 1,
-                "user_id": "test_user",
+                "user_id": expected_user_id,
                 "title": "Test Thread",
                 "summary": "Test summary",
                 "project_id": 2,
@@ -1698,10 +1703,44 @@ class TestChatThreadMove:
             1,
             from_project_id=1,
             to_project_id=2,
-            user_id="test_user",
+            user_id=expected_user_id,
         )
 
-    def test_move_thread_enforces_acl(self, test_client, mock_db):
+    def test_move_thread_enforces_acl(self, monkeypatch, mock_db):
+        expected_user_id = get_test_user_id()
+        monkeypatch.setattr(chat_routes, "chatlog_db", mock_db)
+        mock_db.get_chat_thread.return_value = {
+            "id": 1,
+            "user_id": "someone-else",
+            "title": "Test Thread",
+            "summary": "Test summary",
+            "project_id": 1,
+            "project_name": "Imports",
+            "last_interaction_at": "2025-11-09T12:00:00",
+            "parent_id": None,
+            "created_at": "2025-11-09T12:00:00",
+            "updated_at": "2025-11-09T12:00:00",
+            "archived_at": None,
+        }
+
+        with pytest.raises(HTTPException) as exc_info:
+            chat_routes.chat_move_thread(
+                1,
+                chat_routes.ThreadMoveRequest(toProjectId=2),
+                api_key="test-api-key",
+                request_user_scope=SimpleNamespace(
+                    user_id=expected_user_id,
+                    account_id=expected_user_id,
+                    multi_user_enabled=True,
+                ),
+            )
+
+        assert exc_info.value.status_code == 403
+        mock_db.record_thread_move.assert_not_called()
+
+    def test_move_thread_allows_single_user_legacy_flow(
+        self, test_client, mock_db
+    ):
         mock_db.get_chat_thread.return_value = {
             "id": 1,
             "user_id": "someone-else",
@@ -1720,8 +1759,8 @@ class TestChatThreadMove:
             "/chat/threads/1/move", json={"toProjectId": 2}
         )
 
-        assert response.status_code == 403
-        mock_db.record_thread_move.assert_not_called()
+        assert response.status_code == 200
+        mock_db.record_thread_move.assert_called_once()
 
 
 class TestChatThreadDelete:

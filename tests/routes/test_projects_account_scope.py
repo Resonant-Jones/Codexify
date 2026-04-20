@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import projects as projects_routes
+from tests.utils import get_test_user_id
 
 
 def _patch_projects_db(monkeypatch, db: MagicMock) -> None:
@@ -26,6 +27,7 @@ def _encode_owner(description: str, owner_user_id: str) -> str:
 
 
 def test_single_user_create_and_list_preserve_legacy_behavior(monkeypatch):
+    expected_user_id = get_test_user_id()
     db = MagicMock()
     db.list_projects.return_value = [
         {"id": 1, "name": "Imports", "description": "Legacy"},
@@ -40,15 +42,15 @@ def test_single_user_create_and_list_preserve_legacy_behavior(monkeypatch):
             description="Legacy description",
         ),
         request_user_scope=RequestUserScope(
-            user_id="local",
-            account_id="local",
+            user_id=expected_user_id,
+            account_id=expected_user_id,
             multi_user_enabled=False,
         ),
     )
     listed = projects_routes.list_projects(
         request_user_scope=RequestUserScope(
-            user_id="local",
-            account_id="local",
+            user_id=expected_user_id,
+            account_id=expected_user_id,
             multi_user_enabled=False,
         ),
     )
