@@ -202,6 +202,22 @@ Graph indexing rules:
 - keep edge directionality deterministic
 - store enough metadata to recover the source row and the reason the edge exists
 
+### 5.4 Current Implementation Path
+
+The current derived pipeline now includes a pure graph-candidate mapper between
+normalized candidate entities and any future graph write path.
+
+That mapper is deliberately conservative:
+
+- provenance-first
+- deterministic
+- side-effect free
+- non-persistent
+
+Semantic relationship inference is explicitly deferred. The mapper may only
+emit structurally justified candidates from explicit metadata and scope
+signals.
+
 ## 6. Invariants
 
 The Memory Graph layer must preserve these invariants:
