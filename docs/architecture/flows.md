@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-03-29
+Last updated: 2026-04-20
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -33,8 +33,9 @@ Sequence:
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
 7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, and resolves provider/model/profile settings.
 8. The provider call executes through `guardian/core/ai_router.py`. If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
-9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
-10. The worker publishes terminal task events and releases the turn lock in `finally`.
+9. If the provider returns a bounded tool decision, the completion service executes exactly one command-bus invoke, reinjects the tool result, and requests one final assistant answer before persisting.
+10. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
+11. The worker publishes terminal task events and releases the turn lock in `finally`.
 
 Outputs:
 - Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
@@ -249,6 +250,8 @@ Concrete anchors:
 - `guardian/routes/cron.py`
 - `guardian/cron/scheduler.py`
 - `guardian/workers/cron_worker.py`
+
+The bounded chat tool-loop slice uses this same command-bus lane. It may execute one command, reinject the result into the completion context, and then hard-stop after that single tool turn.
 
 ```mermaid
 sequenceDiagram

@@ -105,6 +105,145 @@ class ProviderResponse(str):
         return obj
 
 
+COMPLETION_OUTPUT_KIND_ASSISTANT = "assistant"
+COMPLETION_OUTPUT_KIND_TOOL_DECISION = "tool_decision"
+COMPLETION_OUTPUT_KIND_MALFORMED_TOOL_DECISION = "malformed_tool_decision"
+
+
+def _normalize_tool_decision_payload(
+    payload: dict[str, Any]
+) -> dict[str, Any] | None:
+    command_id = str(
+        payload.get("command_id") or payload.get("commandId") or ""
+    ).strip()
+    if not command_id:
+        return None
+
+    arguments = payload.get("arguments")
+    if arguments is None:
+        arguments = payload.get("args")
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        arguments = {"body": arguments}
+
+    normalized: dict[str, Any] = {
+        "command_id": command_id,
+        "arguments": dict(arguments),
+    }
+    tool_name = str(
+        payload.get("tool_name") or payload.get("toolName") or ""
+    ).strip()
+    if tool_name:
+        normalized["tool_name"] = tool_name
+    summary = str(payload.get("summary") or payload.get("reason") or "").strip()
+    if summary:
+        normalized["summary"] = summary
+    return normalized
+
+
+def normalize_completion_output(raw_output: Any) -> dict[str, Any]:
+    """Normalize provider output into assistant or bounded tool-decision form."""
+
+    def _assistant(text: Any) -> dict[str, Any]:
+        return {
+            "kind": COMPLETION_OUTPUT_KIND_ASSISTANT,
+            "assistant_text": str(text or ""),
+            "raw": raw_output,
+        }
+
+    if isinstance(raw_output, ProviderResponse):
+        if getattr(raw_output, "raw_payload", None) is not None:
+            raw_output = getattr(raw_output, "raw_payload")
+        elif getattr(raw_output, "content_blocks", None) is not None:
+            raw_output = getattr(raw_output, "content_blocks")
+        else:
+            raw_output = str(raw_output)
+
+    if isinstance(raw_output, dict):
+        kind = (
+            str(raw_output.get("kind") or raw_output.get("type") or "")
+            .strip()
+            .lower()
+        )
+        if (
+            kind == COMPLETION_OUTPUT_KIND_TOOL_DECISION
+            or raw_output.get("tool_decision") is not None
+        ):
+            payload = raw_output.get("tool_decision")
+            if not isinstance(payload, dict):
+                payload = raw_output
+            normalized = _normalize_tool_decision_payload(payload)
+            if normalized is None:
+                return {
+                    "kind": COMPLETION_OUTPUT_KIND_MALFORMED_TOOL_DECISION,
+                    "error": "missing_command_id",
+                    "tool_decision": payload,
+                    "raw": raw_output,
+                }
+            return {
+                "kind": COMPLETION_OUTPUT_KIND_TOOL_DECISION,
+                "tool_decision": normalized,
+                "raw": raw_output,
+            }
+        assistant_text = (
+            raw_output.get("assistant_text")
+            or raw_output.get("content")
+            or raw_output.get("text")
+        )
+        if assistant_text is not None:
+            return _assistant(assistant_text)
+        return _assistant(json.dumps(raw_output, default=str))
+
+    text = str(raw_output or "")
+    stripped = text.strip()
+    if not stripped:
+        return _assistant("")
+
+    try:
+        parsed = json.loads(stripped)
+    except Exception:
+        return _assistant(text)
+
+    if isinstance(parsed, dict):
+        kind = (
+            str(parsed.get("kind") or parsed.get("type") or "").strip().lower()
+        )
+        if (
+            kind == COMPLETION_OUTPUT_KIND_TOOL_DECISION
+            or parsed.get("tool_decision") is not None
+        ):
+            payload = parsed.get("tool_decision")
+            if not isinstance(payload, dict):
+                payload = parsed
+            normalized = _normalize_tool_decision_payload(payload)
+            if normalized is None:
+                return {
+                    "kind": COMPLETION_OUTPUT_KIND_MALFORMED_TOOL_DECISION,
+                    "error": "missing_command_id",
+                    "tool_decision": payload,
+                    "raw": raw_output,
+                }
+            return {
+                "kind": COMPLETION_OUTPUT_KIND_TOOL_DECISION,
+                "tool_decision": normalized,
+                "raw": raw_output,
+            }
+        assistant_text = (
+            parsed.get("assistant_text")
+            or parsed.get("content")
+            or parsed.get("text")
+        )
+        if assistant_text is not None:
+            return _assistant(assistant_text)
+        return _assistant(stripped)
+
+    if isinstance(parsed, str):
+        return _assistant(parsed)
+
+    return _assistant(stripped)
+
+
 @dataclass(frozen=True)
 class LocalEndpointCandidate:
     base_url: str

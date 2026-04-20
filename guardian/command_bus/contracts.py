@@ -56,6 +56,22 @@ class InvokeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CommandBusInvokeResult(BaseModel):
+    """Normalized command-bus invoke response."""
+
+    run_id: str
+    status: Literal["queued", "running", "completed", "blocked", "failed"]
+    invoke_version: str | None = None
+    manifest_version: str | None = None
+    events_url: str | None = None
+    inline_result: dict[str, Any] | None = None
+    error: str | None = None
+    warning: str | None = None
+    policy_warnings: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class CommandSpec(BaseModel):
     """Raw command manifest entry."""
 

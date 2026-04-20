@@ -1,5 +1,5 @@
 Purpose: Capture Codexify's current runtime architecture in one place so onboarding, estimation, and design review start from implemented behavior rather than assumptions.
-Last updated: 2026-03-17
+Last updated: 2026-04-20
 Source anchors:
 - docker-compose.yml
 - src-tauri/
@@ -25,7 +25,7 @@ Source anchors:
 | FastAPI app | Startup orchestration, middleware, router inclusion, `/api/events`, `/api/tasks/*/events`, metrics, media mount | `guardian/guardian_api.py`, `guardian/server/run.py` |
 | Auth and exposure boundary | Chooses local vs remote auth mode, derives current user, enforces API key/session rules, shapes CORS/public exposure | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | Chat API surface | Thread CRUD, message persistence, completion enqueue, RAG trace/debug endpoints | `guardian/routes/chat.py`, `guardian/routes/threads.py` |
-| Completion service and chat worker | Builds provider-ready message bundles, runs model calls, persists assistant output, emits task events | `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` |
+| Completion service and chat worker | Builds provider-ready message bundles, runs model calls, can execute one bounded command-bus tool turn, persists assistant output, emits task events | `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` |
 | Context broker | Composes recent messages, semantic retrieval, document context, memory retrieval, optional graph/federated context | `guardian/context/broker.py`, `guardian/memoryos/retriever.py` |
 | Media and document ingestion | Uploads documents/images, deduplicates assets, extracts text, links docs to threads/projects, enqueues embedding jobs | `guardian/routes/media.py`, `guardian/routes/documents.py`, `guardian/services/document_parsers/` |
 | Embedding and retrieval stack | Creates chat/document embeddings, indexes and searches vector data, exposes health state | `guardian/workers/document_embed_worker.py`, `guardian/workers/chat_embedding_worker.py`, `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py` |
@@ -100,6 +100,7 @@ The configured provider is not the same thing as discovered provider inventory. 
   - acquire Redis turn lock
   - enqueue `ChatCompletionTask`
   - worker assembles context and calls provider
+  - when the model emits a structured tool decision, the completion service executes exactly one command-bus invoke, reinjects the result, and requests one final assistant answer
   - persist assistant message and emit task/domain events
 - Anchors: `guardian/routes/chat.py`, `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`, `guardian/queue/redis_queue.py`
 
