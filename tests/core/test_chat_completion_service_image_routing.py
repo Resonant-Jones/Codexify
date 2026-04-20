@@ -114,7 +114,9 @@ def test_image_routing_vlm_builds_multimodal_payload(
 
     monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
 
-    task = ChatCompletionTask(thread_id=1, provider="openai", model="gpt-4o")
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
     result = chat_completion_service.run_chat_completion_task(
         task,
         persist_assistant_message=False,
@@ -170,7 +172,10 @@ def test_image_routing_text_only_runs_interpreter(
     monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
 
     task = ChatCompletionTask(
-        thread_id=1, provider="groq", model="llama-3.1-70b-versatile"
+        user_id="local",
+        thread_id=1,
+        provider="groq",
+        model="llama-3.1-70b-versatile",
     )
     result = chat_completion_service.run_chat_completion_task(
         task,
@@ -238,7 +243,9 @@ def test_image_routing_text_only_uses_local_blip_captioning(
     monkeypatch.setattr(chat_completion_service, "stream_local", _empty_stream)
     monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model="qwen3.5:9b")
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model="qwen3.5:9b"
+    )
     result = chat_completion_service.run_chat_completion_task(
         task,
         persist_assistant_message=False,
@@ -274,7 +281,10 @@ def test_image_routing_fails_without_path(monkeypatch: pytest.MonkeyPatch):
     )
 
     task = ChatCompletionTask(
-        thread_id=1, provider="groq", model="llama-3.1-70b-versatile"
+        user_id="local",
+        thread_id=1,
+        provider="groq",
+        model="llama-3.1-70b-versatile",
     )
 
     with pytest.raises(Exception) as excinfo:

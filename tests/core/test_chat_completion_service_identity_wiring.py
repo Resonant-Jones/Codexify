@@ -183,7 +183,9 @@ async def test_build_messages_for_llm_uses_persisted_active_imprint_and_persona(
         source="imprint_zero_seed",
     )
 
-    task = ChatCompletionTask(thread_id=1, max_context=50, depth_mode="normal")
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, max_context=50, depth_mode="normal"
+    )
 
     (
         messages_for_llm,
@@ -269,7 +271,9 @@ async def test_build_messages_for_llm_prefers_thread_persona_override_without_re
         raising=False,
     )
 
-    task = ChatCompletionTask(thread_id=1, max_context=50, depth_mode="normal")
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, max_context=50, depth_mode="normal"
+    )
 
     (
         messages_for_llm,
@@ -414,6 +418,7 @@ def test_run_chat_completion_task_injects_identity_context_into_fresh_thread(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         max_context=50,
         depth_mode="normal",

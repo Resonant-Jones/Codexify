@@ -33,6 +33,7 @@ def _build_task(
     *, thread_id: int = 11, turn_id: str = TURN_ID
 ) -> ChatCompletionTask:
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=thread_id,
         provider="groq",
         model="moonshotai/kimi-k2-instruct-0905",
@@ -167,6 +168,7 @@ def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
 
     chat_worker._run_chat_task(_build_task(thread_id=29, turn_id=TURN_ID))
     retry_task = ChatCompletionTask(
+        user_id="local",
         task_id="task-retry",
         thread_id=29,
         provider="groq",
@@ -320,6 +322,7 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
     monkeypatch.setattr(chat_worker, "chat_with_ai", _chat_with_ai)
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model="moonshotai/kimi-k2-instruct-0905",
@@ -403,6 +406,7 @@ def test_completion_result_includes_execution_metadata_without_fallback(
     monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model="qwen3.5:27b",
@@ -474,6 +478,7 @@ def test_explicit_provider_failure_does_not_rescue(monkeypatch):
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model="moonshotai/kimi-k2-instruct-0905",
@@ -522,6 +527,7 @@ def test_generation_success_but_persistence_failure_is_non_authoritative(
     monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model="qwen3.5:27b",
@@ -614,6 +620,7 @@ def test_completion_persists_stripped_response_boundary(monkeypatch):
 
     callback_tokens: list[str] = []
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model="qwen3.5:27b",
@@ -662,6 +669,7 @@ def test_stream_completion_ignores_reasoning_chunks(monkeypatch):
 
     callback_tokens: list[str] = []
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model="qwen3.5:27b",
@@ -715,6 +723,7 @@ def test_completion_fallback_response_ignores_reasoning_fields(monkeypatch):
 
     callback_tokens: list[str] = []
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model="qwen3.5:27b",

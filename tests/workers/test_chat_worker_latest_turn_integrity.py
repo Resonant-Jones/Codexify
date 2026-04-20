@@ -36,6 +36,7 @@ def _build_task_payload(
         "type": "chat_completion",
         "created_at": "2026-04-02T00:00:00+00:00",
         "origin": f"api:chat.complete|turn_id={TURN_ID}",
+        "user_id": "local",
         "thread_id": 7,
         "provider": "local",
         "model": "test-model",

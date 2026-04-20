@@ -178,7 +178,9 @@ async def test_build_messages_for_llm_fails_safely_without_user_turn(
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
 
     with pytest.raises(ValueError, match="thread_has_no_usable_context"):
         await chat_completion_service.build_messages_for_llm(task)
@@ -199,7 +201,9 @@ async def test_build_messages_for_llm_preserves_latest_turn_boundary(
         ],
     )
 
-    task = ChatCompletionTask(thread_id=1, provider="local", model=None)
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="local", model=None
+    )
     (
         messages,
         provider,
@@ -238,6 +242,7 @@ async def test_build_messages_for_llm_honors_explicit_target_message_id(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model=None,
@@ -281,6 +286,7 @@ async def test_build_messages_for_llm_fails_when_explicit_target_missing(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model=None,
