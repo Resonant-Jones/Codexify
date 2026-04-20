@@ -274,6 +274,7 @@ async def test_build_messages_for_llm_uses_thread_config_source_mode_and_persona
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="groq",
         model="override-model",

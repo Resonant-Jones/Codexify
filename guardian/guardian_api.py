@@ -91,6 +91,7 @@ from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
     get_active_supported_profile,
 )
+from guardian.core.user_manager import get_or_create_default_user
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
@@ -632,6 +633,13 @@ async def app_lifespan(app: FastAPI):
         logger.info(
             "[startup] GuardianDB configured for cron/documents/share/collaboration/websocket routes"
         )
+
+        try:
+            get_or_create_default_user(guardian_db)
+        except Exception as exc:
+            logger.warning(
+                "[startup] Failed to ensure default user exists: %s", exc
+            )
 
     try:
         _run_builtin_help_startup_ingest(guardian_db)
