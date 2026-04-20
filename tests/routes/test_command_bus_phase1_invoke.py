@@ -23,6 +23,22 @@ def _build_client(monkeypatch) -> TestClient:
     def write(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "payload": payload}
 
+    @app.patch(
+        "/chat/{thread_id}/profile", operation_id="guardian.profile.switch"
+    )
+    def switch_profile(
+        thread_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        profile_id = str(payload.get("profile_id") or "")
+        return {
+            "ok": True,
+            "thread_id": thread_id,
+            "profile_id": profile_id,
+            "active_profile_id": profile_id,
+            "provider_override": "local",
+            "model_override": "local-model",
+        }
+
     app.include_router(command_bus.router)
     return TestClient(app)
 
@@ -44,6 +60,41 @@ def _command_id(manifest: dict[str, Any], *, method: str, path: str) -> str:
         ):
             return str(command["command_id"])
     raise AssertionError(f"missing command for {method} {path}")
+
+
+def _install_fake_loopback(monkeypatch, captured: list[dict[str, Any]]) -> None:
+    class _FakeResponse:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        @property
+        def text(self) -> str:
+            return '{"ok": true}'
+
+        def json(self) -> dict[str, bool]:
+            return {"ok": True}
+
+    class _FakeAsyncClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            _ = args, kwargs
+
+        async def __aenter__(self) -> "_FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+            _ = exc_type, exc, tb
+
+        async def request(self, **kwargs: Any) -> _FakeResponse:
+            captured.append(dict(kwargs))
+            return _FakeResponse()
+
+    monkeypatch.setenv(
+        "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://127.0.0.1:9999"
+    )
+    monkeypatch.setattr(
+        "guardian.command_bus.loopback_http_adapter.httpx.AsyncClient",
+        _FakeAsyncClient,
+    )
 
 
 def test_invoke_rejects_missing_actor(monkeypatch) -> None:
@@ -233,6 +284,51 @@ def test_invoke_read_only_uses_loopback_http_and_persists(monkeypatch) -> None:
     captured_headers = {k.lower(): v for k, v in captured[0]["headers"].items()}
     assert captured_headers["x-api-key"] == "test-key"
     assert captured_headers["x-user-id"] == "operator"
+
+    events = command_bus._store.list_events_after(
+        run_id=payload["run_id"],
+        after_seq=0,
+    )
+    assert [event["event_type"] for event in events] == [
+        "run.created",
+        "run.started",
+        "run.completed",
+    ]
+
+
+def test_invoke_profile_switch_executes_through_tools_lane(monkeypatch) -> None:
+    captured: list[dict[str, Any]] = []
+    _install_fake_loopback(monkeypatch, captured)
+
+    client = _build_client(monkeypatch)
+    manifest = _get_manifest(client)
+    profile_command_id = _command_id(
+        manifest, method="PATCH", path="/chat/{thread_id}/profile"
+    )
+
+    response = client.post(
+        "/api/guardian/commands/invoke",
+        headers={"X-API-Key": "test-key", "X-User-Id": "local"},
+        json={
+            "invoke_version": "1.0",
+            "command_id": profile_command_id,
+            "actor": {"kind": "human", "id": "local"},
+            "arguments": {
+                "path_params": {"thread_id": 1},
+                "body": {"profile_id": "local_mode"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["inline_result"]["status_code"] == 200
+    assert payload["inline_result"]["body"]["ok"] is True
+    assert len(captured) == 1
+    assert captured[0]["method"] == "PATCH"
+    assert captured[0]["url"] == "http://127.0.0.1:9999/chat/1/profile"
+    assert captured[0]["json"] == {"profile_id": "local_mode"}
 
     events = command_bus._store.list_events_after(
         run_id=payload["run_id"],

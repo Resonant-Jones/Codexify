@@ -233,6 +233,7 @@ class ChatDB(ABC):
         role: str,
         content: str,
         created_at: str | None = None,
+        user_id: str | None = None,
     ) -> int:
         """Create a new message in a thread.
 
@@ -582,7 +583,9 @@ class ChatDB(ABC):
 
     ## ---- projects ---------------------------------------------------------
     @abstractmethod
-    def create_project(self, name: str, description: str = "") -> int:
+    def create_project(
+        self, name: str, description: str = "", user_id: str | None = None
+    ) -> int:
         """Create a project.
 
         Args:

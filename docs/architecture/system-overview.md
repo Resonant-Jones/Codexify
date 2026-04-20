@@ -29,7 +29,7 @@ Source anchors:
 | Context broker | Composes recent messages, semantic retrieval, document context, memory retrieval, optional graph/federated context | `guardian/context/broker.py`, `guardian/memoryos/retriever.py` |
 | Media and document ingestion | Uploads documents/images, deduplicates assets, extracts text, links docs to threads/projects, enqueues embedding jobs | `guardian/routes/media.py`, `guardian/routes/documents.py`, `guardian/services/document_parsers/` |
 | Embedding and retrieval stack | Creates chat/document embeddings, indexes and searches vector data, exposes health state | `guardian/workers/document_embed_worker.py`, `guardian/workers/chat_embedding_worker.py`, `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py` |
-| Command bus and tools layer | Derives callable commands from OpenAPI, enforces policy/idempotency, exposes legacy `/tools` compatibility shim | `guardian/routes/command_bus.py`, `guardian/command_bus/`, `guardian/routes/tools.py` |
+| Command bus layer | Derives callable commands from OpenAPI, enforces policy/idempotency, exposes the canonical invoke surface | `guardian/routes/command_bus.py`, `guardian/command_bus/` |
 | Cron and job execution | Persists schedules, queues due runs, executes jobs, records run history | `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py` |
 | Federation and sync | Manages peer trust/session flows, relay/diff/context endpoints, and a separate lightweight sync bus | `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/api.py` |
 | Persistence and infra | Postgres system of record, Redis queues/locks/events, optional Neo4j, local/object media storage | `guardian/db/models.py`, `guardian/queue/redis_queue.py`, `guardian/core/storage.py`, `docker-compose.yml` |
@@ -129,14 +129,14 @@ The configured provider is not the same thing as discovered provider inventory. 
 
 ### Tool execution path
 
-- Trigger: command bus invoke or legacy `/api/tools/*` call
+- Trigger: command bus invoke
 - Core sequence:
   - derive manifest from OpenAPI
   - validate actor claim and idempotency
   - apply tool policy and execution-lane rules
   - execute loopback HTTP request for allowed commands
   - stream run events or return shim response
-- Anchors: `guardian/routes/command_bus.py`, `guardian/command_bus/invoke.py`, `guardian/routes/tools.py`
+- Anchors: `guardian/routes/command_bus.py`, `guardian/command_bus/invoke.py`, `guardian/command_bus/loopback_http_adapter.py`
 
 ### Sync/federation path
 

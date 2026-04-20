@@ -20,7 +20,7 @@
  */
 import api from "@/lib/api";
 import { Settings2 } from "lucide-react";
-import React, { PropsWithChildren, useCallback, useEffect, useMemo, useState } from "react";
+import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -35,6 +35,7 @@ import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
+import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
@@ -100,6 +101,11 @@ import {
   WORKSPACE_AFFORDANCE,
 } from "./workspaceAffordanceContract";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
+import {
+  DEFAULT_FLOW_BUILDER_MODE,
+  getFlowBuilderPath,
+  type FlowBuilderMode,
+} from "@/features/flowBuilder/flowBuilderRoute";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -131,6 +137,7 @@ type AppShellView =
   | "documents"
   | "gallery"
   | "guardian"
+  | "flowBuilder"
   | "settings"
   | "personaStudio";
 type WorkspaceShellView = "dashboard" | "documents" | "guardian";
@@ -226,6 +233,7 @@ const APP_SHELL_VIEWS = [
   "documents",
   "gallery",
   "guardian",
+  "flowBuilder",
   "settings",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
@@ -237,6 +245,7 @@ function isAppShellView(value: string | null): value is AppShellView {
 }
 
 function resolveViewFromPathname(pathname: string): AppShellView | null {
+  if (pathname.startsWith("/flow-builder")) return "flowBuilder";
   if (pathname.startsWith("/persona-studio")) return "personaStudio";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/gallery")) return "gallery";
@@ -250,6 +259,8 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
   switch (view) {
     case "guardian":
       return threadId != null ? `/chat/${threadId}` : "/chat";
+    case "flowBuilder":
+      return getFlowBuilderPath(resolvePersistedFlowBuilderMode());
     case "documents":
       return "/documents";
     case "gallery":
@@ -261,6 +272,21 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
     case "dashboard":
     default:
       return "/dashboard";
+  }
+}
+
+function resolvePersistedFlowBuilderMode(): FlowBuilderMode {
+  if (typeof window === "undefined") {
+    return DEFAULT_FLOW_BUILDER_MODE;
+  }
+
+  try {
+    const raw = window.localStorage.getItem("cfy.flowBuilder.mode");
+    return raw === "expertise" || raw === "process"
+      ? raw
+      : DEFAULT_FLOW_BUILDER_MODE;
+  } catch {
+    return DEFAULT_FLOW_BUILDER_MODE;
   }
 }
 
@@ -1123,6 +1149,11 @@ export default function AppShell({
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
+  const lastGuardianPathRef = useRef<string | null>(
+    typeof window !== "undefined" && resolveViewFromPathname(window.location.pathname) === "guardian"
+      ? resolvePathForView("guardian", readRouteThreadId())
+      : null
+  );
   const [generalProjectId, setGeneralProjectId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem("cfy.generalProjectId");
@@ -1153,6 +1184,12 @@ export default function AppShell({
   useEffect(() => {
     setDocumentScope(activeRouteThreadId != null ? "thread" : "project");
   }, [activeRouteThreadId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (view !== "guardian") return;
+
+    lastGuardianPathRef.current = resolvePathForView("guardian", activeRouteThreadId);
+  }, [activeRouteThreadId, view]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
       setView(nextView);
@@ -1166,6 +1203,16 @@ export default function AppShell({
     },
     [activeRouteThreadId]
   );
+  const returnToGuardian = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const nextPath =
+      lastGuardianPathRef.current ?? resolvePathForView("guardian", activeRouteThreadId);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [activeRouteThreadId]);
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
@@ -2622,6 +2669,16 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "flowBuilder" ? "active" : "inactive"}
+                aria-current={view === "flowBuilder" ? "page" : undefined}
+                onClick={() => navigateToView("flowBuilder")}
+                style={getMobileNavPillStyle("flowBuilder")}
+              >
+                Flow Builder
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 aria-current={view === "personaStudio" ? "page" : undefined}
                 onClick={() => navigateToView("personaStudio")}
@@ -3003,6 +3060,24 @@ export default function AppShell({
                 </ErrorBoundary>
               </div>
             </FrameCard>
+          )}
+          {!startupLocked && view === "flowBuilder" && (
+            <div
+              className="h-full w-full isolate"
+              data-active-view="flowBuilder"
+              data-active-view-contract="single-panel"
+              data-thread-rail="absent"
+              data-view-family="flowBuilder"
+            >
+              <FrameCard
+                refractiveFallback
+                shimmerMode="subtle"
+                className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+                data-testid="flow-builder-framecard"
+              >
+                <FlowBuilderPage onReturnToGuardian={returnToGuardian} />
+              </FrameCard>
+            </div>
           )}
           {!startupLocked && view === "personaStudio" && (
             <div

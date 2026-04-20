@@ -1,7 +1,7 @@
 /**
  * ChatView - renders Guardian message history without owning fetch loops.
  */
-import { ArrowDown } from "lucide-react";
+import { AlertTriangle, ArrowDown, Inbox, Loader2 } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -40,6 +40,28 @@ type BubblePlayState =
   | "unavailable"
   | "disabled";
 
+type ChatSurfaceState =
+  | {
+      kind: "loading";
+      title: string;
+      detail: string;
+    }
+  | {
+      kind: "empty";
+      title: string;
+      detail: string;
+    }
+  | {
+      kind: "error";
+      title: string;
+      detail: string;
+    }
+  | {
+      kind: "unavailable";
+      title: string;
+      detail: string;
+    };
+
 function normalizeMessageTimestamp(raw: unknown): number | null {
   if (typeof raw === "number") {
     return Number.isFinite(raw) ? raw : null;
@@ -51,6 +73,98 @@ function normalizeMessageTimestamp(raw: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function isUnavailableChatError(error: string | null): boolean {
+  if (!error) return false;
+  const normalized = error.toLowerCase();
+  return (
+    normalized.includes("temporarily unavailable") ||
+    normalized.includes("not authorized") ||
+    normalized.includes("thread not found") ||
+    normalized.includes("forbidden") ||
+    normalized.includes("unavailable in this posture") ||
+    normalized.includes("unavailable in this runtime")
+  );
+}
+
+function buildChatSurfaceState(args: {
+  loading: boolean;
+  error: string | null;
+  hasMessages: boolean;
+}): ChatSurfaceState | null {
+  if (args.hasMessages) {
+    return null;
+  }
+
+  if (args.loading) {
+    return {
+      kind: "loading",
+      title: "Loading Guardian chat",
+      detail: "Fetching the thread history.",
+    };
+  }
+
+  if (args.error) {
+    if (isUnavailableChatError(args.error)) {
+      return {
+        kind: "unavailable",
+        title: "Chat unavailable",
+        detail: args.error,
+      };
+    }
+    return {
+      kind: "error",
+      title: "Failed to load messages",
+      detail: args.error,
+    };
+  }
+
+  return {
+    kind: "empty",
+    title: "No messages yet",
+    detail: "This thread is ready. Start the conversation below.",
+  };
+}
+
+function ChatSurfaceStateCard({ state }: { state: ChatSurfaceState }) {
+  const icon =
+    state.kind === "loading" ? (
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+    ) : state.kind === "empty" ? (
+      <Inbox className="h-4 w-4 shrink-0" aria-hidden="true" />
+    ) : (
+      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+    );
+
+  const toneColor =
+    state.kind === "loading" || state.kind === "empty"
+      ? "var(--muted)"
+      : "rgb(248 113 113)";
+
+  return (
+    <div className="w-full flex justify-start" data-testid="chat-surface-state">
+      <div
+        className="max-w-[min(34rem,calc(100%-1rem))] min-w-0 rounded-[22px] border px-4 py-3 shadow-sm"
+        role="status"
+        aria-live="polite"
+        style={{
+          background:
+            "color-mix(in oklab, var(--panel-sheet, var(--panel-bg)) 82%, transparent)",
+          borderColor: "var(--panel-border)",
+          color: "var(--text)",
+        }}
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <span style={{ color: toneColor }}>{icon}</span>
+          <span>{state.title}</span>
+        </div>
+        <div className="mt-1 text-sm leading-6" style={{ color: "var(--muted)" }}>
+          {state.detail}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function ChatView({
@@ -146,6 +260,11 @@ export function ChatView({
       ? streamingDraft.content
       : "";
   const showStreamingDraft = Boolean(streamingDraftText.trim());
+  const surfaceState = buildChatSurfaceState({
+    loading,
+    error,
+    hasMessages: messages.length > 0,
+  });
   const viewportLayoutSignature = useMemo(
     () =>
       [
@@ -532,6 +651,7 @@ export function ChatView({
           className="mx-auto w-full min-w-0 max-w-full md:max-w-[888px] space-y-4"
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
         >
+          {surfaceState ? <ChatSurfaceStateCard state={surfaceState} /> : null}
           {messages.map((message, index) => {
             const messageId = Number(message.id);
             const canPlay = message.role !== "user" && Number.isFinite(messageId);
@@ -647,12 +767,12 @@ export function ChatView({
             </div>
           ) : null}
 
-          {loading ? (
+          {loading && messages.length > 0 ? (
             <div className="min-w-0 text-xs opacity-70" data-testid="chat-loading">
               Loading...
             </div>
           ) : null}
-          {error ? (
+          {error && messages.length > 0 ? (
             <div className="min-w-0 text-xs text-red-500" data-testid="chat-error">
               {error}
             </div>

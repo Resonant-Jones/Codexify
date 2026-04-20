@@ -19,7 +19,11 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from guardian.core import metrics
-from guardian.core.dependencies import DB_BACKEND, get_database_dsn
+from guardian.core.dependencies import (
+    DB_BACKEND,
+    get_database_dsn,
+    get_single_user_id,
+)
 from guardian.core.health_service import (
     build_health_response,
     normalize_health_status,
@@ -1011,7 +1015,11 @@ def health_vector():
 
         probe_id = uuid4().hex
         probe_text = f"health_check_{probe_id}"
-        probe_meta = {"health_check": True, "id": probe_id}
+        probe_meta = {
+            "health_check": True,
+            "id": probe_id,
+            "user_id": get_single_user_id(),
+        }
 
         if backend == "chroma":
             source = "probe"
@@ -1034,7 +1042,11 @@ def health_vector():
             added = vector_store.add_texts(
                 [{"text": probe_text, "meta": probe_meta}]
             )
-            matches = vector_store.search(probe_text, k=1)
+            matches = vector_store.search(
+                probe_text,
+                k=1,
+                user_id=get_single_user_id(),
+            )
         ok = bool(matches)
 
         return _health_response(

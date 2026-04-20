@@ -37,7 +37,9 @@ def test_worker_replaces_blank_output(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *args, **kwargs: "")
 
-    task = ChatCompletionTask(thread_id=1, provider="groq", model="model")
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="groq", model="model"
+    )
     chat_worker._run_chat_task(task)
 
     args, _kwargs = mock_db.create_message.call_args
@@ -101,6 +103,7 @@ async def test_build_messages_for_llm_uses_single_system_message(monkeypatch):
     monkeypatch.setattr(chat_worker, "ContextBroker", _Broker)
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model="test-model",

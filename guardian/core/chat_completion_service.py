@@ -51,6 +51,7 @@ from guardian.core.ai_router import (
     normalize_completion_output,
     stream_local,
 )
+from guardian.core.candidate_trace_store import store_candidate_trace
 from guardian.core.chat_attachments import (
     extract_attachments_and_text,
     render_content_for_inference,
@@ -70,6 +71,11 @@ from guardian.core.provider_registry import (
 )
 from guardian.protocol_tokens import ToolLoopStopReason, ToolTurnState
 from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
+from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
+from guardian.queue.redis_queue import (
+    CANDIDATE_INGEST_QUEUE,
+    get_redis_connection,
+)
 
 logger = logging.getLogger(__name__)
 RETRIEVAL_PLAN_TRACE_KEY = "retrieval_plan"
@@ -341,6 +347,31 @@ def _execute_completion_attempt(
         if isinstance(bundle, dict)
         else None,
     )
+async def _build_messages_for_llm_compat(
+    task: ChatCompletionTask,
+    *,
+    user_id: str | None = None,
+) -> tuple[
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    dict[str, Any] | None,
+]:
+    builder = build_messages_for_llm
+    try:
+        signature = inspect.signature(builder)
+    except (TypeError, ValueError):
+        signature = None
+    accepts_user_id = False
+    if signature is not None:
+        accepts_user_id = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "user_id"
+            for name, parameter in signature.parameters.items()
+        )
+    if accepts_user_id:
+        return await builder(task, user_id=user_id)
+    return await builder(task)
 
 
 def build_context_system_message(bundle: dict[str, Any] | None) -> str | None:
@@ -519,6 +550,45 @@ def _task_routing_debug_metadata(task: Any) -> dict[str, Any]:
     if retrieval_override is not None:
         metadata["retrieval_override"] = retrieval_override
     return metadata
+
+
+def _completion_request_id(task: Any) -> str:
+    request_id = str(getattr(task, "request_id", "") or "").strip()
+    if request_id:
+        return request_id
+    return str(getattr(task, "task_id", "") or "").strip()
+
+
+def _build_candidate_trace(
+    task: Any,
+    *,
+    assistant_text: str,
+    provider: str | None,
+    model: str | None,
+) -> dict[str, Any] | None:
+    request_id = _completion_request_id(task)
+    thread_id = str(getattr(task, "thread_id", "") or "").strip()
+    if not request_id or not thread_id:
+        return None
+    return {
+        "thread_id": thread_id,
+        "request_id": request_id,
+        "candidates": [
+            {
+                "content": assistant_text,
+                "provider": provider,
+                "model": model,
+                "selected": True,
+            }
+        ],
+        "selection_strategy": "single_candidate",
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _enqueue_candidate_ingest(task_payload: dict[str, Any]) -> None:
+    redis = get_redis_connection()
+    redis.rpush(CANDIDATE_INGEST_QUEUE, json.dumps(task_payload, default=str))
 
 
 @dataclass(frozen=True)
@@ -707,7 +777,9 @@ async def _assemble_context_bundle(
     project_id: int | None,
     source_mode: str,
     retrieval_override: dict[str, Any] | None = None,
+    request_user_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    _ = request_user_id
     try:
         return await broker.assemble(
             thread_id,
@@ -1184,6 +1256,7 @@ def build_sanitized_payload_summary(
     *,
     provider: str | None,
     model: str | None,
+    requested_source_mode: str | None = None,
 ) -> dict[str, Any]:
     """Build a minimal, non-sensitive summary of the outbound provider payload.
 
@@ -1308,6 +1381,13 @@ def build_sanitized_payload_summary(
         ),
         "resolved_provider": (provider or "").strip() or None,
         "resolved_model": (model or "").strip() or None,
+        "source_mode": None,
+        "effective_source_mode": None,
+        "requested_source_mode": (
+            str(requested_source_mode).strip() or None
+            if requested_source_mode is not None
+            else None
+        ),
         "semantic_injected": semantic_injected,
         "memory_injected": memory_injected,
         "graph_injected": graph_injected,
@@ -1327,11 +1407,168 @@ def build_sanitized_payload_summary(
             "obsidian_injected",
         )
     )
+    summary["normalized_source_mode"] = summary["source_mode"]
 
     # For callers that later update to reflect a fallback provider/model.
     summary.setdefault("final_provider", summary["resolved_provider"])
     summary.setdefault("final_model", summary["resolved_model"])
     return summary
+
+
+def _namespace_from_hit(hit: Any) -> str | None:
+    if not isinstance(hit, dict):
+        return None
+    metadata = hit.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = hit.get("meta")
+    if not isinstance(metadata, dict):
+        return None
+    namespace = str(metadata.get("namespace") or "").strip()
+    return namespace or None
+
+
+def _count_items_with_namespace(
+    items: list[Any] | None,
+    namespace: str,
+) -> int:
+    if not isinstance(items, list) or not namespace:
+        return 0
+    normalized_namespace = str(namespace).strip()
+    if not normalized_namespace:
+        return 0
+    return sum(
+        1 for item in items if _namespace_from_hit(item) == normalized_namespace
+    )
+
+
+def _count_items_with_prefix(
+    items: list[Any] | None,
+    prefix: str,
+) -> int:
+    if not isinstance(items, list) or not prefix:
+        return 0
+    normalized_prefix = str(prefix).strip()
+    if not normalized_prefix:
+        return 0
+    return sum(
+        1
+        for item in items
+        if (_namespace_from_hit(item) or "").startswith(normalized_prefix)
+    )
+
+
+def _build_retrieval_provenance(
+    *,
+    requested_source_mode: str | None,
+    normalized_source_mode: str | None,
+    bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    semantic_hits = []
+    if isinstance(bundle, dict):
+        semantic_hits = [
+            item
+            for item in (bundle.get("semantic") or [])
+            if isinstance(item, dict)
+        ]
+    thread_semantic_count = _count_items_with_prefix(semantic_hits, "thread:")
+    obsidian_semantic_count = _count_items_with_namespace(
+        semantic_hits,
+        OBSIDIAN_NAMESPACE,
+    )
+    other_semantic_count = max(
+        len(semantic_hits) - thread_semantic_count - obsidian_semantic_count,
+        0,
+    )
+
+    docs = bundle.get("docs") if isinstance(bundle, dict) else None
+    project_document_count = 0
+    thread_document_count = 0
+    global_document_count = 0
+    other_document_count = 0
+    if isinstance(docs, dict):
+        for key, value in docs.items():
+            if not isinstance(value, list):
+                continue
+            count = len([item for item in value if isinstance(item, dict)])
+            if key == "project":
+                project_document_count = count
+            elif key == "thread":
+                thread_document_count = count
+            elif key == "global":
+                global_document_count = count
+            else:
+                other_document_count += count
+    elif isinstance(docs, list):
+        other_document_count = len(
+            [item for item in docs if isinstance(item, dict)]
+        )
+    memory_count = (
+        len(
+            [
+                item
+                for item in (bundle or {}).get("memory", [])
+                if isinstance(item, dict)
+            ]
+        )
+        if isinstance(bundle, dict)
+        else 0
+    )
+    graph_count = (
+        len(
+            [
+                item
+                for item in (bundle or {}).get("graph", [])
+                if isinstance(item, dict)
+            ]
+        )
+        if isinstance(bundle, dict)
+        else 0
+    )
+
+    source_hit_counts = {
+        "semantic_total": len(semantic_hits),
+        "thread_semantic": thread_semantic_count,
+        "obsidian_semantic": obsidian_semantic_count,
+        "other_semantic": other_semantic_count,
+        "project_documents": project_document_count,
+        "thread_documents": thread_document_count,
+        "global_documents": global_document_count,
+        "other_documents": other_document_count,
+        "memory": memory_count,
+        "graph": graph_count,
+    }
+
+    if obsidian_semantic_count > 0:
+        if (
+            thread_semantic_count == 0
+            and other_semantic_count == 0
+            and project_document_count == 0
+            and thread_document_count == 0
+            and global_document_count == 0
+            and other_document_count == 0
+            and memory_count == 0
+            and graph_count == 0
+        ):
+            retrieval_status = "obsidian_only_success"
+        else:
+            retrieval_status = "obsidian_with_additional_results"
+    else:
+        retrieval_status = "no_obsidian_results"
+
+    return {
+        "requested_source_mode": (
+            str(requested_source_mode).strip() or None
+            if requested_source_mode is not None
+            else None
+        ),
+        "normalized_source_mode": (
+            str(normalized_source_mode).strip() or None
+            if normalized_source_mode is not None
+            else None
+        ),
+        "source_hit_counts": source_hit_counts,
+        "retrieval_status": retrieval_status,
+    }
 
 
 def _embed_message(
@@ -1563,6 +1800,8 @@ def _persist_thread_trace_candidate(
 
 async def build_messages_for_llm(
     task: ChatCompletionTask,
+    *,
+    user_id: str | None = None,
 ) -> tuple[
     list[dict[str, str]],
     str,
@@ -1731,7 +1970,9 @@ async def build_messages_for_llm(
         raise ValueError("thread_has_no_usable_context")
 
     depth = str(task.depth_mode or "normal").strip().lower()
+    task_user_id = str(user_id or getattr(task, "user_id", "") or "").strip()
     user_for_context = (thread_info or {}).get("user_id", "default")
+    context_user_id = task_user_id or user_for_context
     source_mode = effective_source_mode
 
     project_id_for_prompt: int | None = None
@@ -1759,7 +2000,8 @@ async def build_messages_for_llm(
             thread_id=thread_id,
             query=retrieval_query,
             depth_mode=depth,
-            user_id=user_for_context,
+            user_id=context_user_id,
+            request_user_id=task_user_id or None,
             project_id=project_id_for_prompt,
             source_mode=source_mode,
             retrieval_override=routing_debug_metadata.get("retrieval_override"),
@@ -1770,6 +2012,10 @@ async def build_messages_for_llm(
             bundle["requested_persona"] = thread_execution.persona_id
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
+        if task_user_id:
+            prompt_meta = dict(bundle.get("_prompt_meta") or {})
+            prompt_meta["request_user_id"] = task_user_id
+            bundle["_prompt_meta"] = prompt_meta
     except Exception as exc:
         logger.warning(
             "[chat-completion] context assemble failed depth=%s err=%s",
@@ -2208,17 +2454,26 @@ def _execute_bounded_tool_turn_completion(
 def run_chat_completion_task(
     task: ChatCompletionTask,
     *,
+    user_id: str | None = None,
     token_callback: Callable[[str], None] | None = None,
     chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     persist_assistant_message: bool = True,
 ) -> dict[str, Any]:
     """Execute one completion with shared context assembly/provider routing."""
-    messages_for_llm, provider, model, bundle, trace = asyncio.run(
-        build_messages_for_llm(task)
-    )
+    build_result: tuple[
+        list[dict[str, str]],
+        str,
+        str,
+        dict[str, Any],
+        dict[str, Any] | None,
+    ] = asyncio.run(_build_messages_for_llm_compat(task, user_id=user_id))
+    messages_for_llm, provider, model, bundle, trace = build_result
 
     settings = get_settings()
+    requested_source_mode = (
+        str(getattr(task, "requested_source_mode", "") or "").strip() or None
+    )
     messages_for_llm, routing_meta = _apply_image_attachment_routing(
         messages_for_llm,
         bundle=bundle,
@@ -2233,6 +2488,7 @@ def run_chat_completion_task(
         bundle,
         provider=provider,
         model=model,
+        requested_source_mode=requested_source_mode,
     )
     payload_summary.update(
         {
@@ -2254,7 +2510,14 @@ def run_chat_completion_task(
     )
     payload_summary["source_mode"] = trace_source_mode
     payload_summary["effective_source_mode"] = trace_source_mode
+    payload_summary["normalized_source_mode"] = trace_source_mode
     payload_summary["effective_policy"] = effective_policy
+    retrieval_provenance = _build_retrieval_provenance(
+        requested_source_mode=requested_source_mode,
+        normalized_source_mode=trace_source_mode,
+        bundle=bundle if isinstance(bundle, dict) else None,
+    )
+    payload_summary["retrieval_provenance"] = retrieval_provenance
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {
@@ -2280,6 +2543,127 @@ def run_chat_completion_task(
     )
     assistant_text = str(result.get("assistant_text") or "")
     payload_summary = dict(result.get("payload_summary") or payload_summary)
+    assistant_text = ""
+    if provider == "local":
+        streamed_any = False
+        token_stream = stream_local(
+            messages_for_llm,
+            model,
+            reasoning_mode=getattr(task, "reasoning_mode", None),
+            temperature=getattr(task, "temperature", None),
+        )
+        try:
+            for token in token_stream:
+                if cancel_check and cancel_check():
+                    raise ChatTaskCancelled("task_cancelled")
+                if token:
+                    streamed_any = True
+                    assistant_text += token
+                    if token_callback:
+                        token_callback(token)
+                    if chunk_callback:
+                        chunk_callback(token)
+        finally:
+            token_stream.close()
+
+        # Defensive fallback: some local providers may return a full completion
+        # without producing incremental stream chunks (or our stream parser yields none).
+        # We still want a completion persisted, but we must avoid emitting a duplicate
+        # message to the UI when streaming already happened.
+        if not assistant_text.strip():
+            assistant_text = str(
+                chat_with_ai(
+                    messages_for_llm,
+                    model=model,
+                    provider=provider,
+                    reasoning_mode=getattr(task, "reasoning_mode", None),
+                    temperature=getattr(task, "temperature", None),
+                    prompt_meta=(
+                        dict(bundle.get("_prompt_meta") or {})
+                        if isinstance(bundle, dict)
+                        else None
+                    ),
+                )
+            )
+            # Only emit via callback when nothing was streamed.
+            if token_callback and (not streamed_any) and assistant_text:
+                token_callback(assistant_text)
+    else:
+        if cancel_check and cancel_check():
+            raise ChatTaskCancelled("task_cancelled")
+        assistant_text = str(
+            chat_with_ai(
+                messages_for_llm,
+                model=model,
+                provider=provider,
+                reasoning_mode=getattr(task, "reasoning_mode", None),
+                temperature=getattr(task, "temperature", None),
+                prompt_meta=(
+                    dict(bundle.get("_prompt_meta") or {})
+                    if isinstance(bundle, dict)
+                    else None
+                ),
+            )
+        )
+        if token_callback:
+            token_callback(assistant_text)
+
+    candidate_trace = _build_candidate_trace(
+        task,
+        assistant_text=assistant_text,
+        provider=provider,
+        model=model,
+    )
+    if candidate_trace is not None:
+        try:
+            store_candidate_trace(candidate_trace)
+        except Exception:
+            logger.warning(
+                "[chat-completion] candidate_trace_store_failed thread_id=%s request_id=%s",
+                task.thread_id,
+                _completion_request_id(task),
+                exc_info=True,
+            )
+        request_id = str(candidate_trace.get("request_id") or "").strip()
+        thread_id_raw = getattr(task, "thread_id", None)
+        try:
+            thread_id = int(thread_id_raw)
+        except (TypeError, ValueError):
+            thread_id = 0
+        if request_id and thread_id > 0:
+            task_payload = {
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": request_id,
+                "created_at": str(candidate_trace.get("created_at") or ""),
+                "payload": dict(candidate_trace),
+            }
+            try:
+                _enqueue_candidate_ingest(task_payload)
+                logger.info(
+                    "[chat-completion] candidate_trace_ingest_enqueued thread_id=%s request_id=%s candidate_trace_id=%s",
+                    thread_id,
+                    request_id,
+                    request_id,
+                )
+            except Exception:
+                logger.warning(
+                    "[chat-completion] candidate_trace_ingest_enqueue_failed thread_id=%s request_id=%s",
+                    thread_id,
+                    request_id,
+                    exc_info=True,
+                )
+
+    result: dict[str, Any] = {
+        "assistant_text": assistant_text,
+        "provider": provider,
+        "model": model,
+        "bundle": bundle,
+        "trace": trace,
+        "thread_id": task.thread_id,
+        "payload_summary": payload_summary,
+        "retrieval_provenance": retrieval_provenance,
+    }
     if isinstance(trace, dict):
         result["latest_turn_message_id"] = trace.get("latest_turn_message_id")
         result["retrieval_query"] = trace.get("retrieval_query")

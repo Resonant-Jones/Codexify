@@ -35,7 +35,7 @@ Source anchors:
 | Queue and task transport | supporting | Redis queue access, cancellation, turn locks, task event streams, worker heartbeats | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py` | Redis | chat, ingestion, cron, health endpoints | high |
 | Durable events and audit | supporting | domain outbox, audit rows, event streaming, event graph lineage | `guardian/core/event_bus.py`, `guardian/core/outbox.py`, `guardian/db/models.py` | Postgres | live UI updates, debugging, downstream consumers | medium |
 | Command bus | supporting | manifest derivation, invoke validation, idempotency, policy, loopback execution, run/event persistence | `guardian/routes/command_bus.py`, `guardian/command_bus/` | auth, OpenAPI, DB, HTTP loopback | tools shim, future agent/tool callers | high |
-| Legacy tools shim | experimental | compatibility wrapper over command bus plus a few local helper behaviors | `guardian/routes/tools.py` | command bus, profile resolver | existing `/tools` clients | medium |
+| Legacy tools shim | retired | runtime shim removed; historical removal record only | `guardian/routes/tools.py` (deleted) | command bus | none | none |
 | Cron and scheduled automation | supporting | job CRUD, due-job scanning, queued execution, run history | `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py` | DB, Redis, egress policy | automation features and ops tasks | medium |
 | Collaboration and WebSocket RPC | supporting | doc collaboration permissions, websocket sessions, RPC rate limiting, audit logging | `guardian/realtime/collaboration.py`, `guardian/ws/`, `guardian/routes/websocket.py` | auth, DB | realtime clients, shared-doc flows | medium |
 | Federation and peer context | experimental | node trust, relay sessions, diff sync, peer context search, graph updates | `guardian/routes/federation.py`, `guardian/routes/federation_context.py` | trust policy, egress, optional graph | cross-node features | high |
@@ -52,8 +52,8 @@ Source anchors:
   - It depends on retrieval, prompting, provider routing, DB access, and task/event plumbing.
 - `guardian/routes/media.py` is both a user-facing API and an ingestion orchestrator.
   - It couples storage, parsing, dedupe, DB writes, and queueing.
-- `guardian/routes/tools.py` depends on the command bus manifest but still carries its own compatibility behavior.
-  - That makes tool changes a two-surface problem.
+- The legacy tools shim has been removed from the primary app.
+  - Tool changes now stay on the command bus surface only.
 - Frontend shell code in `AppShell.tsx` depends on several backend contracts directly and also coordinates local browser state.
 
 ## High-Coupling Hotspots
@@ -62,7 +62,7 @@ Source anchors:
 - `guardian/routes/chat.py`
 - `guardian/core/chat_completion_service.py`
 - `guardian/routes/media.py`
-- `guardian/routes/tools.py`
+- `guardian/routes/command_bus.py`
 - `frontend/src/components/persona/layout/AppShell.tsx`
 
 These files are the fastest way to change system behavior and the fastest way to create multi-subsystem regressions.
@@ -109,6 +109,6 @@ This repo does not declare formal team ownership in code, so the grouping below 
 - If a change touches tools or automation, inspect:
   - `guardian/routes/command_bus.py`
   - `guardian/command_bus/invoke.py`
-  - `guardian/routes/tools.py`
+  - `guardian/routes/command_bus.py`
   - `guardian/routes/cron.py`
   - `tests/routes/test_command_bus_*`

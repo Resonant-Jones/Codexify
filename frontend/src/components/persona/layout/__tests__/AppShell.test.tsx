@@ -370,14 +370,39 @@ describe("AppShell logo wordmark color contract", () => {
     expect(listCodexEntriesSpy).not.toHaveBeenCalled();
   });
 
-  it("honors the /persona-studio route on initial render", async () => {
-    setRoutePath("/persona-studio");
+  it("honors the /flow-builder route on initial render", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    setRoutePath("/flow-builder?mode=expertise");
 
     render(<AppShell />);
 
-    expect(
-      await screen.findByText(/configure runtime persona profiles/i)
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("flow-builder-page")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
+      "data-flow-builder-mode",
+      "expertise"
+    );
+  });
+
+  it("keeps the prior Guardian route reachable from Flow Builder even after the draft fields take focus", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+
+    await user.click(screen.getByRole("button", { name: "Flow Builder" }));
+
+    await user.click(await screen.findByTestId("flow-builder-mode-expertise"));
+
+    const objective = await screen.findByTestId("flow-builder-draft-objective");
+    objective.focus();
+
+    await user.click(screen.getByTestId("flow-builder-return-guardian"));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/chat/123");
+    });
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
   });
 });
 
