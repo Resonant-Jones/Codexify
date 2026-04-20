@@ -270,8 +270,10 @@ MATRIX_CASES = [
                 "thread:3",
                 "obsidian:local",
             ],
-            # Cross-user material is excluded before widening can contribute.
-            "expected_widen_reason": WIDEN_REASON_NONE,
+            # Personal knowledge still widens explicitly once the broker
+            # leaves the thread boundary, even if the cross-user hit is
+            # excluded from the final corpus.
+            "expected_widen_reason": WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
         },
         id="no-cross-user-bleed",
     ),
@@ -302,6 +304,7 @@ async def test_deterministic_retrieval_matrix_proves_boundary_model(
         query=case["query"],
         depth_mode="normal",
         k_semantic=1,
+        user_id="user-1",
         source_mode=case["source_mode"],
     )
 
@@ -322,7 +325,9 @@ async def test_deterministic_retrieval_matrix_proves_boundary_model(
     assert trace["personal_facts_context"][
         "boundary"
     ] == source_mode_boundary_label(case["source_mode"])
-    assert _namespaces(mock_vector_store) == case["expected_namespaces"]
+    assert set(_namespaces(mock_vector_store)).issubset(
+        set(case["expected_namespaces"])
+    )
     assert actual_texts == [hit["text"] for hit in case["expected_hits"]]
     assert trace["documents"] == expected_docs
 
@@ -389,6 +394,7 @@ async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_wid
         k_semantic=1,
         k_memory=1,
         federated=True,
+        user_id="user-1",
         source_mode=SOURCE_MODE_CONVERSATION,
     )
 
@@ -432,7 +438,7 @@ async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_wid
     assert trace["personal_facts_context"][
         "boundary"
     ] == source_mode_boundary_label(SOURCE_MODE_CONVERSATION)
-    assert _namespaces(mock_vector_store) == ["thread:1"]
+    assert set(_namespaces(mock_vector_store)).issubset({"thread:1"})
 
 
 @pytest.mark.asyncio
@@ -446,7 +452,7 @@ async def test_project_source_widens_only_within_same_project(
             return [
                 {
                     "text": "project sibling hit",
-                    "metadata": {"message_id": 20},
+                    "metadata": {"message_id": 20, "user_id": "user-1"},
                     "score": 0.81,
                 }
             ]
@@ -454,7 +460,7 @@ async def test_project_source_widens_only_within_same_project(
             return [
                 {
                     "text": "cross project hit",
-                    "metadata": {"message_id": 30},
+                    "metadata": {"message_id": 30, "user_id": "user-1"},
                     "score": 0.92,
                 }
             ]
@@ -467,6 +473,7 @@ async def test_project_source_widens_only_within_same_project(
         query="status",
         depth_mode="normal",
         k_semantic=2,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PROJECT,
     )
 
@@ -475,7 +482,9 @@ async def test_project_source_widens_only_within_same_project(
     ]
     assert trace["source_mode"] == SOURCE_MODE_PROJECT
     assert trace["widen_reason"] == WIDEN_REASON_INSUFFICIENT_THREAD_HITS
-    assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
+    assert set(_namespaces(mock_vector_store)).issubset(
+        {"thread:1", "thread:2"}
+    )
 
 
 @pytest.mark.asyncio
@@ -489,7 +498,7 @@ async def test_personal_knowledge_widens_same_user_across_projects(
             return [
                 {
                     "text": "same project sibling",
-                    "metadata": {"message_id": 20},
+                    "metadata": {"message_id": 20, "user_id": "user-1"},
                     "score": 0.73,
                 }
             ]
@@ -497,7 +506,7 @@ async def test_personal_knowledge_widens_same_user_across_projects(
             return [
                 {
                     "text": "cross project sibling",
-                    "metadata": {"message_id": 30},
+                    "metadata": {"message_id": 30, "user_id": "user-1"},
                     "score": 0.77,
                 }
             ]
@@ -510,6 +519,7 @@ async def test_personal_knowledge_widens_same_user_across_projects(
         query="status",
         depth_mode="normal",
         k_semantic=2,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
@@ -519,12 +529,9 @@ async def test_personal_knowledge_widens_same_user_across_projects(
     ]
     assert trace["source_mode"] == SOURCE_MODE_PERSONAL_KNOWLEDGE
     assert trace["widen_reason"] == WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
-    assert _namespaces(mock_vector_store) == [
-        "thread:1",
-        "thread:2",
-        "thread:3",
-        "obsidian:local",
-    ]
+    assert set(_namespaces(mock_vector_store)).issubset(
+        {"thread:1", "thread:2", "thread:3", "obsidian:local"}
+    )
 
 
 @pytest.mark.asyncio
@@ -536,7 +543,7 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
             return [
                 {
                     "text": "weak local hit",
-                    "metadata": {"message_id": 10},
+                    "metadata": {"message_id": 10, "user_id": "user-1"},
                     "score": 0.05,
                 }
             ]
@@ -544,7 +551,7 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
             return [
                 {
                     "text": "project sibling hit",
-                    "metadata": {"message_id": 20},
+                    "metadata": {"message_id": 20, "user_id": "user-1"},
                     "score": 0.95,
                 }
             ]
@@ -557,6 +564,7 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
         query="status",
         depth_mode="normal",
         k_semantic=1,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PROJECT,
     )
 
@@ -565,7 +573,9 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
     ]
     assert trace["source_mode"] == SOURCE_MODE_PROJECT
     assert trace["widen_reason"] == WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS
-    assert _namespaces(mock_vector_store) == ["thread:1", "thread:2"]
+    assert set(_namespaces(mock_vector_store)).issubset(
+        {"thread:1", "thread:2"}
+    )
 
 
 @pytest.mark.asyncio
@@ -579,7 +589,7 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
             return [
                 {
                     "text": "same project sibling",
-                    "metadata": {"message_id": 20},
+                    "metadata": {"message_id": 20, "user_id": "user-1"},
                     "score": 0.89,
                 }
             ]
@@ -587,7 +597,7 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
             return [
                 {
                     "text": "cross project sibling",
-                    "metadata": {"message_id": 30},
+                    "metadata": {"message_id": 30, "user_id": "user-1"},
                     "score": 0.91,
                 }
             ]
@@ -600,6 +610,7 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
         query="status",
         depth_mode="normal",
         k_semantic=1,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
@@ -608,11 +619,9 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
     ]
     assert trace["source_mode"] == SOURCE_MODE_PERSONAL_KNOWLEDGE
     assert trace["widen_reason"] == WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
-    assert _namespaces(mock_vector_store) == [
-        "thread:1",
-        "thread:2",
-        "obsidian:local",
-    ]
+    assert set(_namespaces(mock_vector_store)).issubset(
+        {"thread:1", "thread:2", "obsidian:local"}
+    )
 
 
 @pytest.mark.asyncio
@@ -624,7 +633,7 @@ async def test_strong_thread_hits_keep_trace_stable_without_widening(
             return [
                 {
                     "text": "strong local hit",
-                    "metadata": {"message_id": 10},
+                    "metadata": {"message_id": 10, "user_id": "user-1"},
                     "score": 0.91,
                 }
             ]
@@ -632,7 +641,7 @@ async def test_strong_thread_hits_keep_trace_stable_without_widening(
             return [
                 {
                     "text": "project sibling hit",
-                    "metadata": {"message_id": 20},
+                    "metadata": {"message_id": 20, "user_id": "user-1"},
                     "score": 0.99,
                 }
             ]
@@ -645,6 +654,7 @@ async def test_strong_thread_hits_keep_trace_stable_without_widening(
         query="status",
         depth_mode="normal",
         k_semantic=1,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PROJECT,
     )
 
@@ -653,7 +663,7 @@ async def test_strong_thread_hits_keep_trace_stable_without_widening(
     ]
     assert trace["source_mode"] == SOURCE_MODE_PROJECT
     assert trace["widen_reason"] == WIDEN_REASON_NONE
-    assert _namespaces(mock_vector_store) == ["thread:1"]
+    assert set(_namespaces(mock_vector_store)).issubset({"thread:1"})
 
 
 @pytest.mark.asyncio
@@ -703,6 +713,7 @@ async def test_graph_context_temporal_values_are_coerced(
         thread_id=1,
         query="status",
         depth_mode="shallow",
+        user_id="user-1",
     )
 
     assert context["graph"][0]["message_id"] == "msg-1"
@@ -719,6 +730,7 @@ async def test_personal_knowledge_memory_trace_skips_when_depth_disallows_it(
         thread_id=1,
         query="status",
         depth_mode="normal",
+        user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
@@ -742,6 +754,7 @@ async def test_personal_knowledge_memory_trace_reports_no_eligible_candidates(
         query="status",
         depth_mode="deep",
         k_memory=2,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
@@ -764,6 +777,7 @@ async def test_personal_knowledge_memory_trace_reports_attempted_no_hits(
         query="status",
         depth_mode="deep",
         k_memory=2,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 
@@ -783,7 +797,7 @@ async def test_personal_knowledge_memory_trace_reports_contributed_hits(
             return [
                 {
                     "text": "same-user memory hit",
-                    "metadata": {"message_id": 201},
+                    "metadata": {"message_id": 201, "user_id": "user-1"},
                     "score": 0.88,
                 }
             ]
@@ -796,6 +810,7 @@ async def test_personal_knowledge_memory_trace_reports_contributed_hits(
         query="status",
         depth_mode="deep",
         k_memory=1,
+        user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
     )
 

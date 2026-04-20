@@ -153,6 +153,53 @@ def _coerce_graph_value(value: Any) -> Any:
     return str(value)
 
 
+def _extract_result_user_id(item: Any) -> Optional[str]:
+    if item is None:
+        return None
+    if isinstance(item, dict):
+        for key in ("user_id", "owner_user_id", "actor_user_id"):
+            value = item.get(key)
+            if value not in (None, ""):
+                return str(value).strip() or None
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("user_id", "owner_user_id", "actor_user_id"):
+                value = metadata.get(key)
+                if value not in (None, ""):
+                    return str(value).strip() or None
+    for attr_name in ("user_id", "owner_user_id", "actor_user_id"):
+        value = getattr(item, attr_name, None)
+        if value not in (None, ""):
+            return str(value).strip() or None
+    return None
+
+
+def _assert_user_scoped_results(
+    results: list[Any], *, user_id: str
+) -> list[Any]:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        raise AssertionError("retrieval_user_isolation_violation")
+
+    raw_results = list(results)
+    if any(
+        _extract_result_user_id(item) != normalized_user_id
+        for item in raw_results
+    ):
+        raise AssertionError("retrieval_user_isolation_violation")
+
+    filtered = [
+        item
+        for item in raw_results
+        if _extract_result_user_id(item) == normalized_user_id
+    ]
+    if any(
+        _extract_result_user_id(item) != normalized_user_id for item in filtered
+    ):
+        raise AssertionError("retrieval_user_isolation_violation")
+    return filtered
+
+
 def _looks_like_json(text: str) -> bool:
     s = (text or "").lstrip()
     if not s:
@@ -340,6 +387,8 @@ class ContextBroker:
                 - "graph": List of {node_id, kind, text}
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
+        widened = False
+        widen_reason: str | None = None
         resolved_user_id = str(user_id or "").strip()
         if not resolved_user_id:
             raise ValueError("ContextBroker requires user_id")
@@ -489,6 +538,12 @@ class ContextBroker:
                     widening_enabled=widening_enabled,
                     search_fn=self._search_semantic,
                 )
+                if semantic_widen_reason != WIDEN_REASON_NONE:
+                    widened = True
+                    widen_reason = self._merge_widen_reason(
+                        widen_reason or WIDEN_REASON_NONE,
+                        semantic_widen_reason,
+                    )
                 semantic_obsidian: list[dict[str, Any]] = []
                 if normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE:
                     semantic_obsidian = await self._retrieve_obsidian_documents(
@@ -502,6 +557,11 @@ class ContextBroker:
                             context,
                             "obsidian_empty_in_personal_knowledge",
                         )
+                    widened = True
+                    widen_reason = self._merge_widen_reason(
+                        widen_reason or WIDEN_REASON_NONE,
+                        WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+                    )
                 elif (
                     not conversation_only and self._obsidian_retrieval_enabled()
                 ):
@@ -671,6 +731,12 @@ class ContextBroker:
                         search_fn=self._search_memory,
                     )
                     context["memory"] = memory
+                    if memory_widen_reason != WIDEN_REASON_NONE:
+                        widened = True
+                        widen_reason = self._merge_widen_reason(
+                            widen_reason or WIDEN_REASON_NONE,
+                            memory_widen_reason,
+                        )
                 else:
                     context["memory"] = []
                     memory_trace = {
@@ -720,6 +786,34 @@ class ContextBroker:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
 
+        raw_all_results: List[Any] = []
+        for key in ("semantic", "obsidian", "memory", "graph", "federated"):
+            value = context.get(key, [])
+            if isinstance(value, list):
+                raw_all_results.extend(value)
+
+        docs_bundle = context.get("docs", {})
+        if isinstance(docs_bundle, dict):
+            for key in ("project", "thread", "global"):
+                value = docs_bundle.get(key, [])
+                if isinstance(value, list):
+                    raw_all_results.extend(value)
+
+        if isinstance(context.get("personal_facts"), list):
+            raw_all_results.extend(context["personal_facts"])
+
+        all_results = _assert_user_scoped_results(
+            raw_all_results,
+            user_id=resolved_user_id,
+        )
+
+        if not widened:
+            widen_reason = WIDEN_REASON_NONE
+        elif not widen_reason:
+            raise AssertionError("missing_widen_reason")
+        elif widen_reason == WIDEN_REASON_NONE:
+            raise AssertionError("invalid_widen_reason_without_widening")
+
         # Keep source-boundary diagnostics stable while source_mode still
         # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
@@ -747,9 +841,7 @@ class ContextBroker:
             ],
             "source_mode": normalized_source_mode,
             "effective_policy": effective_policy,
-            "widen_reason": self._merge_widen_reason(
-                semantic_widen_reason, memory_widen_reason
-            ),
+            "widen_reason": widen_reason,
             "graph_context": graph_trace,
             "memory_context": memory_trace,
             "personal_facts_context": personal_facts_trace,
@@ -969,6 +1061,7 @@ class ContextBroker:
                 query,
                 k,
                 namespace=OBSIDIAN_NAMESPACE,
+                user_id=str(user_id or ""),
             )
         except Exception as exc:
             logger.warning(
