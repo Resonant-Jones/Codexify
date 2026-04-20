@@ -107,6 +107,7 @@ def _run_completion(
 ):
     _stub_completion_pipeline(monkeypatch, assistant_text)
     task = ChatCompletionTask(
+        user_id="test_user",
         thread_id=thread_id,
         provider="groq",
         model="mock-model",

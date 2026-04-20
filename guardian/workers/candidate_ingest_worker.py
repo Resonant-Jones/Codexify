@@ -12,6 +12,7 @@ import logging
 import time
 from typing import Any
 
+from guardian.core.candidate_normalizer import normalize_candidate_trace
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
     get_redis_connection,
@@ -54,6 +55,61 @@ def _normalize_candidate_ingest_task(
     }
 
 
+def process_candidate_ingest_task(raw: Any) -> bool:
+    normalized_task = _normalize_candidate_ingest_task(raw)
+    if normalized_task is None:
+        logger.warning(
+            "[candidate-ingest] skipping malformed task raw=%r",
+            raw,
+        )
+        return False
+
+    request_id = normalized_task["request_id"]
+    thread_id = normalized_task["thread_id"]
+    candidate_trace_id = normalized_task["candidate_trace_id"]
+
+    try:
+        normalized = normalize_candidate_trace(normalized_task["payload"])
+    except Exception:
+        logger.exception(
+            (
+                "[candidate-ingest] normalization failed "
+                "request_id=%s thread_id=%s candidate_trace_id=%s"
+            ),
+            request_id,
+            thread_id,
+            candidate_trace_id,
+        )
+        return False
+
+    entity_types = sorted({entity.type for entity in normalized.entities})
+
+    logger.info(
+        "[candidate-ingest] candidate_ingest_worker_normalized",
+        extra={
+            "request_id": request_id,
+            "thread_id": thread_id,
+            "candidate_trace_id": candidate_trace_id,
+            "entity_count": len(normalized.entities),
+            "warning_count": len(normalized.warnings),
+            "entity_types": entity_types,
+        },
+    )
+
+    if normalized.warnings:
+        logger.warning(
+            "[candidate-ingest] candidate_ingest_worker_normalization_warnings",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+                "warnings": list(normalized.warnings),
+            },
+        )
+
+    return True
+
+
 def run_candidate_ingest_worker() -> None:
     redis = get_redis_connection()
     logger.info(
@@ -74,40 +130,7 @@ def run_candidate_ingest_worker() -> None:
             logger.exception("[candidate-ingest] failed to decode task")
             continue
 
-        normalized = _normalize_candidate_ingest_task(decoded)
-        if normalized is None:
-            logger.warning(
-                "[candidate-ingest] skipping malformed task raw=%r",
-                decoded,
-            )
-            continue
-
-        logger.info(
-            "[candidate-ingest] received request_id=%s thread_id=%s candidate_trace_id=%s",
-            normalized["request_id"],
-            normalized["thread_id"],
-            normalized["candidate_trace_id"],
-        )
-        logger.debug(
-            "[candidate-ingest] normalized task=%s",
-            json.dumps(
-                {
-                    "request_id": normalized["request_id"],
-                    "thread_id": normalized["thread_id"],
-                    "candidate_trace_id": normalized["candidate_trace_id"],
-                    "created_at": normalized["created_at"],
-                },
-                sort_keys=True,
-            ),
-        )
-        logger.debug(
-            "[candidate-ingest] normalized candidate payload=%s",
-            json.dumps(
-                normalized["payload"],
-                default=str,
-                sort_keys=True,
-            ),
-        )
+        process_candidate_ingest_task(decoded)
 
 
 if __name__ == "__main__":
@@ -115,4 +138,4 @@ if __name__ == "__main__":
     run_candidate_ingest_worker()
 
 
-__all__ = ["run_candidate_ingest_worker"]
+__all__ = ["process_candidate_ingest_task", "run_candidate_ingest_worker"]
