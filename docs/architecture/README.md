@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-15
+Last updated: 2026-04-19
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -52,6 +52,10 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Flow Builder Elicitation Lane ADR](./adr/005-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
+- [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
+- [Candidate Trace Surface](./candidate-trace-surface.md): backend-only pre-answer candidate diagnostic surface, TTL-bound and excluded from export.
+- [Candidate Trace Ingestion Pipeline](./candidate-ingest-pipeline.md): backend-only ingest seam for normalized candidate-trace payloads; log-only scaffold for future graph/entity extraction.
+- [Candidate Trace Ingest Worker ADR](./adr/009-candidate-trace-ingest-worker.md): asynchronous candidate-trace ingestion scaffold, log-only and non-blocking.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
@@ -59,10 +63,13 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
+- [Agent Tool Loop Contract](./agent-tool-loop-contract.md): canonical bounded tool-augmented completion loop contract for future ReAct/function-calling orchestration; runtime semantics and transcript integrity only.
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
 - [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, machine-readable failure codes, and bounded tool-loop meanings.
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.
 - [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md): canonical architecture note for bounded generated extensions, plugin forge flow, and sovereignty boundaries.
+- [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
+- [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, and machine-readable failure codes.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
@@ -76,6 +83,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 - Chat thread/message API contract: `guardian/routes/chat.py`
 - Completion assembly and provider execution: `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`
+- Candidate trace surface and transient runtime diagnostics: `guardian/core/chat_completion_service.py`, `guardian/core/candidate_trace_store.py`, `guardian/routes/chat.py`, `guardian/services/account_export.py`
+- Candidate trace ingestion scaffold: `guardian/core/chat_completion_service.py`, `guardian/queue/redis_queue.py`, `guardian/workers/candidate_ingest_worker.py`, `docs/architecture/candidate-ingest-pipeline.md`
 - Identity precedence, persona/imprint assembly, and status-surface wording: `docs/architecture/identity-precedence-contract.md`, `guardian/cognition/identity_contract.py`, `guardian/cognition/identity_resolution.py`, `guardian/cognition/system_prompt_builder.py`, `guardian/core/chat_completion_service.py`, `guardian/routes/imprint.py`, `guardian/routes/chat.py`, `frontend/src/features/settings/`
 - RAG depth behavior and retrieval composition: `guardian/context/broker.py`, `guardian/memoryos/retriever.py`
 - Flow Builder elicitation lane, delegation/specification workflows, tacit-knowledge extraction, and workflow authoring semantics: `docs/architecture/adr/005-flow-builder-elicitation-lane.md`
@@ -88,7 +97,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - DB schema and invariants: `guardian/db/models.py`, `guardian/db/migrations/`
 - Redis queues, cancellation, task streams, and turn locks: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`
 - Durable event outbox and `/api/events`: `guardian/core/event_bus.py`, `guardian/core/outbox.py`, `guardian/guardian_api.py`
-- Command bus and tool execution policy: `guardian/routes/command_bus.py`, `guardian/command_bus/`, `guardian/routes/tools.py`
+- Command bus and tool execution policy: `guardian/routes/command_bus.py`, `guardian/command_bus/`
 - Cron jobs and background automation: `guardian/routes/cron.py`, `guardian/cron/`, `guardian/workers/cron_worker.py`
 - Federation and peer context/search: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/`
 - Frontend routing, shell state, and live event consumption: `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/state/session/SessionSpine.ts`

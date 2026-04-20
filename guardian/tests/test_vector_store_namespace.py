@@ -82,6 +82,13 @@ def test_add_texts_assigns_namespace_metadata(monkeypatch):
         "global",
         "top:level",
     ]
+    assert [meta.get("user_id") for meta in metadatas] == [
+        "local",
+        "local",
+        "local",
+        "local",
+        "local",
+    ]
 
 
 def test_search_forwards_namespace_to_embedder(monkeypatch):

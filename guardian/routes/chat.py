@@ -46,6 +46,9 @@ from starlette.responses import StreamingResponse
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
+from guardian.core.candidate_trace_store import (
+    get_latest_candidate_trace as _get_latest_candidate_trace,
+)
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -153,7 +156,7 @@ def _resolve_thread_owner_hint(
                 detail="Requested user_id does not match the authenticated account",
             )
         return account_id
-    return requested_user_id or "default"
+    return requested_user_id or account_id
 
 
 def _scope_query_user_id(
@@ -695,6 +698,22 @@ class ThreadConfigUpdate(BaseModel):
             cleaned = value.strip()
             if not cleaned:
                 raise ValueError("value cannot be blank")
+            return cleaned
+        return value
+
+
+class ThreadProfileSwitchRequest(BaseModel):
+    profile_id: StrictStr
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("profile_id", mode="before")
+    @classmethod
+    def _normalize_profile_id(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                raise ValueError("profile_id cannot be blank")
             return cleaned
         return value
 
@@ -2104,6 +2123,7 @@ async def _build_doc_context_override(
     thread_id: int,
     depth_mode: str,
     project_id: Optional[int],
+    user_id: str,
 ) -> Optional[str]:
     if depth_mode == "shallow":
         return None
@@ -2118,6 +2138,7 @@ async def _build_doc_context_override(
         docs_bundle = await broker.get_scoped_documents(
             thread_id=thread_id,
             project_id=project_id,
+            user_id=user_id,
             k_project_docs=DOC_SCOPE_K_PROJECT,
             k_thread_docs=DOC_SCOPE_K_THREAD,
             doc_excerpt_chars=DOC_EXCERPT_CHARS,
@@ -2527,7 +2548,8 @@ async def chat_complete(
     Enqueue an assistant reply for the given thread and return a task id.
     """
     turn_id = _normalize_turn_id(body.turn_id)
-    source_mode = normalize_source_mode(body.source_mode)
+    requested_source_mode = body.source_mode
+    source_mode = normalize_source_mode(requested_source_mode)
 
     provider = str(body.provider or "").strip().lower() or None
     requested_model = str(body.model or "").strip() or None
@@ -2565,7 +2587,15 @@ async def chat_complete(
     source_mode = thread_execution.source_mode
 
     limit = int(body.max_context or 50)
-    items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
+    try:
+        items = chatlog_db.list_messages(
+            thread_id,
+            limit=limit,
+            offset=0,
+            user_id=_request_account_id(request_user_scope),
+        )
+    except TypeError:
+        items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
     try:
         items = sorted(items, key=lambda m: m.get("id") or 0)
     except Exception:
@@ -2693,10 +2723,12 @@ async def chat_complete(
     internal_depth_mode = map_internal_depth_mode(
         requested_depth_raw, effective_depth_mode
     )
+    account_id = _request_account_id(request_user_scope)
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
         depth_mode=internal_depth_mode,
         project_id=thread_project_id,
+        user_id=account_id,
     )
     merged_system_override = user_system_override
     if doc_context_override:
@@ -2711,6 +2743,7 @@ async def chat_complete(
     )
 
     task = ChatCompletionTask(
+        user_id=account_id,
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
         provider=provider,
@@ -2722,6 +2755,7 @@ async def chat_complete(
         reasoning_mode=body.reasoning_mode,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
+        requested_source_mode=requested_source_mode,
         system_override=merged_system_override,
         retrieval_override=retrieval_override,
         preferred_name=body.preferred_name,
@@ -2747,6 +2781,7 @@ async def chat_complete(
         )
         raise _completion_service_unavailable("task_identity_invalid")
     task.task_id = task_identity
+    task.request_id = str(request_id or task_identity).strip() or task_identity
     task.turn_lock_owner = task_identity
 
     locked = _run_completion_redis_op(
@@ -2988,6 +3023,86 @@ def chat_get_thread_profile(
         "profile": resolved_profile,
         "profiles": available_profiles,
     }
+
+
+def _switch_thread_profile_payload(
+    thread_id: int,
+    body: ThreadProfileSwitchRequest,
+    *,
+    request_user_scope: RequestUserScope,
+) -> dict[str, Any]:
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    try:
+        resolved = switch_thread_profile(
+            thread_id,
+            body.profile_id,
+            chatlog_db=chatlog_db,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[chat.profile.switch] failed thread_id=%s profile_id=%s err=%s",
+            thread_id,
+            body.profile_id,
+            exc,
+        )
+        return {
+            "ok": False,
+            "thread_id": thread_id,
+            "profile_id": body.profile_id,
+            "error": str(exc),
+        }
+
+    payload = {
+        "ok": True,
+        "thread_id": thread_id,
+        "profile_id": resolved.profile_id or body.profile_id,
+        "active_profile_id": resolved.active_profile_id,
+        "provider_override": resolved.provider_override,
+        "model_override": resolved.model_override,
+        "profile": resolved.model_dump(mode="json", exclude_none=True),
+    }
+
+    try:
+        event_bus.emit_event(
+            "thread.profile.switched",
+            {
+                "thread_id": thread_id,
+                "active_profile_id": resolved.active_profile_id,
+                "provider_override": resolved.provider_override,
+                "model_override": resolved.model_override,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "[chat.profile.switch] event emit failed thread_id=%s",
+            thread_id,
+            exc_info=True,
+        )
+
+    return payload
+
+
+@router.patch("/{thread_id}/profile", include_in_schema=False)
+def chat_switch_thread_profile(
+    thread_id: int,
+    body: ThreadProfileSwitchRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    _ = api_key
+    return _switch_thread_profile_payload(
+        thread_id,
+        body,
+        request_user_scope=request_user_scope,
+    )
 
 
 @router.delete("/{thread_id}/messages/{message_id}")
@@ -3467,6 +3582,8 @@ def get_latest_rag_trace(
 
     # Try to get trace + profile data from task events if we have a recent task.
     task_id = _thread_latest_task_id(thread_id, metadata)
+    completed_payload: dict[str, Any] | None = None
+    retrieval_provenance: dict[str, Any] | None = None
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
         if isinstance(completed_payload, dict):
@@ -3490,20 +3607,31 @@ def get_latest_rag_trace(
                         task_id,
                         trace,
                     )
-            if isinstance(completed_payload.get("payload_summary"), dict):
-                payload_summary = dict(completed_payload.get("payload_summary"))
-                if trace is not None:
-                    trace["payload_summary"] = payload_summary
-                    _rag_traces[thread_id] = trace
-            for key in (
-                "active_profile_id",
-                "provider_override",
-                "model_override",
-                "injection_hash",
-                "retrieval_mode",
-                "model_mode",
-            ):
-                profile_debug[key] = completed_payload.get(key)
+    if isinstance(completed_payload, dict):
+        payload_summary_value = completed_payload.get("payload_summary")
+        if isinstance(payload_summary_value, dict):
+            payload_summary = dict(payload_summary_value)
+            retrieval_provenance_value = payload_summary.get(
+                "retrieval_provenance"
+            )
+            if isinstance(retrieval_provenance_value, dict):
+                retrieval_provenance = dict(retrieval_provenance_value)
+        else:
+            retrieval_provenance_value = completed_payload.get(
+                "retrieval_provenance"
+            )
+            if isinstance(retrieval_provenance_value, dict):
+                retrieval_provenance = dict(retrieval_provenance_value)
+
+        for key in (
+            "active_profile_id",
+            "provider_override",
+            "model_override",
+            "injection_hash",
+            "retrieval_mode",
+            "model_mode",
+        ):
+            profile_debug[key] = completed_payload.get(key)
 
     if trace is None:
         persisted = _thread_trace_entry(
@@ -3528,6 +3656,8 @@ def get_latest_rag_trace(
 
     if payload_summary is not None:
         trace["payload_summary"] = payload_summary
+    if retrieval_provenance is not None:
+        trace["retrieval_provenance"] = retrieval_provenance
 
     trace.setdefault("thread_id", thread_id)
     trace.setdefault("project_id", None)
@@ -3565,6 +3695,49 @@ def get_latest_rag_trace(
 
     trace.update(profile_debug)
     return trace
+
+
+def _empty_candidate_trace(thread_id: int) -> dict[str, Any]:
+    return {
+        "thread_id": str(thread_id),
+        "request_id": "",
+        "candidates": [],
+        "selection_strategy": "",
+        "created_at": "",
+    }
+
+
+@router.get("/{thread_id}/debug/candidate-trace/latest", tags=["Debug"])
+def get_latest_candidate_trace(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """
+    [DEV ONLY] Get the latest candidate trace for this thread.
+
+    Returns an empty diagnostic surface when no candidate trace is available.
+    """
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    trace = _get_latest_candidate_trace(str(thread_id))
+    if not trace:
+        return _empty_candidate_trace(thread_id)
+
+    candidate_trace = dict(trace)
+    candidate_trace.setdefault("thread_id", str(thread_id))
+    candidate_trace.setdefault("request_id", "")
+    candidate_trace.setdefault("candidates", [])
+    candidate_trace.setdefault("selection_strategy", "")
+    candidate_trace.setdefault("created_at", "")
+    return candidate_trace
 
 
 def _synthesize_retrieval_posture(
@@ -4009,6 +4182,23 @@ def api_chat_get_thread_profile(
     )
 
 
+@api_chat_router.patch(
+    "/{thread_id}/profile", operation_id="guardian.profile.switch"
+)
+def api_chat_switch_thread_profile(
+    thread_id: int,
+    body: ThreadProfileSwitchRequest = Body(...),
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    _ = api_key
+    return _switch_thread_profile_payload(
+        thread_id,
+        body,
+        request_user_scope=request_user_scope,
+    )
+
+
 @api_chat_router.get("/debug/rag-trace/{thread_id}/latest", tags=["Debug"])
 def api_get_latest_rag_trace(
     thread_id: int,
@@ -4017,6 +4207,22 @@ def api_get_latest_rag_trace(
 ):
     """Compat alias for GET /chat/debug/rag-trace/{thread_id}/latest."""
     return get_latest_rag_trace(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get(
+    "/{thread_id}/debug/candidate-trace/latest", tags=["Debug"]
+)
+def api_get_latest_candidate_trace(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Compat alias for GET /chat/{thread_id}/debug/candidate-trace/latest."""
+    return get_latest_candidate_trace(
         thread_id,
         api_key=api_key,
         request_user_scope=request_user_scope,

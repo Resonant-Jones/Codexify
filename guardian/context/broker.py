@@ -153,6 +153,53 @@ def _coerce_graph_value(value: Any) -> Any:
     return str(value)
 
 
+def _extract_result_user_id(item: Any) -> Optional[str]:
+    if item is None:
+        return None
+    if isinstance(item, dict):
+        for key in ("user_id", "owner_user_id", "actor_user_id"):
+            value = item.get(key)
+            if value not in (None, ""):
+                return str(value).strip() or None
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("user_id", "owner_user_id", "actor_user_id"):
+                value = metadata.get(key)
+                if value not in (None, ""):
+                    return str(value).strip() or None
+    for attr_name in ("user_id", "owner_user_id", "actor_user_id"):
+        value = getattr(item, attr_name, None)
+        if value not in (None, ""):
+            return str(value).strip() or None
+    return None
+
+
+def _assert_user_scoped_results(
+    results: list[Any], *, user_id: str
+) -> list[Any]:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        raise AssertionError("retrieval_user_isolation_violation")
+
+    raw_results = list(results)
+    if any(
+        _extract_result_user_id(item) != normalized_user_id
+        for item in raw_results
+    ):
+        raise AssertionError("retrieval_user_isolation_violation")
+
+    filtered = [
+        item
+        for item in raw_results
+        if _extract_result_user_id(item) == normalized_user_id
+    ]
+    if any(
+        _extract_result_user_id(item) != normalized_user_id for item in filtered
+    ):
+        raise AssertionError("retrieval_user_isolation_violation")
+    return filtered
+
+
 def _looks_like_json(text: str) -> bool:
     s = (text or "").lstrip()
     if not s:
@@ -340,6 +387,11 @@ class ContextBroker:
                 - "graph": List of {node_id, kind, text}
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
+        widened = False
+        widen_reason: str | None = None
+        resolved_user_id = str(user_id or "").strip()
+        if not resolved_user_id:
+            raise ValueError("ContextBroker requires user_id")
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
         base_policy = derive_default_retrieval_policy(source_mode)
         effective_policy = merge_retrieval_policy(
@@ -364,15 +416,14 @@ class ContextBroker:
         resolved_project_id = await self._resolve_project_id(
             thread_id=thread_id, project_id=project_id
         )
-        resolved_user_id = await self._resolve_user_id(
-            thread_id=thread_id, user_id=user_id
-        )
 
         context: Dict[str, Any] = {}
 
         # Always include recent messages
         try:
-            messages = await self._fetch_messages(thread_id, n_messages)
+            messages = await self._fetch_messages(
+                thread_id, n_messages, user_id=resolved_user_id
+            )
             context["messages"] = messages
         except Exception as e:
             logger.warning(
@@ -487,6 +538,12 @@ class ContextBroker:
                     widening_enabled=widening_enabled,
                     search_fn=self._search_semantic,
                 )
+                if semantic_widen_reason != WIDEN_REASON_NONE:
+                    widened = True
+                    widen_reason = self._merge_widen_reason(
+                        widen_reason or WIDEN_REASON_NONE,
+                        semantic_widen_reason,
+                    )
                 semantic_obsidian: list[dict[str, Any]] = []
                 if normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE:
                     semantic_obsidian = await self._retrieve_obsidian_documents(
@@ -500,6 +557,11 @@ class ContextBroker:
                             context,
                             "obsidian_empty_in_personal_knowledge",
                         )
+                    widened = True
+                    widen_reason = self._merge_widen_reason(
+                        widen_reason or WIDEN_REASON_NONE,
+                        WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+                    )
                 elif (
                     not conversation_only and self._obsidian_retrieval_enabled()
                 ):
@@ -508,6 +570,7 @@ class ContextBroker:
                             query,
                             k_semantic,
                             namespace=OBSIDIAN_NAMESPACE,
+                            user_id=resolved_user_id,
                         )
                     except Exception as exc:
                         logger.warning(
@@ -534,6 +597,7 @@ class ContextBroker:
                 scoped_docs = await self.get_scoped_documents(
                     thread_id=thread_id,
                     project_id=resolved_project_id,
+                    user_id=resolved_user_id,
                     k_project_docs=k_project_docs,
                     k_thread_docs=k_thread_docs,
                     doc_excerpt_chars=doc_excerpt_chars,
@@ -667,6 +731,12 @@ class ContextBroker:
                         search_fn=self._search_memory,
                     )
                     context["memory"] = memory
+                    if memory_widen_reason != WIDEN_REASON_NONE:
+                        widened = True
+                        widen_reason = self._merge_widen_reason(
+                            widen_reason or WIDEN_REASON_NONE,
+                            memory_widen_reason,
+                        )
                 else:
                     context["memory"] = []
                     memory_trace = {
@@ -716,6 +786,34 @@ class ContextBroker:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
 
+        raw_all_results: List[Any] = []
+        for key in ("semantic", "obsidian", "memory", "graph", "federated"):
+            value = context.get(key, [])
+            if isinstance(value, list):
+                raw_all_results.extend(value)
+
+        docs_bundle = context.get("docs", {})
+        if isinstance(docs_bundle, dict):
+            for key in ("project", "thread", "global"):
+                value = docs_bundle.get(key, [])
+                if isinstance(value, list):
+                    raw_all_results.extend(value)
+
+        if isinstance(context.get("personal_facts"), list):
+            raw_all_results.extend(context["personal_facts"])
+
+        all_results = _assert_user_scoped_results(
+            raw_all_results,
+            user_id=resolved_user_id,
+        )
+
+        if not widened:
+            widen_reason = WIDEN_REASON_NONE
+        elif not widen_reason:
+            raise AssertionError("missing_widen_reason")
+        elif widen_reason == WIDEN_REASON_NONE:
+            raise AssertionError("invalid_widen_reason_without_widening")
+
         # Keep source-boundary diagnostics stable while source_mode still
         # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
@@ -743,9 +841,7 @@ class ContextBroker:
             ],
             "source_mode": normalized_source_mode,
             "effective_policy": effective_policy,
-            "widen_reason": self._merge_widen_reason(
-                semantic_widen_reason, memory_widen_reason
-            ),
+            "widen_reason": widen_reason,
             "graph_context": graph_trace,
             "memory_context": memory_trace,
             "personal_facts_context": personal_facts_trace,
@@ -864,7 +960,7 @@ class ContextBroker:
             return False
 
     async def _fetch_messages(
-        self, thread_id: int, n: int
+        self, thread_id: int, n: int, *, user_id: str
     ) -> List[Dict[str, Any]]:
         """Fetch recent messages from a thread.
 
@@ -873,14 +969,27 @@ class ContextBroker:
         """
         # Preferred: use last_messages if adapter provides it (ordered newest→oldest)
         if hasattr(self.chatlog, "last_messages"):
-            result = self.chatlog.last_messages(thread_id, n=n)
+            try:
+                result = self.chatlog.last_messages(
+                    thread_id, n=n, user_id=user_id
+                )
+            except TypeError:
+                result = self.chatlog.last_messages(thread_id, n=n)
         # Fallback for adapters that only expose list_messages (e.g., ChatDB/PgDB)
         elif hasattr(self.chatlog, "list_messages"):
-            result = self.chatlog.list_messages(
-                thread_id,
-                limit=n,
-                offset=0,
-            )
+            try:
+                result = self.chatlog.list_messages(
+                    thread_id,
+                    limit=n,
+                    offset=0,
+                    user_id=user_id,
+                )
+            except TypeError:
+                result = self.chatlog.list_messages(
+                    thread_id,
+                    limit=n,
+                    offset=0,
+                )
         else:
             return []
 
@@ -896,17 +1005,43 @@ class ContextBroker:
         k: int,
         *,
         namespace: Optional[str] = None,
+        user_id: str,
     ) -> List[Dict[str, Any]]:
         """Search for semantic matches via vector store."""
         if hasattr(self.vector, "search"):
             try:
-                result = self.vector.search(query, k=k, namespace=namespace)
+                result = self.vector.search(
+                    query,
+                    k=k,
+                    namespace=namespace,
+                    user_id=user_id,
+                )
             except TypeError:
-                result = self.vector.search(query, k=k)
+                result = self.vector.search(
+                    query,
+                    k=k,
+                    namespace=namespace,
+                )
             # Handle both sync and async returns
             if hasattr(result, "__await__"):
-                return await result
-            return result if isinstance(result, list) else []
+                result = await result
+            if not isinstance(result, list):
+                return []
+            normalized_user_id = str(user_id or "").strip()
+            return [
+                item
+                for item in result
+                if str(
+                    (
+                        item.get("user_id")
+                        or item.get("owner_user_id")
+                        or item.get("metadata", {}).get("user_id")
+                        or item.get("metadata", {}).get("owner_user_id")
+                    )
+                    or ""
+                ).strip()
+                == normalized_user_id
+            ]
         return []
 
     async def _retrieve_obsidian_documents(
@@ -926,6 +1061,7 @@ class ContextBroker:
                 query,
                 k,
                 namespace=OBSIDIAN_NAMESPACE,
+                user_id=str(user_id or ""),
             )
         except Exception as exc:
             logger.warning(
@@ -942,6 +1078,7 @@ class ContextBroker:
         k: int,
         *,
         namespace: Optional[str] = None,
+        user_id: str,
     ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Search for related memory entries using MemoryOS semantic retriever.
 
@@ -964,6 +1101,7 @@ class ContextBroker:
                         query,
                         limit=k,
                         namespace=namespace,
+                        user_id=user_id,
                     )
                 else:
                     try:
@@ -971,10 +1109,11 @@ class ContextBroker:
                             query,
                             limit=k,
                             namespace=namespace,
+                            user_id=user_id,
                         )
                     except TypeError:
                         memory_results = await self.memory_retriever.retrieve(
-                            query, limit=k
+                            query, limit=k, user_id=user_id
                         )
                     retriever_trace = {
                         "attempted": True,
@@ -986,6 +1125,26 @@ class ContextBroker:
                         "reason": ("results" if memory_results else "no_hits"),
                         "count": len(memory_results),
                     }
+                if isinstance(memory_results, list):
+                    normalized_user_id = str(user_id or "").strip()
+                    memory_results = [
+                        item
+                        for item in memory_results
+                        if str(
+                            (
+                                item.get("user_id")
+                                or item.get("owner_user_id")
+                                or item.get("metadata", {}).get("user_id")
+                                or item.get("metadata", {}).get("owner_user_id")
+                            )
+                            or ""
+                        ).strip()
+                        == normalized_user_id
+                    ]
+                    retriever_trace["count"] = len(memory_results)
+                    if not memory_results:
+                        retriever_trace["status"] = "attempted_no_hits"
+                        retriever_trace["reason"] = "no_hits"
                 trace = {"attempted": True, **retriever_trace}
                 logger.debug(
                     f"[ContextBroker] Retrieved {len(memory_results)} memory chunks "
@@ -1011,25 +1170,45 @@ class ContextBroker:
             and hasattr(self.memory, "search_related")
         ):
             try:
-                result = self.memory.search_related(query, limit=k)
+                try:
+                    result = self.memory.search_related(
+                        query, limit=k, user_id=user_id
+                    )
+                except TypeError:
+                    result = self.memory.search_related(query, limit=k)
                 if hasattr(result, "__await__"):
                     result = await result
                 if isinstance(result, list):
+                    normalized_user_id = str(user_id or "").strip()
+                    filtered = [
+                        item
+                        for item in result
+                        if str(
+                            (
+                                item.get("user_id")
+                                or item.get("owner_user_id")
+                                or item.get("metadata", {}).get("user_id")
+                                or item.get("metadata", {}).get("owner_user_id")
+                            )
+                            or ""
+                        ).strip()
+                        == normalized_user_id
+                    ]
                     trace = {
                         "attempted": True,
                         "status": (
-                            "contributed" if result else "attempted_no_hits"
+                            "contributed" if filtered else "attempted_no_hits"
                         ),
                         "reason": (
-                            "legacy_results" if result else "legacy_no_hits"
+                            "legacy_results" if filtered else "legacy_no_hits"
                         ),
-                        "count": len(result),
+                        "count": len(filtered),
                     }
                     logger.debug(
-                        f"[ContextBroker] Fallback: Retrieved {len(result)} "
+                        f"[ContextBroker] Fallback: Retrieved {len(filtered)} "
                         f"results from legacy memory_store"
                     )
-                    return result, trace
+                    return filtered, trace
             except Exception as fallback_error:
                 logger.warning(
                     f"[ContextBroker] Legacy memory_store also failed: {fallback_error}"
@@ -1091,7 +1270,7 @@ class ContextBroker:
         query: str,
         k: int,
         thread_id: int,
-        user_id: Optional[str],
+        user_id: str,
         project_id: Optional[int],
         source_mode: str,
         search_fn: Any,
@@ -1120,6 +1299,7 @@ class ContextBroker:
                 query,
                 k,
                 namespace=_thread_namespace(thread_id),
+                user_id=user_id,
             )
         except Exception as exc:
             diagnostics.update(
@@ -1235,6 +1415,7 @@ class ContextBroker:
                     query,
                     request_k,
                     namespace=_thread_namespace(candidate_id),
+                    user_id=user_id,
                 )
             except Exception as exc:
                 diagnostics.update(
@@ -1472,6 +1653,7 @@ class ContextBroker:
         self,
         *,
         thread_id: int,
+        user_id: str,
         project_id: Optional[int] = None,
         k_project_docs: int = 4,
         k_thread_docs: int = 4,
@@ -1484,6 +1666,7 @@ class ContextBroker:
         return self._fetch_scoped_documents(
             thread_id=thread_id,
             project_id=resolved_project_id,
+            user_id=user_id,
             k_project_docs=k_project_docs,
             k_thread_docs=k_thread_docs,
             doc_excerpt_chars=doc_excerpt_chars,
@@ -1519,6 +1702,7 @@ class ContextBroker:
         *,
         thread_id: int,
         project_id: Optional[int],
+        user_id: str,
         k_project_docs: int,
         k_thread_docs: int,
         doc_excerpt_chars: int,
@@ -1555,6 +1739,7 @@ class ContextBroker:
                     docs["project"] = self._query_project_docs(
                         managed_session,
                         project_id=project_id,
+                        user_id=user_id,
                         k_docs=k_project_docs,
                         doc_excerpt_chars=doc_excerpt_chars,
                         generated_model=GeneratedDocument,
@@ -1564,6 +1749,7 @@ class ContextBroker:
                     docs["thread"] = self._query_thread_docs(
                         managed_session,
                         thread_id=thread_id,
+                        user_id=user_id,
                         k_docs=k_thread_docs,
                         doc_excerpt_chars=doc_excerpt_chars,
                         generated_model=GeneratedDocument,
@@ -1575,6 +1761,7 @@ class ContextBroker:
             docs["project"] = self._query_project_docs(
                 session,
                 project_id=project_id,
+                user_id=user_id,
                 k_docs=k_project_docs,
                 doc_excerpt_chars=doc_excerpt_chars,
                 generated_model=GeneratedDocument,
@@ -1584,6 +1771,7 @@ class ContextBroker:
             docs["thread"] = self._query_thread_docs(
                 session,
                 thread_id=thread_id,
+                user_id=user_id,
                 k_docs=k_thread_docs,
                 doc_excerpt_chars=doc_excerpt_chars,
                 generated_model=GeneratedDocument,
@@ -1611,6 +1799,7 @@ class ContextBroker:
         session: Any,
         *,
         project_id: Optional[int],
+        user_id: str,
         k_docs: int,
         doc_excerpt_chars: int,
         generated_model: Any,
@@ -1646,6 +1835,7 @@ class ContextBroker:
                 session=session,
                 doc_id=doc_id,
                 doc_type=doc_type,
+                user_id=user_id,
                 generated_model=generated_model,
                 uploaded_model=uploaded_model,
             )
@@ -1672,6 +1862,7 @@ class ContextBroker:
         session: Any,
         *,
         thread_id: int,
+        user_id: str,
         k_docs: int,
         doc_excerpt_chars: int,
         generated_model: Any,
@@ -1699,6 +1890,7 @@ class ContextBroker:
             loaded = self._load_doc_from_thread_link(
                 session=session,
                 doc_id=doc_id,
+                user_id=user_id,
                 generated_model=generated_model,
                 uploaded_model=uploaded_model,
             )
@@ -1730,6 +1922,7 @@ class ContextBroker:
         session: Any,
         doc_id: str,
         doc_type: str,
+        user_id: str,
         generated_model: Any,
         uploaded_model: Any,
     ) -> Any | None:
@@ -1740,6 +1933,9 @@ class ContextBroker:
                 .first()
             )
             if row and getattr(row, "deleted_at", None) is None:
+                row_user_id = str(getattr(row, "user_id", "") or "").strip()
+                if row_user_id != str(user_id).strip():
+                    return None
                 return row
             return None
 
@@ -1749,6 +1945,9 @@ class ContextBroker:
             .first()
         )
         if row and getattr(row, "deleted_at", None) is None:
+            row_user_id = str(getattr(row, "user_id", "") or "").strip()
+            if row_user_id != str(user_id).strip():
+                return None
             return row
         return None
 
@@ -1757,6 +1956,7 @@ class ContextBroker:
         *,
         session: Any,
         doc_id: str,
+        user_id: str,
         generated_model: Any,
         uploaded_model: Any,
     ) -> tuple[Any, str] | None:
@@ -1764,6 +1964,7 @@ class ContextBroker:
             session=session,
             doc_id=doc_id,
             doc_type="generated",
+            user_id=user_id,
             generated_model=generated_model,
             uploaded_model=uploaded_model,
         )
@@ -1774,6 +1975,7 @@ class ContextBroker:
             session=session,
             doc_id=doc_id,
             doc_type="uploaded",
+            user_id=user_id,
             generated_model=generated_model,
             uploaded_model=uploaded_model,
         )

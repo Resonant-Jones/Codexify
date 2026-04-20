@@ -31,6 +31,7 @@ def _build_task(
 ) -> ChatCompletionTask:
     resolved_turn_id = turn_id or str(uuid.uuid4())
     task = ChatCompletionTask(
+        user_id="local",
         task_id=task_id,
         thread_id=7,
         provider="local",

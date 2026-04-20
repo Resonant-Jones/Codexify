@@ -55,6 +55,9 @@ async def invoke_command(
         inbound_headers=inbound_headers,
         store=_store,
         app=request.app,
+        execution_lane="tools",
+        allow_write_execution=True,
+        confirmation_granted=False,
     )
 
 

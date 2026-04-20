@@ -52,7 +52,7 @@ const ACCEPTED_ATTACHMENTS =
   ].join(",");
 const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 const MIN_COMPOSER_ROWS = 2;
-const MAX_COMPOSER_ROWS = 6;
+const MAX_COMPOSER_ROWS = 5;
 const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
@@ -1070,7 +1070,7 @@ export function Composer({
         "--composer-control-gap": mobileShellProfile.chat.composer.controlGap,
         "--composer-control-size": mobileShellProfile.chat.composer.controlSize,
         "--composer-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,
-        paddingBottom: "calc(var(--composer-pad-y, 12px) + var(--composer-safe-area-bottom, 0px))",
+        paddingBottom: "var(--composer-safe-area-bottom, 0px)",
       }) as React.CSSProperties,
     [mobileShellProfile]
   );
@@ -1079,14 +1079,14 @@ export function Composer({
     <>
       <div
         data-composer-root
-        className="flex min-w-0 flex-col flex-1 w-full py-[var(--composer-pad-y,12px)] overflow-x-hidden"
+        className="flex min-w-0 flex-col flex-1 w-full pt-[var(--composer-pad-y,12px)] pb-0 overflow-x-hidden"
         style={composerSurfaceStyle}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
         <div
           data-testid="composer-content-plane"
-          className="relative flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-[2px] px-[var(--composer-pad-x,12px)]"
         >
           {showLineageCopy ? (
             <div
@@ -1340,15 +1340,22 @@ export function Composer({
             data-testid="composer-control-row"
             className={cn(
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-              "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+              isPhoneShell
+                ? "flex min-w-0 w-full items-center justify-between px-[3px] pb-[3px]"
+                : "flex min-w-0 w-full items-center justify-between px-[4px] pb-[4px]"
             )}
             style={{ gap: "var(--composer-control-gap, 12px)" }}
           >
-          <div
-            data-testid="composer-controls-strip"
-            className="flex w-fit max-w-full min-w-0 flex-none flex-nowrap items-center gap-3 overflow-x-auto"
-            style={{ gap: "var(--composer-control-gap, 12px)" }}
-          >
+            <div
+              data-testid="composer-controls-strip"
+              className={cn(
+                "flex min-w-0 items-center justify-start",
+                isPhoneShell
+                  ? "flex-1 flex-nowrap overflow-x-auto pr-[6px]"
+                  : "flex-1 flex-wrap"
+              )}
+              style={{ gap: "var(--composer-control-gap, 12px)" }}
+            >
               <ComposerActionMenu
                 disabled={draftControlsDisabled}
                 isPhoneShell={isPhoneShell}
@@ -1422,33 +1429,12 @@ export function Composer({
 
             <div
               data-testid="composer-send-slot"
-              className="flex shrink-0 items-center justify-center"
-              style={{ marginRight: "6px" }}
+              className="ml-3 flex min-w-[calc(var(--composer-control-size,2rem)+4px)] shrink-0 items-center justify-end self-center"
             >
               <button
                 type="button"
                 aria-label={composerSendButtonLabel}
-                {...composerPressFeedback.getPressFeedbackProps({
-                  className:
-                    cn(
-                      "rounded-[var(--radius-micro)] px-3 py-2 transition-all",
-                      sendTransportDisabled
-                        ? "cursor-not-allowed opacity-50"
-                        : sendBlockedByTurnLock
-                          ? "opacity-75"
-                          : "",
-                      interactionState === "typing"
-                        ? "bg-[var(--accent)] text-[var(--pill-active-text)]"
-                        : "bg-[var(--panel-bg)] text-[var(--muted)]"
-                    ),
-                  style: {
-                    ...getMobileTapTargetStyle(isPhoneShell, { square: true }),
-                    transform:
-                      !isPhoneShell && composerPressFeedback.pressed
-                        ? "translateY(1px)"
-                        : undefined,
-                  },
-                })}
+                {...composerSendButtonProps}
                 onClick={handleAttemptSend}
                 disabled={sendTransportDisabled}
               >

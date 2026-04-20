@@ -116,6 +116,8 @@ OMITTED_FAMILIES = (
     "agent_run_artifacts",
     "agent_confidence_reports",
     "events_outbox",
+    # candidate_trace is intentionally excluded from export:
+    # it is non-canonical, non-restorable runtime diagnostic data
 )
 
 

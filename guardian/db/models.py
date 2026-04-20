@@ -52,6 +52,20 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    """Canonical user account boundary."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    username: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 EMBEDDING_LIFECYCLE_VALUES_SQL = "','".join(
     status.value for status in EmbeddingLifecycleStatus
 )
@@ -120,6 +134,9 @@ class Project(Base):
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     icon: Mapped[str | None] = mapped_column(String(16))
@@ -135,6 +152,8 @@ class Project(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    user: Mapped[User] = relationship("User")
 
     __table_args__ = (
         CheckConstraint(
@@ -310,7 +329,9 @@ class ChatThread(Base):
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
-    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     summary: Mapped[str] = mapped_column(
         Text, server_default="", nullable=False
@@ -353,6 +374,7 @@ class ChatThread(Base):
 
     # Relationships
     project: Mapped[Project | None] = relationship("Project")
+    user: Mapped[User] = relationship("User")
     messages: Mapped[list[ChatMessage]] = relationship(
         "ChatMessage", back_populates="thread", cascade="all, delete-orphan"
     )
@@ -382,6 +404,9 @@ class ChatMessage(Base):
         ForeignKey("chat_threads.id", ondelete="CASCADE"),
         nullable=False,
     )
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     role: Mapped[str] = mapped_column(
         String(32), nullable=False
     )  # 'user', 'assistant', 'system'
@@ -403,6 +428,7 @@ class ChatMessage(Base):
     thread: Mapped[ChatThread] = relationship(
         "ChatThread", back_populates="messages"
     )
+    user: Mapped[User] = relationship("User")
 
     __mapper_args__ = {"eager_defaults": True}
 
@@ -737,7 +763,9 @@ class MemoryEntry(Base):
     id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=True
     )
-    user_id: Mapped[str | None] = mapped_column(String(255))
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     silo: Mapped[str] = mapped_column(String(64), nullable=False)
     content: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[str | None] = mapped_column(Text)
@@ -760,6 +788,7 @@ class MemoryEntry(Base):
             name="memory_entries_silo_check",
         ),
     )
+    user: Mapped[User] = relationship("User")
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -958,37 +987,6 @@ class OAuthConnection(Base):
         Index("ix_oauth_connections_user_provider", "user_id", "provider"),
     )
 
-    __mapper_args__ = {"eager_defaults": True}
-
-
-class ToolJob(Base):
-    """Durable tool orchestration job state."""
-
-    __tablename__ = "tool_jobs"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
-    request_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    result_json: Mapped[dict | None] = mapped_column(JSONB)
-    error: Mapped[str | None] = mapped_column(Text)
-    error_json: Mapped[dict | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('queued','running','succeeded','failed')",
-            name="tool_jobs_status_check",
-        ),
-    )
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -1564,7 +1562,9 @@ class UploadedDocument(Base):
     thread_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chat_threads.id", ondelete="CASCADE")
     )
-    user_id: Mapped[str | None] = mapped_column(String(255))
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     filesize: Mapped[int] = mapped_column(BigInteger, nullable=False)  # Bytes
     mime_type: Mapped[str] = mapped_column(
@@ -1607,6 +1607,7 @@ class UploadedDocument(Base):
     # Relationships
     project: Mapped[Project | None] = relationship("Project")
     thread: Mapped[ChatThread | None] = relationship("ChatThread")
+    user: Mapped[User] = relationship("User")
 
     __table_args__ = (
         CheckConstraint(
@@ -2152,7 +2153,9 @@ class Persona(Base):
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
-    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(
@@ -2170,6 +2173,8 @@ class Persona(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    user: Mapped[User] = relationship("User")
 
 
 class SystemDoc(Base):
@@ -2707,9 +2712,6 @@ Index(
 Index(
     "ix_sync_jobs_connector_created", SyncJob.connector_id, SyncJob.created_at
 )
-Index("ix_tool_jobs_created_at", ToolJob.created_at)
-Index("ix_tool_jobs_status", ToolJob.status)
-
 # Audit indexes
 Index("ix_audit_log_timestamp", AuditLog.timestamp.desc())
 Index("ix_audit_log_entity", AuditLog.entity, AuditLog.entity_id)

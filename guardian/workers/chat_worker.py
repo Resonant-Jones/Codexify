@@ -7,6 +7,7 @@ This worker is intentionally thin: orchestration and routing live in
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -278,6 +279,35 @@ def _persist_message_extra_meta(
         )
         row = cur.fetchone()
         return bool(row)
+
+
+def _resolve_graph_write_scope(
+    thread_id: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    chatlog_db = getattr(dependencies, "chatlog_db", None)
+    if chatlog_db is None:
+        return None, None
+
+    get_chat_thread = getattr(chatlog_db, "get_chat_thread", None)
+    if not callable(get_chat_thread):
+        return None, None
+
+    try:
+        thread = get_chat_thread(thread_id)
+    except Exception:
+        return None, None
+
+    if not isinstance(thread, dict):
+        return None, None
+
+    project_id = thread.get("project_id")
+    if project_id is None:
+        return None, None
+
+    return thread, {
+        "id": project_id,
+        "name": thread.get("project_name"),
+    }
 
 
 def _turn_completion_anchor_key(thread_id: int, turn_id: str) -> str:
@@ -1385,6 +1415,7 @@ def _stream_local_compat(*args, **kwargs):
 
 async def _build_messages_for_llm(
     task: ChatCompletionTask,
+    user_id: str | None = None,
 ) -> tuple[
     list[dict[str, str]],
     str,
@@ -1397,7 +1428,7 @@ async def _build_messages_for_llm(
     resolved_task = _compat_resolve_task(task)
     _sync_build_messages_compat_seams()
     messages, provider, model, bundle, trace = _coerce_build_messages_result(
-        await _ORIGINAL_BUILD_MESSAGES_FOR_LLM(resolved_task)
+        await _ORIGINAL_BUILD_MESSAGES_FOR_LLM(resolved_task, user_id=user_id)
     )
     provider = _normalize_provider_override(resolved_task.provider) or provider
     model = _normalize_model_override(resolved_task.model) or model
@@ -1421,16 +1452,48 @@ async def _build_messages_for_llm(
     return merged_messages, provider, model, bundle, None, None, trace
 
 
+async def _build_messages_for_llm_compat(
+    task: ChatCompletionTask,
+    *,
+    user_id: str | None = None,
+) -> tuple[
+    list[dict[str, str]],
+    str,
+    str,
+    dict[str, Any],
+    Any,
+    Any,
+    dict[str, Any] | None,
+]:
+    builder = _build_messages_for_llm
+    try:
+        signature = inspect.signature(builder)
+    except (TypeError, ValueError):
+        signature = None
+    accepts_user_id = False
+    if signature is not None:
+        accepts_user_id = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "user_id"
+            for name, parameter in signature.parameters.items()
+        )
+    if accepts_user_id:
+        return await builder(task, user_id=user_id)
+    return await builder(task)
+
+
 def _run_chat_completion_task_compat(
     task: ChatCompletionTask,
     *,
+    user_id: str | None = None,
     token_callback: Any = None,
     chunk_callback: Any = None,
     cancel_check: Any = None,
     persist_assistant_message: bool = True,
     state_callback: Any = None,
 ) -> dict[str, Any]:
-    build_result = asyncio.run(_build_messages_for_llm(task))
+    build_result = asyncio.run(
+        _build_messages_for_llm_compat(task, user_id=user_id)
+    )
     (
         messages_for_llm,
         provider,
@@ -1852,6 +1915,8 @@ run_chat_completion_task = _run_chat_completion_task_compat
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
+    if not str(getattr(task, "user_id", "") or "").strip():
+        raise ValueError("ChatCompletionTask missing user_id")
     run_id = uuid.uuid4().hex
     started = time.monotonic()
     turn_id = _extract_turn_id(task)
@@ -2042,6 +2107,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
 
         result = run_chat_completion_task(
             task,
+            user_id=task.user_id,
             token_callback=lambda token: _safe_publish(
                 task.task_id,
                 "task.progress",
@@ -2182,6 +2248,37 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             message_id,
         )
         assistant_text = str(result.get("assistant_text") or "")
+        try:
+            from guardian.memory_graph.graph_write_hook import (
+                build_graph_write_candidate,
+            )
+
+            thread_scope, project_scope = _resolve_graph_write_scope(
+                task.thread_id
+            )
+            if thread_scope is None or project_scope is None:
+                raise ValueError("graph_write_scope_unavailable")
+
+            candidate = build_graph_write_candidate(
+                assistant_message={
+                    "id": message_id,
+                    "content": assistant_text,
+                    "role": "assistant",
+                    "created_at": lifecycle_timings_payload.get("completed_at"),
+                },
+                thread=thread_scope,
+                project=project_scope,
+            )
+
+            logger.info(
+                "graph_write_candidate_emitted",
+                extra={"candidate": candidate},
+            )
+        except Exception as e:
+            logger.warning(
+                "graph_write_candidate_failed",
+                extra={"error": str(e)},
+            )
         audio_autogenerate_scheduled = False
         try:
             audio_autogenerate_scheduled = (
@@ -2250,6 +2347,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
                 "payload_summary": result.get("payload_summary"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_query": result_retrieval_query,
                 "retrieval_target": result_retrieval_target,
                 "retrieval_query_matches_latest_turn": result.get(
