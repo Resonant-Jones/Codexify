@@ -35,6 +35,7 @@ EXPECTED_PAYLOAD_FILES = [
     "entities/media_aliases.json",
     "entities/thread_documents.json",
     "entities/project_document_links.json",
+    "entities/extension_proposals.json",
 ]
 
 
@@ -340,6 +341,94 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
                 "attached_at": _utc("2026-03-10T05:00:00Z"),
                 "attached_by": USER_ID,
             },
+        ],
+        "extension_proposals": [
+            {
+                "proposal_id": "proposal-1",
+                "account_id": USER_ID,
+                "project_id": 10,
+                "profile_id": "profile-a",
+                "source_thread_id": 101,
+                "source_message_id": 202,
+                "target_surface_token": "command_bus",
+                "scope_token": "project_scoped",
+                "status_token": "draft",
+                "requested_permissions_json": [
+                    {
+                        "permission": "command.run",
+                        "resource": "command_bus",
+                        "reason": "bounded command execution",
+                        "metadata": {},
+                    }
+                ],
+                "declared_dependencies_json": [
+                    {
+                        "name": "httpx",
+                        "version_spec": ">=0.28",
+                        "source": "pypi",
+                        "required": True,
+                        "metadata": {},
+                    }
+                ],
+                "rollback_metadata_json": {
+                    "strategy": "disable_and_revert",
+                    "rollback_ref": "ticket-123",
+                    "can_rollback": True,
+                    "metadata": {},
+                },
+                "test_evidence_json": {
+                    "status": "passing",
+                    "summary": "proposal draft coverage",
+                    "artifacts": [
+                        "tests/services/test_account_export_extension_proposals.py",
+                    ],
+                    "metadata": {},
+                },
+                "manifest_json": {
+                    "manifest_version": "extension-proposal-manifest.v1",
+                    "target_surface": "command_bus",
+                    "scope": "project_scoped",
+                    "source_thread_id": 101,
+                    "source_message_id": 202,
+                    "project_id": 10,
+                    "profile_id": "profile-a",
+                    "summary": "Generate a bounded tool plugin",
+                    "description": "Draft a tool proposal without executing it.",
+                    "requested_permissions": [
+                        {
+                            "permission": "command.run",
+                            "resource": "command_bus",
+                            "reason": "bounded command execution",
+                            "metadata": {},
+                        }
+                    ],
+                    "declared_dependencies": [
+                        {
+                            "name": "httpx",
+                            "version_spec": ">=0.28",
+                            "source": "pypi",
+                            "required": True,
+                            "metadata": {},
+                        }
+                    ],
+                    "rollback_metadata": {
+                        "strategy": "disable_and_revert",
+                        "rollback_ref": "ticket-123",
+                        "can_rollback": True,
+                        "metadata": {},
+                    },
+                    "test_evidence_metadata": {
+                        "status": "passing",
+                        "summary": "proposal draft coverage",
+                        "artifacts": [
+                            "tests/services/test_account_export_extension_proposals.py",
+                        ],
+                        "metadata": {},
+                    },
+                },
+                "created_at": _utc("2026-03-14T00:00:00Z"),
+                "updated_at": _utc("2026-03-14T01:00:00Z"),
+            }
         ],
     }
 
