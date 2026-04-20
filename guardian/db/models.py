@@ -35,6 +35,11 @@ from guardian.core.capability_tokens import (
     CapabilityGrantScope,
     CapabilityGrantStatus,
 )
+from guardian.extensions.tokens import (
+    EXTENSION_PROPOSAL_SCOPES,
+    EXTENSION_PROPOSAL_STATUSES,
+    EXTENSION_TARGET_SURFACES,
+)
 from guardian.protocol_tokens import (
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
@@ -81,6 +86,24 @@ CAPABILITY_GRANT_KIND_CHECK = (
 )
 CAPABILITY_GRANT_STATUS_CHECK = (
     f"grant_status IN ('{CAPABILITY_GRANT_STATUS_VALUES_SQL}')"
+)
+EXTENSION_TARGET_SURFACE_VALUES_SQL = "','".join(
+    sorted(EXTENSION_TARGET_SURFACES)
+)
+EXTENSION_PROPOSAL_SCOPE_VALUES_SQL = "','".join(
+    sorted(EXTENSION_PROPOSAL_SCOPES)
+)
+EXTENSION_PROPOSAL_STATUS_VALUES_SQL = "','".join(
+    sorted(EXTENSION_PROPOSAL_STATUSES)
+)
+EXTENSION_TARGET_SURFACE_CHECK = (
+    f"target_surface_token IN ('{EXTENSION_TARGET_SURFACE_VALUES_SQL}')"
+)
+EXTENSION_PROPOSAL_SCOPE_CHECK = (
+    f"scope_token IN ('{EXTENSION_PROPOSAL_SCOPE_VALUES_SQL}')"
+)
+EXTENSION_PROPOSAL_STATUS_CHECK = (
+    f"status_token IN ('{EXTENSION_PROPOSAL_STATUS_VALUES_SQL}')"
 )
 
 
@@ -1971,6 +1994,104 @@ class PersonaProfile(Base):
         CheckConstraint(
             "temperature >= 0.0 AND temperature <= 2.0",
             name="persona_profiles_temperature_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Extension Proposals
+# =========================
+
+
+class AgentExtensionProposal(Base):
+    """Durable proposal draft for a self-extending capability."""
+
+    __tablename__ = "agent_extension_proposals"
+
+    proposal_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    target_surface_token: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    scope_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="project_scoped"
+    )
+    status_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="draft"
+    )
+    requested_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    declared_dependencies_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    rollback_metadata_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    test_evidence_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    manifest_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            EXTENSION_TARGET_SURFACE_CHECK,
+            name="agent_extension_proposals_target_surface_check",
+        ),
+        CheckConstraint(
+            EXTENSION_PROPOSAL_SCOPE_CHECK,
+            name="agent_extension_proposals_scope_check",
+        ),
+        CheckConstraint(
+            EXTENSION_PROPOSAL_STATUS_CHECK,
+            name="agent_extension_proposals_status_check",
+        ),
+        Index(
+            "ix_agent_extension_proposals_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_proposals_project_created_at",
+            "project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_proposals_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_proposals_status_created_at",
+            "status_token",
+            "created_at",
         ),
     )
 
