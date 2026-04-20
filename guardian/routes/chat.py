@@ -46,6 +46,7 @@ from starlette.responses import StreamingResponse
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
+from guardian.core.auth_dependencies import get_current_user_id
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -135,7 +136,12 @@ def _run_completion_redis_op(fn, *, reason: str, log_message: str):
         raise _completion_service_unavailable(reason)
 
 
-def _request_account_id(request_user_scope: RequestUserScope) -> str:
+def _request_account_id(
+    request_user_scope: RequestUserScope,
+    request: Request | None = None,
+) -> str:
+    if request is not None:
+        return get_current_user_id(request)
     account_id = str(request_user_scope.account_id or "").strip()
     return account_id or get_single_user_id()
 
@@ -143,9 +149,10 @@ def _request_account_id(request_user_scope: RequestUserScope) -> str:
 def _resolve_thread_owner_hint(
     raw_user_id: Any,
     request_user_scope: RequestUserScope,
+    request: Request | None = None,
 ) -> str:
     requested_user_id = str(raw_user_id or "").strip()
-    account_id = _request_account_id(request_user_scope)
+    account_id = _request_account_id(request_user_scope, request=request)
     if request_user_scope.multi_user_enabled:
         if requested_user_id and requested_user_id != account_id:
             raise HTTPException(
@@ -2179,6 +2186,7 @@ def normalize_source_mode(raw: Any) -> str:
 @router.post("/threads")
 def chat_create_thread(
     body: dict = Body(...),
+    request: Request = None,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -2189,7 +2197,11 @@ def chat_create_thread(
         str(raw_title).strip() if raw_title is not None else "New Chat"
     ) or "New Chat"
     raw_user = payload.get("user_id")
-    user_id = _resolve_thread_owner_hint(raw_user, request_user_scope)
+    user_id = _resolve_thread_owner_hint(
+        raw_user,
+        request_user_scope,
+        request=request,
+    )
     raw_summary = payload.get("summary")
     summary = str(raw_summary).strip() if raw_summary is not None else ""
     project_id = payload.get("project_id")
@@ -2305,6 +2317,7 @@ def chat_get_thread(
 def chat_post_message(
     thread_id: int,
     body: Dict[str, Any] = Body(...),
+    request: Request = None,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -2320,6 +2333,7 @@ def chat_post_message(
     owner = _resolve_thread_owner_hint(
         body.get("user_id"),
         request_user_scope,
+        request=request,
     )
     try:
         result = _persist_message_to_thread(
@@ -2342,6 +2356,7 @@ def chat_post_message(
 @router.post("/messages")
 def chat_post_message_create_on_send(
     body: ChatMessageCreateRequest = Body(...),
+    request: Request = None,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -2359,7 +2374,11 @@ def chat_post_message_create_on_send(
             status_code=400,
             content={"ok": False, "error": "role and content required"},
         )
-    owner = _resolve_thread_owner_hint(body.user_id, request_user_scope)
+    owner = _resolve_thread_owner_hint(
+        body.user_id,
+        request_user_scope,
+        request=request,
+    )
     requested_thread_id = _coerce_positive_int(body.thread_id)
     created_thread = False
     created_thread_id: Optional[int] = None
@@ -3153,7 +3172,7 @@ def branch_thread(
 
     child = chatlog_db.create_chat_thread(
         user_id=(
-            _request_account_id(request_user_scope)
+            _request_account_id(request_user_scope, request=request)
             if request_user_scope.multi_user_enabled
             else parent.get("user_id", "default")
         ),
@@ -3310,6 +3329,7 @@ def list_threads(
 
 @threads_router.post("")
 def create_thread_alias(
+    request: Request,
     req: ThreadCreateRequest,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
@@ -3319,7 +3339,11 @@ def create_thread_alias(
         parent_thread_id=req.parent_thread_id,
         session_id=req.session_id,
         summary=req.summary,
-        user_id=_resolve_thread_owner_hint(req.user_id, request_user_scope),
+        user_id=_resolve_thread_owner_hint(
+            req.user_id,
+            request_user_scope,
+            request=request,
+        ),
         project_id=req.project_id,
     )
     return {"thread_id": thread_id}
@@ -3437,6 +3461,7 @@ def get_thread_summary(
 
 @thread_router.post("")
 def create_thread(
+    request: Request,
     req: ThreadCreateRequest,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
@@ -3446,7 +3471,11 @@ def create_thread(
         parent_thread_id=req.parent_thread_id,
         session_id=req.session_id,
         summary=req.summary,
-        user_id=_resolve_thread_owner_hint(req.user_id, request_user_scope),
+        user_id=_resolve_thread_owner_hint(
+            req.user_id,
+            request_user_scope,
+            request=request,
+        ),
         project_id=req.project_id,
     )
     return {"thread_id": thread_id}

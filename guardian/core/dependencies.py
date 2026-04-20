@@ -31,6 +31,10 @@ from guardian.config import get_settings
 from guardian.context.broker import ContextBroker
 from guardian.core import event_bus
 from guardian.core.auth import verify_session_token
+from guardian.core.auth_dependencies import (
+    extract_session_token,
+    resolve_session_user_id,
+)
 from guardian.core.chat_db import ChatDB
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.core.config import get_settings as get_core_settings
@@ -351,6 +355,15 @@ def get_request_user_id(
     When CODEXIFY_MULTI_USER_ENABLED=true, the request must carry an
     authenticated subject from the existing session/JWT path.
     """
+    session_token = extract_session_token(authorization, gc_session)
+    session_user_id = (
+        resolve_session_user_id(authorization, gc_session)
+        if session_token
+        else None
+    )
+    if session_user_id:
+        return session_user_id
+
     if _multi_user_mode_enabled():
         subject = _resolve_authenticated_subject(authorization, gc_session)
         if subject:
@@ -390,6 +403,20 @@ def get_request_user_scope(
     Single-user mode preserves the legacy `user_id` fallback behavior.
     Multi-user mode exposes the authenticated subject and stable account id.
     """
+    session_token = extract_session_token(authorization, gc_session)
+    session_user_id = (
+        resolve_session_user_id(authorization, gc_session)
+        if session_token
+        else None
+    )
+    if session_user_id:
+        return RequestUserScope(
+            user_id=session_user_id,
+            subject_id=session_user_id,
+            account_id=session_user_id,
+            multi_user_enabled=True,
+        )
+
     if _multi_user_mode_enabled():
         subject_id = _resolve_authenticated_subject(authorization, gc_session)
         if not subject_id:
@@ -540,6 +567,12 @@ def verify_api_key(
 
     Note: GUARDIAN_EXPOSURE_MODE=public_allowlist always forces remote mode.
     """
+    session_token = extract_session_token(authorization, gc_session)
+    if session_token:
+        session_user_id = resolve_session_user_id(authorization, gc_session)
+        if session_user_id:
+            return session_token
+
     mode = _auth_mode()
     if mode == "remote":
         if x_api_key and x_api_key.strip():
