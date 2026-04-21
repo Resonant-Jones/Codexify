@@ -1,14 +1,17 @@
 # Candidate Trace Ingestion Pipeline
 
 Purpose: describe the backend-only ingestion seam that consumes transient `candidate_trace` records and prepares them for future entity or graph extraction without changing canonical chat behavior.
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 Source anchors:
 - guardian/core/chat_completion_service.py
 - guardian/workers/candidate_ingest_worker.py
+- guardian/workers/graph_write_worker.py
+- guardian/tasks/types.py
 - guardian/queue/redis_queue.py
 - docs/architecture/candidate-trace-surface.md
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/adr/009-candidate-trace-ingest-worker.md
+- docs/architecture/adr/011-graph-write-task-seam-and-worker-scaffold.md
 
 ## Purpose
 
@@ -67,6 +70,28 @@ Both steps remain deterministic and non-persistent. The graph-candidate output
 is only summarized inside the worker for inspection and diagnostics.
 
 Graph candidates remain transient derived artifacts and are not:
+
+- exported
+- restored
+- persisted as canonical records
+- used by retrieval
+- written to Neo4j in this phase
+
+Future graph persistence remains explicitly deferred.
+
+## Graph-Write Task Hand-Off
+
+Candidate ingest now hands non-empty graph candidates to a dedicated
+`GRAPH_WRITE_QUEUE` as a derived `GraphWriteTask`.
+
+The graph-write worker is inspection-only in this phase:
+
+- it summarizes task nodes, edges, and warnings
+- it does not persist graph state
+- it does not feed retrieval
+- it does not participate in export or restore
+
+Graph-write tasks remain deterministic derived artifacts and are not:
 
 - exported
 - restored

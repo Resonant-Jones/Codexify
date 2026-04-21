@@ -31,10 +31,12 @@ def _record_by_message(caplog, message: str):
     )
 
 
-def test_candidate_ingest_worker_maps_graph_candidates_and_logs_summary(
-    caplog,
+def test_candidate_ingest_worker_enqueues_graph_write_task_from_graph_candidates(
+    caplog, monkeypatch
 ):
     caplog.set_level(logging.INFO)
+    enqueue_spy = MagicMock(return_value=None)
+    monkeypatch.setattr(candidate_ingest_worker, "enqueue", enqueue_spy)
 
     ok = candidate_ingest_worker.process_candidate_ingest_task(
         _task(
@@ -70,9 +72,24 @@ def test_candidate_ingest_worker_maps_graph_candidates_and_logs_summary(
     assert summary.node_types == ["Document", "Message"]
     assert summary.edge_types == ["DERIVED_FROM"]
 
+    assert enqueue_spy.call_count == 1
+    graph_write_task, queue_name = enqueue_spy.call_args.args
+    assert queue_name == candidate_ingest_worker.GRAPH_WRITE_QUEUE
+    assert graph_write_task["request_id"] == "req-1"
+    assert graph_write_task["thread_id"] == 7
+    assert graph_write_task["candidate_trace_id"] == "trace-1"
+    assert graph_write_task["created_at"] == "2026-01-01T00:00:00Z"
+    assert len(graph_write_task["nodes"]) == 2
+    assert len(graph_write_task["edges"]) == 1
+    assert graph_write_task["warnings"] == []
 
-def test_candidate_ingest_worker_logs_graph_candidate_warnings(caplog):
+
+def test_candidate_ingest_worker_logs_graph_candidate_warnings(
+    caplog, monkeypatch
+):
     caplog.set_level(logging.INFO)
+    enqueue_spy = MagicMock(return_value=None)
+    monkeypatch.setattr(candidate_ingest_worker, "enqueue", enqueue_spy)
 
     ok = candidate_ingest_worker.process_candidate_ingest_task(
         _task(
@@ -102,6 +119,7 @@ def test_candidate_ingest_worker_logs_graph_candidate_warnings(caplog):
     assert summary.node_types == ["Unknown"]
     assert summary.edge_types == []
     assert warning.warnings == ["unknown_entity_type"]
+    enqueue_spy.assert_called_once()
 
 
 def test_candidate_ingest_worker_survives_graph_mapping_failure(
@@ -136,7 +154,70 @@ def test_candidate_ingest_worker_survives_graph_mapping_failure(
     )
 
 
-def test_candidate_ingest_worker_still_does_not_persist_or_enqueue_follow_on_work(
+def test_candidate_ingest_worker_skips_graph_write_enqueue_when_candidates_empty(
+    caplog, monkeypatch
+):
+    caplog.set_level(logging.INFO)
+    enqueue_spy = MagicMock(return_value=None)
+    monkeypatch.setattr(candidate_ingest_worker, "enqueue", enqueue_spy)
+
+    ok = candidate_ingest_worker.process_candidate_ingest_task(
+        _task(payload={})
+    )
+
+    assert ok is True
+    _record_by_message(
+        caplog,
+        f"[candidate-ingest] {candidate_ingest_worker.GRAPH_WRITE_SKIP_EMPTY_LOG}",
+    )
+    enqueue_spy.assert_not_called()
+
+
+def test_candidate_ingest_worker_contains_graph_write_enqueue_failure(
+    caplog, monkeypatch
+):
+    caplog.set_level(logging.INFO)
+    enqueue_spy = MagicMock(side_effect=RuntimeError("enqueue failed"))
+    monkeypatch.setattr(candidate_ingest_worker, "enqueue", enqueue_spy)
+
+    ok = candidate_ingest_worker.process_candidate_ingest_task(
+        _task(
+            payload={
+                "messages": [
+                    {
+                        "id": "msg-1",
+                        "content": "Source message",
+                    }
+                ],
+                "documents": [
+                    {
+                        "id": "doc-1",
+                        "content": "Derived document",
+                        "source_message_id": "msg-1",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert ok is True
+    assert any(
+        record.levelno >= logging.ERROR
+        and candidate_ingest_worker.GRAPH_WRITE_ENQUEUE_FAILED_LOG
+        in record.getMessage()
+        for record in caplog.records
+    )
+    summary = _record_by_message(
+        caplog,
+        f"[candidate-ingest] {candidate_ingest_worker.GRAPH_CANDIDATE_SUMMARY_LOG}",
+    )
+    assert summary.node_count == 2
+    assert summary.edge_count == 1
+    assert summary.warning_count == 0
+    enqueue_spy.assert_called_once()
+
+
+def test_candidate_ingest_worker_does_not_persist_or_call_graph_backend(
     monkeypatch,
 ):
     normalized = NormalizedEntitySet(
@@ -174,8 +255,9 @@ def test_candidate_ingest_worker_still_does_not_persist_or_enqueue_follow_on_wor
     )
     normalize_spy = MagicMock(return_value=normalized)
     map_spy = MagicMock(return_value=graph_candidates)
+    enqueue_spy = MagicMock(return_value=None)
     queue_spy = MagicMock(
-        side_effect=AssertionError("queue fan-out not expected")
+        side_effect=AssertionError("queue client not expected")
     )
     persistence_spy = MagicMock(
         side_effect=AssertionError("canonical persistence not expected")
@@ -191,6 +273,7 @@ def test_candidate_ingest_worker_still_does_not_persist_or_enqueue_follow_on_wor
         "map_to_graph_write_candidates",
         map_spy,
     )
+    monkeypatch.setattr(candidate_ingest_worker, "enqueue", enqueue_spy)
     monkeypatch.setattr(
         candidate_ingest_worker,
         "get_redis_connection",
@@ -218,5 +301,6 @@ def test_candidate_ingest_worker_still_does_not_persist_or_enqueue_follow_on_wor
     assert ok is True
     normalize_spy.assert_called_once()
     map_spy.assert_called_once()
+    enqueue_spy.assert_called_once()
     queue_spy.assert_not_called()
     persistence_spy.assert_not_called()

@@ -130,6 +130,16 @@ class CandidateTraceIngestTask(TypedDict):
     payload: dict[str, Any]
 
 
+class GraphWriteTask(TypedDict):
+    request_id: str
+    thread_id: str | int
+    candidate_trace_id: str
+    created_at: str
+    nodes: list[dict[str, Any]]
+    edges: list[dict[str, Any]]
+    warnings: list[str]
+
+
 @dataclass
 class DelegationDraftRequest:
     thread_id: int | None = None
