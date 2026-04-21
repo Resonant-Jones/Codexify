@@ -91,6 +91,7 @@ from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
     get_active_supported_profile,
 )
+from guardian.core.user_manager import get_or_create_default_user
 from guardian.queue import task_events
 from guardian.queue.redis_queue import cancel as cancel_task
 from guardian.queue.redis_queue import enqueue
@@ -529,8 +530,6 @@ from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
-from guardian.routes.tools import api_router as api_tools_router
-from guardian.routes.tools import router as tools_router
 from guardian.routes.voice import router as voice_router
 from guardian.voice.config import get_voice_runtime_config
 from guardian.voice.runtime import SUPPORTED_INPUT_MIME
@@ -634,6 +633,13 @@ async def app_lifespan(app: FastAPI):
         logger.info(
             "[startup] GuardianDB configured for cron/documents/share/collaboration/websocket routes"
         )
+
+        try:
+            get_or_create_default_user(guardian_db)
+        except Exception as exc:
+            logger.warning(
+                "[startup] Failed to ensure default user exists: %s", exc
+            )
 
     try:
         _run_builtin_help_startup_ingest(guardian_db)
@@ -1107,16 +1113,6 @@ _include_router(
     label="flows",
     flag_name="CODEXIFY_ENABLE_FLOW_ROUTES",
     include_fn=lambda: app.include_router(flows_router),
-)
-_include_router(
-    label="tools",
-    flag_name="CODEXIFY_ENABLE_TOOL_ROUTES",
-    include_fn=lambda: app.include_router(tools_router),
-)
-_include_router(
-    label="api_tools",
-    flag_name="CODEXIFY_ENABLE_TOOL_ROUTES",
-    include_fn=lambda: app.include_router(api_tools_router),
 )
 _include_router(
     label="exports",

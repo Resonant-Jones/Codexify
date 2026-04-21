@@ -63,6 +63,7 @@ def _build_task(
     created_at: str = "2026-04-02T00:00:00+00:00",
 ) -> ChatCompletionTask:
     task = ChatCompletionTask(
+        user_id="local",
         task_id=task_id,
         thread_id=thread_id,
         provider=provider,

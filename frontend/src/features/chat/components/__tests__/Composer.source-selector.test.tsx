@@ -122,7 +122,7 @@ describe("Composer source selector", () => {
       name: "Select retrieval source",
     });
 
-    expect(controlsStrip).toHaveClass("flex-none", "w-fit");
+    expect(controlsStrip).toHaveClass("flex-1", "min-w-0", "overflow-x-auto");
     expect(controlsStrip.className).not.toContain("bg-[");
     expect(controlsStrip.style.borderRadius).toBe("");
     expect(controlsStrip.style.borderColor).toBe("");
@@ -161,7 +161,7 @@ describe("Composer source selector", () => {
       name: "Select retrieval source",
     });
 
-    expect(controlsStrip).toHaveClass("flex-none", "w-fit");
+    expect(controlsStrip).toHaveClass("flex-1", "min-w-0", "overflow-x-auto");
     expect(controlsStrip.className).not.toContain("bg-[");
     expect(controlsStrip.style.borderRadius).toBe("");
     expect(controlsStrip.style.borderColor).toBe("");
@@ -172,6 +172,36 @@ describe("Composer source selector", () => {
     expect(sourceButton).toHaveClass("bg-transparent", "border-0", "rounded-none");
     expect(sourceButton.style.borderRadius).toBe("");
     expect(sourceButton.style.borderColor).toBe("");
+  });
+
+  it("keeps the left control cluster before an anchored send slot when the rail tightens", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 320,
+    });
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="thread-1"
+        draftValue="hello"
+        sourceMode="project"
+        sourceOptions={SOURCE_OPTIONS}
+        onSourceModeChange={vi.fn()}
+      />
+    );
+
+    const controlsRow = screen.getByTestId("composer-control-row");
+    const controlsStrip = screen.getByTestId("composer-controls-strip");
+    const sendSlot = screen.getByTestId("composer-send-slot");
+    const sendButton = screen.getByRole("button", { name: "Send" });
+
+    expect(controlsRow).toHaveClass("grid", "min-w-0");
+    expect(controlsRow.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(controlsRow.firstElementChild).toBe(controlsStrip);
+    expect(controlsRow.lastElementChild).toBe(sendSlot);
+    expect(sendSlot).toHaveClass("justify-self-end");
+    expect(sendButton.parentElement).toBe(sendSlot);
   });
 
   it("keeps the selected source across sends in the same thread-scoped harness", async () => {

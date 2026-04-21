@@ -160,7 +160,7 @@ function isInternalPollBackpressureError(error: any): boolean {
 
 function toUserFacingLoadMessagesError(error: any): string | null {
   if (isInternalPollBackpressureError(error)) {
-    return null;
+    return "Guardian chat is temporarily unavailable right now. Please retry in a moment.";
   }
   const status = Number(error?.response?.status ?? 0);
   if (status === 401 || status === 403) {

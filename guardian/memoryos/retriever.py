@@ -467,6 +467,7 @@ class MemoryOSRetriever:
         query: str,
         limit: int = 5,
         namespace: str | None = None,
+        user_id: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Retrieve semantically similar documents for a given query.
 
@@ -479,6 +480,7 @@ class MemoryOSRetriever:
             query: The search query string
             limit: Maximum number of results to return (default: 5)
             namespace: Optional vector namespace filter
+            user_id: Required account boundary filter
 
         Returns:
             List of result dictionaries with schema:
@@ -506,6 +508,8 @@ class MemoryOSRetriever:
                 "[MemoryOSRetriever] Empty query, returning empty results"
             )
             return [], trace
+        if not str(user_id or "").strip():
+            raise ValueError("MemoryOSRetriever requires user_id")
 
         start_time = time.time()
 
@@ -520,9 +524,14 @@ class MemoryOSRetriever:
                     query,
                     k=candidate_k,
                     namespace=namespace,
+                    user_id=user_id,
                 )
             except TypeError:
-                results = self.vector_store.search(query, k=candidate_k)
+                results = self.vector_store.search(
+                    query,
+                    k=candidate_k,
+                    namespace=namespace,
+                )
 
             # Handle both sync and async vector stores
             if hasattr(results, "__await__"):
@@ -545,6 +554,21 @@ class MemoryOSRetriever:
             standardized = [
                 self._normalize_result(item, semantic_rank=idx)
                 for idx, item in enumerate(results)
+            ]
+            normalized_user_id = str(user_id or "").strip()
+            standardized = [
+                item
+                for item in standardized
+                if str(
+                    (
+                        item.get("user_id")
+                        or item.get("owner_user_id")
+                        or item.get("metadata", {}).get("user_id")
+                        or item.get("metadata", {}).get("owner_user_id")
+                    )
+                    or ""
+                ).strip()
+                == normalized_user_id
             ]
             selected = self._apply_archival_selection_policy(
                 standardized, query=query, limit=limit
@@ -583,9 +607,10 @@ class MemoryOSRetriever:
         query: str,
         limit: int = 5,
         namespace: str | None = None,
+        user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         results, _trace = await self._retrieve_with_trace(
-            query, limit=limit, namespace=namespace
+            query, limit=limit, namespace=namespace, user_id=user_id
         )
         return results
 
@@ -594,9 +619,10 @@ class MemoryOSRetriever:
         query: str,
         limit: int = 5,
         namespace: str | None = None,
+        user_id: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         return await self._retrieve_with_trace(
-            query, limit=limit, namespace=namespace
+            query, limit=limit, namespace=namespace, user_id=user_id
         )
 
     def retrieve_context(
@@ -634,11 +660,13 @@ class MemoryOSRetriever:
                 }
             else:
                 results = loop.run_until_complete(
-                    self.retrieve(user_query, limit=5)
+                    self.retrieve(user_query, limit=5, user_id=user_id)
                 )
         except RuntimeError:
             # No event loop, create new one
-            results = asyncio.run(self.retrieve(user_query, limit=5))
+            results = asyncio.run(
+                self.retrieve(user_query, limit=5, user_id=user_id)
+            )
 
         return {
             "retrieved_pages": [],

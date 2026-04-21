@@ -40,6 +40,12 @@ from .default_project import (
     resolve_project_id_or_default,
 )
 
+_DEFAULT_USER_ID = "local"
+
+
+def _default_user_id() -> str:
+    return _DEFAULT_USER_ID
+
 
 # ---- JSON helpers -------------------------------------------------------
 def _json_default(o):
@@ -1076,18 +1082,23 @@ class PgDB(ChatDB):
                     (default_project_id, project_id),
                 )
 
-    def create_project(self, name: str, description: str = "") -> int:
+    def create_project(
+        self, name: str, description: str = "", user_id: str | None = None
+    ) -> int:
         if not name.strip():
             raise ValueError("Project name is required")
+        resolved_user_id = (
+            str(user_id or _default_user_id()).strip() or _default_user_id()
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO projects (name, description)
-                    VALUES (%s, %s)
+                    INSERT INTO projects (user_id, name, description)
+                    VALUES (%s, %s, %s)
                     RETURNING id
                     """,
-                    (name.strip(), description or ""),
+                    (resolved_user_id, name.strip(), description or ""),
                 )
                 row = cur.fetchone()
                 if not row:
@@ -1115,7 +1126,7 @@ class PgDB(ChatDB):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, name, description, identity_depth, created_at, updated_at FROM projects ORDER BY id DESC"
+                    "SELECT id, user_id, name, description, identity_depth, created_at, updated_at FROM projects ORDER BY id DESC"
                 )
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
@@ -1237,28 +1248,42 @@ class PgDB(ChatDB):
         role: str,
         content: str,
         created_at: str | None = None,
+        user_id: str | None = None,
     ) -> int:
         """Insert a message row and return its id."""
         now = datetime.now(timezone.utc)
+        thread = self.get_chat_thread(thread_id)
+        resolved_user_id = (
+            str(
+                user_id or (thread or {}).get("user_id") or _default_user_id()
+            ).strip()
+            or _default_user_id()
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 if created_at is not None:
                     cur.execute(
                         """
-                        INSERT INTO chat_messages (thread_id, role, content, created_at)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO chat_messages (thread_id, user_id, role, content, created_at)
+                        VALUES (%s, %s, %s, %s, %s)
                         RETURNING id
                         """,
-                        (thread_id, role, content, created_at),
+                        (
+                            thread_id,
+                            resolved_user_id,
+                            role,
+                            content,
+                            created_at,
+                        ),
                     )
                 else:
                     cur.execute(
                         """
-                        INSERT INTO chat_messages (thread_id, role, content)
-                        VALUES (%s, %s, %s)
+                        INSERT INTO chat_messages (thread_id, user_id, role, content)
+                        VALUES (%s, %s, %s, %s)
                         RETURNING id
                         """,
-                        (thread_id, role, content),
+                        (thread_id, resolved_user_id, role, content),
                     )
                 row = cur.fetchone()
                 message_id = int(row["id"]) if row else None

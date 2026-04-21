@@ -38,6 +38,12 @@ Use this note as the local map for all ADRs.
 5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
 6. [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
 7. [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] — bounded self-extending architecture for generated capabilities, plugin forge flow, and sovereignty boundaries.
+5. [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
+6. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] — retained as the legacy identity-ownership UI boundary note.
+7. [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
+8. [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] — derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
+9. [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] — backend-only candidate-output diagnostic surface, TTL-bound and excluded from export.
+10. [[009-Candidate-Trace-Ingest-Worker|ADR-009 Candidate Trace Ingest Worker Scaffold]] — asynchronous candidate-trace ingestion seam, log-only and non-blocking.
 
 ---
 
@@ -94,6 +100,12 @@ Primary companion notes:
   * [[system-overview|System Overview]]
   * [[00-current-state]]
 
+* [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]] links to:
+
+  * [[identity-and-runtime-mode|Identity and Runtime Mode]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[00-current-state]]
+
 * [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] links to:
 
   * [[system-overview|System Overview]]
@@ -110,6 +122,30 @@ Primary companion notes:
   * [[delegation-runtime|Delegation Runtime Contract]]
   * [[00-current-state]]
 
+* [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] links to:
+
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[flows|Critical Flows]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[completion_pipeline|Completion Request Pipeline]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[009-Candidate-Trace-Ingest-Worker|ADR-009 Candidate Trace Ingest Worker Scaffold]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[candidate-trace-surface|Candidate Trace Surface]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
 * [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] links to:
 
   * [[system-overview|System Overview]]
@@ -117,7 +153,6 @@ Primary companion notes:
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[persona-studio|Persona Studio Architecture]]
   * [[chat-runtime-contract|Chat Runtime Contract]]
-
 ---
 
 ## Maintenance rule

@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-13
+2026-04-19
 
 ## Interpretation rule
 This file is authoritative for:
@@ -16,8 +16,10 @@ This file is authoritative for:
 Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
 
 ## What changed recently
+- A backend-only candidate-trace diagnostic surface was added: `GET /chat/{thread_id}/debug/candidate-trace/latest`. It captures transient pre-answer candidate outputs for the latest completion attempt, remains thread-scoped, and is intentionally excluded from export/restore.
 - A dedicated retrieval-posture diagnostics route was added to the backend: `GET /api/chat/debug/retrieval-posture/{thread_id}/latest`. It reuses the same latest-trace evidence path as the RAG trace route and returns the canonical posture snapshot or an empty state. A fallback synthesis path is included for legacy trace fields (source_mode, widen_reason, retrieval_override).
 - A companion frontend surface was added via `useRetrievalPosture` hook and a `RetrievalPostureSection` in `TraceWorkbench.tsx`. It shows source mode, boundary label, retrieval override mode, widen reason, and conversation-only flag as compact badges with distinct loading, empty, and error states.
+- The retrieval broker now enforces strict `user_id` isolation at the aggregation boundary and requires widening to carry an explicit `widen_reason`; `widen_reason` normalizes to `none` when no widening occurs.
 - A retrieval-posture history route was added: `GET /api/chat/{thread_id}/debug/retrieval-posture/history` for richer temporal access.
 - A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
 - The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
@@ -29,6 +31,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Supported beta posture is still local-only: `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
 - Chat acceptance, worker execution, and Postgres persistence remain the core validated loop.
 - Upload -> parse -> embed -> retrieve remains supported, with one shared runtime vector store.
+- Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
 - The import embed worker can drain a live backlog without breaking chat or health surfaces.
 - `/health`, `/health/chat`, `/api/health/llm`, `/api/health/retrieval`, and `/api/llm/catalog?include=all` remain the primary runtime evidence surfaces.
@@ -36,6 +39,15 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
   - Supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam).
   - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
   - Broker/source-mode reconciliation (`effective_source_mode` derived from `source_mode` + `retrieval_override`).
+
+## Identity and Runtime Mode
+
+- Codexify now defines `single_user` and `multi_user` runtime modes.
+- `multi_user` mode introduces strict `user_id` enforcement across:
+  - API routes
+  - retrieval
+  - persistence
+- exportability is now a first-class invariant.
 
 ## Not yet true / do not assume
 - Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.

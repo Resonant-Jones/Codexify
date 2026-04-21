@@ -59,6 +59,9 @@ introduces live retrieval behavior changes in this task.
 | `obsidian_only` | `thread_messages`, `obsidian` | `obsidian` | Obsidian-only mode remains strict and fails closed when no Obsidian docs are available. |
 | `conversation` | `thread_messages` | none | Conversation-only mode stays inside the active thread history. |
 
+- All retrieval results must remain scoped to the resolved `user_id` at the broker aggregation boundary.
+- Any widening beyond thread scope must set an explicit `widen_reason`; no widening must normalize to `widen_reason = "none"`.
+
 ## Routing Dimensions
 
 - `default scope`
@@ -112,6 +115,9 @@ introduces live retrieval behavior changes in this task.
 - Graph is enrichment, not default ceremony.
   - Optional graph context may help provenance and relationship tracing.
   - It should not be treated as a required first step for ordinary QA.
+- Retrieval scope is user-bound.
+  - The broker must not return cross-user results, even if an upstream source mislabels or leaks them.
+  - Explicit widening may expand scope, but only within the same resolved user boundary.
 - Depth is a budget envelope, not a fixed recipe.
   - `shallow`, `normal`, and `deep` describe how much evidence the router may
     spend, not a hard-coded execution trace.
