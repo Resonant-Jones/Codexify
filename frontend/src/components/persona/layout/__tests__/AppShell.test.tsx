@@ -439,6 +439,10 @@ describe("AppShell settings utility trigger", () => {
       gridColumn: "1",
       justifySelf: "start",
     });
+    expect(screen.getByTestId("app-shell-top-nav-rail")).toHaveStyle({
+      flex: "0 0 auto",
+      width: "fit-content",
+    });
     expect(screen.getByTestId("app-shell-utility-cluster")).toHaveStyle({
       gridColumn: "3",
       justifySelf: "end",
@@ -449,6 +453,9 @@ describe("AppShell settings utility trigger", () => {
       "w-fit",
       "max-w-full"
     );
+    expect(
+      screen.getByRole("button", { name: "Flow Builder" }).nextElementSibling
+    ).toHaveTextContent(/^persona studio$/i);
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("settings-utility-toggle"));
