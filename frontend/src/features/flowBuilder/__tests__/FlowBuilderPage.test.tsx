@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import FlowBuilderPage from "../FlowBuilderPage";
 
-describe("FlowBuilderPage mode routing", () => {
+describe("FlowBuilderPage layout", () => {
   beforeEach(() => {
     localStorage.clear();
     window.history.pushState({}, "", "/flow-builder");
@@ -14,7 +14,28 @@ describe("FlowBuilderPage mode routing", () => {
     cleanup();
   });
 
-  it("canonicalizes the route and keeps the selected mode in sync with history", async () => {
+  it("renders the three-zone layout and keeps the spec-first copy truthful", async () => {
+    render(<FlowBuilderPage />);
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?mode=process");
+    });
+
+    expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
+      "data-flow-builder-mode",
+      "process"
+    );
+    expect(screen.getByTestId("flow-builder-parameter-rail")).toBeVisible();
+    expect(screen.getByTestId("flow-builder-graph-canvas")).toBeVisible();
+    expect(screen.getByTestId("flow-builder-chat-dock")).toBeVisible();
+    expect(
+      screen.getByText(/authoring, inspection, validation, and draft shaping/i)
+    ).toBeVisible();
+    expect(screen.getByText(/before anything becomes runnable/i)).toBeVisible();
+    expect(screen.getByTestId("flow-builder-route")).toHaveTextContent("/flow-builder?mode=process");
+  });
+
+  it("renders the expected staged parameter list and updates selection", async () => {
     const user = userEvent.setup();
 
     render(<FlowBuilderPage />);
@@ -22,57 +43,70 @@ describe("FlowBuilderPage mode routing", () => {
     await waitFor(() => {
       expect(window.location.search).toBe("?mode=process");
     });
-    expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
-      "data-flow-builder-mode",
-      "process"
-    );
-    expect(
-      screen.getByText(/The job here is to make the plan explicit/i)
-    ).toBeInTheDocument();
 
-    await user.click(screen.getByTestId("flow-builder-mode-expertise"));
+    const parameterRail = screen.getByTestId("flow-builder-parameter-rail");
+    const stages = [
+      "select-source",
+      "define-constraints",
+      "set-outcomes",
+      "add-steps",
+      "insert-conditions",
+      "validation-gates",
+      "review-validate",
+    ];
+
+    stages.forEach((stage) => {
+      expect(within(parameterRail).getByTestId(`flow-builder-stage-${stage}`)).toBeVisible();
+    });
+
+    expect(within(parameterRail).getByTestId("flow-builder-stage-select-source")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    await user.click(within(parameterRail).getByTestId("flow-builder-stage-define-constraints"));
 
     await waitFor(() => {
-      expect(window.location.search).toBe("?mode=expertise");
+      expect(
+        within(parameterRail).getByTestId("flow-builder-stage-define-constraints")
+      ).toHaveAttribute("aria-pressed", "true");
     });
-    expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
-      "data-flow-builder-mode",
-      "expertise"
+    expect(within(parameterRail).getByTestId("flow-builder-stage-select-source")).toHaveAttribute(
+      "aria-pressed",
+      "false"
     );
-
-    await act(async () => {
-      window.history.pushState({}, "", "/flow-builder?mode=process");
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
-        "data-flow-builder-mode",
-        "process"
-      );
-    });
-    expect(window.location.search).toBe("?mode=process");
+    expect(screen.getByTestId("flow-builder-graph-canvas")).toHaveTextContent(
+      /Seeded from Define Constraints/i
+    );
   });
 
-  it("does not force the browser back to Flow Builder after leaving the route", async () => {
+  it("dismisses and reopens the assistant dock without disturbing the builder layout", async () => {
+    const user = userEvent.setup();
+
     render(<FlowBuilderPage />);
 
-    await waitFor(() => {
-      expect(window.location.search).toBe("?mode=process");
-    });
+    const dock = screen.getByTestId("flow-builder-chat-dock");
+    expect(dock).toBeVisible();
+    expect(within(dock).getByText(/Embedded Guardian review space/i)).toBeVisible();
 
-    await act(async () => {
-      window.history.pushState({}, "", "/dashboard");
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    });
+    await user.click(screen.getByTestId("flow-builder-assistant-toggle"));
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/dashboard");
+      expect(screen.getByTestId("flow-builder-chat-dock")).toHaveTextContent(
+        /Assistant dock hidden/i
+      );
     });
-    expect(window.location.search).toBe("");
+
+    await user.click(screen.getByTestId("flow-builder-assistant-toggle"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("flow-builder-chat-dock")).toHaveTextContent(
+        /Embedded Guardian review space/i
+      );
+    });
   });
 
-  it("renders an inspectable non-runtime draft artifact in expertise mode", async () => {
+  it("keeps the expertise lane honest and editable without implying execution support", async () => {
     const user = userEvent.setup();
 
     window.history.pushState({}, "", "/flow-builder?mode=expertise");
@@ -90,7 +124,6 @@ describe("FlowBuilderPage mode routing", () => {
     expect(within(draftArtifact).getByText(/^draft specification artifact$/i)).toBeVisible();
     expect(within(draftArtifact).getByText(/^non-runtime$/i)).toBeVisible();
     expect(within(draftArtifact).getByText(/^draft only$/i)).toBeVisible();
-    expect(within(draftArtifact).getByText(/build from expertise/i)).toBeVisible();
     expect(
       within(draftArtifact).getByText(/without claiming compile or execution support/i)
     ).toBeVisible();
@@ -100,5 +133,26 @@ describe("FlowBuilderPage mode routing", () => {
     await user.type(objective, "Capture the first-pass workflow outcome.");
 
     expect(objective).toHaveValue("Capture the first-pass workflow outcome.");
+  });
+
+  it("canonicalizes the route and keeps the selected mode in sync with history", async () => {
+    render(<FlowBuilderPage />);
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?mode=process");
+    });
+
+    await act(async () => {
+      window.history.pushState({}, "", "/flow-builder?mode=expertise");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
+        "data-flow-builder-mode",
+        "expertise"
+      );
+    });
+    expect(window.location.search).toBe("?mode=expertise");
   });
 });
