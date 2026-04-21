@@ -92,6 +92,8 @@ def test_rag_trace_exposes_payload_summary(monkeypatch):
     chat._thread_latest_task[77] = "task-77"
 
     payload_summary = {"payload_char_count": 10, "message_count": 2}
+    payload_summary["graph_hit_count"] = 0
+    payload_summary["graph_enrichment_status"] = "not_used_yet"
 
     monkeypatch.setattr(
         chat,
@@ -104,6 +106,10 @@ def test_rag_trace_exposes_payload_summary(monkeypatch):
 
     trace = chat.get_latest_rag_trace(77, api_key="test-key")
     assert trace["payload_summary"] == payload_summary
+    assert trace["payload_summary"]["graph_hit_count"] == 0
+    assert trace["payload_summary"]["graph_enrichment_status"] == (
+        "not_used_yet"
+    )
     assert "slash_intent" not in trace["payload_summary"]
     assert "retrieval_override" not in trace["payload_summary"]
 

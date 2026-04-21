@@ -463,6 +463,7 @@ def test_run_chat_completion_task_persists_retrieval_provenance(
     )
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=1,
         provider="local",
         model="mock-model",
@@ -485,6 +486,10 @@ def test_run_chat_completion_task_persists_retrieval_provenance(
     assert provenance["source_hit_counts"]["obsidian_semantic"] == 2
     assert provenance["source_hit_counts"]["thread_semantic"] == 0
     assert result["payload_summary"]["retrieval_provenance"] == provenance
+    assert result["payload_summary"]["graph_hit_count"] == 0
+    assert result["payload_summary"]["graph_enrichment_status"] == (
+        "not_used_yet"
+    )
     assert (
         result["payload_summary"]["requested_source_mode"]
         == "Personal_Knowledge"
