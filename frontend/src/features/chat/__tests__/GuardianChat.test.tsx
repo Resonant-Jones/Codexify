@@ -607,6 +607,58 @@ describe("GuardianChat inference rail", () => {
     });
   });
 
+  it("uses canonical local ownership when creating a chat thread from a display label", async () => {
+    renderChat("draft-thread", {
+      userName: "Resonant Jones",
+    });
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/chat/messages") {
+        expect(body).toEqual(
+          expect.objectContaining({
+            thread_id: null,
+            role: "user",
+            user_id: "local",
+          })
+        );
+        return {
+          data: {
+            thread_id: 123,
+            thread: {
+              id: 123,
+              title: "New Thread",
+            },
+          },
+        };
+      }
+      if (url === "/chat/123/complete") {
+        return { data: { task_id: "task-123" } };
+      }
+      return { data: {} };
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+    await advanceTimers(100);
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/messages",
+        expect.objectContaining({
+          user_id: "local",
+        })
+      );
+    });
+    expect(
+      apiMock.post.mock.calls.some(
+        ([url, body]) =>
+          url === "/chat/messages" &&
+          (body as Record<string, unknown>)?.user_id === "Resonant Jones"
+      )
+    ).toBe(false);
+  });
+
   it("switches profiles through the command bus invoke surface instead of the legacy tools shim", async () => {
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("local_mode");
     renderChat("1");
