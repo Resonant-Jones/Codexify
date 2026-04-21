@@ -67,7 +67,7 @@ rg -n "command_runs|command_run_events" guardian/db/migrations/
 
 ## 3. Frontend Callers of `/api/tools` or `/tools`
 
-**Update 2026-04-18:** The two live frontend callers documented below were migrated to the canonical command-bus invoke surface before the shim was fully removed. They remain here only as historical evidence for the removal sequence.
+**Update 2026-04-21:** The last frontend compatibility adapter that still translated trigger actions through the legacy `/tools` execution shape was removed. The remaining frontend caller documented below now targets the command-bus invoke surface directly, so this inventory reflects a fully migrated frontend dependency picture.
 
 ### 3.1 `frontend/src/features/chat/GuardianChat.tsx` (line 2025)
 
@@ -82,21 +82,13 @@ const response = await api.post("/tools/execute", {
 - **Uses:** The `name`/`args` legacy request shape, not the command-bus `InvokeRequest` shape.
 - **Classification:** `migrated` — this live frontend caller now targets `/api/guardian/commands/invoke` with the command-bus request shape.
 
-### 3.2 `frontend/src/dcw-services/gc.ts` (lines 50-52)
+### 3.2 `frontend/src/dcw-services/gc.ts`
 
-```typescript
-export const Tools = {
-  execute:(b:any)=>req('/tools/execute',{method:'POST',body:JSON.stringify(b)}),
-  job:(id:string)=>req(`/jobs/${id}`)
-};
-```
-
-- **What it does:** Defines a `Tools` namespace wrapping `/tools/execute` and `/jobs/{id}`.
+- **What it does now:** Keeps the generic GC request helpers and unrelated API wrappers, but no longer exports a `Tools` adapter or any legacy job-polling translation layer.
 - **Consumers:**
-  - `frontend/src/hooks/useTriggerAction.ts` (lines 1, 5, 9): `import { Tools } from "@/dcw-services/gc"` — calls `Tools.execute()` and `Tools.job()`.
   - `frontend/src/main.tsx` (line 7): `import { configureGC } from "./dcw-services/gc"` — configures the GC service layer.
-  - `frontend/src/hooks/useSaveRitual.ts` (line 1): imports `Notes, Agent` from gc (not Tools).
-- **Classification:** `migrated` — the wrapper now invokes the command bus and keeps only local polling/cache semantics.
+  - `frontend/src/hooks/useSaveRitual.ts` (line 1): imports `Notes, Agent` from gc.
+- **Classification:** `cleaned` — the trigger-action compatibility seam has been removed from the frontend.
 
 ---
 
@@ -283,10 +275,10 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 - `tests/routes/test_tools_phase3_callable_contract.py:9` (deleted)
 - `tests/routes/test_tools_legacy_shims_phase15.py:8` (deleted)
 
-### Frontend callers (2 active surfaces)
+### Frontend callers (1 active surface, 1 removed adapter)
 - `frontend/src/features/chat/GuardianChat.tsx:2025` — `api.post("/tools/execute", ...)`
-- `frontend/src/dcw-services/gc.ts:51` — `req('/tools/execute', ...)`
-- `frontend/src/hooks/useTriggerAction.ts:5,9` — `Tools.execute()`, `Tools.job()`
+- `frontend/src/dcw-services/gc.ts` — removed `Tools.execute()` / `Tools.job()` adapter
+- `frontend/src/hooks/useTriggerAction.ts` — removed along with the adapter
 
 ### Storage dependencies
 - `guardian/db/models.py` — `ToolJob` model removed in this task

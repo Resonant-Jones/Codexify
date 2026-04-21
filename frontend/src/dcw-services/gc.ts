@@ -1,6 +1,4 @@
-import { invokeCommandBus, type CommandBusInvokeResponse } from "@/lib/api";
-
-// Lightweight client for Guardian Codex API (+ action layer)
+// Lightweight client for Guardian Codex API
 let BASE = import.meta.env.VITE_GC_BASE || 'http://127.0.0.1:8000';
 let TOKEN = '';
 export function configureGC({ base, token }: { base?: string; token?: string }) {
@@ -26,60 +24,6 @@ async function req(p: string, init: RequestInit = {}, attempt = 0): Promise<any>
 // Back-compat: some callers import { request } from this module
 export { req as request };
 
-type LegacyToolJobSnapshot = {
-  state: string;
-  result?: any;
-};
-
-const JOB_CACHE = new Map<string, LegacyToolJobSnapshot>();
-
-function normalizeJobState(status: string | undefined): string {
-  const normalized = String(status ?? "").trim().toLowerCase();
-  if (normalized === "completed") return "completed";
-  if (normalized === "failed") return "failed";
-  if (normalized === "blocked" || normalized === "denied") {
-    return "failed";
-  }
-  if (normalized === "planned" || normalized === "queued") return "running";
-  if (normalized === "running") return "running";
-  return normalized || "failed";
-}
-
-function normalizeJobResult(
-  response: CommandBusInvokeResponse,
-  state: string
-): any {
-  if (state === "completed") {
-    return response.inline_result ?? {};
-  }
-  return response.error ?? response.inline_result ?? {};
-}
-
-async function executeCommandBusTool(
-  commandId: string,
-  args: Record<string, any>
-): Promise<{ jobId: string; state: string; result?: any }> {
-  const response = await invokeCommandBus({
-    invoke_version: "1.0",
-    command_id: commandId,
-    actor: {
-      kind: "human",
-      id: "local",
-    },
-    arguments: {
-      body: args,
-    },
-  });
-
-  const jobId = String(response.run_id ?? "").trim();
-  const state = normalizeJobState(response.status);
-  const result = normalizeJobResult(response, state);
-  if (jobId) {
-    JOB_CACHE.set(jobId, { state, result });
-  }
-  return { jobId, state, result };
-}
-
 export const Threads = {
   list: () => req('/threads'),
   get: (id: string) => req(`/threads/${id}`),
@@ -102,17 +46,4 @@ export const Notes = {
 };
 export const Agent = {
   whoami:()=>req('/whoami'), updateProfile:(b:any)=>req('/profile',{method:'POST',body:JSON.stringify(b)})
-};
-export const Tools = {
-  execute: async (body: { type: string; args: Record<string, any> }) => {
-    const execution = await executeCommandBusTool(body.type, body.args);
-    return { jobId: execution.jobId, state: execution.state, result: execution.result };
-  },
-  job: async (id: string) => {
-    const snapshot = JOB_CACHE.get(id);
-    if (!snapshot) {
-      throw new Error(`job_not_found:${id}`);
-    }
-    return { state: snapshot.state, result: snapshot.result };
-  }
 };
