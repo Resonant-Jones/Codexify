@@ -20,11 +20,13 @@ class TaskEventType(str, Enum):
 
 
 class ToolTurnState(str, Enum):
-    NOT_STARTED = "not_started"
-    RUNNING = "running"
+    IDLE = "idle"
+    DECISION_RECEIVED = "decision_received"
+    COMMAND_DISPATCHED = "command_dispatched"
+    RESULT_REINJECTED = "result_reinjected"
     COMPLETED = "completed"
-    BLOCKED = "blocked"
     FAILED = "failed"
+    LIMIT_REACHED = "limit_reached"
 
 
 class LoopStopReason(str, Enum):
@@ -34,6 +36,16 @@ class LoopStopReason(str, Enum):
     TOOL_TURN_FAILED = "tool_turn_failed"
     TOOL_TURN_MALFORMED = "tool_turn_malformed"
     TOOL_TURN_LIMIT_REACHED = "tool_turn_limit_reached"
+
+
+class ToolLoopStopReason(str, Enum):
+    PLAIN_ANSWER = "plain_answer"
+    TOOL_TURN_COMPLETED = "tool_turn_completed"
+    TOOL_DECISION_INVALID = "tool_decision_invalid"
+    TOOL_COMMAND_FAILED = "tool_command_failed"
+    TOOL_COMMAND_BLOCKED = "tool_command_blocked"
+    TOOL_TURN_LIMIT_REACHED = "tool_turn_limit_reached"
+    CANCELLED = "cancelled"
 
 
 class DelegationJobStatus(str, Enum):
@@ -142,6 +154,9 @@ TOOL_TURN_STATES: frozenset[str] = frozenset(
 LOOP_STOP_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in LoopStopReason}
 )
+TOOL_LOOP_STOP_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in ToolLoopStopReason}
+)
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
 )
@@ -198,6 +213,7 @@ __all__ = [
     "TaskEventType",
     "ToolTurnState",
     "LoopStopReason",
+    "ToolLoopStopReason",
     "DelegationJobStatus",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
@@ -215,6 +231,7 @@ __all__ = [
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",
+    "TOOL_LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",

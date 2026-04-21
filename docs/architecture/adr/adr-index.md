@@ -35,6 +35,9 @@ Use this note as the local map for all ADRs.
 2. [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
 3. [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 4. [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
+5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
+6. [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
+7. [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] — bounded self-extending architecture for generated capabilities, plugin forge flow, and sovereignty boundaries.
 5. [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
 6. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] — retained as the legacy identity-ownership UI boundary note.
 7. [[005-Flow-Builder-Elicitation-Lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
@@ -63,6 +66,7 @@ Primary companion notes:
 * [[flows|Critical Flows]]
 * [[completion_pipeline|Completion Request Pipeline]]
 * [[chat-runtime-contract|Chat Runtime Contract]]
+* [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
 * [[router-decision-table|Retrieval Router Decision Table]]
 * [[architecture-atlas|Architecture Atlas]]
 * [[tech-debt-and-risks|Tech Debt and Risks]]
@@ -142,6 +146,13 @@ Primary companion notes:
   * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 
+* [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] links to:
+
+  * [[system-overview|System Overview]]
+  * [[modules-and-ownership|Modules and Ownership]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[persona-studio|Persona Studio Architecture]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
 ---
 
 ## Maintenance rule

@@ -9,33 +9,52 @@ from guardian.workers import chat_worker
 TURN_ID = "11111111-1111-4111-8111-111111111111"
 
 
+class _FakeRedis:
+    def __init__(self) -> None:
+        self._values: dict[str, bytes] = {}
+
+    def setex(self, name: str, _ttl: int, value: str) -> bool:
+        self._values[name] = str(value).encode("utf-8")
+        return True
+
+    def get(self, name: str) -> bytes | None:
+        return self._values.get(name)
+
+
+def _isolate_turn_anchor(monkeypatch) -> _FakeRedis:
+    fake_redis = _FakeRedis()
+    monkeypatch.setattr(chat_worker, "get_redis_client", lambda: fake_redis)
+    return fake_redis
+
+
 def _build_task(
     *,
-    task_id: str = "task-tool-loop",
+    task_id: str,
     thread_id: int = 7,
 ) -> ChatCompletionTask:
     task = ChatCompletionTask(
         user_id="local",
         task_id=task_id,
         thread_id=thread_id,
-        provider="openai",
-        model="gpt-4o",
+        provider="groq",
+        model="mock-model",
         selection_source="explicit",
         origin=f"api:chat.complete|turn_id={TURN_ID}",
-        request_id="req-tool-loop",
-        latest_turn_message_id=11,
     )
     task.turn_id = TURN_ID
     task.turn_lock_owner = task_id
+    task.latest_turn_message_id = 2
     return task
 
 
-def test_worker_forwards_tool_loop_observability_fields(monkeypatch):
-    task = _build_task()
-
+def _prepare_worker_harness(
+    monkeypatch,
+) -> list[tuple[str, dict[str, Any]]]:
     published: list[tuple[str, dict[str, Any]]] = []
+    _isolate_turn_anchor(monkeypatch)
+
     mock_db = SimpleNamespace(
-        create_message=lambda *_args, **_kwargs: 99,
+        create_message=lambda *_args, **_kwargs: 42,
         write_audit_log=lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
@@ -80,60 +99,183 @@ def test_worker_forwards_tool_loop_observability_fields(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "_embed_message", lambda *_, **__: None)
     monkeypatch.setattr(
-        chat_worker,
-        "run_chat_completion_task",
-        lambda *_args, **_kwargs: {
-            "message_id": 99,
-            "provider": "openai",
-            "model": "gpt-4o",
-            "assistant_text": "final answer",
-            "latest_turn_message_id": 11,
-            "messageId": 11,
-            "requestId": "req-tool-loop",
-            "toolTurnId": "tool-turn-1",
-            "toolTurnState": "completed",
-            "loopStopReason": "tool_turn_completed",
-            "commandRunId": "run-123",
-            "tool_loop": {
-                "messageId": 11,
-                "requestId": "req-tool-loop",
-                "toolTurnId": "tool-turn-1",
-                "toolTurnState": "completed",
-                "loopStopReason": "tool_turn_completed",
-                "commandRunId": "run-123",
-            },
-            "payload_summary": {
-                "message_id": 11,
-                "request_id": "req-tool-loop",
-                "tool_turn_id": "tool-turn-1",
-                "tool_turn_state": "completed",
-                "loop_stop_reason": "tool_turn_completed",
-                "command_run_id": "run-123",
-                "tool_loop": {
-                    "messageId": 11,
-                    "requestId": "req-tool-loop",
-                    "toolTurnId": "tool-turn-1",
-                    "toolTurnState": "completed",
-                    "loopStopReason": "tool_turn_completed",
-                    "commandRunId": "run-123",
-                },
-            },
-            "retrieval_provenance": {},
-            "trace": {},
+        chat_worker._chat_completion_service,
+        "build_sanitized_payload_summary",
+        lambda messages, bundle, provider, model, **_kwargs: {
+            "message_count": len(messages),
+            "resolved_provider": provider,
+            "resolved_model": model,
         },
     )
+    monkeypatch.setattr(chat_worker, "get_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "get_settings",
+        chat_worker.get_settings,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "validate_llm_config",
+        chat_worker.validate_llm_config,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "ContextBroker",
+        chat_worker.ContextBroker,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: chat_worker.chat_with_ai(*args, **kwargs),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *args, **kwargs: chat_worker.stream_local(*args, **kwargs),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "build_guardian_system_prompt",
+        chat_worker.build_guardian_system_prompt,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "build_context_system_message_with_meta",
+        chat_worker._build_context_system_message_with_meta_compat,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_provider_truth",
+        lambda provider, settings, **kwargs: {"provider": provider, **kwargs},
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_fallback_provider_candidates",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "_command_bus_app",
+        lambda: SimpleNamespace(name="command-bus-app"),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "stream_local",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("stream_local should not be used")
+        ),
+    )
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "What changed?"}],
+            "groq",
+            "mock-model",
+            {"_prompt_meta": {}},
+            {"source_mode": "project", "effective_policy": None},
+        )
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    return published
+
+
+def test_worker_surfaces_tool_loop_metadata_on_completion(
+    monkeypatch,
+):
+    published = _prepare_worker_harness(monkeypatch)
+    task = _build_task(task_id="task-worker-tool-success")
+
+    command_calls: list[dict[str, Any]] = []
+
+    def _execute_invoke(*, payload, **_kwargs):
+        command_calls.append({"payload": payload})
+        return {
+            "run_id": "run-worker-123",
+            "status": "completed",
+            "invoke_version": "1.0",
+            "manifest_version": "1.0",
+            "events_url": "/api/guardian/commands/runs/run-worker-123/events?after_seq=0",
+            "inline_result": {"summary": "command result"},
+        }
+
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "execute_invoke",
+        _execute_invoke,
+    )
+
+    chat_calls: list[list[dict[str, Any]]] = []
+
+    def _chat_with_ai(messages, **_kwargs):
+        snapshot = [dict(message) for message in messages]
+        chat_calls.append(snapshot)
+        if len(chat_calls) == 1:
+            return (
+                '{"type":"tool_decision","command_id":"op::echo","arguments":'
+                '{"body":{"value":"alpha"}}}'
+            )
+        return "final answer"
+
+    monkeypatch.setattr(chat_worker, "chat_with_ai", _chat_with_ai)
 
     chat_worker._run_chat_task(task)
+
+    assert len(command_calls) == 1
+    assert len(chat_calls) == 2
+    assert command_calls[0]["payload"].command_id == "op::echo"
 
     completed_payload = next(
         payload
         for event_type, payload in published
         if event_type == "task.completed"
     )
-    assert completed_payload["messageId"] == 11
-    assert completed_payload["requestId"] == "req-tool-loop"
-    assert completed_payload["toolTurnId"] == "tool-turn-1"
+    assert completed_payload["messageId"] == 2
+    assert completed_payload["requestId"] == task.task_id
+    assert completed_payload["toolTurnId"] is not None
     assert completed_payload["toolTurnState"] == "completed"
     assert completed_payload["loopStopReason"] == "tool_turn_completed"
-    assert completed_payload["commandRunId"] == "run-123"
-    assert completed_payload["tool_loop"]["toolTurnId"] == "tool-turn-1"
+    assert completed_payload["commandRunId"] == "run-worker-123"
+    assert completed_payload["message_id"] == 42
+
+
+def test_worker_surfaces_bounded_failure_metadata_on_tool_execution_error(
+    monkeypatch,
+):
+    published = _prepare_worker_harness(monkeypatch)
+    task = _build_task(task_id="task-worker-tool-failure")
+
+    command_calls: list[dict[str, Any]] = []
+
+    def _execute_invoke(*args, **kwargs):
+        command_calls.append({"args": args, "kwargs": kwargs})
+        raise RuntimeError("command bus unavailable")
+
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "execute_invoke",
+        _execute_invoke,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: (
+            '{"type":"tool_decision","command_id":"op::echo","arguments":'
+            '{"body":{"value":"alpha"}}}'
+        ),
+    )
+
+    chat_worker._run_chat_task(task)
+
+    assert len(command_calls) == 1
+    assert any(
+        event_type == "task.failed" for event_type, _payload in published
+    )
+    failure_payload = next(
+        payload
+        for event_type, payload in published
+        if event_type == "task.failed"
+    )
+    assert failure_payload["toolTurnId"] is not None
+    assert failure_payload["toolTurnState"] == "failed"
+    assert failure_payload["loopStopReason"] == "tool_command_failed"
+    assert failure_payload.get("commandRunId") is None
