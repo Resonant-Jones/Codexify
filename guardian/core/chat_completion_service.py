@@ -1597,6 +1597,12 @@ def build_sanitized_payload_summary(
         "linked_document_injected": linked_document_injected,
         "obsidian_injected": obsidian_injected,
     }
+    summary["graph_hit_count"] = summary["graph_count"]
+    summary["graph_enrichment_status"] = (
+        "not_used_yet"
+        if summary["graph_hit_count"] == 0
+        else "graph_hits_present"
+    )
 
     summary["retrieval_injected"] = any(
         summary[key]
@@ -2445,6 +2451,16 @@ def _execute_bounded_tool_turn_completion(
                 model=final_model,
             )
         )
+        for key in (
+            "source_mode",
+            "effective_source_mode",
+            "normalized_source_mode",
+            "requested_source_mode",
+            "effective_policy",
+            "retrieval_provenance",
+        ):
+            if key in base_payload_summary:
+                payload_summary[key] = base_payload_summary[key]
         payload_summary.update(
             {
                 "messageId": latest_turn_message_id,
