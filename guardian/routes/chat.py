@@ -156,7 +156,7 @@ def _resolve_thread_owner_hint(
                 detail="Requested user_id does not match the authenticated account",
             )
         return account_id
-    return requested_user_id or account_id
+    return account_id
 
 
 def _scope_query_user_id(
@@ -3156,10 +3156,8 @@ def branch_thread(
         project_id = _coerce_project_id(parent.get("project_id"))
 
     child = chatlog_db.create_chat_thread(
-        user_id=(
-            _request_account_id(request_user_scope)
-            if request_user_scope.multi_user_enabled
-            else parent.get("user_id", "default")
+        user_id=_resolve_thread_owner_hint(
+            parent.get("user_id"), request_user_scope
         ),
         title=title,
         summary=summary,

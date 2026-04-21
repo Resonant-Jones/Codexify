@@ -13,12 +13,12 @@ def _patch_chat_db(monkeypatch, db: MagicMock) -> None:
     monkeypatch.setattr(chat_routes, "chatlog_db", db)
 
 
-def test_single_user_create_thread_keeps_legacy_owner_hint(monkeypatch):
+def test_single_user_create_thread_normalizes_to_canonical_owner(monkeypatch):
     db = MagicMock()
     db.get_recent_thread.return_value = None
     db.create_chat_thread.return_value = {
         "id": 11,
-        "user_id": "legacy-user",
+        "user_id": "local",
         "title": "Legacy",
         "summary": "",
         "project_id": 7,
@@ -27,9 +27,10 @@ def test_single_user_create_thread_keeps_legacy_owner_hint(monkeypatch):
     db.ensure_default_project.return_value = 7
 
     _patch_chat_db(monkeypatch, db)
+    monkeypatch.setattr(chat_routes, "get_single_user_id", lambda: "local")
 
     result = chat_routes.chat_create_thread(
-        {"title": "Legacy", "user_id": "legacy-user"},
+        {"title": "Legacy", "user_id": "Resonant Jones"},
         api_key="test-api-key",
         request_user_scope=RequestUserScope(
             user_id="local",
@@ -39,8 +40,9 @@ def test_single_user_create_thread_keeps_legacy_owner_hint(monkeypatch):
     )
 
     assert result["ok"] is True
-    assert result["thread"]["user_id"] == "legacy-user"
-    assert db.create_chat_thread.call_args.kwargs["user_id"] == "legacy-user"
+    assert result["thread"]["user_id"] == "local"
+    assert db.get_recent_thread.call_args.args[0] == "local"
+    assert db.create_chat_thread.call_args.kwargs["user_id"] == "local"
 
 
 def test_multi_user_create_thread_rejects_conflicting_user_id(monkeypatch):
