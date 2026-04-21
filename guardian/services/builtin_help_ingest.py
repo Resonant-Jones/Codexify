@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from guardian.core.default_project import DEFAULT_PROJECT_NAME
+from guardian.core.dependencies import get_single_user_id
 from guardian.db import models
 from guardian.protocol_tokens import EmbeddingLifecycleStatus
 
@@ -215,7 +216,7 @@ def ingest_builtin_help_document(
                 id=BUILTIN_HELP_DOCUMENT_ID,
                 project_id=project_id,
                 thread_id=None,
-                user_id=None,
+                user_id=str(get_single_user_id() or "local"),
                 filename=BUILTIN_HELP_FILENAME,
                 filesize=source_bytes,
                 mime_type=BUILTIN_HELP_MIME_TYPE,

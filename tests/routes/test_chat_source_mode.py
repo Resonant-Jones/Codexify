@@ -12,6 +12,7 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_PROJECT,
 )
 from guardian.tasks.types import task_from_dict
+from tests.utils import get_test_user_id
 
 
 @pytest.mark.parametrize(
@@ -28,9 +29,10 @@ from guardian.tasks.types import task_from_dict
 def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     test_client, mock_db, monkeypatch, raw_source_mode, expected_source_mode
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
     }
@@ -59,6 +61,10 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     if raw_source_mode is not None:
         payload["source_mode"] = raw_source_mode
 
+    expected_requested_source_mode = (
+        "project" if raw_source_mode is None else raw_source_mode
+    )
+
     response = test_client.post("/chat/1/complete", json=payload)
 
     assert response.status_code == 200
@@ -69,7 +75,15 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     assert f"|source_mode={expected_source_mode}" in getattr(task, "origin")
     assert "|slash_intent=" not in getattr(task, "origin")
     assert "|retrieval_override=" not in getattr(task, "origin")
+    assert (
+        getattr(task, "requested_source_mode") == expected_requested_source_mode
+    )
     assert getattr(task, "retrieval_override", None) is None
+    round_tripped = task_from_dict(task.to_dict())
+    assert (
+        getattr(round_tripped, "requested_source_mode")
+        == expected_requested_source_mode
+    )
     assert captured["queue_name"] == "codexify:queue:chat"
 
 
@@ -99,9 +113,10 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
 def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
     test_client, mock_db, monkeypatch, slash_intent, expected_retrieval_override
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
     }
@@ -142,11 +157,15 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
     assert "|source_mode=personal_knowledge" in origin
     assert "|slash_intent=" in origin
     assert "|retrieval_override=" in origin
+    assert getattr(task, "requested_source_mode") == "personal_knowledge"
     assert getattr(task, "retrieval_override") == expected_retrieval_override
     round_tripped = task_from_dict(task.to_dict())
     assert (
         getattr(round_tripped, "retrieval_override")
         == expected_retrieval_override
+    )
+    assert (
+        getattr(round_tripped, "requested_source_mode") == "personal_knowledge"
     )
 
     slash_intent_raw = origin.split("|slash_intent=", 1)[1]
@@ -186,9 +205,10 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
 def test_chat_complete_rejects_invalid_slash_intent_values(
     test_client, mock_db, invalid_slash_intent
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "archived_at": None,
     }
@@ -251,11 +271,13 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
 async def test_context_broker_merges_retrieval_override_without_skipping_thread_first(
     monkeypatch, retrieval_override, expected_policy, expected_widening_enabled
 ):
+    expected_user_id = get_test_user_id()
+
     class _Chatlog:
         def get_chat_thread(self, thread_id):
             return {
                 "id": thread_id,
-                "user_id": "test_user",
+                "user_id": expected_user_id,
                 "project_id": 7,
                 "archived_at": None,
             }
@@ -296,7 +318,14 @@ async def test_context_broker_merges_retrieval_override_without_skipping_thread_
             }
         )
         return (
-            [{"id": "doc-1", "score": 0.9, "text": "thread hit"}],
+            [
+                {
+                    "id": "doc-1",
+                    "score": 0.9,
+                    "text": "thread hit",
+                    "metadata": {"user_id": "test_user"},
+                }
+            ],
             "none",
             {
                 "attempted": True,

@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.utils import get_test_user_id
+
 # Set environment variables early to avoid /app/media creation and startup issues
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("ENABLE_BLIP_MODEL", "false")
@@ -24,11 +26,12 @@ os.environ.setdefault("ENABLE_CONNECTOR_WORKER", "0")
 def mock_db():
     """Mock database connection/session for testing."""
     mock = MagicMock()
+    expected_user_id = get_test_user_id()
 
     # Mock common database methods
     mock.create_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "title": "Test Thread",
         "summary": "Test summary",
         "project_id": 1,
@@ -43,7 +46,7 @@ def mock_db():
     mock.list_chat_threads.return_value = [
         {
             "id": 1,
-            "user_id": "test_user",
+            "user_id": expected_user_id,
             "title": "Test Thread",
             "summary": "Test summary",
             "project_id": 1,
@@ -58,7 +61,7 @@ def mock_db():
 
     mock.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "title": "Test Thread",
         "summary": "Test summary",
         "project_id": 1,
@@ -85,7 +88,7 @@ def mock_db():
     mock.delete_message.return_value = True
     mock.update_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "title": "Updated Thread",
         "summary": "Updated summary",
         "project_id": 1,
@@ -99,7 +102,7 @@ def mock_db():
     mock.delete_thread.return_value = True
     mock.archive_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "title": "Test Thread",
         "summary": "Test summary",
         "project_id": 1,
@@ -120,7 +123,7 @@ def mock_db():
     mock.get_recent_thread.return_value = None
     mock.ensure_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "title": "Test Thread",
         "summary": "",
         "project_id": 1,
@@ -138,12 +141,12 @@ def mock_db():
         "thread_id": 1,
         "from_project_id": 1,
         "to_project_id": 2,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "timestamp": "2025-11-09T12:00:00",
     }
     mock.list_projects.return_value = [
-        {"id": 1, "name": "Imports"},
-        {"id": 2, "name": "General"},
+        {"id": 1, "name": "Imports", "user_id": expected_user_id},
+        {"id": 2, "name": "General", "user_id": expected_user_id},
     ]
 
     # Memory-related mocks
@@ -174,7 +177,7 @@ def mock_require_api_key(mock_auth):
 
 @pytest.fixture
 def mock_request_user_id():
-    return "test_user"
+    return get_test_user_id()
 
 
 @pytest.fixture
@@ -182,7 +185,7 @@ def sample_thread_data() -> dict[str, Any]:
     """Sample thread payload for testing."""
     return {
         "title": "Test Thread",
-        "user_id": "test_user",
+        "user_id": get_test_user_id(),
         "summary": "This is a test thread",
         "project_id": 1,
     }
@@ -237,7 +240,7 @@ def test_client(mock_db, mock_auth, monkeypatch, tmp_path):
 
                                 app.dependency_overrides[
                                     get_request_user_id
-                                ] = lambda: "test_user"
+                                ] = get_test_user_id
 
                                 client = TestClient(app)
                                 yield client

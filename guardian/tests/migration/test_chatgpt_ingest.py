@@ -396,6 +396,7 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     chatlog.create_message(thread_id, "user", recall_prompt)
 
     task = ChatCompletionTask(
+        user_id="local",
         thread_id=thread_id,
         provider="local",
         model="test-local-model",

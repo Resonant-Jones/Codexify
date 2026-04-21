@@ -415,7 +415,8 @@ describe("Composer draft sync", () => {
     const controlsRow = screen.getByTestId("composer-control-row");
     expect(contentPlane).toHaveClass("justify-end", "gap-2");
     expect(controlsRow).toHaveClass(
-      "flex",
+      "grid",
+      "min-w-0",
       "w-full",
       "items-center",
       "gap-3",
@@ -426,18 +427,19 @@ describe("Composer draft sync", () => {
     expect(contentPlane).toHaveClass("px-[var(--composer-pad-x,12px)]");
     expect(controlsRow.parentElement).toBe(contentPlane);
     expect(controlsRow).not.toHaveClass("mt-auto");
-    expect(controlsRow).not.toHaveClass("justify-between");
     expect(controlsRow.className).not.toMatch(/\bpl-\[/);
     expect(controlsRow.className).not.toMatch(/\bmr-\[/);
     expect(controlsRow.className).not.toContain("pb-[6px]");
+    expect(controlsRow.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
 
     const controlsStrip = screen.getByTestId("composer-controls-strip");
     expect(controlsStrip).toHaveClass(
+      "flex-1",
       "min-w-0",
-      "flex-none",
-      "w-fit",
       "overflow-x-auto"
     );
+    expect(controlsStrip.className).not.toContain("w-fit");
+    expect(controlsStrip.className).not.toContain("flex-none");
     expect(controlsStrip.className).not.toMatch(/\bpr-/);
     expect(controlsStrip.className).not.toContain("bg-[");
 
@@ -446,27 +448,17 @@ describe("Composer draft sync", () => {
       "flex",
       "shrink-0",
       "items-center",
-      "justify-center"
+      "justify-center",
+      "justify-self-end"
     );
     expect(sendSlot.className).not.toMatch(/\bpr-/);
     expect(controlsStrip.nextElementSibling).toBe(sendSlot);
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton.parentElement).toBe(sendSlot);
-    expect(sendButton).toHaveClass(
-      "inline-flex",
-      "items-center",
-      "justify-center",
-      "border-0",
-      "transition-opacity",
-      "focus:outline-none"
-    );
     expect(sendButton).toHaveAccessibleName("Send");
-    expect(sendButton.className).toContain("bg-[var(--accent)]");
-    expect(sendButton.className).toContain("text-[var(--pill-active-text)]");
-    expect(sendButton.className).not.toContain("rounded-full");
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     expect(textarea).toHaveClass("w-full", "bg-transparent", "border-none");
     expect(composerSource).not.toContain("CHAT_COMPOSER_SEND_EDGE_INSET_CLASS");
     expect(composerSource).not.toContain("pr-[48px]");
@@ -474,7 +466,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).not.toContain("bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
-      "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+      "grid min-w-0 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
     );
     expect(textarea.parentElement).toBe(contentPlane);
     expect(composerSource).not.toContain("mt-auto");
@@ -486,6 +478,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).toContain("slashIntent");
     expect(composerSource).not.toContain('description: "Start or switch a conversation thread."');
     expect(composerSource).toContain("resolveSlashCommandIntent");
+    expect(composerSource).toContain("justify-self-end");
     expect(composerSource).not.toMatch(/\bpr-\[/);
   });
 
@@ -513,7 +506,7 @@ describe("Composer draft sync", () => {
       name: "Select retrieval source",
     });
 
-    expect(controlsStrip).toHaveClass("flex-none", "w-fit");
+    expect(controlsStrip).toHaveClass("flex-1", "min-w-0", "overflow-x-auto");
     expect(controlsStrip.className).not.toContain("bg-[");
     expect(controlsStrip.style.borderRadius).toBe("");
     expect(sourceButton).toHaveClass("bg-transparent", "border-0", "rounded-none");

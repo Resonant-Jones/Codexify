@@ -6,7 +6,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, TypedDict
 
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
@@ -21,6 +21,9 @@ def _utc_now_iso() -> str:
 def _base_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
     base: dict[str, Any] = {
         "task_id": str(payload.get("task_id") or uuid.uuid4()),
+        "request_id": str(
+            payload.get("request_id") or payload.get("requestId") or ""
+        ),
         "created_at": str(payload.get("created_at") or _utc_now_iso()),
         "origin": str(payload.get("origin") or "unknown"),
     }
@@ -117,6 +120,14 @@ def _normalize_executor_id(raw: Any) -> str:
         if value is not None
         else ""
     )
+
+
+class CandidateTraceIngestTask(TypedDict):
+    request_id: str
+    thread_id: int
+    candidate_trace_id: str
+    created_at: str
+    payload: dict[str, Any]
 
 
 @dataclass
@@ -416,9 +427,13 @@ class DelegationSummary:
 @dataclass
 class BaseTask:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    request_id: str = ""
     type: str = "base"
     created_at: str = field(default_factory=_utc_now_iso)
     origin: str = "unknown"
+
+    def __post_init__(self) -> None:
+        self.request_id = _coerce_optional_text(self.request_id) or ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -444,9 +459,10 @@ class WarmupTask(BaseTask):
         return cls(models=list(models), **base)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ChatCompletionTask(BaseTask):
     type: str = "chat_completion"
+    user_id: str
     thread_id: int = 0
     latest_turn_message_id: int | None = None
     model: str | None = None
@@ -459,6 +475,7 @@ class ChatCompletionTask(BaseTask):
     reasoning_mode: str | None = None
     max_context: int | None = 50
     depth_mode: str | None = "normal"
+    requested_source_mode: str | None = None
     system_override: str | None = None
     retrieval_override: dict[str, Any] | None = None
     preferred_name: str | None = None
@@ -469,6 +486,11 @@ class ChatCompletionTask(BaseTask):
     def from_dict(cls, payload: dict[str, Any]) -> ChatCompletionTask:
         base = _base_kwargs(payload or {})
         base.setdefault("type", cls.type)
+        user_id = _coerce_optional_text(
+            payload.get("user_id") or payload.get("userId")
+        )
+        if not user_id:
+            raise ValueError("ChatCompletionTask missing user_id")
         raw_temperature = payload.get("temperature")
         temperature: float | None
         if raw_temperature is None:
@@ -479,6 +501,7 @@ class ChatCompletionTask(BaseTask):
             except (TypeError, ValueError):
                 temperature = None
         return cls(
+            user_id=user_id,
             thread_id=int(payload.get("thread_id") or 0),
             latest_turn_message_id=_coerce_optional_positive_int(
                 payload.get("latest_turn_message_id")
@@ -493,6 +516,11 @@ class ChatCompletionTask(BaseTask):
             reasoning_mode=payload.get("reasoning_mode"),
             max_context=payload.get("max_context"),
             depth_mode=payload.get("depth_mode"),
+            requested_source_mode=(
+                None
+                if payload.get("requested_source_mode") is None
+                else str(payload.get("requested_source_mode"))
+            ),
             system_override=payload.get("system_override"),
             retrieval_override=_coerce_mapping(
                 payload.get("retrieval_override")
