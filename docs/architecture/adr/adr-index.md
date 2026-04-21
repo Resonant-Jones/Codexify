@@ -44,6 +44,7 @@ Use this note as the local map for all ADRs.
 8. [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] — derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 9. [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] — backend-only candidate-output diagnostic surface, TTL-bound and excluded from export.
 10. [[009-Candidate-Trace-Ingest-Worker|ADR-009 Candidate Trace Ingest Worker Scaffold]] — asynchronous candidate-trace ingestion seam, log-only and non-blocking.
+11. [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|ADR-011 Graph Write Task Seam and Worker Scaffold]] — queue-backed graph-write handoff and inspection-only worker scaffold for derived graph candidates.
 
 ---
 
@@ -143,6 +144,15 @@ Primary companion notes:
   * [[chat-runtime-contract|Chat Runtime Contract]]
   * [[candidate-trace-surface|Candidate Trace Surface]]
   * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|ADR-011 Graph Write Task Seam and Worker Scaffold]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
   * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 

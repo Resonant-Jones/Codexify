@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import asdict
 from typing import Any
 
 from guardian.core.candidate_normalizer import normalize_candidate_trace
@@ -18,9 +19,11 @@ from guardian.memory_graph.graph_candidate_mapper import (
 )
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
+    GRAPH_WRITE_QUEUE,
+    enqueue,
     get_redis_connection,
 )
-from guardian.tasks.types import CandidateTraceIngestTask
+from guardian.tasks.types import CandidateTraceIngestTask, GraphWriteTask
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,11 @@ NORMALIZATION_SUMMARY_LOG = "candidate_ingest_worker_normalized"
 NORMALIZATION_WARNING_LOG = "candidate_ingest_worker_normalization_warnings"
 GRAPH_CANDIDATE_SUMMARY_LOG = "candidate_ingest_worker_graph_candidates"
 GRAPH_CANDIDATE_WARNING_LOG = "candidate_ingest_worker_graph_candidate_warnings"
+GRAPH_WRITE_ENQUEUE_LOG = "candidate_ingest_worker_graph_write_enqueued"
+GRAPH_WRITE_ENQUEUE_FAILED_LOG = (
+    "candidate_ingest_worker_graph_write_enqueue_failed"
+)
+GRAPH_WRITE_SKIP_EMPTY_LOG = "candidate_ingest_worker_graph_write_skipped"
 
 
 def _normalize_candidate_ingest_task(
@@ -60,6 +68,37 @@ def _normalize_candidate_ingest_task(
         "candidate_trace_id": candidate_trace_id,
         "created_at": created_at,
         "payload": dict(payload),
+    }
+
+
+def _build_graph_write_task(
+    *,
+    normalized_task: CandidateTraceIngestTask,
+    graph_candidates: Any,
+) -> GraphWriteTask | None:
+    nodes = [asdict(node) for node in graph_candidates.nodes]
+    edges = [asdict(edge) for edge in graph_candidates.edges]
+    warnings = list(graph_candidates.warnings)
+    if not nodes and not edges:
+        logger.info(
+            f"[candidate-ingest] {GRAPH_WRITE_SKIP_EMPTY_LOG}",
+            extra={
+                "request_id": normalized_task["request_id"],
+                "thread_id": normalized_task["thread_id"],
+                "candidate_trace_id": normalized_task["candidate_trace_id"],
+                "warning_count": len(warnings),
+            },
+        )
+        return None
+
+    return {
+        "request_id": normalized_task["request_id"],
+        "thread_id": normalized_task["thread_id"],
+        "candidate_trace_id": normalized_task["candidate_trace_id"],
+        "created_at": normalized_task["created_at"],
+        "nodes": nodes,
+        "edges": edges,
+        "warnings": warnings,
     }
 
 
@@ -157,6 +196,38 @@ def process_candidate_ingest_task(raw: Any) -> bool:
             },
         )
 
+    graph_write_task = _build_graph_write_task(
+        normalized_task=normalized_task,
+        graph_candidates=graph_candidates,
+    )
+    if graph_write_task is None:
+        return True
+
+    try:
+        enqueue(graph_write_task, GRAPH_WRITE_QUEUE)
+    except Exception:
+        logger.exception(
+            f"[candidate-ingest] {GRAPH_WRITE_ENQUEUE_FAILED_LOG}",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+            },
+        )
+        return True
+
+    logger.info(
+        f"[candidate-ingest] {GRAPH_WRITE_ENQUEUE_LOG}",
+        extra={
+            "request_id": request_id,
+            "thread_id": thread_id,
+            "candidate_trace_id": candidate_trace_id,
+            "node_count": len(graph_candidates.nodes),
+            "edge_count": len(graph_candidates.edges),
+            "warning_count": len(graph_candidates.warnings),
+        },
+    )
+
     return True
 
 
@@ -193,6 +264,9 @@ __all__ = [
     "NORMALIZATION_WARNING_LOG",
     "GRAPH_CANDIDATE_SUMMARY_LOG",
     "GRAPH_CANDIDATE_WARNING_LOG",
+    "GRAPH_WRITE_ENQUEUE_LOG",
+    "GRAPH_WRITE_ENQUEUE_FAILED_LOG",
+    "GRAPH_WRITE_SKIP_EMPTY_LOG",
     "process_candidate_ingest_task",
     "run_candidate_ingest_worker",
 ]
