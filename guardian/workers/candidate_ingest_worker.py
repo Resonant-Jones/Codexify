@@ -13,6 +13,9 @@ import time
 from typing import Any
 
 from guardian.core.candidate_normalizer import normalize_candidate_trace
+from guardian.memory_graph.graph_candidate_mapper import (
+    map_to_graph_write_candidates,
+)
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
     get_redis_connection,
@@ -20,6 +23,11 @@ from guardian.queue.redis_queue import (
 from guardian.tasks.types import CandidateTraceIngestTask
 
 logger = logging.getLogger(__name__)
+
+NORMALIZATION_SUMMARY_LOG = "candidate_ingest_worker_normalized"
+NORMALIZATION_WARNING_LOG = "candidate_ingest_worker_normalization_warnings"
+GRAPH_CANDIDATE_SUMMARY_LOG = "candidate_ingest_worker_graph_candidates"
+GRAPH_CANDIDATE_WARNING_LOG = "candidate_ingest_worker_graph_candidate_warnings"
 
 
 def _normalize_candidate_ingest_task(
@@ -85,7 +93,7 @@ def process_candidate_ingest_task(raw: Any) -> bool:
     entity_types = sorted({entity.type for entity in normalized.entities})
 
     logger.info(
-        "[candidate-ingest] candidate_ingest_worker_normalized",
+        f"[candidate-ingest] {NORMALIZATION_SUMMARY_LOG}",
         extra={
             "request_id": request_id,
             "thread_id": thread_id,
@@ -98,12 +106,54 @@ def process_candidate_ingest_task(raw: Any) -> bool:
 
     if normalized.warnings:
         logger.warning(
-            "[candidate-ingest] candidate_ingest_worker_normalization_warnings",
+            f"[candidate-ingest] {NORMALIZATION_WARNING_LOG}",
             extra={
                 "request_id": request_id,
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
                 "warnings": list(normalized.warnings),
+            },
+        )
+
+    try:
+        graph_candidates = map_to_graph_write_candidates(normalized)
+    except Exception:
+        logger.exception(
+            (
+                "[candidate-ingest] graph candidate mapping failed "
+                "request_id=%s thread_id=%s candidate_trace_id=%s"
+            ),
+            request_id,
+            thread_id,
+            candidate_trace_id,
+        )
+        return False
+
+    node_types = sorted({node.node_type for node in graph_candidates.nodes})
+    edge_types = sorted({edge.edge_type for edge in graph_candidates.edges})
+
+    logger.info(
+        f"[candidate-ingest] {GRAPH_CANDIDATE_SUMMARY_LOG}",
+        extra={
+            "request_id": request_id,
+            "thread_id": thread_id,
+            "candidate_trace_id": candidate_trace_id,
+            "node_count": len(graph_candidates.nodes),
+            "edge_count": len(graph_candidates.edges),
+            "warning_count": len(graph_candidates.warnings),
+            "node_types": node_types,
+            "edge_types": edge_types,
+        },
+    )
+
+    if graph_candidates.warnings:
+        logger.warning(
+            f"[candidate-ingest] {GRAPH_CANDIDATE_WARNING_LOG}",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+                "warnings": list(graph_candidates.warnings),
             },
         )
 
@@ -138,4 +188,11 @@ if __name__ == "__main__":
     run_candidate_ingest_worker()
 
 
-__all__ = ["process_candidate_ingest_task", "run_candidate_ingest_worker"]
+__all__ = [
+    "NORMALIZATION_SUMMARY_LOG",
+    "NORMALIZATION_WARNING_LOG",
+    "GRAPH_CANDIDATE_SUMMARY_LOG",
+    "GRAPH_CANDIDATE_WARNING_LOG",
+    "process_candidate_ingest_task",
+    "run_candidate_ingest_worker",
+]

@@ -56,6 +56,26 @@ This mapping remains:
 The mapper produces derived graph candidates for future graph/entity work, but
 it does not create canonical records or semantic truth.
 
+## Worker Inspection Summary
+
+The ingest worker now performs two pure derived steps in sequence:
+
+1. normalization
+2. graph-candidate mapping
+
+Both steps remain deterministic and non-persistent. The graph-candidate output
+is only summarized inside the worker for inspection and diagnostics.
+
+Graph candidates remain transient derived artifacts and are not:
+
+- exported
+- restored
+- persisted as canonical records
+- used by retrieval
+- written to Neo4j in this phase
+
+Future graph persistence remains explicitly deferred.
+
 ## Non-Canonical Constraint
 
 The ingest task is derived runtime data.
