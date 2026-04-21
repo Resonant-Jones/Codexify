@@ -267,7 +267,7 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
 
   return (
     <Card
-      className="bezel-none flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border lg:h-full"
+      className="bezel-none flex min-h-0 flex-1 flex-col overflow-y-auto rounded-2xl border lg:h-full"
       role="region"
       aria-label="Persona Studio ephemeral chat harness"
       data-testid="persona-studio-ephemeral-chat-harness"
@@ -1408,7 +1408,7 @@ export default function PersonaStudioPage() {
           }}
         >
           <div className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:grid-cols-[minmax(0,1.12fr)_minmax(420px,0.98fr)] lg:items-stretch" data-testid="persona-studio-editor-two-lane-layout">
-            <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] lg:overflow-y-auto lg:pr-1" data-testid="persona-studio-configuration-lane">
+            <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-y-auto pr-1" data-testid="persona-studio-configuration-lane">
               <div className="space-y-4" data-testid="persona-studio-shell-header">
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
