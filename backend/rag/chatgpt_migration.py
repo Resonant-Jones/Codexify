@@ -18,6 +18,7 @@ from .personal_fact_extraction import (
 logger = logging.getLogger(__name__)
 
 _CHATGPT_IMPORT_PROFILE = "chatgpt_v1_canonical"
+_CLAUDE_IMPORT_PROFILE = "claude_v1_canonical"
 _FILTERED_CONTENT_TYPES = {
     "model_editable_context",
     "thoughts",
@@ -97,6 +98,479 @@ def _detect_non_json_hint(content: bytes) -> Optional[str]:
             "This importer only supports ChatGPT JSON exports."
         )
     return None
+
+
+def _stable_text_hash(value: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _coerce_datetime_string(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc)
+    if isinstance(value, (int, float)):
+        return _parse_export_timestamp(value)
+    if not isinstance(value, str):
+        return None
+
+    candidate = value.strip()
+    if not candidate:
+        return None
+
+    normalized = candidate.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _coerce_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _extract_claude_text_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        rendered: List[str] = []
+        for part in content:
+            if isinstance(part, str):
+                if part.strip():
+                    rendered.append(part.strip())
+                continue
+            if not isinstance(part, dict):
+                continue
+
+            part_type = _coerce_string(
+                part.get("type") or part.get("content_type")
+            ).lower()
+            if part_type in {"text", "markdown"}:
+                text = part.get("text")
+                if isinstance(text, str) and text.strip():
+                    rendered.append(text.strip())
+                continue
+            if part_type in {
+                "tool_result",
+                "tool_use",
+                "tool",
+                "server_tool_use",
+                "web_search_tool_result",
+            }:
+                tool_name = _coerce_string(
+                    part.get("name") or part.get("tool_name") or "tool"
+                )
+                text = (
+                    part.get("text")
+                    or part.get("content")
+                    or part.get("result")
+                )
+                if isinstance(text, str) and text.strip():
+                    rendered.append(f"[{tool_name}]\n{text.strip()}")
+                else:
+                    rendered.append(f"[{tool_name}]")
+                continue
+            if part_type in {"image", "attachment", "file"}:
+                label = _coerce_string(
+                    part.get("file_name")
+                    or part.get("name")
+                    or part.get("id")
+                    or "attachment"
+                )
+                rendered.append(f"[Attachment: {label}]")
+                continue
+
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                rendered.append(text.strip())
+
+        return "\n".join(segment for segment in rendered if segment).strip()
+
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        parts = content.get("parts")
+        if isinstance(parts, list):
+            return _extract_claude_text_content(parts)
+
+    return ""
+
+
+def _canonicalize_claude_role(raw_role: Any) -> Tuple[str, Optional[str]]:
+    role = _coerce_string(raw_role).lower()
+    if role in {"user", "human"}:
+        return "user", None
+    if role in {"assistant", "model"}:
+        return "assistant", None
+    if role in {"system", "developer"}:
+        return "system", None
+    if role in {"tool", "tool_result", "server_tool_result"}:
+        return "tool", None
+    if role:
+        return "tool", role
+    return "system", None
+
+
+def _build_synthetic_claude_message_id(
+    *,
+    source_thread_id: str,
+    turn_index: int,
+    role: str,
+    content: str,
+) -> str:
+    basis = ":".join((source_thread_id, str(turn_index), role, content[:512]))
+    return f"claude-synth-{_stable_text_hash(basis)[:24]}"
+
+
+def _extract_claude_message_created_at(
+    message: Dict[str, Any],
+    conversation_created_at: Optional[datetime],
+    imported_at: datetime,
+) -> Tuple[datetime, bool]:
+    candidates = [
+        message.get("created_at"),
+        message.get("updated_at"),
+        message.get("timestamp"),
+        message.get("createdAt"),
+        message.get("updatedAt"),
+    ]
+    for value in candidates:
+        parsed = _coerce_datetime_string(value)
+        if parsed:
+            return parsed, False
+
+    if conversation_created_at:
+        return conversation_created_at, True
+    return imported_at, True
+
+
+def _collect_claude_messages_from_container(value: Any) -> List[Dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        for key in ("messages", "chat_messages", "conversation", "entries"):
+            nested = value.get(key)
+            if isinstance(nested, list):
+                return [item for item in nested if isinstance(item, dict)]
+    return []
+
+
+def _validate_claude_export_payload(data: Any) -> List[Dict[str, Any]]:
+    conversations: List[Dict[str, Any]] = []
+
+    if isinstance(data, list):
+        conversations = [item for item in data if isinstance(item, dict)]
+    elif isinstance(data, dict):
+        for key in ("conversations", "threads", "chats", "data"):
+            nested = data.get(key)
+            if isinstance(nested, list):
+                conversations = [
+                    item for item in nested if isinstance(item, dict)
+                ]
+                if conversations:
+                    break
+        if not conversations and _collect_claude_messages_from_container(data):
+            conversations = [data]
+
+    if not conversations:
+        raise ValueError(
+            "Invalid Claude export format: expected a conversation object or an array of conversation objects."
+        )
+
+    return conversations
+
+
+def _normalize_claude_messages(
+    *,
+    conversation: Dict[str, Any],
+    source_thread_id: str,
+    conversation_created_at: Optional[datetime],
+    imported_at: datetime,
+) -> Tuple[List[Dict[str, Any]], int, Dict[str, int]]:
+    raw_messages = _collect_claude_messages_from_container(conversation)
+    normalized: List[Dict[str, Any]] = []
+    filtered_count = 0
+    filtered_reasons: Dict[str, int] = {}
+
+    for turn_index, raw_message in enumerate(raw_messages):
+        raw_role = (
+            raw_message.get("role")
+            or raw_message.get("sender")
+            or raw_message.get("author")
+            or raw_message.get("type")
+        )
+        canonical_role, source_role_raw = _canonicalize_claude_role(raw_role)
+
+        if canonical_role == "system":
+            filtered_count += 1
+            filtered_reasons["internal_system"] = (
+                filtered_reasons.get("internal_system", 0) + 1
+            )
+            continue
+
+        content = (
+            raw_message.get("content")
+            if "content" in raw_message
+            else raw_message.get("text")
+        )
+        canonical_text = _extract_claude_text_content(content)
+        if not canonical_text:
+            filtered_count += 1
+            filtered_reasons["empty_content"] = (
+                filtered_reasons.get("empty_content", 0) + 1
+            )
+            continue
+
+        (
+            created_at,
+            source_created_at_inferred,
+        ) = _extract_claude_message_created_at(
+            raw_message,
+            conversation_created_at=conversation_created_at,
+            imported_at=imported_at,
+        )
+
+        source_message_id = _coerce_string(
+            raw_message.get("uuid")
+            or raw_message.get("id")
+            or raw_message.get("message_id")
+        )
+        if not source_message_id:
+            source_message_id = _build_synthetic_claude_message_id(
+                source_thread_id=source_thread_id,
+                turn_index=turn_index,
+                role=canonical_role,
+                content=canonical_text,
+            )
+
+        normalized.append(
+            {
+                "role": canonical_role,
+                "content": canonical_text,
+                "content_type": "text",
+                "source_created_at": created_at,
+                "source_created_at_inferred": source_created_at_inferred,
+                "imported_at": imported_at,
+                "source_thread_id": source_thread_id,
+                "source_message_id": source_message_id,
+                "turn_index": turn_index,
+                "source_role_raw": source_role_raw,
+                "raw_role": _coerce_string(raw_role).lower(),
+                "raw_message": dict(raw_message),
+                "origin": "claude_import",
+                "era": "pre_codexify",
+            }
+        )
+
+    return normalized, filtered_count, filtered_reasons
+
+
+def _ingest_canonical_messages(
+    *,
+    chatlog_db,
+    user_id: str,
+    title: str,
+    thread_summary: str,
+    import_source: str,
+    import_profile: str,
+    source_thread_id: str,
+    messages: List[Dict[str, Any]],
+    imports_project_id: int,
+    import_grouping_metadata: Dict[str, Any],
+    pending_embed_items: List[Dict[str, Any]],
+    pending_embed_message_ids: List[int],
+    filtered_count: int,
+    filtered_reasons: Dict[str, int],
+) -> Tuple[int, int]:
+    thread_id = _find_existing_thread_for_source(
+        chatlog_db, user_id=user_id, source_thread_id=source_thread_id
+    )
+    threads_count = 0
+    messages_count = 0
+
+    thread_updates: Dict[str, Any] = {
+        "import_source": import_source,
+        "import_profile": import_profile,
+        "source_thread_id": source_thread_id,
+        "graph_status": "pending",
+        "import_summary": {
+            "messages_kept": len(messages),
+            "messages_filtered": filtered_count,
+            "filtered_reasons": filtered_reasons,
+        },
+        **import_grouping_metadata,
+    }
+
+    if thread_id is None:
+        try:
+            thread_record = chatlog_db.create_chat_thread(
+                user_id=user_id,
+                title=title,
+                summary=thread_summary,
+                project_id=imports_project_id,
+                metadata=thread_updates,
+            )
+        except TypeError:
+            thread_record = chatlog_db.create_chat_thread(
+                user_id=user_id,
+                title=title,
+                summary=thread_summary,
+                project_id=imports_project_id,
+            )
+            try:
+                thread_id_for_update = int(thread_record.get("id") or 0)
+            except Exception:
+                thread_id_for_update = 0
+            if thread_id_for_update > 0:
+                _update_thread_metadata_best_effort(
+                    chatlog_db,
+                    thread_id=thread_id_for_update,
+                    updates=thread_updates,
+                )
+
+        thread_id = int(thread_record["id"])
+        threads_count += 1
+    else:
+        _update_thread_metadata_best_effort(
+            chatlog_db,
+            thread_id=thread_id,
+            updates=thread_updates,
+        )
+
+    for msg in messages:
+        source_message_id = msg["source_message_id"]
+        existing = _find_existing_message_for_source(
+            chatlog_db,
+            thread_id=thread_id,
+            source_message_id=source_message_id,
+        )
+        temporal_meta = {
+            "source_thread_id": msg["source_thread_id"],
+            "source_message_id": source_message_id,
+            "turn_index": msg["turn_index"],
+            "source_created_at": msg["source_created_at"].isoformat(),
+            "imported_at": msg["imported_at"].isoformat(),
+            "content_type": msg.get("content_type"),
+            "raw_role": msg.get("raw_role"),
+            "raw_message": msg.get("raw_message"),
+            "origin": msg.get("origin"),
+            "era": msg.get("era"),
+            "canonical_filter_profile": import_profile,
+            "embedding_status": "pending",
+            "embedding_error": None,
+            "embedding_queued_at": msg["imported_at"].isoformat(),
+            **import_grouping_metadata,
+        }
+
+        if existing:
+            mid = int(existing["id"])
+            existing_meta = existing.get("extra_meta") or {}
+            merged_meta = _merge_temporal_meta(existing_meta, temporal_meta)
+        else:
+            mid = _create_message_with_fallback(
+                chatlog_db,
+                thread_id=thread_id,
+                role=msg["role"],
+                content=msg["content"],
+                created_at=msg["source_created_at"],
+            )
+            messages_count += 1
+            merged_meta = temporal_meta
+
+        _persist_temporal_metadata(
+            chatlog_db,
+            message_id=mid,
+            merged_meta=merged_meta,
+            source_created_at=msg["source_created_at"],
+        )
+
+        existing_embedding_status = ""
+        existing_embedding_queued_at = None
+        if existing:
+            existing_meta = existing.get("extra_meta") or {}
+            existing_embedding_status = (
+                str(existing_meta.get("embedding_status") or "").strip().lower()
+            )
+            existing_embedding_queued_at = existing_meta.get(
+                "embedding_queued_at"
+            )
+        should_queue_embedding = not existing or (
+            existing_embedding_status in {"", "failed"}
+            and not existing_embedding_queued_at
+        )
+
+        personal_fact_candidates = extract_personal_fact_candidates(msg)
+        if personal_fact_candidates:
+            try:
+                persist_personal_fact_candidates(
+                    chatlog_db,
+                    user_id=user_id,
+                    message={
+                        **msg,
+                        "chatlog_message_id": mid,
+                    },
+                    candidates=personal_fact_candidates,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to persist %s personal fact candidates for message %s: %s",
+                    import_source,
+                    mid,
+                    exc,
+                )
+
+        if should_queue_embedding:
+            try:
+                embed_text = _sanitize_embed_text(msg["content"])
+                if not embed_text:
+                    continue
+                meta = {
+                    "thread_id": thread_id,
+                    "role": msg["role"],
+                    "message_id": mid,
+                    "timestamp": msg["source_created_at"].isoformat(),
+                    "source_thread_id": msg["source_thread_id"],
+                    "source_message_id": source_message_id,
+                    "turn_index": msg["turn_index"],
+                    "source_created_at_inferred": msg[
+                        "source_created_at_inferred"
+                    ],
+                    "origin": msg["origin"],
+                    "era": msg["era"],
+                    "source": f"{import_source}_import",
+                    "canonical_filter_profile": import_profile,
+                    "embedding_status": "pending",
+                    "embedding_queued_at": msg["imported_at"].isoformat(),
+                    **import_grouping_metadata,
+                }
+                pending_embed_items.append(
+                    {
+                        "text": embed_text,
+                        "meta": _sanitize_embed_meta(meta),
+                    }
+                )
+                pending_embed_message_ids.append(mid)
+            except Exception as e:
+                logger.warning(
+                    "Failed to queue embedded payload for imported %s message %s: %s",
+                    import_source,
+                    mid,
+                    e,
+                )
+
+    return threads_count, messages_count
 
 
 def _sanitize_embed_text(text: Any) -> str:
@@ -1282,202 +1756,155 @@ def ingest_chatgpt_export(
 
             title = str(conv.get("title") or "Imported Chat")
 
-            thread_id = _find_existing_thread_for_source(
-                chatlog_db, user_id=user_id, source_thread_id=source_thread_id
+            imported_threads, imported_messages = _ingest_canonical_messages(
+                chatlog_db=chatlog_db,
+                user_id=user_id,
+                title=title,
+                thread_summary="Imported from ChatGPT",
+                import_source="chatgpt",
+                import_profile=_CHATGPT_IMPORT_PROFILE,
+                source_thread_id=source_thread_id,
+                messages=messages,
+                imports_project_id=imports_project_id,
+                import_grouping_metadata=import_grouping_metadata,
+                pending_embed_items=pending_embed_items,
+                pending_embed_message_ids=pending_embed_message_ids,
+                filtered_count=conv_filtered_count,
+                filtered_reasons=filtered_reasons,
             )
-            if thread_id is None:
-                # Keep the surface flat: imported threads land in Imports, and
-                # any inferred grouping survives only in metadata.
-                project_id = imports_project_id
-
-                thread_metadata: Dict[str, Any] = {
-                    "import_source": "chatgpt",
-                    "import_profile": _CHATGPT_IMPORT_PROFILE,
-                    "source_thread_id": source_thread_id,
-                    "graph_status": "pending",
-                    "import_summary": {
-                        "messages_kept": len(messages),
-                        "messages_filtered": conv_filtered_count,
-                        "filtered_reasons": filtered_reasons,
-                    },
-                    **import_grouping_metadata,
-                }
-
-                try:
-                    thread_record = chatlog_db.create_chat_thread(
-                        user_id=user_id,
-                        title=title,
-                        summary="Imported from ChatGPT",
-                        project_id=project_id,
-                        metadata=thread_metadata,
-                    )
-                except TypeError:
-                    thread_record = chatlog_db.create_chat_thread(
-                        user_id=user_id,
-                        title=title,
-                        summary="Imported from ChatGPT",
-                        project_id=project_id,
-                    )
-                    try:
-                        thread_id_for_update = int(thread_record.get("id") or 0)
-                    except Exception:
-                        thread_id_for_update = 0
-                    if thread_id_for_update > 0:
-                        _update_thread_metadata_best_effort(
-                            chatlog_db,
-                            thread_id=thread_id_for_update,
-                            updates=thread_metadata,
-                        )
-
-                thread_id = int(thread_record["id"])
-                threads_count += 1
-            else:
-                _update_thread_metadata_best_effort(
-                    chatlog_db,
-                    thread_id=thread_id,
-                    updates={
-                        "import_source": "chatgpt",
-                        "import_profile": _CHATGPT_IMPORT_PROFILE,
-                        "source_thread_id": source_thread_id,
-                        "graph_status": "pending",
-                        "import_summary": {
-                            "messages_kept": len(messages),
-                            "messages_filtered": conv_filtered_count,
-                            "filtered_reasons": filtered_reasons,
-                        },
-                        **import_grouping_metadata,
-                    },
-                )
-
-            # Insert messages
-            for msg in messages:
-                source_message_id = msg["source_message_id"]
-                existing = _find_existing_message_for_source(
-                    chatlog_db,
-                    thread_id=thread_id,
-                    source_message_id=source_message_id,
-                )
-                temporal_meta = {
-                    "source_thread_id": msg["source_thread_id"],
-                    "source_message_id": source_message_id,
-                    "turn_index": msg["turn_index"],
-                    "source_created_at": msg["source_created_at"].isoformat(),
-                    "imported_at": msg["imported_at"].isoformat(),
-                    "content_type": msg.get("content_type"),
-                    "raw_role": msg.get("raw_role"),
-                    "raw_message": msg.get("raw_message"),
-                    "origin": msg.get("origin"),
-                    "era": msg.get("era"),
-                    "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
-                    "embedding_status": "pending",
-                    "embedding_error": None,
-                    "embedding_queued_at": msg["imported_at"].isoformat(),
-                    **import_grouping_metadata,
-                }
-
-                if existing:
-                    mid = int(existing["id"])
-                    existing_meta = existing.get("extra_meta") or {}
-                    merged_meta = _merge_temporal_meta(
-                        existing_meta, temporal_meta
-                    )
-                else:
-                    mid = _create_message_with_fallback(
-                        chatlog_db,
-                        thread_id=thread_id,
-                        role=msg["role"],
-                        content=msg["content"],
-                        created_at=msg["source_created_at"],
-                    )
-                    messages_count += 1
-                    merged_meta = temporal_meta
-
-                _persist_temporal_metadata(
-                    chatlog_db,
-                    message_id=mid,
-                    merged_meta=merged_meta,
-                    source_created_at=msg["source_created_at"],
-                )
-
-                existing_embedding_status = ""
-                existing_embedding_queued_at = None
-                if existing:
-                    existing_meta = existing.get("extra_meta") or {}
-                    existing_embedding_status = (
-                        str(existing_meta.get("embedding_status") or "")
-                        .strip()
-                        .lower()
-                    )
-                    existing_embedding_queued_at = existing_meta.get(
-                        "embedding_queued_at"
-                    )
-                should_queue_embedding = not existing or (
-                    existing_embedding_status in {"", "failed"}
-                    and not existing_embedding_queued_at
-                )
-
-                personal_fact_candidates = extract_personal_fact_candidates(msg)
-                if personal_fact_candidates:
-                    try:
-                        persist_personal_fact_candidates(
-                            chatlog_db,
-                            user_id=user_id,
-                            message={
-                                **msg,
-                                "chatlog_message_id": mid,
-                            },
-                            candidates=personal_fact_candidates,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to persist ChatGPT personal fact candidates for message %s: %s",
-                            mid,
-                            exc,
-                        )
-
-                # Queue embedding payload for post-import processing.
-                if should_queue_embedding:
-                    try:
-                        embed_text = _sanitize_embed_text(msg["content"])
-                        if not embed_text:
-                            continue
-                        meta = {
-                            "thread_id": thread_id,
-                            "role": msg["role"],
-                            "message_id": mid,
-                            "timestamp": msg["source_created_at"].isoformat(),
-                            "source_thread_id": msg["source_thread_id"],
-                            "source_message_id": source_message_id,
-                            "turn_index": msg["turn_index"],
-                            "source_created_at_inferred": msg[
-                                "source_created_at_inferred"
-                            ],
-                            "origin": msg["origin"],
-                            "era": msg["era"],
-                            "source": "chatgpt_import",
-                            "canonical_filter_profile": _CHATGPT_IMPORT_PROFILE,
-                            "embedding_status": "pending",
-                            "embedding_queued_at": msg[
-                                "imported_at"
-                            ].isoformat(),
-                            **import_grouping_metadata,
-                        }
-                        pending_embed_items.append(
-                            {
-                                "text": embed_text,
-                                "meta": _sanitize_embed_meta(meta),
-                            }
-                        )
-                        pending_embed_message_ids.append(mid)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to queue embedded payload for imported message %s: %s",
-                            mid,
-                            e,
-                        )
+            threads_count += imported_threads
+            messages_count += imported_messages
 
         except Exception as e:
             logger.error("Failed to import conversation: %s", e)
+            continue
+
+    embedding_diagnostics = _process_chatgpt_embedding_batches(
+        chatlog_db=chatlog_db,
+        items=pending_embed_items,
+        message_ids=pending_embed_message_ids,
+        operation="import",
+        failure_reason="embedding_coverage_degraded",
+    )
+
+    return {
+        "threads_imported": threads_count,
+        "messages_imported": messages_count,
+        "projects_created": projects_created,
+        "projects_reused": projects_reused,
+        "messages_filtered": messages_filtered,
+        "embedding_candidates": embedding_diagnostics["embedding_candidates"],
+        "embeddings_persisted": embedding_diagnostics["embeddings_persisted"],
+        "embeddings_failed": embedding_diagnostics["embeddings_failed"],
+        "embedding_coverage_degraded": embedding_diagnostics[
+            "embedding_coverage_degraded"
+        ],
+    }
+
+
+def ingest_claude_export(
+    content: bytes, user_id: Optional[str] = None
+) -> Dict[str, int]:
+    """
+    Ingest a Claude export (JSON bytes) into the database and vector store.
+    """
+    if not user_id:
+        raise ValueError(
+            "ingest_claude_export requires a valid user_id (got None or empty)"
+        )
+
+    chatlog_db = dependencies.chatlog_db
+    if not chatlog_db:
+        chatlog_db = dependencies.init_database()
+    if not chatlog_db:
+        raise RuntimeError("Database not available")
+
+    hint = _detect_non_json_hint(content)
+    if hint:
+        raise ValueError(hint)
+
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        raise ValueError("Invalid JSON file: unable to parse uploaded content.")
+
+    data = _validate_claude_export_payload(parsed)
+
+    threads_count = 0
+    messages_count = 0
+    messages_filtered = 0
+    projects_created = 0
+    projects_reused = 0
+    imports_project_id = int(_resolve_imports_project_id(chatlog_db))
+    pending_embed_items: List[Dict[str, Any]] = []
+    pending_embed_message_ids: List[int] = []
+
+    for conv in data:
+        try:
+            if not user_id:
+                raise RuntimeError(
+                    "User identity lost during Claude import loop"
+                )
+
+            source_thread_id = _coerce_string(
+                conv.get("uuid")
+                or conv.get("id")
+                or conv.get("conversation_id")
+                or conv.get("chat_id")
+            )
+            if not source_thread_id:
+                title_seed = _coerce_string(
+                    conv.get("name") or conv.get("title") or "claude-thread"
+                )
+                source_thread_id = f"claude-thread-{_stable_text_hash(title_seed + json.dumps(conv, sort_keys=True, default=str))[:24]}"
+
+            conversation_created_at = (
+                _coerce_datetime_string(conv.get("created_at"))
+                or _coerce_datetime_string(conv.get("updated_at"))
+                or _coerce_datetime_string(conv.get("createdAt"))
+                or _coerce_datetime_string(conv.get("updatedAt"))
+            )
+            imported_at = datetime.now(timezone.utc)
+            import_grouping_metadata: Dict[str, Any] = {}
+
+            (
+                messages,
+                conv_filtered_count,
+                filtered_reasons,
+            ) = _normalize_claude_messages(
+                conversation=conv,
+                source_thread_id=source_thread_id,
+                conversation_created_at=conversation_created_at,
+                imported_at=imported_at,
+            )
+            messages_filtered += conv_filtered_count
+
+            if not messages:
+                continue
+
+            title = _coerce_string(
+                conv.get("name") or conv.get("title") or "Imported Claude Chat"
+            )
+            imported_threads, imported_messages = _ingest_canonical_messages(
+                chatlog_db=chatlog_db,
+                user_id=user_id,
+                title=title,
+                thread_summary="Imported from Claude",
+                import_source="claude",
+                import_profile=_CLAUDE_IMPORT_PROFILE,
+                source_thread_id=source_thread_id,
+                messages=messages,
+                imports_project_id=imports_project_id,
+                import_grouping_metadata=import_grouping_metadata,
+                pending_embed_items=pending_embed_items,
+                pending_embed_message_ids=pending_embed_message_ids,
+                filtered_count=conv_filtered_count,
+                filtered_reasons=filtered_reasons,
+            )
+            threads_count += imported_threads
+            messages_count += imported_messages
+        except Exception as e:
+            logger.error("Failed to import Claude conversation: %s", e)
             continue
 
     embedding_diagnostics = _process_chatgpt_embedding_batches(
