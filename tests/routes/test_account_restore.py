@@ -335,6 +335,92 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
                 "attached_by": USER_ID,
             },
         ],
+        "extension_proposals": [
+            {
+                "proposal_id": "proposal-1",
+                "account_id": USER_ID,
+                "project_id": 10,
+                "profile_id": "profile-a",
+                "source_thread_id": 101,
+                "source_message_id": 202,
+                "target_surface_token": "command_bus",
+                "scope_token": "project_scoped",
+                "status_token": "draft",
+                "requested_permissions_json": [
+                    {
+                        "permission": "command.run",
+                        "resource": "command_bus",
+                        "reason": "bounded command execution",
+                        "metadata": {},
+                    }
+                ],
+                "declared_dependencies_json": [
+                    {
+                        "name": "httpx",
+                        "version_spec": ">=0.28",
+                        "source": "pypi",
+                        "required": True,
+                        "metadata": {},
+                    }
+                ],
+                "rollback_metadata_json": {
+                    "strategy": "disable_and_revert",
+                    "rollback_ref": "ticket-123",
+                    "can_rollback": True,
+                    "metadata": {},
+                },
+                "test_evidence_json": {
+                    "status": "passing",
+                    "summary": "proposal draft coverage",
+                    "artifacts": [
+                        "tests/routes/test_account_restore.py",
+                    ],
+                    "metadata": {},
+                },
+                "manifest_json": {
+                    "manifest_version": "extension-proposal-manifest.v1",
+                    "target_surface": "command_bus",
+                    "scope": "project_scoped",
+                    "source_thread_id": 101,
+                    "source_message_id": 202,
+                    "project_id": 10,
+                    "profile_id": "profile-a",
+                    "summary": "Generate a bounded tool plugin",
+                    "description": "Draft a tool proposal without executing it.",
+                    "requested_permissions": [
+                        {
+                            "permission": "command.run",
+                            "resource": "command_bus",
+                            "reason": "bounded command execution",
+                            "metadata": {},
+                        }
+                    ],
+                    "declared_dependencies": [
+                        {
+                            "name": "httpx",
+                            "version_spec": ">=0.28",
+                            "source": "pypi",
+                            "required": True,
+                            "metadata": {},
+                        }
+                    ],
+                    "rollback_metadata": {
+                        "strategy": "disable_and_revert",
+                        "rollback_ref": "ticket-123",
+                        "can_rollback": True,
+                        "metadata": {},
+                    },
+                    "test_evidence_metadata": {
+                        "status": "passing",
+                        "summary": "proposal draft coverage",
+                        "artifacts": ["tests/routes/test_account_restore.py"],
+                        "metadata": {},
+                    },
+                },
+                "created_at": _utc("2026-03-14T00:00:00Z"),
+                "updated_at": _utc("2026-03-14T01:00:00Z"),
+            }
+        ],
     }
 
 
@@ -558,6 +644,27 @@ class FakeAccountRestoreDB:
             ),
             "unique": (("project_id", "document_id", "document_type"),),
         },
+        "extension_proposals": {
+            "pk": "proposal_id",
+            "columns": (
+                "proposal_id",
+                "account_id",
+                "project_id",
+                "profile_id",
+                "source_thread_id",
+                "source_message_id",
+                "target_surface_token",
+                "scope_token",
+                "status_token",
+                "requested_permissions_json",
+                "declared_dependencies_json",
+                "rollback_metadata_json",
+                "test_evidence_json",
+                "manifest_json",
+                "created_at",
+                "updated_at",
+            ),
+        },
     }
 
     def __init__(self) -> None:
@@ -674,6 +781,10 @@ class FakeAccountRestoreDB:
     def restore_account_export_project_document_links(self, rows, *, conn=None):
         _ = conn
         return self._restore_family("project_document_links", rows)
+
+    def restore_account_export_extension_proposals(self, rows, *, conn=None):
+        _ = conn
+        return self._restore_family("extension_proposals", rows)
 
 
 @pytest.fixture

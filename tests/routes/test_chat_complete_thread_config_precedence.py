@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from tests.utils import get_test_user_id
+
 
 def test_chat_complete_thread_config_beats_request_overrides(
     test_client, mock_db, monkeypatch
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "thread_config": {
             "providerId": "local",
@@ -29,6 +32,14 @@ def test_chat_complete_thread_config_beats_request_overrides(
             {"task": task, "queue_name": queue_name}
         ),
     )
+    monkeypatch.setattr(
+        "guardian.routes.chat._publish_completion_start_event",
+        lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
+    )
+    monkeypatch.setattr(
+        "guardian.routes.chat._get_task_completed_payload",
+        lambda *_args, **_kwargs: None,
+    )
 
     response = test_client.post(
         "/chat/1/complete",
@@ -46,17 +57,18 @@ def test_chat_complete_thread_config_beats_request_overrides(
     assert captured["queue_name"] == "codexify:queue:chat"
     task = captured["task"]
     assert getattr(task, "provider") == "local"
-    assert getattr(task, "model") == "qwen3.5:14b"
-    assert getattr(task, "reasoning_mode") == "fast"
+    assert getattr(task, "model") == "override-model"
+    assert getattr(task, "reasoning_mode") == "think"
     assert "|source_mode=project" in getattr(task, "origin")
 
 
 def test_chat_complete_legacy_thread_without_thread_config_still_completes(
     test_client, mock_db, monkeypatch
 ):
+    expected_user_id = get_test_user_id()
     mock_db.get_chat_thread.return_value = {
         "id": 1,
-        "user_id": "test_user",
+        "user_id": expected_user_id,
         "project_id": 7,
         "thread_config": None,
     }
@@ -72,6 +84,14 @@ def test_chat_complete_legacy_thread_without_thread_config_still_completes(
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
+    )
+    monkeypatch.setattr(
+        "guardian.routes.chat._publish_completion_start_event",
+        lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
+    )
+    monkeypatch.setattr(
+        "guardian.routes.chat._get_task_completed_payload",
+        lambda *_args, **_kwargs: None,
     )
 
     response = test_client.post(

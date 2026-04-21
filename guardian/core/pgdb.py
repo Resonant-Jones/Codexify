@@ -3117,6 +3117,44 @@ class PgDB(ChatDB):
             sequence_column="id",
         )
 
+    def restore_account_export_extension_proposals(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="agent_extension_proposals",
+            pk_column="proposal_id",
+            columns=(
+                "proposal_id",
+                "account_id",
+                "project_id",
+                "profile_id",
+                "source_thread_id",
+                "source_message_id",
+                "target_surface_token",
+                "scope_token",
+                "status_token",
+                "requested_permissions_json",
+                "declared_dependencies_json",
+                "rollback_metadata_json",
+                "test_evidence_json",
+                "manifest_json",
+                "created_at",
+                "updated_at",
+            ),
+            rows=rows,
+            conn=conn,
+            json_columns=(
+                "requested_permissions_json",
+                "declared_dependencies_json",
+                "rollback_metadata_json",
+                "test_evidence_json",
+                "manifest_json",
+            ),
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -3335,6 +3373,11 @@ PAYLOAD_ORDER = (
         "project_document_links",
         "entities/project_document_links.json",
         "fetch_account_export_project_document_links_for_user",
+    ),
+    (
+        "extension_proposals",
+        "entities/extension_proposals.json",
+        "fetch_account_export_extension_proposals_for_user",
     ),
 )
 
@@ -4182,6 +4225,7 @@ ACCOUNT_EXPORT_PAYLOAD_ORDER = (
     "media_aliases",
     "thread_documents",
     "project_document_links",
+    "extension_proposals",
 )
 
 
@@ -4507,6 +4551,23 @@ def fetch_account_export_bundle_for_user(
                 else []
             )
 
+            bundles["extension_proposals"] = _export_rows(
+                cur,
+                """
+                SELECT
+                    proposal_id, account_id, project_id, profile_id,
+                    source_thread_id, source_message_id,
+                    target_surface_token, scope_token, status_token,
+                    requested_permissions_json, declared_dependencies_json,
+                    rollback_metadata_json, test_evidence_json,
+                    manifest_json, created_at, updated_at
+                FROM agent_extension_proposals
+                WHERE account_id = %s
+                ORDER BY created_at ASC, proposal_id ASC
+                """,
+                (user_id,),
+            )
+
             bundles["projects"] = (
                 _export_rows(
                     cur,
@@ -4613,6 +4674,12 @@ def fetch_account_export_project_document_links_for_user(
     return _bundle_family_rows(user_id, "project_document_links")
 
 
+def fetch_account_export_extension_proposals_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "extension_proposals")
+
+
 def iter_account_export_payloads_for_user(
     user_id: str,
 ):
@@ -4672,6 +4739,11 @@ def iter_account_export_payloads_for_user(
             "project_document_links",
             "entities/project_document_links.json",
             "fetch_account_export_project_document_links_for_user",
+        ),
+        (
+            "extension_proposals",
+            "entities/extension_proposals.json",
+            "fetch_account_export_extension_proposals_for_user",
         ),
     ):
         yield family, path, bundle.get(family, [])
