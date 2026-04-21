@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-19
+2026-04-21
 
 ## Interpretation rule
 This file is authoritative for:
@@ -31,6 +31,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Supported beta posture is still local-only: `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
 - Chat acceptance, worker execution, and Postgres persistence remain the core validated loop.
 - Upload -> parse -> embed -> retrieve remains supported, with one shared runtime vector store.
+- Fresh live proof now exists on the current `main` tip for the bounded tool-augmented completion slice: plain-answer control, one bounded tool turn, hard-stop after one tool turn, and bounded failure-path behavior are all live-proven on the supported Compose stack.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
 - The import embed worker can drain a live backlog without breaking chat or health surfaces.
@@ -51,6 +52,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 
 ## Not yet true / do not assume
 - Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.
+- Do not assume the bounded tool-augmented completion proof closes the broader release gate by itself; it proves the tool-loop slice only, not the full release evidence pack.
 - Do not assume the Obsidian ingest→retrieve seam proof constitutes a full connector sync or live runtime validation; it uses an in-memory fixture at the backend route level.
 - Do not assume `personal_facts` is part of the supported beta surface; the supported profile quarantines it.
 - Do not assume delegation or autonomous coding-agent execution is shipped; the current release promise still excludes that loop.
@@ -60,7 +62,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 ## Active blockers
 - Chat completion blocked: `LOCAL_CHAT_MODEL` was set to "Gemma 4 E 4 B Hauhau" but the Ollama instance at `100.109.4.57:11434` has `gemma4-e4b-hauhau:latest`. Codexify requests fail with HTTP 400 "invalid model name". **Fixed 2026-04-14:** `LOCAL_CHAT_MODEL` updated to `gemma4-e4b-hauhau:latest` in `.env.example`. Live verification still required.
 - Retrieval-posture populated state not yet demonstrated: The completion-service seam has not yet been updated to emit `payload_summary["retrieval_posture"]`. The diagnostics route is live and returns correct empty-state shape, but the fast path (reading canonical snapshot) is a dead letter until that seam is updated. The fallback synthesis path also returns empty because historical task.completed events lack the required legacy trace fields.
-- Fresh live release evidence on the exact current `main` tip is still required before release signoff; the proof was run on `codex/add-retrieval-explainer` (6 commits ahead of `main`). Backend-seam eval suites reduce scope-boundary ambiguity but do not substitute for live runtime proof.
+- Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; the bounded tool-augmented completion slice now has fresh live proof on `main`, but the broader signoff still needs the rest of the supported-path proof surface.
 - Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
 
 ## This week's priorities
