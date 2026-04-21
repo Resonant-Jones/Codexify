@@ -1605,6 +1605,19 @@ export default function AppShell({
     () => getMobileTopNavRailStyle(mobileShellProfile, mobileTopNavRailMotionState),
     [mobileShellProfile, mobileTopNavRailMotionState]
   );
+  const desktopTopNavRailStyle = useMemo<React.CSSProperties>(
+    () =>
+      isPhoneShell
+        ? mobileTopNavRailStyle
+        : {
+            ...mobileTopNavRailStyle,
+            flex: "0 0 auto",
+            display: "inline-flex",
+            width: "fit-content",
+            maxWidth: "fit-content",
+          },
+    [isPhoneShell, mobileTopNavRailStyle]
+  );
   const mobileInteractionContext = useMobileNavFeedbackContext(isPhoneShell);
   const getMobileNavPillStyle = useCallback(
     (navView: AppShellView) =>
@@ -2591,7 +2604,7 @@ export default function AppShell({
             <div
               className="inline-flex min-w-0 items-center"
               data-testid="app-shell-top-nav-rail"
-              style={mobileTopNavRailStyle}
+              style={desktopTopNavRailStyle}
             >
               {/* brand badge — doubles as layout mode toggle */}
               <PhonePressButton
