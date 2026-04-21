@@ -90,6 +90,10 @@ def _source_id_from_metadata(metadata: dict[str, Any]) -> str | None:
 def _scope_value(metadata: dict[str, Any], key: str) -> str | None:
     value = metadata.get(key)
     if value in (None, ""):
+        fragment = metadata.get("fragment")
+        if isinstance(fragment, dict):
+            value = fragment.get(key)
+    if value in (None, ""):
         return None
     text = str(value).strip()
     return text or None
