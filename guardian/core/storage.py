@@ -175,7 +175,7 @@ class LocalStorageProvider(StorageProvider):
     """
 
     def __init__(
-        self, base_path: str = "/app/media", url_prefix: str = "/media"
+        self, base_path: str = "/app/data/media", url_prefix: str = "/media"
     ):
         """
         Initialize local storage.
@@ -349,7 +349,7 @@ class StorageManager:
             **provider_config: Configuration for the provider
 
         Example:
-            manager = StorageManager('local', base_path='/app/media', url_prefix='/media')
+            manager = StorageManager('local', base_path='/app/data/media', url_prefix='/media')
             manager = StorageManager('s3', bucket='my-bucket', region='us-west-2')
         """
         self.provider_type = provider_type
@@ -360,7 +360,7 @@ class StorageManager:
     ) -> StorageProvider:
         """Create storage provider instance."""
         if provider_type == "local":
-            base_path = config.get("base_path", "/app/media")
+            base_path = config.get("base_path", "/app/data/media")
             url_prefix = config.get("url_prefix", "/media")
             return LocalStorageProvider(
                 base_path=base_path, url_prefix=url_prefix
@@ -493,7 +493,7 @@ def _resolve_storage_base_path() -> Path:
         # Test environment: avoid writing to read-only /app
         return Path(tempfile.gettempdir()) / "codexify_media"
     # Default container path (Docker runtime)
-    return Path("/app/media")
+    return Path("/app/data/media")
 
 
 def ensure_storage_base_path() -> Path:

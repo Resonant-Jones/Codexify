@@ -267,13 +267,14 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
 
   return (
     <Card
-      className="bezel-none flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border"
+      className="bezel-none flex min-h-0 flex-1 flex-col overflow-y-auto rounded-2xl border lg:h-full"
       role="region"
       aria-label="Persona Studio ephemeral chat harness"
       data-testid="persona-studio-ephemeral-chat-harness"
       style={{
         background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
         borderColor: "var(--panel-border)",
+        boxShadow: "0 10px 30px color-mix(in srgb, var(--bg) 62%, transparent)",
       }}
     >
       <CardHeader className="space-y-4 pb-4" data-testid="persona-studio-ephemeral-chat-header">
@@ -396,111 +397,146 @@ function EphemeralChatHarness({ profile }: { profile: PersonaProfileDraft | null
                         key={entry.id}
                         data-testid="persona-studio-ephemeral-chat-turn-row"
                         data-message-role={entry.role}
-                        data-message-layout="row"
+                        data-message-layout={isAssistant ? "preview-block" : "user-bubble"}
                         className="border-b pb-4 text-sm last:border-b-0 last:pb-0"
                         style={{
                           borderColor: "var(--panel-border)",
                         }}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge
-                              variant="outline"
-                              className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                              style={{ borderColor: "var(--panel-border)" }}
-                            >
-                              Turn {turnNumber}
-                            </Badge>
-                            <div
-                              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                              style={{ color: "var(--muted)" }}
-                            >
-                              {isAssistant ? "Session preview block" : "Draft input row"}
-                            </div>
-                          </div>
-                          {isAssistant ? (
-                            <Badge
-                              variant="outline"
-                              className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                              style={{ borderColor: "var(--panel-border)" }}
-                            >
-                              {entry.draftSignature === currentDraftSnapshot.signature
-                                ? "Current draft"
-                                : "Earlier draft"}
-                            </Badge>
-                          ) : (
-                            <span
-                              className="text-[10px] font-semibold uppercase tracking-[0.14em]"
-                              style={{ color: "var(--muted)" }}
-                            >
-                              Captured at send time
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-2 leading-6">{entry.content}</p>
                         {isAssistant ? (
-                          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Persona
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge
+                                  variant="outline"
+                                  className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                                  style={{ borderColor: "var(--panel-border)" }}
+                                >
+                                  Turn {turnNumber}
+                                </Badge>
+                                <div
+                                  className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                                  style={{ color: "var(--muted)" }}
+                                >
+                                  Session preview block
+                                </div>
                               </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.personaName}</p>
+                              <Badge
+                                variant="outline"
+                                className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                                style={{ borderColor: "var(--panel-border)" }}
+                              >
+                                {entry.draftSignature === currentDraftSnapshot.signature
+                                  ? "Current draft"
+                                  : "Earlier draft"}
+                              </Badge>
                             </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Model
+                            <div
+                              className="rounded-[var(--tile-radius)] border px-4 py-4"
+                              style={{
+                                borderColor: "var(--panel-border)",
+                                background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
+                              }}
+                            >
+                              <p className="leading-6">{entry.content}</p>
+                              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Persona
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.personaName}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Model
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.modelLine}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Temperature
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.temperatureLine}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Voice
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.voice}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3 sm:col-span-2" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Prompt
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.systemPrompt}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3 sm:col-span-2" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Style Notes
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.styleNotes}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3 sm:col-span-2" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Directives
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.directives}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Retrieval
+                                  </div>
+                                  <p className="mt-1 leading-6">{entry.draftSnapshot.retrieval}</p>
+                                </div>
+                                <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                                    Tools
+                                  </div>
+                                  <p className="mt-1 leading-6">
+                                    Pinned: {entry.draftSnapshot.pinnedTools} | Allowed: {entry.draftSnapshot.allowedTools}
+                                  </p>
+                                </div>
                               </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.modelLine}</p>
-                            </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Temperature
-                              </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.temperatureLine}</p>
-                            </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Voice
-                              </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.voice}</p>
-                            </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3 sm:col-span-2" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Prompt
-                              </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.systemPrompt}</p>
-                            </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3 sm:col-span-2" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Style Notes
-                              </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.styleNotes}</p>
-                            </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3 sm:col-span-2" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Directives
-                              </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.directives}</p>
-                            </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Retrieval
-                              </div>
-                              <p className="mt-1 leading-6">{entry.draftSnapshot.retrieval}</p>
-                            </div>
-                            <div className="rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                                Tools
-                              </div>
-                              <p className="mt-1 leading-6">
-                                Pinned: {entry.draftSnapshot.pinnedTools} | Allowed: {entry.draftSnapshot.allowedTools}
-                              </p>
                             </div>
                           </div>
                         ) : (
-                          <p className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
-                            Captured against the draft that was active when this input was sent.
-                          </p>
+                          <div className="flex justify-end">
+                            <div
+                              className="max-w-[92%] rounded-[var(--tile-radius)] border px-4 py-3"
+                              style={{
+                                background: "color-mix(in srgb, var(--accent) 9%, var(--panel-bg))",
+                                borderColor: "color-mix(in oklab, var(--accent) 18%, var(--panel-border))",
+                              }}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge
+                                    variant="outline"
+                                    className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                                    style={{ borderColor: "var(--panel-border)" }}
+                                  >
+                                    Turn {turnNumber}
+                                  </Badge>
+                                  <div
+                                    className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                                    style={{ color: "var(--muted)" }}
+                                  >
+                                    User bubble
+                                  </div>
+                                </div>
+                                <span
+                                  className="text-[10px] font-semibold uppercase tracking-[0.14em]"
+                                  style={{ color: "var(--muted)" }}
+                                >
+                                  Captured at send time
+                                </span>
+                              </div>
+                              <p className="mt-2 leading-6">{entry.content}</p>
+                              <p className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
+                                Captured against the draft that was active when this input was sent.
+                              </p>
+                            </div>
+                          </div>
                         )}
                       </div>
                     );
@@ -1361,39 +1397,7 @@ export default function PersonaStudioPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="persona-studio-page" style={{ background: "var(--bg)" }}>
-      <div className="px-6 pt-6">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-              Configuration &amp; Observability
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold" style={{ color: "var(--text)" }}>
-              Persona Studio
-            </h1>
-          </div>
-        </div>
-
-        <div
-          className="glass-pill mb-4 inline-flex max-w-full flex-none items-stretch gap-1.5 overflow-x-auto px-1"
-          data-testid="persona-studio-tabs"
-          style={
-            {
-              "--pill-active-text": "var(--text-on-accent)",
-              "--pill-font": "0.92rem",
-              width: "fit-content",
-              justifyContent: "flex-start",
-            } as React.CSSProperties
-          }
-        >
-          {TABS.map((tab) => (
-            <TabButton key={tab} active={activeTab === tab} onClick={() => handleTabChange(tab)}>
-              {tab}
-            </TabButton>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pt-6 pb-6">
         <section
           className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--card-radius)] border p-[var(--card-pad)]"
           data-testid="persona-studio-shell"
@@ -1403,13 +1407,42 @@ export default function PersonaStudioPage() {
             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)",
           }}
         >
-          <div className="flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)] lg:grid lg:grid-cols-[minmax(0,1.18fr)_minmax(0,0.92fr)] lg:items-start" data-testid="persona-studio-editor-two-lane-layout">
-            <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)]" data-testid="persona-studio-configuration-lane">
+          <div className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:grid-cols-[minmax(0,1.12fr)_minmax(420px,0.98fr)] lg:items-stretch" data-testid="persona-studio-editor-two-lane-layout">
+            <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-y-auto pr-1" data-testid="persona-studio-configuration-lane">
+              <div className="space-y-4" data-testid="persona-studio-shell-header">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
+                    Configuration &amp; Observability
+                  </div>
+                  <h1 className="mt-1 text-2xl font-semibold" style={{ color: "var(--text)" }}>
+                    Persona Studio
+                  </h1>
+                </div>
+                <div
+                  className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
+                  data-testid="persona-studio-tabs"
+                  style={
+                    {
+                      "--pill-active-text": "var(--text-on-accent)",
+                      "--pill-font": "0.92rem",
+                      width: "100%",
+                      justifyContent: "stretch",
+                    } as React.CSSProperties
+                  }
+                >
+                  {TABS.map((tab) => (
+                    <TabButton key={tab} active={activeTab === tab} onClick={() => handleTabChange(tab)}>
+                      {tab}
+                    </TabButton>
+                  ))}
+                </div>
+              </div>
+
               <div
-                className="rounded-[var(--card-radius)] border px-4 py-4"
+                className="rounded-[var(--tile-radius)] border px-4 py-4"
                 data-testid="persona-studio-active-profile-summary"
                 style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
+                  background: "color-mix(in srgb, var(--panel-bg) 93%, transparent)",
                   borderColor: "var(--panel-border)",
                 }}
               >
@@ -1432,50 +1465,68 @@ export default function PersonaStudioPage() {
                     </Badge>
                   </div>
                 </div>
-                <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                  <div className="rounded-xl border px-3 py-2" style={{ borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                      Selection
+                <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(160px,0.32fr)]" style={{ borderColor: "color-mix(in srgb, var(--panel-border) 86%, transparent)" }}>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                        Selection
+                      </div>
+                      <div className="mt-1 text-sm font-medium">
+                        {selectedProfile?.isDefault ? "Default runtime profile" : "Custom runtime profile"}
+                      </div>
                     </div>
-                    <div className="mt-1 text-sm font-medium">
-                      {selectedProfile?.isDefault ? "Default runtime profile" : "Custom runtime profile"}
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+                        Status
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <Badge variant="outline" className="px-2 py-1 text-[10px]" style={{ borderColor: "var(--panel-border)" }}>
+                          {selectedProfile?.isDefault ? "Default" : "Custom"}
+                        </Badge>
+                        <Badge variant="outline" className="px-2 py-1 text-[10px]" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
+                          Active
+                        </Badge>
+                      </div>
                     </div>
                   </div>
-                  <div className="rounded-xl border px-3 py-2" style={{ borderColor: "color-mix(in srgb, var(--panel-border) 78%, transparent)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                  <div
+                    className="rounded-[var(--tile-radius)] border px-3 py-3"
+                    style={{
+                      borderColor: "var(--panel-border)",
+                      background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
+                    }}
+                  >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                      Status
+                      Draft state
                     </div>
-                    <div className="mt-1 flex flex-wrap gap-2">
-                      <Badge variant="outline" className="px-2 py-1 text-[10px]" style={{ borderColor: "var(--panel-border)" }}>
-                        {selectedProfile?.isDefault ? "Default" : "Custom"}
-                      </Badge>
-                      <Badge variant="outline" className="px-2 py-1 text-[10px]" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
-                        Active
-                      </Badge>
+                    <div className="mt-3 flex flex-col gap-3">
+                      {[0, 1, 2].map((dot) => (
+                        <div key={dot} className="h-3.5 w-3.5 rounded-full border" style={{ borderColor: "var(--panel-border)", background: dot === 0 ? "color-mix(in srgb, var(--accent) 24%, var(--panel-bg))" : "transparent" }} />
+                      ))}
                     </div>
                   </div>
                 </div>
               </div>
 
               <div
-                className="rounded-[var(--card-radius)] border px-4 py-4"
+                className="rounded-[var(--tile-radius)] border px-4 py-4"
                 role="region"
                 aria-label="Persona Studio editor"
                 data-testid="persona-studio-editor"
                 data-saved-profile-id={selectedSavedProfile?.id ?? ""}
                 data-draft-state={isDirty ? "dirty" : "clean"}
                 style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",
+                  background: "color-mix(in srgb, var(--panel-bg) 92%, transparent)",
                   borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
                 }}
               >
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
                       Persona modules
                     </div>
                     <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                      Editable parameter surfaces stay on the parent plane and do not open a separate shell.
+                      Editable parameter surfaces sit directly on the parent surface and stay focused on draft testing only.
                     </p>
                   </div>
                   <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
@@ -1483,7 +1534,7 @@ export default function PersonaStudioPage() {
                   </Badge>
                 </div>
 
-                <div className="mt-4 rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)" }}>
+                <div className="mt-4 rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
                   {renderActiveTab()}
                 </div>
 
@@ -1511,7 +1562,7 @@ export default function PersonaStudioPage() {
                 </div>
               </div>
 
-              <section className="flex min-h-0 flex-col gap-3" data-testid="persona-studio-support-surfaces">
+              <section className="mt-auto flex min-h-0 flex-col gap-3" data-testid="persona-studio-support-surfaces">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
@@ -1526,7 +1577,7 @@ export default function PersonaStudioPage() {
                   </Badge>
                 </div>
                 <div
-                  className="rounded-[var(--card-radius)] border px-4 py-4"
+                  className="rounded-[var(--tile-radius)] border px-4 py-4"
                   role="complementary"
                   aria-label="Persona Studio utility pane"
                   data-testid="persona-studio-utility-pane"
@@ -1609,7 +1660,7 @@ export default function PersonaStudioPage() {
               </section>
             </div>
 
-            <div className="flex min-h-0 min-w-0 flex-col lg:self-start" data-testid="persona-studio-ephemeral-chat-lane">
+            <div className="flex min-h-0 min-w-0 flex-col" data-testid="persona-studio-ephemeral-chat-lane">
               <EphemeralChatHarness profile={selectedProfile} />
             </div>
           </div>
