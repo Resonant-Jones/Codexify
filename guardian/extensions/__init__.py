@@ -1,4 +1,4 @@
-"""Canonical extension proposal contracts and persistence helpers."""
+"""Canonical extension contracts and persistence helpers."""
 
 from .contracts import (
     CapabilityRegistryEntry,

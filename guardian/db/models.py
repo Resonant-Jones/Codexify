@@ -38,6 +38,8 @@ from guardian.core.capability_tokens import (
 from guardian.extensions.tokens import (
     CAPABILITY_ENTRY_PROVENANCE_CLASSES,
     CAPABILITY_REGISTRY_STATUSES,
+    EXTENSION_INSTALL_BINDING_SCOPES,
+    EXTENSION_INSTALL_BINDING_STATUSES,
     EXTENSION_PROPOSAL_SCOPES,
     EXTENSION_PROPOSAL_STATUSES,
     EXTENSION_TARGET_SURFACES,
@@ -117,6 +119,12 @@ CAPABILITY_REGISTRY_STATUS_VALUES_SQL = "','".join(
 CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL = "','".join(
     sorted(CAPABILITY_ENTRY_PROVENANCE_CLASSES)
 )
+EXTENSION_INSTALL_BINDING_SCOPE_VALUES_SQL = "','".join(
+    sorted(EXTENSION_INSTALL_BINDING_SCOPES)
+)
+EXTENSION_INSTALL_BINDING_STATUS_VALUES_SQL = "','".join(
+    sorted(EXTENSION_INSTALL_BINDING_STATUSES)
+)
 INSTALL_GATE_DECISION_CHECK = (
     f"decision_token IN ('{INSTALL_GATE_DECISION_VALUES_SQL}')"
 )
@@ -124,6 +132,38 @@ CAPABILITY_REGISTRY_STATUS_CHECK = (
     f"status_token IN ('{CAPABILITY_REGISTRY_STATUS_VALUES_SQL}')"
 )
 CAPABILITY_ENTRY_PROVENANCE_CLASS_CHECK = f"provenance_class_token IN ('{CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL}')"
+EXTENSION_INSTALL_BINDING_SCOPE_CHECK = (
+    f"scope_token IN ('{EXTENSION_INSTALL_BINDING_SCOPE_VALUES_SQL}')"
+)
+EXTENSION_INSTALL_BINDING_STATUS_CHECK = (
+    f"binding_status_token IN ('{EXTENSION_INSTALL_BINDING_STATUS_VALUES_SQL}')"
+)
+EXTENSION_INSTALL_BINDING_SCOPE_TARGET_CHECK = """
+(
+    scope_token <> 'project_scoped'
+    OR (
+        project_id IS NOT NULL
+        AND profile_id IS NULL
+        AND account_scope_target_id IS NULL
+    )
+)
+AND (
+    scope_token <> 'profile_scoped'
+    OR (
+        profile_id IS NOT NULL
+        AND project_id IS NULL
+        AND account_scope_target_id IS NULL
+    )
+)
+AND (
+    scope_token <> 'account_scoped'
+    OR (
+        account_scope_target_id IS NOT NULL
+        AND project_id IS NULL
+        AND profile_id IS NULL
+    )
+)
+""".strip()
 
 
 # =========================
@@ -2306,6 +2346,137 @@ class AgentExtensionRegistryEntry(Base):
             "ix_agent_extension_registry_entries_decision_created_at",
             "decision_id",
             "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentExtensionInstallBinding(Base):
+    """Durable scope binding for an approved registry entry."""
+
+    __tablename__ = "agent_extension_install_bindings"
+
+    binding_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    registry_entry_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "agent_extension_registry_entries.registry_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    proposal_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_extension_proposals.proposal_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="project_scoped"
+    )
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    account_scope_target_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    binding_status_token: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active"
+    )
+    bind_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bind_notes_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    bind_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    unbind_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    unbound_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            EXTENSION_INSTALL_BINDING_SCOPE_CHECK,
+            name="agent_extension_install_bindings_scope_check",
+        ),
+        CheckConstraint(
+            EXTENSION_INSTALL_BINDING_STATUS_CHECK,
+            name="agent_extension_install_bindings_status_check",
+        ),
+        CheckConstraint(
+            EXTENSION_INSTALL_BINDING_SCOPE_TARGET_CHECK,
+            name="agent_extension_install_bindings_scope_target_check",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_registry_created_at",
+            "registry_entry_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_scope_created_at",
+            "scope_token",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_project_created_at",
+            "project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_account_target_created_at",
+            "account_scope_target_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_status_created_at",
+            "binding_status_token",
+            "created_at",
+        ),
+        Index(
+            "uq_agent_extension_install_bindings_active_tuple",
+            "account_id",
+            "registry_entry_id",
+            "scope_token",
+            "project_id",
+            "profile_id",
+            "account_scope_target_id",
+            unique=True,
+            postgresql_where=text("binding_status_token = 'active'"),
+            sqlite_where=text("binding_status_token = 'active'"),
         ),
     )
 
