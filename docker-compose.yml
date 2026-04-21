@@ -257,7 +257,8 @@ services:
   # Persist CLI home so interactive login survives container restarts and both
   # backend + worker-chat can reuse the same local credential state.
   # Persist media/artifact storage on the host so uploaded/generated files do
-  # not disappear on image rebuilds or container replacement.
+  # not disappear on image rebuilds or container replacement. The storage code
+  # is pinned to the same canonical path via STORAGE_BASE_PATH=/app/data/media.
   backend:
     build:
       context: .
@@ -305,6 +306,7 @@ services:
       CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
       # Single-user dev default (used when identity fallback is enabled).
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+      STORAGE_BASE_PATH: /app/data/media
       NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
@@ -546,6 +548,7 @@ services:
       CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
       CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
       CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
+      STORAGE_BASE_PATH: /app/data/media
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
       HF_HUB_OFFLINE: "1"

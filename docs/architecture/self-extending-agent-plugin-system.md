@@ -2,7 +2,7 @@
 
 This note is the companion architecture reference for ADR-010. It explains the governed shape of Codexify's self-extending model without claiming runtime implementation.
 
-Implementation status: extension proposal persistence exists on the backend; sandbox execution, install/enable flows, runtime binding, and plugin execution do not.
+Implementation status: extension proposal persistence, manual install-gate decisions, capability registry entries, and scoped install binding persistence exist on the backend; sandbox execution, runtime activation/dispatch, and plugin execution do not.
 
 ## Purpose
 

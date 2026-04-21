@@ -127,6 +127,23 @@ export function getMobileTopNavRailStyle(
   mobileShellProfile: Pick<MobileShellProfile, "topNav">,
   gestureState?: Pick<MobileGestureState, "isPhoneShell" | "allowMomentumScroll">
 ): CSSProperties {
+  if (!mobileShellProfile.topNav.scrollable) {
+    return {
+      flex: "0 0 auto",
+      minWidth: 0,
+      display: "inline-flex",
+      alignItems: "center",
+      flexWrap: "nowrap",
+      gap: mobileShellProfile.topNav.railGap,
+      paddingInline: mobileShellProfile.topNav.railEdgePadding,
+      overflow: "hidden",
+      whiteSpace: "nowrap",
+      boxSizing: "border-box",
+      width: "fit-content",
+      maxWidth: "fit-content",
+    };
+  }
+
   return {
     flex: "1 1 auto",
     minWidth: 0,
