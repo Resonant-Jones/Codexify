@@ -25,15 +25,19 @@ describe("Persona Studio Page", () => {
 
     const shell = screen.getByTestId("persona-studio-shell");
     const editor = within(shell).getByTestId("persona-studio-editor");
+    const header = within(shell).getByTestId("persona-studio-shell-header");
     const supportSurfaces = within(shell).getByTestId("persona-studio-support-surfaces");
     const chatLane = within(shell).getByTestId("persona-studio-ephemeral-chat-lane");
     const harness = within(chatLane).getByTestId("persona-studio-ephemeral-chat-harness");
+    const configurationLane = within(shell).getByTestId("persona-studio-configuration-lane");
 
     expect(shell).toBeVisible();
+    expect(header).toBeVisible();
     expect(editor).toBeVisible();
     expect(supportSurfaces).toBeVisible();
     expect(chatLane).toBeVisible();
     expect(harness).toBeVisible();
+    expect(configurationLane).toHaveClass("lg:overflow-y-auto");
     expect(within(shell).queryByRole("button", { name: /hide utility pane/i })).not.toBeInTheDocument();
     expect(within(shell).getByTestId("persona-studio-utility-pane")).toBeVisible();
     expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
@@ -61,6 +65,8 @@ describe("Persona Studio Page", () => {
 
     expect(configurationLane).toBeVisible();
     expect(ephemeralLane).toBeVisible();
+    expect(within(shell).getByRole("heading", { name: /persona studio/i })).toBeVisible();
+    expect(within(shell).getByTestId("persona-studio-tabs")).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
     expect(harness).toBeVisible();
     expect(header).toBeVisible();
@@ -94,7 +100,9 @@ describe("Persona Studio Page", () => {
     expect(within(transcript).getByText(/^session transcript$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
-    expect(within(transcript).getAllByText(/^draft input$/i).length).toBeGreaterThan(0);
+    expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^turn 4$/i)).toBeVisible();
+    expect(within(transcript).getAllByText(/^user bubble$/i).length).toBeGreaterThan(0);
     expect(within(transcript).getAllByText(/^session preview block$/i).length).toBeGreaterThan(0);
     expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
     expect(within(transcript).getByText(/^summarize the plan$/i)).toBeVisible();
@@ -102,12 +110,14 @@ describe("Persona Studio Page", () => {
     expect(within(transcript).getAllByText(/current draft snapshot:/i)).toHaveLength(2);
     expect(within(transcript).getByText(/this is temporary turn 2 in the current studio session/i)).toBeVisible();
     expect(within(transcript).queryByText(/^ephemeral assistant$/i)).not.toBeInTheDocument();
-    expect(within(transcript).getAllByTestId("persona-studio-ephemeral-chat-turn-row")).toHaveLength(2);
+    expect(within(transcript).getAllByTestId("persona-studio-ephemeral-chat-turn-row")).toHaveLength(4);
+    expect(within(transcript).getAllByText(/^user bubble$/i)).toHaveLength(2);
+    expect(within(transcript).getAllByText(/^session preview block$/i)).toHaveLength(2);
     expect(
       within(transcript)
         .getAllByTestId("persona-studio-ephemeral-chat-turn-row")
-        .every((row) => row.getAttribute("data-message-layout") === "row")
-    ).toBe(true);
+        .map((row) => row.getAttribute("data-message-layout"))
+    ).toEqual(["user-bubble", "preview-block", "user-bubble", "preview-block"]);
   });
 
   it("keeps prior messages visible and changes later replies when the draft changes", async () => {
