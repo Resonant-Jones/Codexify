@@ -7,9 +7,14 @@ from datetime import datetime
 from typing import Any, Mapping
 
 from guardian.extensions.tokens import (
+    CapabilityEntryProvenanceClass,
+    InstallGateDecisionToken,
+    normalize_capability_entry_provenance_class,
+    normalize_capability_registry_status,
     normalize_extension_proposal_scope,
     normalize_extension_proposal_status,
     normalize_extension_target_surface,
+    normalize_install_gate_decision_token,
 )
 
 MANIFEST_VERSION = "extension-proposal-manifest.v1"
@@ -476,6 +481,295 @@ class ExtensionProposalRecord:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class InstallGateDecisionRecord:
+    """Durable manual install-gate decision record."""
+
+    decision_id: str
+    account_id: str
+    proposal_id: str
+    decision_token: str
+    reason: str | None = None
+    notes: dict[str, Any] = field(default_factory=dict)
+    requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
+    approved_permissions: tuple[ExtensionRequestedPermission, ...] = ()
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "decision_id", _clean_optional_text(self.decision_id) or ""
+        )
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "decision_token",
+            normalize_install_gate_decision_token(self.decision_token),
+        )
+        object.__setattr__(self, "reason", _clean_optional_text(self.reason))
+        object.__setattr__(self, "notes", _clean_mapping(self.notes))
+        object.__setattr__(
+            self,
+            "requested_permissions",
+            tuple(self.requested_permissions or ()),
+        )
+        object.__setattr__(
+            self,
+            "approved_permissions",
+            tuple(self.approved_permissions or ()),
+        )
+        if not self.decision_id:
+            raise ValueError("decision_id is required")
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        if not self.proposal_id:
+            raise ValueError("proposal_id is required")
+
+    @property
+    def is_approved(self) -> bool:
+        return self.decision_token == InstallGateDecisionToken.APPROVED.value
+
+    @property
+    def is_rejected(self) -> bool:
+        return self.decision_token == InstallGateDecisionToken.REJECTED.value
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "decision_id": self.decision_id,
+            "account_id": self.account_id,
+            "proposal_id": self.proposal_id,
+            "decision_token": self.decision_token,
+            "reason": self.reason,
+            "notes_json": dict(self.notes),
+            "requested_permissions_json": [
+                permission.to_payload()
+                for permission in self.requested_permissions
+            ],
+            "approved_permissions_json": [
+                permission.to_payload()
+                for permission in self.approved_permissions
+            ],
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any]
+    ) -> InstallGateDecisionRecord:
+        data = dict(payload)
+        requested_permissions = tuple(
+            ExtensionRequestedPermission.from_payload(item)
+            for item in data.get("requested_permissions_json") or []
+        )
+        approved_permissions = tuple(
+            ExtensionRequestedPermission.from_payload(item)
+            for item in data.get("approved_permissions_json") or []
+        )
+        notes = data.get("notes_json")
+        return cls(
+            decision_id=data.get("decision_id") or data.get("id") or "",
+            account_id=data.get("account_id") or "",
+            proposal_id=data.get("proposal_id") or "",
+            decision_token=data.get("decision_token")
+            or data.get("decision")
+            or "",
+            reason=data.get("reason"),
+            notes=_clean_mapping(notes) if isinstance(notes, Mapping) else {},
+            requested_permissions=requested_permissions,
+            approved_permissions=approved_permissions,
+            created_at=data.get("created_at"),
+            updated_at=data.get("updated_at"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityRegistryEntry:
+    """Durable registry record for an approved extension."""
+
+    registry_id: str
+    account_id: str
+    proposal_id: str
+    decision_id: str
+    status_token: str
+    manifest_snapshot: ExtensionProposalManifest
+    requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
+    approved_permissions: tuple[ExtensionRequestedPermission, ...] = ()
+    provenance_class_token: str = (
+        CapabilityEntryProvenanceClass.PROPOSAL_APPROVAL.value
+    )
+    registration_metadata: dict[str, Any] = field(default_factory=dict)
+    provenance_json: dict[str, Any] = field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "registry_id", _clean_optional_text(self.registry_id) or ""
+        )
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
+        )
+        object.__setattr__(
+            self, "decision_id", _clean_optional_text(self.decision_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "status_token",
+            normalize_capability_registry_status(self.status_token),
+        )
+        object.__setattr__(
+            self,
+            "provenance_class_token",
+            normalize_capability_entry_provenance_class(
+                self.provenance_class_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "requested_permissions",
+            tuple(self.requested_permissions or ()),
+        )
+        object.__setattr__(
+            self,
+            "approved_permissions",
+            tuple(self.approved_permissions or ()),
+        )
+        object.__setattr__(
+            self,
+            "registration_metadata",
+            _clean_mapping(self.registration_metadata),
+        )
+        object.__setattr__(
+            self, "provenance_json", _clean_mapping(self.provenance_json)
+        )
+        if not self.registry_id:
+            raise ValueError("registry_id is required")
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        if not self.proposal_id:
+            raise ValueError("proposal_id is required")
+        if not self.decision_id:
+            raise ValueError("decision_id is required")
+
+    @property
+    def target_surface(self) -> str:
+        return self.manifest_snapshot.target_surface
+
+    @property
+    def scope(self) -> str:
+        return self.manifest_snapshot.scope
+
+    @property
+    def project_id(self) -> int | None:
+        return self.manifest_snapshot.project_id
+
+    @property
+    def profile_id(self) -> str | None:
+        return self.manifest_snapshot.profile_id
+
+    @property
+    def source_thread_id(self) -> int | None:
+        return self.manifest_snapshot.source_thread_id
+
+    @property
+    def source_message_id(self) -> int | None:
+        return self.manifest_snapshot.source_message_id
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "registry_id": self.registry_id,
+            "account_id": self.account_id,
+            "proposal_id": self.proposal_id,
+            "decision_id": self.decision_id,
+            "status_token": self.status_token,
+            "target_surface_token": self.target_surface,
+            "scope_token": self.scope,
+            "project_id": self.project_id,
+            "profile_id": self.profile_id,
+            "source_thread_id": self.source_thread_id,
+            "source_message_id": self.source_message_id,
+            "requested_permissions_json": [
+                permission.to_payload()
+                for permission in self.requested_permissions
+            ],
+            "approved_permissions_json": [
+                permission.to_payload()
+                for permission in self.approved_permissions
+            ],
+            "manifest_snapshot_json": self.manifest_snapshot.to_payload(),
+            "registration_metadata_json": dict(self.registration_metadata),
+            "provenance_class_token": self.provenance_class_token,
+            "provenance_json": dict(self.provenance_json),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any]
+    ) -> CapabilityRegistryEntry:
+        data = dict(payload)
+        manifest_payload = data.get("manifest_snapshot_json")
+        if not isinstance(manifest_payload, Mapping):
+            manifest_payload = data.get("manifest_json")
+        if not isinstance(manifest_payload, Mapping):
+            manifest_payload = {
+                "target_surface": data.get("target_surface_token"),
+                "scope": data.get("scope_token"),
+                "source_thread_id": data.get("source_thread_id"),
+                "source_message_id": data.get("source_message_id"),
+                "project_id": data.get("project_id"),
+                "profile_id": data.get("profile_id"),
+                "requested_permissions": data.get("requested_permissions_json")
+                or [],
+                "declared_dependencies": [],
+            }
+        requested_permissions = tuple(
+            ExtensionRequestedPermission.from_payload(item)
+            for item in data.get("requested_permissions_json") or []
+        )
+        approved_permissions = tuple(
+            ExtensionRequestedPermission.from_payload(item)
+            for item in data.get("approved_permissions_json") or []
+        )
+        registration_metadata = data.get("registration_metadata_json")
+        provenance_json = data.get("provenance_json")
+        return cls(
+            registry_id=data.get("registry_id") or data.get("id") or "",
+            account_id=data.get("account_id") or "",
+            proposal_id=data.get("proposal_id") or "",
+            decision_id=data.get("decision_id") or "",
+            status_token=data.get("status_token") or data.get("status") or "",
+            manifest_snapshot=ExtensionProposalManifest.from_payload(
+                manifest_payload
+            ),
+            requested_permissions=requested_permissions,
+            approved_permissions=approved_permissions,
+            provenance_class_token=(
+                data.get("provenance_class_token")
+                or data.get("provenance_class")
+                or CapabilityEntryProvenanceClass.PROPOSAL_APPROVAL.value
+            ),
+            registration_metadata=_clean_mapping(registration_metadata)
+            if isinstance(registration_metadata, Mapping)
+            else {},
+            provenance_json=_clean_mapping(provenance_json)
+            if isinstance(provenance_json, Mapping)
+            else {},
+            created_at=data.get("created_at"),
+            updated_at=data.get("updated_at"),
+        )
+
+
 __all__ = [
     "MANIFEST_VERSION",
     "ExtensionRequestedPermission",
@@ -484,4 +778,6 @@ __all__ = [
     "ExtensionTestEvidenceMetadata",
     "ExtensionProposalManifest",
     "ExtensionProposalRecord",
+    "InstallGateDecisionRecord",
+    "CapabilityRegistryEntry",
 ]

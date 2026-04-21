@@ -421,6 +421,130 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
                 "updated_at": _utc("2026-03-14T01:00:00Z"),
             }
         ],
+        "extension_install_gate_decisions": [
+            {
+                "decision_id": "decision-1",
+                "account_id": USER_ID,
+                "proposal_id": "proposal-1",
+                "decision_token": "approved",
+                "reason": "manual approval",
+                "notes_json": {
+                    "reviewer": "alice",
+                    "note": "approved for testing",
+                },
+                "requested_permissions_json": [
+                    {
+                        "permission": "command.run",
+                        "resource": "command_bus",
+                        "reason": "bounded command execution",
+                        "metadata": {},
+                    }
+                ],
+                "approved_permissions_json": [
+                    {
+                        "permission": "command.run",
+                        "resource": "command_bus",
+                        "reason": "bounded command execution",
+                        "metadata": {},
+                    }
+                ],
+                "created_at": _utc("2026-03-14T02:00:00Z"),
+                "updated_at": _utc("2026-03-14T02:01:00Z"),
+            }
+        ],
+        "extension_registry_entries": [
+            {
+                "registry_id": "registry-1",
+                "account_id": USER_ID,
+                "proposal_id": "proposal-1",
+                "decision_id": "decision-1",
+                "project_id": 10,
+                "profile_id": "profile-a",
+                "source_thread_id": 101,
+                "source_message_id": 202,
+                "target_surface_token": "command_bus",
+                "scope_token": "project_scoped",
+                "status_token": "registered",
+                "requested_permissions_json": [
+                    {
+                        "permission": "command.run",
+                        "resource": "command_bus",
+                        "reason": "bounded command execution",
+                        "metadata": {},
+                    }
+                ],
+                "approved_permissions_json": [
+                    {
+                        "permission": "command.run",
+                        "resource": "command_bus",
+                        "reason": "bounded command execution",
+                        "metadata": {},
+                    }
+                ],
+                "manifest_snapshot_json": {
+                    "manifest_version": "extension-proposal-manifest.v1",
+                    "target_surface": "command_bus",
+                    "scope": "project_scoped",
+                    "source_thread_id": 101,
+                    "source_message_id": 202,
+                    "project_id": 10,
+                    "profile_id": "profile-a",
+                    "summary": "Generate a bounded tool plugin",
+                    "description": "Draft a tool proposal without executing it.",
+                    "requested_permissions": [
+                        {
+                            "permission": "command.run",
+                            "resource": "command_bus",
+                            "reason": "bounded command execution",
+                            "metadata": {},
+                        }
+                    ],
+                    "declared_dependencies": [
+                        {
+                            "name": "httpx",
+                            "version_spec": ">=0.28",
+                            "source": "pypi",
+                            "required": True,
+                            "metadata": {},
+                        }
+                    ],
+                    "rollback_metadata": {
+                        "strategy": "disable_and_revert",
+                        "rollback_ref": "ticket-123",
+                        "can_rollback": True,
+                        "metadata": {},
+                    },
+                    "test_evidence_metadata": {
+                        "status": "passing",
+                        "summary": "proposal draft coverage",
+                        "artifacts": ["tests/routes/test_account_restore.py"],
+                        "metadata": {},
+                    },
+                },
+                "registration_metadata_json": {
+                    "decision_id": "decision-1",
+                    "decision_token": "approved",
+                    "decision_reason": "manual approval",
+                    "decision_notes": {
+                        "reviewer": "alice",
+                        "note": "approved for testing",
+                    },
+                    "proposal_id": "proposal-1",
+                    "account_id": USER_ID,
+                },
+                "provenance_class_token": "proposal_approval",
+                "provenance_json": {
+                    "provenance_class": "proposal_approval",
+                    "proposal_id": "proposal-1",
+                    "decision_id": "decision-1",
+                    "source_thread_id": 101,
+                    "source_message_id": 202,
+                    "target_surface": "command_bus",
+                },
+                "created_at": _utc("2026-03-14T02:00:00Z"),
+                "updated_at": _utc("2026-03-14T02:01:00Z"),
+            }
+        ],
     }
 
 
@@ -665,6 +789,45 @@ class FakeAccountRestoreDB:
                 "updated_at",
             ),
         },
+        "extension_install_gate_decisions": {
+            "pk": "decision_id",
+            "columns": (
+                "decision_id",
+                "account_id",
+                "proposal_id",
+                "decision_token",
+                "reason",
+                "notes_json",
+                "requested_permissions_json",
+                "approved_permissions_json",
+                "created_at",
+                "updated_at",
+            ),
+        },
+        "extension_registry_entries": {
+            "pk": "registry_id",
+            "columns": (
+                "registry_id",
+                "account_id",
+                "proposal_id",
+                "decision_id",
+                "project_id",
+                "profile_id",
+                "source_thread_id",
+                "source_message_id",
+                "target_surface_token",
+                "scope_token",
+                "status_token",
+                "requested_permissions_json",
+                "approved_permissions_json",
+                "manifest_snapshot_json",
+                "registration_metadata_json",
+                "provenance_class_token",
+                "provenance_json",
+                "created_at",
+                "updated_at",
+            ),
+        },
     }
 
     def __init__(self) -> None:
@@ -785,6 +948,18 @@ class FakeAccountRestoreDB:
     def restore_account_export_extension_proposals(self, rows, *, conn=None):
         _ = conn
         return self._restore_family("extension_proposals", rows)
+
+    def restore_account_export_extension_install_gate_decisions(
+        self, rows, *, conn=None
+    ):
+        _ = conn
+        return self._restore_family("extension_install_gate_decisions", rows)
+
+    def restore_account_export_extension_registry_entries(
+        self, rows, *, conn=None
+    ):
+        _ = conn
+        return self._restore_family("extension_registry_entries", rows)
 
 
 @pytest.fixture

@@ -36,9 +36,12 @@ from guardian.core.capability_tokens import (
     CapabilityGrantStatus,
 )
 from guardian.extensions.tokens import (
+    CAPABILITY_ENTRY_PROVENANCE_CLASSES,
+    CAPABILITY_REGISTRY_STATUSES,
     EXTENSION_PROPOSAL_SCOPES,
     EXTENSION_PROPOSAL_STATUSES,
     EXTENSION_TARGET_SURFACES,
+    INSTALL_GATE_DECISION_TOKENS,
 )
 from guardian.protocol_tokens import (
     DelegationJobStatus,
@@ -105,6 +108,22 @@ EXTENSION_PROPOSAL_SCOPE_CHECK = (
 EXTENSION_PROPOSAL_STATUS_CHECK = (
     f"status_token IN ('{EXTENSION_PROPOSAL_STATUS_VALUES_SQL}')"
 )
+INSTALL_GATE_DECISION_VALUES_SQL = "','".join(
+    sorted(INSTALL_GATE_DECISION_TOKENS)
+)
+CAPABILITY_REGISTRY_STATUS_VALUES_SQL = "','".join(
+    sorted(CAPABILITY_REGISTRY_STATUSES)
+)
+CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL = "','".join(
+    sorted(CAPABILITY_ENTRY_PROVENANCE_CLASSES)
+)
+INSTALL_GATE_DECISION_CHECK = (
+    f"decision_token IN ('{INSTALL_GATE_DECISION_VALUES_SQL}')"
+)
+CAPABILITY_REGISTRY_STATUS_CHECK = (
+    f"status_token IN ('{CAPABILITY_REGISTRY_STATUS_VALUES_SQL}')"
+)
+CAPABILITY_ENTRY_PROVENANCE_CLASS_CHECK = f"provenance_class_token IN ('{CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL}')"
 
 
 # =========================
@@ -2091,6 +2110,201 @@ class AgentExtensionProposal(Base):
         Index(
             "ix_agent_extension_proposals_status_created_at",
             "status_token",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentExtensionInstallGateDecision(Base):
+    """Durable install-gate decision for an extension proposal."""
+
+    __tablename__ = "agent_extension_install_gate_decisions"
+
+    decision_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    proposal_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_extension_proposals.proposal_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    decision_token: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="approved"
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    requested_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    approved_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            INSTALL_GATE_DECISION_CHECK,
+            name="agent_extension_install_gate_decisions_decision_check",
+        ),
+        Index(
+            "ix_agent_extension_install_gate_decisions_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_gate_decisions_proposal_created_at",
+            "proposal_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_gate_decisions_decision_created_at",
+            "decision_token",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentExtensionRegistryEntry(Base):
+    """Durable registry entry for an approved extension."""
+
+    __tablename__ = "agent_extension_registry_entries"
+
+    registry_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    proposal_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_extension_proposals.proposal_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    decision_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "agent_extension_install_gate_decisions.decision_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    target_surface_token: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    scope_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="project_scoped"
+    )
+    status_token: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="registered"
+    )
+    requested_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    approved_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    manifest_snapshot_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    registration_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    provenance_class_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="proposal_approval"
+    )
+    provenance_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            EXTENSION_TARGET_SURFACE_CHECK,
+            name="agent_extension_registry_entries_target_surface_check",
+        ),
+        CheckConstraint(
+            EXTENSION_PROPOSAL_SCOPE_CHECK,
+            name="agent_extension_registry_entries_scope_check",
+        ),
+        CheckConstraint(
+            CAPABILITY_REGISTRY_STATUS_CHECK,
+            name="agent_extension_registry_entries_status_check",
+        ),
+        CheckConstraint(
+            CAPABILITY_ENTRY_PROVENANCE_CLASS_CHECK,
+            name="agent_extension_registry_entries_provenance_class_check",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_proposal_created_at",
+            "proposal_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_project_created_at",
+            "project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_status_created_at",
+            "status_token",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_decision_created_at",
+            "decision_id",
             "created_at",
         ),
     )

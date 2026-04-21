@@ -32,6 +32,28 @@ class ExtensionProposalStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class InstallGateDecisionToken(str, Enum):
+    """Canonical install-gate decisions."""
+
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class CapabilityRegistryStatus(str, Enum):
+    """Canonical registry lifecycle statuses."""
+
+    REGISTERED = "registered"
+    SUSPENDED = "suspended"
+    RETIRED = "retired"
+    ARCHIVED = "archived"
+
+
+class CapabilityEntryProvenanceClass(str, Enum):
+    """Canonical provenance classes for registry entries."""
+
+    PROPOSAL_APPROVAL = "proposal_approval"
+
+
 EXTENSION_TARGET_SURFACES: frozenset[str] = frozenset(
     surface.value for surface in ExtensionTargetSurface
 )
@@ -40,6 +62,15 @@ EXTENSION_PROPOSAL_SCOPES: frozenset[str] = frozenset(
 )
 EXTENSION_PROPOSAL_STATUSES: frozenset[str] = frozenset(
     status.value for status in ExtensionProposalStatus
+)
+INSTALL_GATE_DECISION_TOKENS: frozenset[str] = frozenset(
+    decision.value for decision in InstallGateDecisionToken
+)
+CAPABILITY_REGISTRY_STATUSES: frozenset[str] = frozenset(
+    status.value for status in CapabilityRegistryStatus
+)
+CAPABILITY_ENTRY_PROVENANCE_CLASSES: frozenset[str] = frozenset(
+    provenance.value for provenance in CapabilityEntryProvenanceClass
 )
 
 
@@ -74,15 +105,48 @@ def normalize_extension_proposal_status(value: str | None) -> str:
     )
 
 
+def normalize_install_gate_decision_token(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=INSTALL_GATE_DECISION_TOKENS,
+        kind="install_gate_decision",
+    )
+
+
+def normalize_capability_registry_status(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_REGISTRY_STATUSES,
+        kind="capability_registry_status",
+    )
+
+
+def normalize_capability_entry_provenance_class(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_ENTRY_PROVENANCE_CLASSES,
+        kind="capability_entry_provenance_class",
+    )
+
+
 __all__ = [
     "ExtensionTargetSurface",
     "ExtensionProposalScope",
     "ExtensionProposalStatus",
+    "InstallGateDecisionToken",
+    "CapabilityRegistryStatus",
+    "CapabilityEntryProvenanceClass",
     "ExtensionTokenError",
     "EXTENSION_TARGET_SURFACES",
     "EXTENSION_PROPOSAL_SCOPES",
     "EXTENSION_PROPOSAL_STATUSES",
+    "INSTALL_GATE_DECISION_TOKENS",
+    "CAPABILITY_REGISTRY_STATUSES",
+    "CAPABILITY_ENTRY_PROVENANCE_CLASSES",
     "normalize_extension_target_surface",
     "normalize_extension_proposal_scope",
     "normalize_extension_proposal_status",
+    "normalize_install_gate_decision_token",
+    "normalize_capability_registry_status",
+    "normalize_capability_entry_provenance_class",
 ]
