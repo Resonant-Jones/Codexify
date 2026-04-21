@@ -36,6 +36,8 @@ EXPECTED_PAYLOAD_FILES = [
     "entities/thread_documents.json",
     "entities/project_document_links.json",
     "entities/extension_proposals.json",
+    "entities/extension_install_gate_decisions.json",
+    "entities/extension_registry_entries.json",
 ]
 
 
@@ -430,6 +432,8 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
                 "updated_at": _utc("2026-03-14T01:00:00Z"),
             }
         ],
+        "extension_install_gate_decisions": [],
+        "extension_registry_entries": [],
     }
 
 

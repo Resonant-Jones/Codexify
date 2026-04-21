@@ -37,6 +37,8 @@ RESTORE_ORDER = (
     "thread_documents",
     "project_document_links",
     "extension_proposals",
+    "extension_install_gate_decisions",
+    "extension_registry_entries",
 )
 
 RESTORE_METHODS = {
@@ -494,6 +496,7 @@ class AccountRestoreService:
                 self._validate_relationships(
                     manifest=manifest,
                     payload_rows=payload_rows,
+                    user_id=manifest_user_id,
                 )
 
                 return ParsedArchive(
@@ -545,6 +548,7 @@ class AccountRestoreService:
         *,
         manifest: dict[str, Any],
         payload_rows: dict[str, list[dict[str, Any]]],
+        user_id: str,
     ) -> None:
         projects = self._index_rows(payload_rows["projects"], "id", manifest)
         threads = self._index_rows(payload_rows["chat_threads"], "id", manifest)
@@ -1029,6 +1033,230 @@ class AccountRestoreService:
                     details={"link_id": link_id, "document_id": document_id},
                 )
 
+        proposal_rows = self._index_rows(
+            payload_rows["extension_proposals"], "proposal_id", manifest
+        )
+        decision_rows = self._index_rows(
+            payload_rows["extension_install_gate_decisions"],
+            "decision_id",
+            manifest,
+        )
+        registry_rows = self._index_rows(
+            payload_rows["extension_registry_entries"],
+            "registry_id",
+            manifest,
+        )
+
+        for row in payload_rows["extension_proposals"]:
+            proposal_id = row.get("proposal_id")
+            account_id = str(row.get("account_id") or "").strip()
+            if not proposal_id or not account_id:
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_proposals rows require proposal_id and account_id",
+                    manifest=manifest,
+                    details={"proposal_id": proposal_id},
+                )
+            if account_id != user_id:
+                raise self._validation_error(
+                    "user_mismatch",
+                    "extension_proposals.account_id does not match the archive user",
+                    status_code=403,
+                    manifest=manifest,
+                    details={
+                        "proposal_id": proposal_id,
+                        "archive_user_id": user_id,
+                        "row_account_id": account_id,
+                    },
+                )
+
+        for row in payload_rows["extension_install_gate_decisions"]:
+            decision_id = row.get("decision_id")
+            proposal_id = row.get("proposal_id")
+            account_id = str(row.get("account_id") or "").strip()
+            decision_token = str(row.get("decision_token") or "").strip()
+            if not decision_id or not proposal_id or not account_id:
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_install_gate_decisions rows require decision_id, proposal_id, and account_id",
+                    manifest=manifest,
+                    details={"decision_id": decision_id},
+                )
+            if account_id != user_id:
+                raise self._validation_error(
+                    "user_mismatch",
+                    "extension_install_gate_decisions.account_id does not match the archive user",
+                    status_code=403,
+                    manifest=manifest,
+                    details={
+                        "decision_id": decision_id,
+                        "archive_user_id": user_id,
+                        "row_account_id": account_id,
+                    },
+                )
+            if decision_token not in {"approved", "rejected"}:
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_install_gate_decisions.decision_token is invalid",
+                    manifest=manifest,
+                    details={
+                        "decision_id": decision_id,
+                        "decision_token": decision_token,
+                    },
+                )
+            if proposal_id not in proposal_rows:
+                raise self._validation_error(
+                    "relationship_missing",
+                    "extension_install_gate_decisions.proposal_id does not reference a restored proposal",
+                    manifest=manifest,
+                    details={
+                        "decision_id": decision_id,
+                        "proposal_id": proposal_id,
+                    },
+                )
+            requested_permissions = row.get("requested_permissions_json")
+            approved_permissions = row.get("approved_permissions_json")
+            if not isinstance(requested_permissions, list) or not isinstance(
+                approved_permissions, list
+            ):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_install_gate_decisions permission snapshots must be arrays",
+                    manifest=manifest,
+                    details={"decision_id": decision_id},
+                )
+
+        for row in payload_rows["extension_registry_entries"]:
+            registry_id = row.get("registry_id")
+            proposal_id = row.get("proposal_id")
+            decision_id = row.get("decision_id")
+            account_id = str(row.get("account_id") or "").strip()
+            status_token = str(row.get("status_token") or "").strip()
+            target_surface = str(row.get("target_surface_token") or "").strip()
+            scope_token = str(row.get("scope_token") or "").strip()
+            manifest_snapshot = row.get("manifest_snapshot_json")
+            requested_permissions = row.get("requested_permissions_json")
+            approved_permissions = row.get("approved_permissions_json")
+            registration_metadata = row.get("registration_metadata_json")
+            provenance_json = row.get("provenance_json")
+            provenance_class = str(
+                row.get("provenance_class_token") or ""
+            ).strip()
+            if (
+                not registry_id
+                or not proposal_id
+                or not decision_id
+                or not account_id
+            ):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_registry_entries rows require registry_id, proposal_id, decision_id, and account_id",
+                    manifest=manifest,
+                    details={"registry_id": registry_id},
+                )
+            if account_id != user_id:
+                raise self._validation_error(
+                    "user_mismatch",
+                    "extension_registry_entries.account_id does not match the archive user",
+                    status_code=403,
+                    manifest=manifest,
+                    details={
+                        "registry_id": registry_id,
+                        "archive_user_id": user_id,
+                        "row_account_id": account_id,
+                    },
+                )
+            if status_token not in {
+                "registered",
+                "suspended",
+                "retired",
+                "archived",
+            }:
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_registry_entries.status_token is invalid",
+                    manifest=manifest,
+                    details={
+                        "registry_id": registry_id,
+                        "status_token": status_token,
+                    },
+                )
+            if provenance_class not in {"proposal_approval"}:
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_registry_entries.provenance_class_token is invalid",
+                    manifest=manifest,
+                    details={
+                        "registry_id": registry_id,
+                        "provenance_class_token": provenance_class,
+                    },
+                )
+            if proposal_id not in proposal_rows:
+                raise self._validation_error(
+                    "relationship_missing",
+                    "extension_registry_entries.proposal_id does not reference a restored proposal",
+                    manifest=manifest,
+                    details={
+                        "registry_id": registry_id,
+                        "proposal_id": proposal_id,
+                    },
+                )
+            if decision_id not in decision_rows:
+                raise self._validation_error(
+                    "relationship_missing",
+                    "extension_registry_entries.decision_id does not reference a restored decision",
+                    manifest=manifest,
+                    details={
+                        "registry_id": registry_id,
+                        "decision_id": decision_id,
+                    },
+                )
+            if decision_rows[decision_id].get("proposal_id") != proposal_id:
+                raise self._validation_error(
+                    "relationship_missing",
+                    "extension_registry_entries.decision_id does not match the proposed extension",
+                    manifest=manifest,
+                    details={
+                        "registry_id": registry_id,
+                        "decision_id": decision_id,
+                        "proposal_id": proposal_id,
+                    },
+                )
+            if manifest_snapshot is None or not isinstance(
+                manifest_snapshot, dict
+            ):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_registry_entries.manifest_snapshot_json must be an object",
+                    manifest=manifest,
+                    details={"registry_id": registry_id},
+                )
+            if not isinstance(requested_permissions, list) or not isinstance(
+                approved_permissions, list
+            ):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_registry_entries permission snapshots must be arrays",
+                    manifest=manifest,
+                    details={"registry_id": registry_id},
+                )
+            if not isinstance(registration_metadata, dict) or not isinstance(
+                provenance_json, dict
+            ):
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_registry_entries metadata payloads must be objects",
+                    manifest=manifest,
+                    details={"registry_id": registry_id},
+                )
+            if not target_surface or not scope_token:
+                raise self._validation_error(
+                    "payload_invalid",
+                    "extension_registry_entries require target_surface_token and scope_token",
+                    manifest=manifest,
+                    details={"registry_id": registry_id},
+                )
+
     def _index_rows(
         self,
         rows: list[dict[str, Any]],
@@ -1186,6 +1414,12 @@ class AccountRestoreService:
             ),
             "extension_proposals": self._sort_extension_proposals(
                 parsed.payload_rows["extension_proposals"]
+            ),
+            "extension_install_gate_decisions": self._sort_extension_install_gate_decisions(
+                parsed.payload_rows["extension_install_gate_decisions"]
+            ),
+            "extension_registry_entries": self._sort_extension_registry_entries(
+                parsed.payload_rows["extension_registry_entries"]
             ),
         }
 
@@ -1432,6 +1666,28 @@ class AccountRestoreService:
             key=lambda row: (
                 _sort_text(row.get("created_at")),
                 _sort_text(row.get("proposal_id") or row.get("id")),
+            ),
+        )
+
+    def _sort_extension_install_gate_decisions(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return sorted(
+            rows,
+            key=lambda row: (
+                _sort_text(row.get("created_at")),
+                _sort_text(row.get("decision_id") or row.get("id")),
+            ),
+        )
+
+    def _sort_extension_registry_entries(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return sorted(
+            rows,
+            key=lambda row: (
+                _sort_text(row.get("created_at")),
+                _sort_text(row.get("registry_id") or row.get("id")),
             ),
         )
 

@@ -87,6 +87,16 @@ PAYLOAD_ORDER = (
         "entities/extension_proposals.json",
         "fetch_account_export_extension_proposals_for_user",
     ),
+    (
+        "extension_install_gate_decisions",
+        "entities/extension_install_gate_decisions.json",
+        "fetch_account_export_extension_install_gate_decisions_for_user",
+    ),
+    (
+        "extension_registry_entries",
+        "entities/extension_registry_entries.json",
+        "fetch_account_export_extension_registry_entries_for_user",
+    ),
 )
 
 PAYLOAD_FAMILIES = tuple(entry[0] for entry in PAYLOAD_ORDER)
