@@ -38,6 +38,7 @@ EXPECTED_PAYLOAD_FILES = [
     "entities/extension_proposals.json",
     "entities/extension_install_gate_decisions.json",
     "entities/extension_registry_entries.json",
+    "entities/extension_install_bindings.json",
 ]
 
 
@@ -434,6 +435,7 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
         ],
         "extension_install_gate_decisions": [],
         "extension_registry_entries": [],
+        "extension_install_bindings": [],
     }
 
 

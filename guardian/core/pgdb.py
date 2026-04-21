@@ -3201,6 +3201,44 @@ class PgDB(ChatDB):
             ),
         )
 
+    def restore_account_export_extension_install_bindings(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="agent_extension_install_bindings",
+            pk_column="binding_id",
+            columns=(
+                "binding_id",
+                "account_id",
+                "registry_entry_id",
+                "proposal_id",
+                "scope_token",
+                "project_id",
+                "profile_id",
+                "account_scope_target_id",
+                "binding_status_token",
+                "bind_reason",
+                "bind_notes_json",
+                "bind_metadata_json",
+                "unbind_metadata_json",
+                "source_thread_id",
+                "source_message_id",
+                "created_at",
+                "updated_at",
+                "unbound_at",
+            ),
+            rows=rows,
+            conn=conn,
+            json_columns=(
+                "bind_notes_json",
+                "bind_metadata_json",
+                "unbind_metadata_json",
+            ),
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -3434,6 +3472,11 @@ PAYLOAD_ORDER = (
         "extension_registry_entries",
         "entities/extension_registry_entries.json",
         "fetch_account_export_extension_registry_entries_for_user",
+    ),
+    (
+        "extension_install_bindings",
+        "entities/extension_install_bindings.json",
+        "fetch_account_export_extension_install_bindings_for_user",
     ),
 )
 
@@ -4658,6 +4701,23 @@ def fetch_account_export_bundle_for_user(
                 (user_id,),
             )
 
+            bundles["extension_install_bindings"] = _export_rows(
+                cur,
+                """
+                SELECT
+                    binding_id, account_id, registry_entry_id, proposal_id,
+                    scope_token, project_id, profile_id,
+                    account_scope_target_id, binding_status_token,
+                    bind_reason, bind_notes_json, bind_metadata_json,
+                    unbind_metadata_json, source_thread_id,
+                    source_message_id, created_at, updated_at, unbound_at
+                FROM agent_extension_install_bindings
+                WHERE account_id = %s
+                ORDER BY created_at ASC, binding_id ASC
+                """,
+                (user_id,),
+            )
+
             bundles["projects"] = (
                 _export_rows(
                     cur,
@@ -4782,6 +4842,12 @@ def fetch_account_export_extension_registry_entries_for_user(
     return _bundle_family_rows(user_id, "extension_registry_entries")
 
 
+def fetch_account_export_extension_install_bindings_for_user(
+    user_id: str,
+) -> list[dict[str, Any]]:
+    return _bundle_family_rows(user_id, "extension_install_bindings")
+
+
 def iter_account_export_payloads_for_user(
     user_id: str,
 ):
@@ -4856,6 +4922,11 @@ def iter_account_export_payloads_for_user(
             "extension_registry_entries",
             "entities/extension_registry_entries.json",
             "fetch_account_export_extension_registry_entries_for_user",
+        ),
+        (
+            "extension_install_bindings",
+            "entities/extension_install_bindings.json",
+            "fetch_account_export_extension_install_bindings_for_user",
         ),
     ):
         yield family, path, bundle.get(family, [])

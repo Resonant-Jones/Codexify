@@ -545,6 +545,7 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
                 "updated_at": _utc("2026-03-14T02:01:00Z"),
             }
         ],
+        "extension_install_bindings": [],
     }
 
 
@@ -828,6 +829,29 @@ class FakeAccountRestoreDB:
                 "updated_at",
             ),
         },
+        "extension_install_bindings": {
+            "pk": "binding_id",
+            "columns": (
+                "binding_id",
+                "account_id",
+                "registry_entry_id",
+                "proposal_id",
+                "scope_token",
+                "project_id",
+                "profile_id",
+                "account_scope_target_id",
+                "binding_status_token",
+                "bind_reason",
+                "bind_notes_json",
+                "bind_metadata_json",
+                "unbind_metadata_json",
+                "source_thread_id",
+                "source_message_id",
+                "created_at",
+                "updated_at",
+                "unbound_at",
+            ),
+        },
     }
 
     def __init__(self) -> None:
@@ -960,6 +984,12 @@ class FakeAccountRestoreDB:
     ):
         _ = conn
         return self._restore_family("extension_registry_entries", rows)
+
+    def restore_account_export_extension_install_bindings(
+        self, rows, *, conn=None
+    ):
+        _ = conn
+        return self._restore_family("extension_install_bindings", rows)
 
 
 @pytest.fixture

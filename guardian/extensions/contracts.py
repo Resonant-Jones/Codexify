@@ -1,4 +1,4 @@
-"""Typed contracts for extension proposal persistence."""
+"""Typed contracts for extension persistence."""
 
 from __future__ import annotations
 
@@ -8,9 +8,14 @@ from typing import Any, Mapping
 
 from guardian.extensions.tokens import (
     CapabilityEntryProvenanceClass,
+    CapabilityRegistryStatus,
+    ExtensionInstallBindingScope,
+    ExtensionInstallBindingStatus,
     InstallGateDecisionToken,
     normalize_capability_entry_provenance_class,
     normalize_capability_registry_status,
+    normalize_extension_install_binding_scope,
+    normalize_extension_install_binding_status,
     normalize_extension_proposal_scope,
     normalize_extension_proposal_status,
     normalize_extension_target_surface,
@@ -684,6 +689,14 @@ class CapabilityRegistryEntry:
     def source_message_id(self) -> int | None:
         return self.manifest_snapshot.source_message_id
 
+    @property
+    def is_registered(self) -> bool:
+        return self.status_token == CapabilityRegistryStatus.REGISTERED.value
+
+    @property
+    def is_suspended(self) -> bool:
+        return self.status_token == CapabilityRegistryStatus.SUSPENDED.value
+
     def to_payload(self) -> dict[str, Any]:
         return {
             "registry_id": self.registry_id,
@@ -770,6 +783,311 @@ class CapabilityRegistryEntry:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ExtensionInstallBinding:
+    """Request contract for binding an approved registry entry to a scope."""
+
+    account_id: str
+    registry_entry_id: str
+    scope_token: str
+    project_id: int | None = None
+    profile_id: str | None = None
+    account_scope_target_id: str | None = None
+    bind_reason: str | None = None
+    bind_notes: dict[str, Any] = field(default_factory=dict)
+    bind_metadata: dict[str, Any] = field(default_factory=dict)
+    source_thread_id: int | None = None
+    source_message_id: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "registry_entry_id",
+            _clean_optional_text(self.registry_entry_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "scope_token",
+            normalize_extension_install_binding_scope(self.scope_token),
+        )
+        object.__setattr__(
+            self, "bind_reason", _clean_optional_text(self.bind_reason)
+        )
+        object.__setattr__(self, "bind_notes", _clean_mapping(self.bind_notes))
+        object.__setattr__(
+            self, "bind_metadata", _clean_mapping(self.bind_metadata)
+        )
+        object.__setattr__(
+            self,
+            "profile_id",
+            _clean_optional_text(self.profile_id),
+        )
+        object.__setattr__(
+            self,
+            "account_scope_target_id",
+            _clean_optional_text(self.account_scope_target_id),
+        )
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        if not self.registry_entry_id:
+            raise ValueError("registry_entry_id is required")
+        if self.scope_token == ExtensionInstallBindingScope.PROJECT.value:
+            if self.project_id is None:
+                raise ValueError("project_id is required for project bindings")
+            if (
+                self.profile_id is not None
+                or self.account_scope_target_id is not None
+            ):
+                raise ValueError(
+                    "project bindings must not carry profile or account targets"
+                )
+        elif self.scope_token == ExtensionInstallBindingScope.PROFILE.value:
+            if not self.profile_id:
+                raise ValueError("profile_id is required for profile bindings")
+            if (
+                self.project_id is not None
+                or self.account_scope_target_id is not None
+            ):
+                raise ValueError(
+                    "profile bindings must not carry project or account targets"
+                )
+        elif self.scope_token == ExtensionInstallBindingScope.ACCOUNT.value:
+            if not self.account_scope_target_id:
+                raise ValueError(
+                    "account_scope_target_id is required for account bindings"
+                )
+            if self.project_id is not None or self.profile_id is not None:
+                raise ValueError(
+                    "account bindings must not carry project or profile targets"
+                )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "registry_entry_id": self.registry_entry_id,
+            "scope_token": self.scope_token,
+            "project_id": self.project_id,
+            "profile_id": self.profile_id,
+            "account_scope_target_id": self.account_scope_target_id,
+            "bind_reason": self.bind_reason,
+            "bind_notes_json": dict(self.bind_notes),
+            "bind_metadata_json": dict(self.bind_metadata),
+            "source_thread_id": self.source_thread_id,
+            "source_message_id": self.source_message_id,
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> ExtensionInstallBinding:
+        data = dict(payload or {})
+        bind_notes = data.get("bind_notes_json")
+        bind_metadata = data.get("bind_metadata_json")
+        return cls(
+            account_id=data.get("account_id") or "",
+            registry_entry_id=data.get("registry_entry_id") or "",
+            scope_token=data.get("scope_token") or "",
+            project_id=data.get("project_id"),
+            profile_id=data.get("profile_id"),
+            account_scope_target_id=data.get("account_scope_target_id"),
+            bind_reason=data.get("bind_reason"),
+            bind_notes=_clean_mapping(bind_notes)
+            if isinstance(bind_notes, Mapping)
+            else {},
+            bind_metadata=_clean_mapping(bind_metadata)
+            if isinstance(bind_metadata, Mapping)
+            else {},
+            source_thread_id=data.get("source_thread_id"),
+            source_message_id=data.get("source_message_id"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionBindingRecord:
+    """Durable install-binding row with explicit scope and lineage."""
+
+    binding_id: str
+    account_id: str
+    registry_entry_id: str
+    proposal_id: str
+    scope_token: str
+    project_id: int | None = None
+    profile_id: str | None = None
+    account_scope_target_id: str | None = None
+    binding_status_token: str = "active"
+    bind_reason: str | None = None
+    bind_notes: dict[str, Any] = field(default_factory=dict)
+    bind_metadata: dict[str, Any] = field(default_factory=dict)
+    unbind_metadata: dict[str, Any] = field(default_factory=dict)
+    source_thread_id: int | None = None
+    source_message_id: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    unbound_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "binding_id", _clean_optional_text(self.binding_id) or ""
+        )
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "registry_entry_id",
+            _clean_optional_text(self.registry_entry_id) or "",
+        )
+        object.__setattr__(
+            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "scope_token",
+            normalize_extension_install_binding_scope(self.scope_token),
+        )
+        object.__setattr__(
+            self,
+            "binding_status_token",
+            normalize_extension_install_binding_status(
+                self.binding_status_token
+            ),
+        )
+        object.__setattr__(
+            self, "bind_reason", _clean_optional_text(self.bind_reason)
+        )
+        object.__setattr__(self, "bind_notes", _clean_mapping(self.bind_notes))
+        object.__setattr__(
+            self, "bind_metadata", _clean_mapping(self.bind_metadata)
+        )
+        object.__setattr__(
+            self, "unbind_metadata", _clean_mapping(self.unbind_metadata)
+        )
+        object.__setattr__(
+            self,
+            "profile_id",
+            _clean_optional_text(self.profile_id),
+        )
+        object.__setattr__(
+            self,
+            "account_scope_target_id",
+            _clean_optional_text(self.account_scope_target_id),
+        )
+        if not self.binding_id:
+            raise ValueError("binding_id is required")
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        if not self.registry_entry_id:
+            raise ValueError("registry_entry_id is required")
+        if not self.proposal_id:
+            raise ValueError("proposal_id is required")
+        if self.scope_token == "project_scoped":
+            if self.project_id is None:
+                raise ValueError("project_id is required for project bindings")
+            if (
+                self.profile_id is not None
+                or self.account_scope_target_id is not None
+            ):
+                raise ValueError(
+                    "project bindings must not carry profile or account targets"
+                )
+        elif self.scope_token == "profile_scoped":
+            if not self.profile_id:
+                raise ValueError("profile_id is required for profile bindings")
+            if (
+                self.project_id is not None
+                or self.account_scope_target_id is not None
+            ):
+                raise ValueError(
+                    "profile bindings must not carry project or account targets"
+                )
+        elif self.scope_token == "account_scoped":
+            if not self.account_scope_target_id:
+                raise ValueError(
+                    "account_scope_target_id is required for account bindings"
+                )
+            if self.project_id is not None or self.profile_id is not None:
+                raise ValueError(
+                    "account bindings must not carry project or profile targets"
+                )
+
+    @property
+    def is_active(self) -> bool:
+        return (
+            self.binding_status_token
+            == ExtensionInstallBindingStatus.ACTIVE.value
+        )
+
+    @property
+    def is_unbound(self) -> bool:
+        return (
+            self.binding_status_token
+            == ExtensionInstallBindingStatus.UNBOUND.value
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "binding_id": self.binding_id,
+            "account_id": self.account_id,
+            "registry_entry_id": self.registry_entry_id,
+            "proposal_id": self.proposal_id,
+            "scope_token": self.scope_token,
+            "project_id": self.project_id,
+            "profile_id": self.profile_id,
+            "account_scope_target_id": self.account_scope_target_id,
+            "binding_status_token": self.binding_status_token,
+            "bind_reason": self.bind_reason,
+            "bind_notes_json": dict(self.bind_notes),
+            "bind_metadata_json": dict(self.bind_metadata),
+            "unbind_metadata_json": dict(self.unbind_metadata),
+            "source_thread_id": self.source_thread_id,
+            "source_message_id": self.source_message_id,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "unbound_at": self.unbound_at,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> ExtensionBindingRecord:
+        data = dict(payload)
+        bind_notes = data.get("bind_notes_json")
+        bind_metadata = data.get("bind_metadata_json")
+        unbind_metadata = data.get("unbind_metadata_json")
+        return cls(
+            binding_id=data.get("binding_id") or data.get("id") or "",
+            account_id=data.get("account_id") or "",
+            registry_entry_id=data.get("registry_entry_id") or "",
+            proposal_id=data.get("proposal_id") or "",
+            scope_token=data.get("scope_token") or "",
+            project_id=data.get("project_id"),
+            profile_id=data.get("profile_id"),
+            account_scope_target_id=data.get("account_scope_target_id"),
+            binding_status_token=(
+                data.get("binding_status_token")
+                or data.get("status_token")
+                or data.get("status")
+                or ""
+            ),
+            bind_reason=data.get("bind_reason"),
+            bind_notes=_clean_mapping(bind_notes)
+            if isinstance(bind_notes, Mapping)
+            else {},
+            bind_metadata=_clean_mapping(bind_metadata)
+            if isinstance(bind_metadata, Mapping)
+            else {},
+            unbind_metadata=_clean_mapping(unbind_metadata)
+            if isinstance(unbind_metadata, Mapping)
+            else {},
+            source_thread_id=data.get("source_thread_id"),
+            source_message_id=data.get("source_message_id"),
+            created_at=data.get("created_at"),
+            updated_at=data.get("updated_at"),
+            unbound_at=data.get("unbound_at"),
+        )
+
+
 __all__ = [
     "MANIFEST_VERSION",
     "ExtensionRequestedPermission",
@@ -780,4 +1098,6 @@ __all__ = [
     "ExtensionProposalRecord",
     "InstallGateDecisionRecord",
     "CapabilityRegistryEntry",
+    "ExtensionInstallBinding",
+    "ExtensionBindingRecord",
 ]
