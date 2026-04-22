@@ -1228,10 +1228,7 @@ export function SettingsView({
                 </p>
               </div>
               <ImprintReviewPanel />
-              <div className="grid gap-[var(--shell-gap)] xl:grid-cols-2">
-                <PersonalFactsPanel />
-                <SystemPromptInspector />
-              </div>
+              <SystemPromptInspector />
             </SettingsSectionCard>
           </SettingsSectionCard>
         )}
