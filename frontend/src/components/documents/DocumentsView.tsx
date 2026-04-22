@@ -234,11 +234,21 @@ export default function DocumentsView({
   ]);
 
   const documentsLayoutMode = isPhoneShell ? "mobile_list" : "desktop_grid";
+  const documentsRootStyle: React.CSSProperties = isPhoneShell
+    ? { padding: documentsCardPadding }
+    : {
+        padding: documentsCardPadding,
+        flex: "3 1 0%",
+        flexBasis: "74%",
+        minWidth: "clamp(28rem, 54vw, 72rem)",
+        maxWidth: "78%",
+        alignSelf: "stretch",
+      };
 
   return (
     <section
       className="flex h-full w-full min-h-0 flex-col gap-[var(--shell-gap)]"
-      style={{ padding: documentsCardPadding }}
+      style={documentsRootStyle}
       data-documents-layout={documentsLayoutMode}
       data-testid="documents-layout"
     >
@@ -256,24 +266,34 @@ export default function DocumentsView({
           Documents
         </h2>
         <div
-          className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : ""}`}
-          style={surfaceActionClusterStyle}
+          style={{
+            padding: 6,
+            boxSizing: "border-box",
+            width: isPhoneShell ? "100%" : undefined,
+            display: isPhoneShell ? "block" : "inline-flex",
+            alignSelf: isPhoneShell ? "stretch" : "flex-start",
+          }}
         >
-          {scopePills.map(({ key, label, disabled }) => (
-            <button
-              key={key}
-              type="button"
-              className="pill-tab text-xs"
-              data-state={documentScope === key ? "active" : undefined}
-              disabled={disabled}
-              onClick={() => {
-                if (disabled) return;
-                onDocumentScopeChange?.(key);
-              }}
-            >
-              {label}
-            </button>
-          ))}
+          <div
+            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : ""}`}
+            style={surfaceActionClusterStyle}
+          >
+            {scopePills.map(({ key, label, disabled }) => (
+              <button
+                key={key}
+                type="button"
+                className="pill-tab text-xs"
+                data-state={documentScope === key ? "active" : undefined}
+                disabled={disabled}
+                onClick={() => {
+                  if (disabled) return;
+                  onDocumentScopeChange?.(key);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
