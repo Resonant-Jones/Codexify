@@ -1,14 +1,14 @@
-import React, { useMemo } from "react";
 import { BookOpen, ChevronRight, FileText } from "lucide-react";
+import React, { useMemo } from "react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
-import useUploader from "@/hooks/useUploader";
-import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
-import TileShell from "@/components/surface/TileShell";
-import { DocumentLike, type DocumentScope } from "@/types/documents";
-import { ExtColors } from "@/types/ui";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useShellViewportProfile } from "@/components/persona/layout/shellBreakpointContract";
+import TileShell from "@/components/surface/TileShell";
+import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
+import useUploader from "@/hooks/useUploader";
+import { DocumentLike, type DocumentScope } from "@/types/documents";
+import { ExtColors } from "@/types/ui";
 
 interface DocumentsViewProps {
   documents: DocumentLike[];
@@ -30,6 +30,20 @@ type MobileDocumentRowProps = {
   doc: DocumentLike;
   extColors: ExtColors;
   onClick: () => void;
+};
+
+type DocumentUploadItem = {
+  id?: string | number;
+  name?: string;
+  title?: string;
+  filename?: string;
+  ext?: string;
+  extension?: string;
+  project_id?: number | string | null;
+  projectId?: number | string | null;
+  thread_id?: number | string | null;
+  threadId?: number | string | null;
+  [key: string]: unknown;
 };
 
 function MobileDocumentRow({
@@ -140,27 +154,31 @@ export default function DocumentsView({
     tag: "upload",
     projectId: defaultProjectId ?? undefined,
     onImages: () => {},
-    onDocuments: (items) => {
-      const normalized = (items || []).map((item: any, idx: number) => ({
+    onDocuments: (items: DocumentUploadItem[]) => {
+      const normalized = items.map((item, idx: number) => ({
         ...item,
-        id: item?.id || item?.name || `upload-${idx}`,
-        name: item?.name || item?.title || item?.filename || "Untitled",
-        title: item?.title || item?.name || item?.filename || "Untitled",
-        ext: item?.ext || item?.extension || "md",
+        id: item.id || item.name || `upload-${idx}`,
+        name: item.name || item.title || item.filename || "Untitled",
+        title: item.title || item.name || item.filename || "Untitled",
+        ext: item.ext || item.extension || "md",
         type: "file",
-        projectId: item?.project_id ?? item?.projectId,
-        threadId: item?.thread_id ?? item?.threadId ?? null,
+        projectId: item.project_id ?? item.projectId,
+        threadId: item.thread_id ?? item.threadId ?? null,
       }));
       try {
         window.dispatchEvent(
           new CustomEvent("cfy:documents:add", { detail: { items: normalized } })
         );
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     },
     onAnyUpload: () => {
       try {
         localStorage.setItem("cfy.hasUserUpload", "true");
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     },
   });
 
