@@ -5,6 +5,7 @@ import {
   fireEvent,
   waitFor,
   act,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -386,11 +387,9 @@ describe("AppShell logo wordmark color contract", () => {
   it("keeps the prior Guardian route reachable from Flow Builder even after the draft fields take focus", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "guardian");
-    setRouteThread(123);
+    setRoutePath("/flow-builder?mode=expertise");
 
     render(<AppShell />);
-
-    await user.click(screen.getByRole("button", { name: "Flow Builder" }));
 
     await user.click(await screen.findByTestId("flow-builder-mode-expertise"));
 
@@ -400,7 +399,7 @@ describe("AppShell logo wordmark color contract", () => {
     await user.click(screen.getByTestId("flow-builder-return-guardian"));
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/chat/123");
+      expect(window.location.pathname).toBe("/chat");
     });
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
   });
@@ -426,7 +425,7 @@ describe("AppShell settings utility trigger", () => {
     vi.clearAllMocks();
   });
 
-  it("moves Settings into the utility rail and opens the existing settings surface", async () => {
+  it("hides unfinished beta surfaces from the visible primary nav", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "dashboard");
 
@@ -439,6 +438,10 @@ describe("AppShell settings utility trigger", () => {
       gridColumn: "1",
       justifySelf: "start",
     });
+    expect(screen.getByTestId("app-shell-top-nav-rail")).toHaveStyle({
+      flex: "0 0 auto",
+      width: "fit-content",
+    });
     expect(screen.getByTestId("app-shell-utility-cluster")).toHaveStyle({
       gridColumn: "3",
       justifySelf: "end",
@@ -449,6 +452,13 @@ describe("AppShell settings utility trigger", () => {
       "w-fit",
       "max-w-full"
     );
+    const primaryNav = within(screen.getByTestId("app-shell-top-nav"));
+    expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Persona Studio" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("settings-utility-toggle"));
@@ -720,6 +730,43 @@ describe("AppShell workspace drawer shell", () => {
       });
     }
   );
+
+  it("keeps the documents workspace drawer right-anchored as its posture expands", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "documents");
+
+    render(<AppShell />);
+
+    const toggle = screen.getByTestId("workspace-drawer-toggle");
+    fireEvent.click(toggle);
+
+    const drawer = await screen.findByTestId("workspace-drawer");
+    const drawerPane = screen.getByTestId("workspace-drawer-pane");
+    const primaryPane = screen.getByTestId("workspace-primary-pane");
+    const posture = screen.getByTestId("workspace-drawer-posture");
+
+    expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "chat_focus"
+    );
+    expect(readPaneBasis(primaryPane)).toBeGreaterThan(readPaneBasis(drawerPane));
+
+    await user.click(posture);
+
+    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
+    expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "balanced_split"
+    );
+
+    await user.click(posture);
+
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+    expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
+    expect(readPaneBasis(drawerPane)).toBeGreaterThan(readPaneBasis(primaryPane));
+  });
 
   it("keeps the mobile workspace summon explicit and opens the drawer as an overlay", async () => {
     const user = userEvent.setup();

@@ -2,7 +2,6 @@ import React, { useMemo } from "react";
 import { BookOpen, ChevronRight, FileText } from "lucide-react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
-import FrameCard from "@/components/surface/FrameCard";
 import useUploader from "@/hooks/useUploader";
 import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 import TileShell from "@/components/surface/TileShell";
@@ -114,7 +113,7 @@ function MobileDocumentRow({
  * DocumentsView
  *
  * Structure:
- * - FrameCard wrapper (glass + bezel)
+ * - Shell-free inner layout
  *   - Header (title + scope pill)
  *   - Content area (scrollable grid of documents)
  *   - Footer (upload UI + controls)
@@ -235,134 +234,144 @@ export default function DocumentsView({
   ]);
 
   const documentsLayoutMode = isPhoneShell ? "mobile_list" : "desktop_grid";
+  const documentsRootStyle: React.CSSProperties = isPhoneShell
+    ? { padding: documentsCardPadding }
+    : {
+        padding: documentsCardPadding,
+        flex: "3 1 0%",
+        flexBasis: "74%",
+        minWidth: "clamp(28rem, 54vw, 72rem)",
+        maxWidth: "78%",
+        alignSelf: "stretch",
+      };
 
   return (
     <section
-      className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+      className="flex h-full w-full min-h-0 flex-col gap-[var(--shell-gap)]"
+      style={documentsRootStyle}
       data-documents-layout={documentsLayoutMode}
       data-testid="documents-layout"
     >
-      <FrameCard refractiveFallback shimmerMode="subtle" className="h-full w-full">
+      <div
+        className={`flex-shrink-0 ${
+          isPhoneShell
+            ? "flex flex-col items-start gap-[var(--card-pad)]"
+            : "flex flex-wrap items-center justify-between gap-[var(--shell-gap)]"
+        }`}
+      >
+        <h2
+          className="text-lg font-semibold tracking-tight leading-none"
+          style={{ color: "var(--text)" }}
+        >
+          Documents
+        </h2>
         <div
-          className="flex h-full min-h-0 flex-col gap-[var(--shell-gap)]"
-          style={{ padding: documentsCardPadding }}
+          style={{
+            padding: 6,
+            boxSizing: "border-box",
+            width: isPhoneShell ? "100%" : undefined,
+            display: isPhoneShell ? "block" : "inline-flex",
+            alignSelf: isPhoneShell ? "stretch" : "flex-start",
+          }}
         >
           <div
-            className={`flex-shrink-0 ${
-              isPhoneShell
-                ? "flex flex-col items-start gap-[var(--card-pad)]"
-                : "flex flex-wrap items-center justify-between gap-[var(--shell-gap)]"
-            }`}
+            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : ""}`}
+            style={surfaceActionClusterStyle}
           >
-            <h2
-              className="text-lg font-semibold tracking-tight leading-none"
-              style={{ color: "var(--text)" }}
-            >
-              Documents
-            </h2>
-            <div
-              className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : ""}`}
-              style={surfaceActionClusterStyle}
-            >
-              {scopePills.map(({ key, label, disabled }) => (
-                <button
-                  key={key}
-                  type="button"
-                  className="pill-tab text-xs"
-                  data-state={documentScope === key ? "active" : undefined}
-                  disabled={disabled}
-                  onClick={() => {
-                    if (disabled) return;
-                    onDocumentScopeChange?.(key);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div
-            className={contentAreaClassName}
-            style={{ overflowX: "hidden" }}
-            data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
-            onDrop={uploader.onDrop}
-            onDragOver={uploader.onDragOver}
-          >
-            {docItems.length === 0 ? (
-              <div className="flex h-full items-center justify-center">
-                <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
-                  No documents yet. Drag files here or use the button below to get started.
-                </div>
-              </div>
-            ) : (
-              <div style={documentsGridStyle}>
-                {docItems.map((d) => {
-                  const key = d.id || `${d.title}.${d.ext}`;
-
-                  return (
-                    <div key={key} className="relative">
-                      {isPhoneShell ? (
-                        <MobileDocumentRow
-                          doc={d}
-                          extColors={extColors}
-                          onClick={() => handleDocumentClick(d)}
-                        />
-                      ) : (
-                        <DocumentTile
-                          file={{
-                            name: d.title,
-                            ext: d.ext,
-                            embeddingStatus: d.embeddingStatus,
-                            embeddingError: d.embeddingError,
-                          }}
-                          onClick={() => handleDocumentClick(d)}
-                          onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
-                          contextMenuItems={
-                            d.type === "codex_entry" || !onOpenInThread
-                              ? []
-                              : [
-                                  {
-                                    label: "Open in Thread",
-                                    onSelect: () => onOpenInThread(d),
-                                  },
-                                ]
-                          }
-                        />
-                      )}
-                      {d.mock ? (
-                        <span
-                          className="absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[10px]"
-                          style={{
-                            background: "rgba(255,255,255,0.2)",
-                            color: "#111",
-                            borderColor: "rgba(255,255,255,0.5)",
-                          }}
-                        >
-                          Mock
-                        </span>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className={footerClassName} style={{ color: "var(--muted)" }}>
-            <div className={`flex items-center gap-[var(--shell-gap)] ${isPhoneShell ? "flex-wrap" : ""}`}>
-              <span>Drag & drop files here, or</span>
+            {scopePills.map(({ key, label, disabled }) => (
               <button
+                key={key}
                 type="button"
-                className="underline hover:opacity-80"
-                onClick={uploader.pick}
+                className="pill-tab text-xs"
+                data-state={documentScope === key ? "active" : undefined}
+                disabled={disabled}
+                onClick={() => {
+                  if (disabled) return;
+                  onDocumentScopeChange?.(key);
+                }}
               >
-                choose files
+                {label}
               </button>
-            </div>
+            ))}
           </div>
         </div>
-      </FrameCard>
+      </div>
+
+      <div
+        className={contentAreaClassName}
+        style={{ overflowX: "hidden" }}
+        data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
+        onDrop={uploader.onDrop}
+        onDragOver={uploader.onDragOver}
+      >
+        {docItems.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
+              No documents yet. Drag files here or use the button below to get started.
+            </div>
+          </div>
+        ) : (
+          <div style={documentsGridStyle}>
+            {docItems.map((d) => {
+              const key = d.id || `${d.title}.${d.ext}`;
+
+              return (
+                <div key={key} className="relative">
+                  {isPhoneShell ? (
+                    <MobileDocumentRow
+                      doc={d}
+                      extColors={extColors}
+                      onClick={() => handleDocumentClick(d)}
+                    />
+                  ) : (
+                    <DocumentTile
+                      file={{
+                        name: d.title,
+                        ext: d.ext,
+                        embeddingStatus: d.embeddingStatus,
+                        embeddingError: d.embeddingError,
+                      }}
+                      onClick={() => handleDocumentClick(d)}
+                      onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
+                      contextMenuItems={
+                        d.type === "codex_entry" || !onOpenInThread
+                          ? []
+                          : [
+                              {
+                                label: "Open in Thread",
+                                onSelect: () => onOpenInThread(d),
+                              },
+                            ]
+                      }
+                    />
+                  )}
+                  {d.mock ? (
+                    <span
+                      className="absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[10px]"
+                      style={{
+                        background: "rgba(255,255,255,0.2)",
+                        color: "#111",
+                        borderColor: "rgba(255,255,255,0.5)",
+                      }}
+                    >
+                      Mock
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className={footerClassName} style={{ color: "var(--muted)" }}>
+        <div className={`flex items-center gap-[var(--shell-gap)] ${isPhoneShell ? "flex-wrap" : ""}`}>
+          <span>Drag & drop files here, or</span>
+          <button type="button" className="underline hover:opacity-80" onClick={uploader.pick}>
+            choose files
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

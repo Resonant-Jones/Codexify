@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "./SettingsView";
 
-const SETTINGS_TAB_STORAGE_KEY = "cfy.settings.activeTab";
+const SETTINGS_TAB_STORAGE_KEY = "cfy.settingsTab";
 
 const mockedApi = vi.hoisted(() => ({
   get: vi.fn(async () => ({ data: {} })),
@@ -16,8 +16,6 @@ const mockedApi = vi.hoisted(() => ({
 }));
 
 const mockedUpdatePersonaSettings = vi.hoisted(() => vi.fn());
-const fetchLatestRagTraceMock = vi.hoisted(() => vi.fn());
-const mockedUseContextTrace = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/ui/button", () => ({
   Button: (props: Record<string, unknown>) => (
@@ -87,7 +85,6 @@ vi.mock("@/lib/runtimeConfig", () => ({
 vi.mock("@/lib/api", () => ({
   default: mockedApi,
   clearRuntimeApiKey: vi.fn(),
-  fetchLatestRagTrace: fetchLatestRagTraceMock,
   getAuthToken: vi.fn(() => null),
   getDevApiKey: vi.fn(() => ""),
   readRuntimeApiKey: vi.fn(() => ""),
@@ -97,20 +94,6 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/features/settings/api/persona", () => ({
   updatePersonaSettings: mockedUpdatePersonaSettings,
-}));
-
-vi.mock("@/lib/guardianEventSource", () => ({
-  GuardianEventSource: class {
-    onopen: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    addEventListener() {}
-    removeEventListener() {}
-    close() {}
-  },
-}));
-
-vi.mock("@/state/contextTrace", () => ({
-  useContextTrace: mockedUseContextTrace,
 }));
 
 function renderSettingsView(
@@ -154,14 +137,6 @@ describe("SettingsView save flow", () => {
     mockedApi.get.mockClear();
     mockedApi.post.mockClear();
     mockedApi.delete.mockClear();
-    fetchLatestRagTraceMock.mockReset();
-    mockedUseContextTrace.mockReturnValue({
-      lastDepth: "normal",
-      lastMemory: [],
-      lastSemantic: [],
-      lastThreadId: null,
-      lastTimestamp: null,
-    });
     window.localStorage.clear();
     window.sessionStorage.clear();
     window.history.pushState({}, "", "/chat/42");
@@ -201,6 +176,10 @@ describe("SettingsView save flow", () => {
       ).toBeInTheDocument();
     });
 
+    expect(
+      screen.queryByTestId("personal-facts-panel")
+    ).not.toBeInTheDocument();
+
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
   });
 
@@ -216,45 +195,6 @@ describe("SettingsView save flow", () => {
     expect(imprintTab).toHaveFocus();
     expect(imprintTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: /^imprint$/i })).toBeInTheDocument();
-  });
-
-  it("binds diagnostics to the active route thread and refreshes when the active thread changes", async () => {
-    fetchLatestRagTraceMock.mockResolvedValue({ documents: [], graph: [] });
-
-    renderSettingsView();
-
-    fireEvent.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
-
-    await waitFor(() => {
-      expect(fetchLatestRagTraceMock).toHaveBeenCalledWith(42);
-    });
-
-    expect(
-      screen.getAllByText(
-        (_, element) =>
-          element?.textContent?.trim() === "Depth: normal • Thread: 42"
-      )
-    ).not.toHaveLength(0);
-    expect(
-      screen.queryByText((_, element) =>
-        Boolean(element?.textContent?.includes("Thread: n/a"))
-      )
-    ).not.toBeInTheDocument();
-
-    act(() => {
-      window.history.pushState({}, "", "/chat/84");
-    });
-
-    await waitFor(() => {
-      expect(fetchLatestRagTraceMock).toHaveBeenLastCalledWith(84);
-    });
-
-    expect(
-      screen.getAllByText(
-        (_, element) =>
-          element?.textContent?.trim() === "Depth: normal • Thread: 84"
-      )
-    ).not.toHaveLength(0);
   });
 
   it("persists the selected tab and restores it on remount", async () => {
@@ -296,11 +236,14 @@ describe("SettingsView save flow", () => {
     });
   });
 
-  it("falls back safely when persisted tab state is invalid", async () => {
-    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, "connection");
+  it("does not expose Diagnostics and falls back when it was persisted", async () => {
+    window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, "diagnostics");
 
     renderSettingsView();
 
+    expect(
+      screen.queryByRole("tab", { name: /^diagnostics$/i })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /^appearance$/i })).toHaveAttribute(
       "aria-selected",
       "true"

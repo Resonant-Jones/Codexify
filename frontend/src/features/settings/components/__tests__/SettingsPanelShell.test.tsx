@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
+import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 
 describe("SettingsPanelShell", () => {
   test("separates the inner settings shell from its content", () => {
@@ -21,7 +22,7 @@ describe("SettingsPanelShell", () => {
       "overflow-hidden"
     );
     expect(shell).toHaveStyle({
-      padding: "calc(var(--card-pad) + var(--board-edge))",
+      padding: SETTINGS_DENSITY.edgeChrome,
     });
     expect(shell).toHaveTextContent("Content");
     expect(screen.getByTestId("shell-content")).toBeInTheDocument();

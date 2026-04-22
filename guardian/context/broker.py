@@ -27,12 +27,13 @@ from guardian.context.tool_intents import (
 from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
+from guardian.protocol_tokens import PersonalFactStatus
 
 logger = logging.getLogger(__name__)
 _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
 _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
 _THREAD_CANDIDATE_LIMIT = 500
-_PERSONAL_FACT_LIMIT = 100
+_PERSONAL_FACT_LIMIT = 12
 
 
 class EffectiveRetrievalPolicy(TypedDict):
@@ -116,7 +117,9 @@ def _coerce_int(value: Any) -> Optional[int]:
 def _is_verified_active_personal_fact(fact: Any) -> bool:
     if not isinstance(fact, dict):
         return False
-    if str(fact.get("status") or "").strip().lower() != "verified":
+    if str(fact.get("status") or "").strip().lower() != (
+        PersonalFactStatus.VERIFIED.value
+    ):
         return False
     if fact.get("is_active") is False:
         return False
@@ -151,6 +154,53 @@ def _coerce_graph_value(value: Any) -> Any:
             pass
 
     return str(value)
+
+
+def _extract_result_user_id(item: Any) -> Optional[str]:
+    if item is None:
+        return None
+    if isinstance(item, dict):
+        for key in ("user_id", "owner_user_id", "actor_user_id"):
+            value = item.get(key)
+            if value not in (None, ""):
+                return str(value).strip() or None
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("user_id", "owner_user_id", "actor_user_id"):
+                value = metadata.get(key)
+                if value not in (None, ""):
+                    return str(value).strip() or None
+    for attr_name in ("user_id", "owner_user_id", "actor_user_id"):
+        value = getattr(item, attr_name, None)
+        if value not in (None, ""):
+            return str(value).strip() or None
+    return None
+
+
+def _assert_user_scoped_results(
+    results: list[Any], *, user_id: str
+) -> list[Any]:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        raise AssertionError("retrieval_user_isolation_violation")
+
+    raw_results = list(results)
+    if any(
+        _extract_result_user_id(item) != normalized_user_id
+        for item in raw_results
+    ):
+        raise AssertionError("retrieval_user_isolation_violation")
+
+    filtered = [
+        item
+        for item in raw_results
+        if _extract_result_user_id(item) == normalized_user_id
+    ]
+    if any(
+        _extract_result_user_id(item) != normalized_user_id for item in filtered
+    ):
+        raise AssertionError("retrieval_user_isolation_violation")
+    return filtered
 
 
 def _looks_like_json(text: str) -> bool:
@@ -340,6 +390,8 @@ class ContextBroker:
                 - "graph": List of {node_id, kind, text}
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
+        widened = False
+        widen_reason: str | None = None
         resolved_user_id = str(user_id or "").strip()
         if not resolved_user_id:
             raise ValueError("ContextBroker requires user_id")
@@ -453,6 +505,18 @@ class ContextBroker:
                     "reason": "obsidian_only",
                     "count": 0,
                     "retrieved_count": 0,
+                    "included_ids": [],
+                    "user_id": resolved_user_id or "default",
+                    "source_mode": normalized_source_mode,
+                    "boundary": source_mode_boundary,
+                },
+                "verified_personal_facts_context": {
+                    "attempted": False,
+                    "status": "skipped",
+                    "reason": "obsidian_only",
+                    "count": 0,
+                    "retrieved_count": 0,
+                    "included_ids": [],
                     "user_id": resolved_user_id or "default",
                     "source_mode": normalized_source_mode,
                     "boundary": source_mode_boundary,
@@ -509,6 +573,11 @@ class ContextBroker:
                             context,
                             "obsidian_empty_in_personal_knowledge",
                         )
+                    widened = True
+                    widen_reason = self._merge_widen_reason(
+                        widen_reason or WIDEN_REASON_NONE,
+                        WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+                    )
                 elif (
                     not conversation_only and self._obsidian_retrieval_enabled()
                 ):
@@ -565,11 +634,15 @@ class ContextBroker:
             ),
             "count": 0,
             "retrieved_count": 0,
+            "included_ids": [],
             "user_id": resolved_user_id or "default",
             "source_mode": normalized_source_mode,
             "boundary": source_mode_boundary,
         }
-        if not conversation_only and normalized_depth in ("deep", "diagnostic"):
+        if (
+            not conversation_only
+            and normalized_source_mode != SOURCE_MODE_OBSIDIAN_ONLY
+        ):
             try:
                 (
                     personal_facts,
@@ -579,12 +652,25 @@ class ContextBroker:
                     limit=_PERSONAL_FACT_LIMIT,
                 )
                 if personal_facts:
+                    context["verified_personal_facts"] = [
+                        {
+                            "id": fact.get("id"),
+                            "key": fact.get("key"),
+                            "value": fact.get("value"),
+                            "user_id": resolved_user_id,
+                        }
+                        for fact in personal_facts
+                    ]
                     context["personal_facts"] = personal_facts
                 personal_facts_trace = {
                     **personal_facts_trace,
                     "source_mode": normalized_source_mode,
                     "boundary": source_mode_boundary,
                 }
+                context["verified_personal_facts_context"] = dict(
+                    personal_facts_trace
+                )
+                context["personal_facts_context"] = dict(personal_facts_trace)
             except Exception as e:
                 logger.warning(
                     "[ContextBroker] Personal facts unavailable; continuing without them: %s",
@@ -597,6 +683,7 @@ class ContextBroker:
                     "error": str(e),
                     "count": 0,
                     "retrieved_count": 0,
+                    "included_ids": [],
                     "user_id": resolved_user_id or "default",
                     "source_mode": normalized_source_mode,
                     "boundary": source_mode_boundary,
@@ -685,6 +772,12 @@ class ContextBroker:
                         memory_widen_reason,
                     )
                     context["memory"] = memory
+                    if memory_widen_reason != WIDEN_REASON_NONE:
+                        widened = True
+                        widen_reason = self._merge_widen_reason(
+                            widen_reason or WIDEN_REASON_NONE,
+                            memory_widen_reason,
+                        )
                 else:
                     context["memory"] = []
                     memory_trace = {
@@ -797,6 +890,7 @@ class ContextBroker:
             "graph_context": graph_trace,
             "memory_context": memory_trace,
             "personal_facts_context": personal_facts_trace,
+            "verified_personal_facts_context": personal_facts_trace,
         }
 
         try:
@@ -854,6 +948,7 @@ class ContextBroker:
             "reason": "no_fact_adapter",
             "count": 0,
             "retrieved_count": 0,
+            "included_ids": [],
             "user_id": effective_user_id,
         }
 
@@ -883,10 +978,24 @@ class ContextBroker:
                 for fact in raw_facts
                 if _is_verified_active_personal_fact(fact)
             ]
+            eligible_facts.sort(
+                key=lambda fact: (
+                    _coerce_int(fact.get("id")) or 0,
+                    str(fact.get("key") or ""),
+                    str(fact.get("value") or ""),
+                )
+            )
+            if limit > 0:
+                eligible_facts = eligible_facts[:limit]
             trace.update(
                 attempted=True,
                 retrieved_count=len(raw_facts),
                 count=len(eligible_facts),
+                included_ids=[
+                    _coerce_int(fact.get("id"))
+                    for fact in eligible_facts
+                    if _coerce_int(fact.get("id")) is not None
+                ],
                 status=(
                     "contributed" if eligible_facts else "attempted_no_hits"
                 ),
@@ -905,6 +1014,7 @@ class ContextBroker:
                 error=str(exc),
                 count=0,
                 retrieved_count=0,
+                included_ids=[],
             )
             return [], trace
 

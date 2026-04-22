@@ -8,7 +8,6 @@ import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
-import { MemoryBrowser } from "@/features/settings/diagnostics";
 import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
 import PersonalFactsPanel from "@/features/settings/components/PersonalFactsPanel";
 import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
@@ -76,8 +75,7 @@ type SettingsTab =
   | "connectors"
   | "data"
   | "connection"
-  | "personalFacts"
-  | "diagnostics";
+  | "personalFacts";
 
 type SettingsTabDefinition = {
   value: SettingsTab;
@@ -92,7 +90,6 @@ const SETTINGS_TAB_DEFINITIONS: SettingsTabDefinition[] = [
   { value: "data", label: "Data" },
   { value: "connection", label: "Connection", requiresDesktop: true },
   { value: "personalFacts", label: "Personal Facts" },
-  { value: "diagnostics", label: "Diagnostics" },
 ];
 
 function getSettingsTabButtonId(tab: SettingsTab): string {
@@ -115,7 +112,6 @@ function normalizeSettingsTab(value: unknown): SettingsTab | null {
   if (compact === "data") return "data";
   if (compact === "connection") return "connection";
   if (compact === "personalfacts") return "personalFacts";
-  if (compact === "diagnostics") return "diagnostics";
   return null;
 }
 
@@ -319,14 +315,6 @@ function getResponseErrorMessage(error: unknown): string | null {
   return null;
 }
 
-function readRouteThreadId(): number | null {
-  if (typeof window === "undefined") return null;
-  const match = window.location.pathname.match(/^\/chat\/(\d+)/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 export function SettingsView({
   mode,
   setMode,
@@ -395,7 +383,6 @@ export function SettingsView({
     data: null,
     connection: null,
     personalFacts: null,
-    diagnostics: null,
   });
   const settingsScrollContainerRef = useRef<HTMLElement | null>(null);
   const tabScrollPositionsRef = useRef<Partial<Record<SettingsTab, number>>>({});
@@ -409,9 +396,6 @@ export function SettingsView({
   const [uRole, setURole] = useState(role);
   const [prompt, setPrompt] = useState(systemPrompt);
   const [memo, setMemo] = useState(notes);
-  const [activeThreadId, setActiveThreadId] = useState<number | null>(() =>
-    readRouteThreadId()
-  );
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
   const [desktopShareBaseUrl, setDesktopShareBaseUrl] = useState("");
   const [desktopApiKeyInput, setDesktopApiKeyInput] = useState("");
@@ -445,55 +429,6 @@ export function SettingsView({
   const [systemPromptSyncRetryNeeded, setSystemPromptSyncRetryNeeded] =
     useState(false);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-
-    const syncActiveThreadId = () => {
-      setActiveThreadId(readRouteThreadId());
-    };
-    const history = window.history;
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-
-    const emitRouteChange = () => {
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    };
-
-    history.pushState = function (
-      ...args: Parameters<History["pushState"]>
-    ) {
-      const result = originalPushState.apply(history, args);
-      emitRouteChange();
-      return result;
-    };
-
-    history.replaceState = function (
-      ...args: Parameters<History["replaceState"]>
-    ) {
-      const result = originalReplaceState.apply(history, args);
-      emitRouteChange();
-      return result;
-    };
-
-    syncActiveThreadId();
-    window.addEventListener("popstate", syncActiveThreadId);
-    window.addEventListener(
-      "cfy:threads:refresh",
-      syncActiveThreadId as EventListener
-    );
-
-    return () => {
-      history.pushState = originalPushState;
-      history.replaceState = originalReplaceState;
-      window.removeEventListener("popstate", syncActiveThreadId);
-      window.removeEventListener(
-        "cfy:threads:refresh",
-        syncActiveThreadId as EventListener
-      );
-    };
-  }, []);
   const [lastSavedPersonaId, setLastSavedPersonaId] = useState<number | null>(
     null
   );
@@ -1188,9 +1123,9 @@ export function SettingsView({
   }
 
   return (
-    <div className="w-full" style={{ color: "var(--text)" }}>
-      <SettingsPanelShell>
-        <div className="flex h-full min-h-0 flex-col gap-[var(--shell-gap)]">
+    <div className="flex h-full min-h-0 w-full justify-center" style={{ color: "var(--text)" }}>
+      <SettingsPanelShell className="w-full">
+        <div className="flex h-full min-h-0 w-full flex-col gap-[var(--settings-edge-chrome)]">
           <SettingsPanelDock>
             {visibleTabs.map(renderTabButton)}
           </SettingsPanelDock>
@@ -1198,8 +1133,12 @@ export function SettingsView({
           <div
             ref={settingsScrollContainerRef}
             data-testid="settings-panel-scroll-body"
-            className="flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)] overflow-x-visible overflow-y-auto"
+            className="flex min-h-0 flex-1 justify-center overflow-auto px-[var(--settings-edge-chrome)] pb-[var(--settings-edge-chrome)]"
           >
+            <div
+              data-testid="settings-panel-content"
+              className="flex w-full min-w-0 max-w-[72rem] flex-col gap-[var(--shell-gap)]"
+            >
             {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"
@@ -1289,10 +1228,7 @@ export function SettingsView({
                 </p>
               </div>
               <ImprintReviewPanel />
-              <div className="grid gap-[var(--shell-gap)] xl:grid-cols-2">
-                <PersonalFactsPanel />
-                <SystemPromptInspector />
-              </div>
+              <SystemPromptInspector />
             </SettingsSectionCard>
           </SettingsSectionCard>
         )}
@@ -1776,18 +1712,7 @@ export function SettingsView({
             <PersonalFactsPanel />
           </SettingsSectionCard>
         )}
-
-        {tab === "diagnostics" && (
-          <SettingsSectionCard
-            data-testid="settings-diagnostics-surface"
-            role="tabpanel"
-            id={getSettingsTabPanelId("diagnostics")}
-            aria-labelledby={getSettingsTabButtonId("diagnostics")}
-            className="space-y-4"
-          >
-            <MemoryBrowser activeThreadId={activeThreadId} />
-          </SettingsSectionCard>
-        )}
+            </div>
           </div>
         </div>
       </SettingsPanelShell>

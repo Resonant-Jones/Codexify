@@ -32,7 +32,10 @@ from guardian.context.broker import ContextBroker
 from guardian.core import chat_completion_service as _chat_completion_service
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import chat_with_ai, stream_local
-from guardian.core.chat_completion_service import ChatTaskCancelled
+from guardian.core.chat_completion_service import (
+    ChatTaskCancelled,
+    ToolLoopExecutionError,
+)
 from guardian.core.config import (
     LLMConfigError,
     Settings,
@@ -53,6 +56,7 @@ from guardian.core.provider_registry import (
     validate_provider_model_selection,
 )
 from guardian.core.provider_truth import build_provider_truth
+from guardian.evals.spine import schedule_post_completion_eval
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     clear_cancelled,
@@ -160,6 +164,14 @@ _LIFECYCLE_TIMING_FIELDS = (
     "first_token_at",
     "first_output_at",
     "completed_at",
+)
+_TOOL_LOOP_OBSERVABILITY_FIELDS = (
+    "messageId",
+    "requestId",
+    "toolTurnId",
+    "toolTurnState",
+    "loopStopReason",
+    "commandRunId",
 )
 _ASSISTANT_AUDIO_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(
@@ -622,6 +634,24 @@ def _task_error_metadata(exc: Exception) -> dict[str, Any]:
     return {}
 
 
+def _tool_loop_observability_payload(
+    *,
+    result: dict[str, Any],
+    task: ChatCompletionTask,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for field in _TOOL_LOOP_OBSERVABILITY_FIELDS:
+        if field == "messageId":
+            value = result.get("messageId") or result.get("message_id")
+        elif field == "requestId":
+            value = result.get("requestId") or task.task_id
+        else:
+            value = result.get(field)
+        if value is not None:
+            payload[field] = value
+    return payload
+
+
 def _classify_runtime_status(detail: str) -> str | None:
     lowered = str(detail or "").strip().lower()
     if not lowered:
@@ -653,7 +683,7 @@ def _completion_truth(
 
 
 def _should_attempt_provider_fallback(exc: Exception) -> bool:
-    if isinstance(exc, ChatTaskCancelled):
+    if isinstance(exc, (ChatTaskCancelled, ToolLoopExecutionError)):
         return False
     if isinstance(exc, LLMConfigError):
         return True
@@ -1392,12 +1422,22 @@ def _sync_build_messages_compat_seams() -> None:
     _chat_completion_service.get_settings = get_settings
     _chat_completion_service.validate_llm_config = validate_llm_config
     _chat_completion_service.ContextBroker = ContextBroker
+    _chat_completion_service.chat_with_ai = _chat_with_ai_compat
+    _chat_completion_service.stream_local = _stream_local_compat
     _chat_completion_service.build_guardian_system_prompt = (
         build_guardian_system_prompt
     )
     _chat_completion_service.build_context_system_message_with_meta = (
         _build_context_system_message_with_meta_compat
     )
+
+
+def _chat_with_ai_compat(*args, **kwargs):
+    return chat_with_ai(*args, **kwargs)
+
+
+def _stream_local_compat(*args, **kwargs):
+    return stream_local(*args, **kwargs)
 
 
 async def _build_messages_for_llm(
@@ -1537,12 +1577,12 @@ def _run_chat_completion_task_compat(
         executed=False,
         completed=False,
     )
+    completion_result: dict[str, Any] | None = None
 
     def _execute_completion(
         execution_provider: str,
         execution_model: str,
     ) -> str:
-        assistant_output = ""
         streaming_emitted = False
 
         def _publish_streaming(first_output_kind: str) -> None:
@@ -1568,70 +1608,37 @@ def _run_chat_completion_task_compat(
                     "model": execution_model,
                 },
             )
-        if execution_provider == "local":
-            streamed_any = False
-            token_stream = stream_local(
-                messages_for_llm,
-                execution_model,
-                reasoning_mode=getattr(task, "reasoning_mode", None),
-                temperature=getattr(task, "temperature", None),
-            )
-            try:
-                for token in token_stream:
-                    if cancel_check and cancel_check():
-                        raise ChatTaskCancelled("task_cancelled")
-                    visible_token = _extract_visible_stream_text(token)
-                    if visible_token:
-                        _publish_streaming("token")
-                        streamed_any = True
-                        assistant_output += visible_token
-                        if token_callback:
-                            token_callback(visible_token)
-                        if callable(chunk_callback):
-                            chunk_callback(visible_token)
-            finally:
-                token_stream.close()
 
-            if not assistant_output.strip():
-                assistant_output = _extract_visible_stream_text(
-                    chat_with_ai(
-                        messages_for_llm,
-                        model=execution_model,
-                        provider=execution_provider,
-                        reasoning_mode=getattr(task, "reasoning_mode", None),
-                        temperature=getattr(task, "temperature", None),
-                        prompt_meta=(
-                            dict(bundle.get("_prompt_meta") or {})
-                            if isinstance(bundle, dict)
-                            else None
-                        ),
-                    )
-                )
-                _publish_streaming("body")
-                if token_callback and (not streamed_any) and assistant_output:
-                    token_callback(extract_assistant_response(assistant_output))
-            return assistant_output
+        def _token_bridge(token: str) -> None:
+            visible_token = str(token or "")
+            if visible_token:
+                _publish_streaming("token")
+            if token_callback:
+                token_callback(token)
 
-        if cancel_check and cancel_check():
-            raise ChatTaskCancelled("task_cancelled")
-        assistant_output = _extract_visible_stream_text(
-            chat_with_ai(
-                messages_for_llm,
-                model=execution_model,
+        def _chunk_bridge(delta: str) -> None:
+            visible_delta = str(delta or "")
+            if visible_delta:
+                _publish_streaming("chunk")
+            if callable(chunk_callback):
+                chunk_callback(delta)
+
+        nonlocal completion_result
+        completion_result = (
+            _chat_completion_service._execute_bounded_tool_turn_completion(
+                task,
+                messages_for_llm=messages_for_llm,
                 provider=execution_provider,
-                reasoning_mode=getattr(task, "reasoning_mode", None),
-                temperature=getattr(task, "temperature", None),
-                prompt_meta=(
-                    dict(bundle.get("_prompt_meta") or {})
-                    if isinstance(bundle, dict)
-                    else None
-                ),
+                model=execution_model,
+                bundle=bundle,
+                trace=trace,
+                base_payload_summary=payload_summary,
+                token_callback=_token_bridge,
+                chunk_callback=_chunk_bridge,
+                cancel_check=cancel_check,
             )
         )
-        _publish_streaming("body")
-        if token_callback:
-            token_callback(extract_assistant_response(assistant_output))
-        return assistant_output
+        return str(completion_result.get("assistant_text") or "")
 
     fallback_reason: str | None = None
     failure_meta: dict[str, Any] = {}
@@ -1792,6 +1799,32 @@ def _run_chat_completion_task_compat(
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
     }
+    if isinstance(completion_result, dict):
+        helper_payload_summary = completion_result.get("payload_summary")
+        if isinstance(helper_payload_summary, dict):
+            payload_summary.update(helper_payload_summary)
+            result["payload_summary"] = payload_summary
+        for key in (
+            "messageId",
+            "requestId",
+            "toolTurnId",
+            "toolTurnState",
+            "loopStopReason",
+            "commandRunId",
+            "message_id",
+            "request_id",
+            "tool_turn_id",
+            "tool_turn_state",
+            "loop_stop_reason",
+            "command_run_id",
+            "command_status",
+            "command_error",
+        ):
+            value = completion_result.get(key)
+            if value is not None:
+                result[key] = value
+        if completion_result.get("execution") is not None:
+            result["execution"] = completion_result.get("execution")
     _sanitize_assistant_result_payload(result)
 
     if not persist_assistant_message:
@@ -1840,6 +1873,10 @@ def _run_chat_completion_task_compat(
     result["persistence_outcome"] = "persisted"
     completion_truth["completed"] = True
     final_provider_truth["completed"] = True
+    tool_loop_observability = _tool_loop_observability_payload(
+        result=result,
+        task=task,
+    )
     if callable(state_callback):
         state_callback(
             TaskLifecycleState.COMPLETED,
@@ -1847,6 +1884,7 @@ def _run_chat_completion_task_compat(
                 "message_id": message_id,
                 "provider": final_provider,
                 "model": final_model,
+                **tool_loop_observability,
             },
         )
 
@@ -1868,6 +1906,7 @@ def _run_chat_completion_task_compat(
                 "attempted_provider_truth": attempted_provider_truth,
                 "final_provider_truth": final_provider_truth,
                 "execution": execution,
+                **tool_loop_observability,
             },
         )
 
@@ -1906,6 +1945,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         raise ValueError("ChatCompletionTask missing user_id")
     run_id = uuid.uuid4().hex
     started = time.monotonic()
+    worker_started_at = _utc_now_iso()
     turn_id = _extract_turn_id(task)
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     lifecycle_timings: dict[str, Any] = {}
@@ -2234,7 +2274,27 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             task.task_id,
             message_id,
         )
+        completion_persisted_at = _utc_now_iso()
         assistant_text = str(result.get("assistant_text") or "")
+        current_chatlog_db = getattr(dependencies, "chatlog_db", None)
+        thread_record = None
+        try:
+            getter = getattr(current_chatlog_db, "get_chat_thread", None)
+            if callable(getter):
+                thread_record = getter(task.thread_id)
+        except Exception:
+            thread_record = None
+        schedule_post_completion_eval(
+            current_chatlog_db,
+            task=task,
+            result=result,
+            assistant_message_id=message_id,
+            worker_started_at=worker_started_at,
+            completion_persisted_at=completion_persisted_at,
+            thread_record=thread_record
+            if isinstance(thread_record, dict)
+            else None,
+        )
         try:
             from guardian.memory_graph.graph_write_hook import (
                 build_graph_write_candidate,
@@ -2286,6 +2346,10 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 exc_info=True,
             )
         duration_ms = int((time.monotonic() - started) * 1000)
+        tool_loop_observability = _tool_loop_observability_payload(
+            result=result,
+            task=task,
+        )
         _safe_publish(
             task.task_id,
             "task.completed",
@@ -2326,6 +2390,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
+                "tool_loop": result.get("tool_loop"),
                 "payload_summary": result.get("payload_summary"),
                 "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_query": result_retrieval_query,
@@ -2335,6 +2400,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 ),
                 "trace": result_trace,
                 **lifecycle_timings_payload,
+                **tool_loop_observability,
             },
         )
         logger.info(
@@ -2402,6 +2468,14 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "completion_truth",
             "attempted_provider_truth",
             "final_provider_truth",
+            "messageId",
+            "requestId",
+            "toolTurnId",
+            "toolTurnState",
+            "loopStopReason",
+            "commandRunId",
+            "command_status",
+            "command_error",
         ):
             value = error_metadata.get(key)
             if value is not None:

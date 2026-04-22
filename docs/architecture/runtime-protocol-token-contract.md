@@ -36,6 +36,15 @@ inline literals.
   `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
   `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`
 
+- Bounded tool-loop states:
+  `idle`, `decision_received`, `command_dispatched`,
+  `result_reinjected`, `completed`, `failed`, `limit_reached`
+
+- Bounded tool-loop stop reasons:
+  `plain_answer`, `tool_turn_completed`, `tool_decision_invalid`,
+  `tool_command_failed`, `tool_command_blocked`,
+  `tool_turn_limit_reached`, `cancelled`
+
 - Provider runtime states:
   Canonical states used for frontend/shared-runtime interpretation of provider
   availability and readiness (for example: `offline`, `connecting`,
@@ -55,8 +64,9 @@ inline literals.
 
 - Identity note:
   Fields such as `messageId` and `requestId` are identity primitives rather
-  than protocol tokens, but vocabulary describing replay, orphaning, and
-  attempt semantics is considered part of the runtime protocol surface.
+  than protocol tokens, but vocabulary describing replay, orphaning, attempt
+  semantics, and bounded tool-loop state is considered part of the runtime
+  protocol surface.
 
 ## Interpretation caveat
 Canonical token definitions establish a shared vocabulary for runtime meaning.

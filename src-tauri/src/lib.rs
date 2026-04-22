@@ -12,15 +12,15 @@ fn initialize_bootstrap_runtime(handle: &tauri::AppHandle) -> commands::Bootstra
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             let handle = app.handle().clone();
-            let bootstrap_runtime = initialize_bootstrap_runtime(&handle);
+            let bootstrap_runtime = commands::resolve_bootstrap_runtime(&handle);
+            commands::prime_packaged_runtime_environment(&bootstrap_runtime);
+            commands::prime_packaged_launcher_startup_state(&bootstrap_runtime);
             app.manage(bootstrap_runtime);
             Ok(())
         })

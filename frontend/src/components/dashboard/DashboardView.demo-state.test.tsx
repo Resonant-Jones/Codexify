@@ -117,7 +117,7 @@ const EXT_COLORS = {
   codex: "#000",
 } as const;
 
-describe("DashboardView demo content", () => {
+describe("DashboardView beta contract", () => {
   beforeEach(() => {
     act(() => {
       setViewportWidth(1280);
@@ -138,7 +138,7 @@ describe("DashboardView demo content", () => {
     vi.clearAllMocks();
   });
 
-  it("renders demo content when there is no real user data and leaves no manual toggle behind", () => {
+  it("keeps the gallery empty state honest when no saved images exist", () => {
     render(
       <DashboardView
         extColors={EXT_COLORS}
@@ -153,29 +153,28 @@ describe("DashboardView demo content", () => {
     );
 
     expect(screen.getByText("Codexify Design Tokens.pdf")).toBeInTheDocument();
-    expect(screen.getByText("Demo: Warm Gradient")).toBeInTheDocument();
+    expect(screen.getByText("No gallery images yet. Generate or upload to get started.")).toBeInTheDocument();
+    expect(screen.queryByText("Demo: Warm Gradient")).not.toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo documents")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });
 
-  it("auto-hides dashboard demo content once real user data exists", async () => {
+  it("keeps recent threads capped and renders saved gallery images without demo fallbacks", async () => {
     authState.allowGate = true;
     apiState.get.mockImplementation(async (url: string) => {
       if (url === "/chat/threads") {
-        return { data: [] };
+        return {
+          data: Array.from({ length: 8 }, (_, index) => ({
+            id: `thread-${index + 1}`,
+            title: `Thread ${index + 1}`,
+            lastMessage: `Message ${index + 1}`,
+          })),
+        };
       }
       if (url === "/media/documents") {
         return {
-          data: {
-            documents: [
-              {
-                id: "doc-1",
-                filename: "User Plan.md",
-                ext: "md",
-              },
-            ],
-          },
+          data: { documents: [] },
         };
       }
       return { data: {} };
@@ -204,11 +203,19 @@ describe("DashboardView demo content", () => {
       />
     );
 
-    expect(await screen.findByText("User Plan.md")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open thread Thread 1" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Open thread / })).toHaveLength(6);
+    expect(screen.getByTestId("dashboard-recent-threads-grid")).toHaveStyle({
+      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    });
+    const actionRow = screen.getByRole("button", { name: "Create new thread" }).parentElement;
+    expect(actionRow).toHaveClass("flex-nowrap");
+    expect(actionRow).not.toHaveClass("flex-wrap");
+    expect(screen.getByText("Codexify Design Tokens.pdf")).toBeInTheDocument();
     expect(screen.getByText("Real dashboard image")).toBeInTheDocument();
-    expect(screen.queryByText("Codexify Design Tokens.pdf")).not.toBeInTheDocument();
-    expect(screen.queryByText("Demo: Warm Gradient")).not.toBeInTheDocument();
     expect(screen.queryByText("Mock dashboard image")).not.toBeInTheDocument();
+    expect(screen.queryByText("Demo: Warm Gradient")).not.toBeInTheDocument();
+    expect(screen.queryByText("No gallery images yet. Generate or upload to get started.")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo documents")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });

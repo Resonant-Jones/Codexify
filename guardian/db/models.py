@@ -35,6 +35,16 @@ from guardian.core.capability_tokens import (
     CapabilityGrantScope,
     CapabilityGrantStatus,
 )
+from guardian.extensions.tokens import (
+    CAPABILITY_ENTRY_PROVENANCE_CLASSES,
+    CAPABILITY_REGISTRY_STATUSES,
+    EXTENSION_INSTALL_BINDING_SCOPES,
+    EXTENSION_INSTALL_BINDING_STATUSES,
+    EXTENSION_PROPOSAL_SCOPES,
+    EXTENSION_PROPOSAL_STATUSES,
+    EXTENSION_TARGET_SURFACES,
+    INSTALL_GATE_DECISION_TOKENS,
+)
 from guardian.protocol_tokens import (
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
@@ -97,6 +107,78 @@ CAPABILITY_GRANT_KIND_CHECK = (
 CAPABILITY_GRANT_STATUS_CHECK = (
     f"grant_status IN ('{CAPABILITY_GRANT_STATUS_VALUES_SQL}')"
 )
+EXTENSION_TARGET_SURFACE_VALUES_SQL = "','".join(
+    sorted(EXTENSION_TARGET_SURFACES)
+)
+EXTENSION_PROPOSAL_SCOPE_VALUES_SQL = "','".join(
+    sorted(EXTENSION_PROPOSAL_SCOPES)
+)
+EXTENSION_PROPOSAL_STATUS_VALUES_SQL = "','".join(
+    sorted(EXTENSION_PROPOSAL_STATUSES)
+)
+EXTENSION_TARGET_SURFACE_CHECK = (
+    f"target_surface_token IN ('{EXTENSION_TARGET_SURFACE_VALUES_SQL}')"
+)
+EXTENSION_PROPOSAL_SCOPE_CHECK = (
+    f"scope_token IN ('{EXTENSION_PROPOSAL_SCOPE_VALUES_SQL}')"
+)
+EXTENSION_PROPOSAL_STATUS_CHECK = (
+    f"status_token IN ('{EXTENSION_PROPOSAL_STATUS_VALUES_SQL}')"
+)
+INSTALL_GATE_DECISION_VALUES_SQL = "','".join(
+    sorted(INSTALL_GATE_DECISION_TOKENS)
+)
+CAPABILITY_REGISTRY_STATUS_VALUES_SQL = "','".join(
+    sorted(CAPABILITY_REGISTRY_STATUSES)
+)
+CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL = "','".join(
+    sorted(CAPABILITY_ENTRY_PROVENANCE_CLASSES)
+)
+EXTENSION_INSTALL_BINDING_SCOPE_VALUES_SQL = "','".join(
+    sorted(EXTENSION_INSTALL_BINDING_SCOPES)
+)
+EXTENSION_INSTALL_BINDING_STATUS_VALUES_SQL = "','".join(
+    sorted(EXTENSION_INSTALL_BINDING_STATUSES)
+)
+INSTALL_GATE_DECISION_CHECK = (
+    f"decision_token IN ('{INSTALL_GATE_DECISION_VALUES_SQL}')"
+)
+CAPABILITY_REGISTRY_STATUS_CHECK = (
+    f"status_token IN ('{CAPABILITY_REGISTRY_STATUS_VALUES_SQL}')"
+)
+CAPABILITY_ENTRY_PROVENANCE_CLASS_CHECK = f"provenance_class_token IN ('{CAPABILITY_ENTRY_PROVENANCE_CLASS_VALUES_SQL}')"
+EXTENSION_INSTALL_BINDING_SCOPE_CHECK = (
+    f"scope_token IN ('{EXTENSION_INSTALL_BINDING_SCOPE_VALUES_SQL}')"
+)
+EXTENSION_INSTALL_BINDING_STATUS_CHECK = (
+    f"binding_status_token IN ('{EXTENSION_INSTALL_BINDING_STATUS_VALUES_SQL}')"
+)
+EXTENSION_INSTALL_BINDING_SCOPE_TARGET_CHECK = """
+(
+    scope_token <> 'project_scoped'
+    OR (
+        project_id IS NOT NULL
+        AND profile_id IS NULL
+        AND account_scope_target_id IS NULL
+    )
+)
+AND (
+    scope_token <> 'profile_scoped'
+    OR (
+        profile_id IS NOT NULL
+        AND project_id IS NULL
+        AND account_scope_target_id IS NULL
+    )
+)
+AND (
+    scope_token <> 'account_scoped'
+    OR (
+        account_scope_target_id IS NOT NULL
+        AND project_id IS NULL
+        AND profile_id IS NULL
+    )
+)
+""".strip()
 
 
 # =========================
@@ -407,6 +489,149 @@ class ChatMessage(Base):
         "ChatThread", back_populates="messages"
     )
     user: Mapped[User] = relationship("User")
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class EvalTraceSnapshot(Base):
+    """Durable post-completion trace snapshot for inspection-only evals."""
+
+    __tablename__ = "eval_trace_snapshots"
+
+    trace_snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True
+    )
+    request_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    assistant_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    project_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="SET NULL")
+    )
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_mode: Mapped[str | None] = mapped_column(String(64))
+    widen_reason: Mapped[str | None] = mapped_column(String(128))
+    retrieval_summary_json: Mapped[dict] = mapped_column(
+        "retrieval_summary", JSONB, nullable=False, server_default="{}"
+    )
+    assistant_output_text: Mapped[str] = mapped_column(Text, nullable=False)
+    trace_json: Mapped[dict] = mapped_column(
+        "trace", JSONB, nullable=False, server_default="{}"
+    )
+    payload_summary_json: Mapped[dict] = mapped_column(
+        "payload_summary", JSONB, nullable=False, server_default="{}"
+    )
+    timestamps_json: Mapped[dict] = mapped_column(
+        "timestamps", JSONB, nullable=False, server_default="{}"
+    )
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    thread: Mapped[ChatThread] = relationship("ChatThread")
+    user_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[user_message_id]
+    )
+    assistant_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[assistant_message_id]
+    )
+    project: Mapped[Project | None] = relationship("Project")
+
+    __table_args__ = (
+        Index(
+            "ix_eval_trace_snapshots_thread_created", "thread_id", "created_at"
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class EvalVerdict(Base):
+    """Attempt-scoped verdict rows produced by post-completion evaluators."""
+
+    __tablename__ = "eval_verdicts"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    eval_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    trace_snapshot_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "eval_trace_snapshots.trace_snapshot_id", ondelete="CASCADE"
+        ),
+        nullable=False,
+    )
+    request_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    assistant_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    evaluator_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    evaluator_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    label: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    structured_findings_json: Mapped[dict] = mapped_column(
+        "structured_findings", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    trace_snapshot: Mapped[EvalTraceSnapshot] = relationship(
+        "EvalTraceSnapshot"
+    )
+    thread: Mapped[ChatThread] = relationship("ChatThread")
+    user_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[user_message_id]
+    )
+    assistant_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[assistant_message_id]
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "evaluator_kind IN ('code','llm_judge')",
+            name="eval_verdicts_evaluator_kind_check",
+        ),
+        CheckConstraint(
+            "status IN ('succeeded','failed')",
+            name="eval_verdicts_status_check",
+        ),
+        UniqueConstraint(
+            "eval_run_id",
+            "evaluator_name",
+            name="uq_eval_verdicts_run_evaluator",
+        ),
+        Index(
+            "ix_eval_verdicts_thread_created",
+            "thread_id",
+            "created_at",
+        ),
+    )
 
     __mapper_args__ = {"eager_defaults": True}
 
@@ -1973,6 +2198,430 @@ class PersonaProfile(Base):
         CheckConstraint(
             "temperature >= 0.0 AND temperature <= 2.0",
             name="persona_profiles_temperature_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Extension Proposals
+# =========================
+
+
+class AgentExtensionProposal(Base):
+    """Durable proposal draft for a self-extending capability."""
+
+    __tablename__ = "agent_extension_proposals"
+
+    proposal_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    target_surface_token: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    scope_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="project_scoped"
+    )
+    status_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="draft"
+    )
+    requested_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    declared_dependencies_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    rollback_metadata_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    test_evidence_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    manifest_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            EXTENSION_TARGET_SURFACE_CHECK,
+            name="agent_extension_proposals_target_surface_check",
+        ),
+        CheckConstraint(
+            EXTENSION_PROPOSAL_SCOPE_CHECK,
+            name="agent_extension_proposals_scope_check",
+        ),
+        CheckConstraint(
+            EXTENSION_PROPOSAL_STATUS_CHECK,
+            name="agent_extension_proposals_status_check",
+        ),
+        Index(
+            "ix_agent_extension_proposals_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_proposals_project_created_at",
+            "project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_proposals_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_proposals_status_created_at",
+            "status_token",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentExtensionInstallGateDecision(Base):
+    """Durable install-gate decision for an extension proposal."""
+
+    __tablename__ = "agent_extension_install_gate_decisions"
+
+    decision_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    proposal_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_extension_proposals.proposal_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    decision_token: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="approved"
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    requested_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    approved_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            INSTALL_GATE_DECISION_CHECK,
+            name="agent_extension_install_gate_decisions_decision_check",
+        ),
+        Index(
+            "ix_agent_extension_install_gate_decisions_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_gate_decisions_proposal_created_at",
+            "proposal_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_gate_decisions_decision_created_at",
+            "decision_token",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentExtensionRegistryEntry(Base):
+    """Durable registry entry for an approved extension."""
+
+    __tablename__ = "agent_extension_registry_entries"
+
+    registry_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    proposal_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_extension_proposals.proposal_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    decision_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "agent_extension_install_gate_decisions.decision_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    target_surface_token: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    scope_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="project_scoped"
+    )
+    status_token: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="registered"
+    )
+    requested_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    approved_permissions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    manifest_snapshot_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    registration_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    provenance_class_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="proposal_approval"
+    )
+    provenance_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            EXTENSION_TARGET_SURFACE_CHECK,
+            name="agent_extension_registry_entries_target_surface_check",
+        ),
+        CheckConstraint(
+            EXTENSION_PROPOSAL_SCOPE_CHECK,
+            name="agent_extension_registry_entries_scope_check",
+        ),
+        CheckConstraint(
+            CAPABILITY_REGISTRY_STATUS_CHECK,
+            name="agent_extension_registry_entries_status_check",
+        ),
+        CheckConstraint(
+            CAPABILITY_ENTRY_PROVENANCE_CLASS_CHECK,
+            name="agent_extension_registry_entries_provenance_class_check",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_proposal_created_at",
+            "proposal_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_project_created_at",
+            "project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_status_created_at",
+            "status_token",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_registry_entries_decision_created_at",
+            "decision_id",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AgentExtensionInstallBinding(Base):
+    """Durable scope binding for an approved registry entry."""
+
+    __tablename__ = "agent_extension_install_bindings"
+
+    binding_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, nullable=False
+    )
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    registry_entry_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "agent_extension_registry_entries.registry_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    proposal_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_extension_proposals.proposal_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="project_scoped"
+    )
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    account_scope_target_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    binding_status_token: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active"
+    )
+    bind_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bind_notes_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    bind_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    unbind_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="{}",
+    )
+    source_thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    unbound_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            EXTENSION_INSTALL_BINDING_SCOPE_CHECK,
+            name="agent_extension_install_bindings_scope_check",
+        ),
+        CheckConstraint(
+            EXTENSION_INSTALL_BINDING_STATUS_CHECK,
+            name="agent_extension_install_bindings_status_check",
+        ),
+        CheckConstraint(
+            EXTENSION_INSTALL_BINDING_SCOPE_TARGET_CHECK,
+            name="agent_extension_install_bindings_scope_target_check",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_registry_created_at",
+            "registry_entry_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_scope_created_at",
+            "scope_token",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_project_created_at",
+            "project_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_account_target_created_at",
+            "account_scope_target_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_extension_install_bindings_status_created_at",
+            "binding_status_token",
+            "created_at",
+        ),
+        Index(
+            "uq_agent_extension_install_bindings_active_tuple",
+            "account_id",
+            "registry_entry_id",
+            "scope_token",
+            "project_id",
+            "profile_id",
+            "account_scope_target_id",
+            unique=True,
+            postgresql_where=text("binding_status_token = 'active'"),
+            sqlite_where=text("binding_status_token = 'active'"),
         ),
     )
 

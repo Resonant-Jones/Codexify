@@ -15,7 +15,10 @@ from guardian.protocol_tokens import (
     EXECUTOR_EVENT_TYPES,
     EXECUTOR_IDS,
     EXECUTOR_RELEASE_POSTURES,
+    LOOP_STOP_REASONS,
     TASK_EVENT_TYPES,
+    TOOL_LOOP_STOP_REASONS,
+    TOOL_TURN_STATES,
     AcceptanceStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -29,7 +32,10 @@ from guardian.protocol_tokens import (
     ExecutorEventType,
     ExecutorId,
     ExecutorReleasePosture,
+    LoopStopReason,
     TaskEventType,
+    ToolLoopStopReason,
+    ToolTurnState,
 )
 
 
@@ -42,6 +48,50 @@ def test_acceptance_status_tokens() -> None:
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
+
+
+def test_tool_turn_protocol_tokens() -> None:
+    assert ToolTurnState.IDLE.value == "idle"
+    assert ToolTurnState.DECISION_RECEIVED.value == "decision_received"
+    assert ToolTurnState.COMMAND_DISPATCHED.value == "command_dispatched"
+    assert ToolTurnState.RESULT_REINJECTED.value == "result_reinjected"
+    assert ToolTurnState.COMPLETED.value == "completed"
+    assert ToolTurnState.FAILED.value == "failed"
+    assert ToolTurnState.LIMIT_REACHED.value == "limit_reached"
+    assert TOOL_TURN_STATES == {
+        "idle",
+        "decision_received",
+        "command_dispatched",
+        "result_reinjected",
+        "completed",
+        "failed",
+        "limit_reached",
+    }
+
+    assert ToolLoopStopReason.PLAIN_ANSWER.value == "plain_answer"
+    assert ToolLoopStopReason.TOOL_TURN_COMPLETED.value == "tool_turn_completed"
+    assert (
+        ToolLoopStopReason.TOOL_DECISION_INVALID.value
+        == "tool_decision_invalid"
+    )
+    assert ToolLoopStopReason.TOOL_COMMAND_FAILED.value == "tool_command_failed"
+    assert (
+        ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value == "tool_command_blocked"
+    )
+    assert (
+        ToolLoopStopReason.TOOL_TURN_LIMIT_REACHED.value
+        == "tool_turn_limit_reached"
+    )
+    assert ToolLoopStopReason.CANCELLED.value == "cancelled"
+    assert TOOL_LOOP_STOP_REASONS == {
+        "plain_answer",
+        "tool_turn_completed",
+        "tool_decision_invalid",
+        "tool_command_failed",
+        "tool_command_blocked",
+        "tool_turn_limit_reached",
+        "cancelled",
+    }
 
 
 def test_delegation_status_tokens() -> None:
@@ -260,4 +310,24 @@ def test_embedding_lifecycle_tokens() -> None:
         "processing",
         "ready",
         "failed",
+    }
+
+
+def test_legacy_loop_stop_tokens() -> None:
+    assert LoopStopReason.MODEL_FINAL_ANSWER.value == "model_final_answer"
+    assert LoopStopReason.TOOL_TURN_COMPLETED.value == "tool_turn_completed"
+    assert LoopStopReason.TOOL_TURN_BLOCKED.value == "tool_turn_blocked"
+    assert LoopStopReason.TOOL_TURN_FAILED.value == "tool_turn_failed"
+    assert LoopStopReason.TOOL_TURN_MALFORMED.value == "tool_turn_malformed"
+    assert (
+        LoopStopReason.TOOL_TURN_LIMIT_REACHED.value
+        == "tool_turn_limit_reached"
+    )
+    assert LOOP_STOP_REASONS == {
+        "model_final_answer",
+        "tool_turn_completed",
+        "tool_turn_blocked",
+        "tool_turn_failed",
+        "tool_turn_malformed",
+        "tool_turn_limit_reached",
     }
