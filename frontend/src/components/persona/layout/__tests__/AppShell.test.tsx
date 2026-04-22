@@ -731,6 +731,43 @@ describe("AppShell workspace drawer shell", () => {
     }
   );
 
+  it("keeps the documents workspace drawer right-anchored as its posture expands", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "documents");
+
+    render(<AppShell />);
+
+    const toggle = screen.getByTestId("workspace-drawer-toggle");
+    fireEvent.click(toggle);
+
+    const drawer = await screen.findByTestId("workspace-drawer");
+    const drawerPane = screen.getByTestId("workspace-drawer-pane");
+    const primaryPane = screen.getByTestId("workspace-primary-pane");
+    const posture = screen.getByTestId("workspace-drawer-posture");
+
+    expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "chat_focus"
+    );
+    expect(readPaneBasis(primaryPane)).toBeGreaterThan(readPaneBasis(drawerPane));
+
+    await user.click(posture);
+
+    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
+    expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
+    expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
+      "data-workspace-layout-mode",
+      "balanced_split"
+    );
+
+    await user.click(posture);
+
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+    expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
+    expect(readPaneBasis(drawerPane)).toBeGreaterThan(readPaneBasis(primaryPane));
+  });
+
   it("keeps the mobile workspace summon explicit and opens the drawer as an overlay", async () => {
     const user = userEvent.setup();
     setViewportWidth(390);
