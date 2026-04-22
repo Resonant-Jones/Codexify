@@ -1088,6 +1088,224 @@ class ExtensionBindingRecord:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class EffectiveCapabilityRecord:
+    """Read-time effective capability snapshot for one registry entry."""
+
+    registry_entry: CapabilityRegistryEntry
+    binding: ExtensionBindingRecord
+    query_project_id: int | None = None
+    query_profile_id: str | None = None
+
+    def __post_init__(self) -> None:
+        query_project_id = (
+            None
+            if self.query_project_id is None
+            else int(self.query_project_id)
+        )
+        object.__setattr__(
+            self,
+            "query_project_id",
+            query_project_id,
+        )
+        object.__setattr__(
+            self,
+            "query_profile_id",
+            _clean_optional_text(self.query_profile_id),
+        )
+        if self.registry_entry.account_id != self.binding.account_id:
+            raise ValueError(
+                "registry entry and binding account ids must match"
+            )
+        if self.registry_entry.registry_id != self.binding.registry_entry_id:
+            raise ValueError("registry entry and binding ids must match")
+        if self.registry_entry.proposal_id != self.binding.proposal_id:
+            raise ValueError(
+                "registry entry and binding proposal ids must match"
+            )
+        if not self.registry_entry.is_registered:
+            raise ValueError(
+                "effective capabilities require registered entries"
+            )
+        if not self.binding.is_active:
+            raise ValueError("effective capabilities require active bindings")
+
+    @property
+    def account_id(self) -> str:
+        return self.registry_entry.account_id
+
+    @property
+    def registry_entry_id(self) -> str:
+        return self.registry_entry.registry_id
+
+    @property
+    def proposal_id(self) -> str:
+        return self.registry_entry.proposal_id
+
+    @property
+    def decision_id(self) -> str:
+        return self.registry_entry.decision_id
+
+    @property
+    def binding_id(self) -> str:
+        return self.binding.binding_id
+
+    @property
+    def target_surface_token(self) -> str:
+        return self.registry_entry.target_surface
+
+    @property
+    def registry_status_token(self) -> str:
+        return self.registry_entry.status_token
+
+    @property
+    def binding_status_token(self) -> str:
+        return self.binding.binding_status_token
+
+    @property
+    def binding_scope_token(self) -> str:
+        return self.binding.scope_token
+
+    @property
+    def manifest_snapshot(self) -> ExtensionProposalManifest:
+        return self.registry_entry.manifest_snapshot
+
+    @property
+    def requested_permissions(self) -> tuple[ExtensionRequestedPermission, ...]:
+        return self.registry_entry.requested_permissions
+
+    @property
+    def approved_permissions(self) -> tuple[ExtensionRequestedPermission, ...]:
+        return self.registry_entry.approved_permissions
+
+    @property
+    def provenance_class_token(self) -> str:
+        return self.registry_entry.provenance_class_token
+
+    @property
+    def provenance_json(self) -> dict[str, Any]:
+        return dict(self.registry_entry.provenance_json)
+
+    @property
+    def registration_metadata(self) -> dict[str, Any]:
+        return dict(self.registry_entry.registration_metadata)
+
+    @property
+    def bind_notes(self) -> dict[str, Any]:
+        return dict(self.binding.bind_notes)
+
+    @property
+    def bind_metadata(self) -> dict[str, Any]:
+        return dict(self.binding.bind_metadata)
+
+    @property
+    def unbind_metadata(self) -> dict[str, Any]:
+        return dict(self.binding.unbind_metadata)
+
+    @property
+    def source_thread_id(self) -> int | None:
+        return self.binding.source_thread_id
+
+    @property
+    def source_message_id(self) -> int | None:
+        return self.binding.source_message_id
+
+    @property
+    def project_id(self) -> int | None:
+        return self.binding.project_id
+
+    @property
+    def profile_id(self) -> str | None:
+        return self.binding.profile_id
+
+    @property
+    def account_scope_target_id(self) -> str | None:
+        return self.binding.account_scope_target_id
+
+    @property
+    def resolved_from_scope_token(self) -> str:
+        return self.binding.scope_token
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "registry_entry": self.registry_entry.to_payload(),
+            "binding": self.binding.to_payload(),
+            "query_project_id": self.query_project_id,
+            "query_profile_id": self.query_profile_id,
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any]
+    ) -> EffectiveCapabilityRecord:
+        data = dict(payload)
+        registry_payload = data.get("registry_entry")
+        binding_payload = data.get("binding")
+        if not isinstance(registry_payload, Mapping):
+            registry_payload = {}
+        if not isinstance(binding_payload, Mapping):
+            binding_payload = {}
+        return cls(
+            registry_entry=CapabilityRegistryEntry.from_payload(
+                registry_payload
+            ),
+            binding=ExtensionBindingRecord.from_payload(binding_payload),
+            query_project_id=data.get("query_project_id"),
+            query_profile_id=data.get("query_profile_id"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveCapabilitySnapshot:
+    """Read-time collection of effective capabilities for a context."""
+
+    account_id: str
+    records: tuple[EffectiveCapabilityRecord, ...] = ()
+    project_id: int | None = None
+    profile_id: str | None = None
+    resolved_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        project_id = None if self.project_id is None else int(self.project_id)
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(self, "project_id", project_id)
+        object.__setattr__(
+            self,
+            "profile_id",
+            _clean_optional_text(self.profile_id),
+        )
+        object.__setattr__(self, "records", tuple(self.records or ()))
+        if not self.account_id:
+            raise ValueError("account_id is required")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "project_id": self.project_id,
+            "profile_id": self.profile_id,
+            "resolved_at": self.resolved_at,
+            "records": [record.to_payload() for record in self.records],
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any]
+    ) -> EffectiveCapabilitySnapshot:
+        data = dict(payload)
+        return cls(
+            account_id=data.get("account_id") or "",
+            project_id=data.get("project_id"),
+            profile_id=data.get("profile_id"),
+            records=tuple(
+                EffectiveCapabilityRecord.from_payload(item)
+                for item in data.get("records") or []
+            ),
+            resolved_at=data.get("resolved_at"),
+        )
+
+
 __all__ = [
     "MANIFEST_VERSION",
     "ExtensionRequestedPermission",
@@ -1100,4 +1318,6 @@ __all__ = [
     "CapabilityRegistryEntry",
     "ExtensionInstallBinding",
     "ExtensionBindingRecord",
+    "EffectiveCapabilityRecord",
+    "EffectiveCapabilitySnapshot",
 ]

@@ -1,9 +1,5 @@
-# Agent Tool Loop Contract
-
-Purpose: define the canonical bounded contract for the one-turn tool-augmented completion slice so runtime semantics and transcript integrity keep one stable vocabulary while the broader loop remains bounded.
-
+Purpose: Define the implemented bounded tool-augmented chat completion contract so the backend exposes one honest tool turn without implying a general autonomous agent loop.
 Last updated: 2026-04-21
-
 Source anchors:
 - guardian/core/chat_completion_service.py
 - guardian/core/ai_router.py
@@ -43,7 +39,7 @@ No recursive retry choreography, planner loop, or second tool turn is part of th
 
 ## Canonical Observability Fields
 
-The bounded slice records these runtime fields at the backend seam and on task events:
+The bounded slice records these runtime fields at the backend seam, on task events, and in the durable assistant-message `extra_meta` payload:
 
 - `messageId`
 - `requestId`
@@ -111,7 +107,15 @@ The bounded command-bus result is equally small:
 - One request attempt.
 - Optional one bounded tool turn.
 - One final assistant answer.
-- `messageId` stays the authored/persisted message identity.
-- `requestId` stays the execution-attempt identity.
-- Tool result reinjection must be explicit in the backend assembly path.
-- No second tool turn is allowed in this slice.
+
+`messageId` and `requestId` remain distinct identities.
+
+The persisted assistant message keeps the same observability fields in `extra_meta`, so finished-run reads do not depend on transient worker memory to recover the tool-turn boundary.
+
+## Non-Goals
+
+- No general autonomous agent runtime.
+- No recursive planner.
+- No multi-tool orchestration.
+- No bypass of the command bus for tool execution.
+- No widening of the supported beta promise to autonomous coding.
