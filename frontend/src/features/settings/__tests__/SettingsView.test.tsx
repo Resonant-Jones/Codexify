@@ -124,9 +124,12 @@ describe("SettingsView", () => {
     expect(
       screen.getByRole("tablist", { name: "Settings tabs" })
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("tab", { name: "Personal Facts" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Settings tabs" })).toHaveStyle({
+      position: "sticky",
+      top: "calc(var(--radius-micro) * 0.75)",
+      paddingInline: "calc(var(--radius-micro) * 0.75)",
+    });
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Imprint" }));
 
@@ -185,11 +188,15 @@ describe("SettingsView", () => {
     const scrollBody = screen.getByTestId(
       "settings-panel-scroll-body"
     ) as HTMLDivElement;
+    const content = screen.getByTestId(
+      "settings-panel-content"
+    ) as HTMLDivElement;
 
     expect(
       screen.queryByRole("button", { name: "Import ChatGPT history" })
     ).not.toBeInTheDocument();
-    expect(scrollBody).toHaveClass("overflow-y-auto", "overflow-x-visible");
+    expect(scrollBody).toHaveClass("overflow-auto", "justify-center");
+    expect(content).toHaveClass("max-w-[72rem]", "w-full", "min-w-0");
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(

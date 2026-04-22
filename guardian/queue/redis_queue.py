@@ -39,6 +39,7 @@ CHAT_IMPORT_EMBED_QUEUE_NAME = os.getenv(
 )
 CHAT_IMPORT_EMBED_TASK_TYPE = "chat_import_embed"
 CANDIDATE_INGEST_QUEUE = "codexify:queue:candidate_ingest"
+GRAPH_WRITE_QUEUE = "codexify:queue:graph-write"
 QUEUE_ENQUEUE_ERROR_CODE = ErrorCode.QUEUE_ENQUEUE_FAILED.value
 _CLIENT: Any = None
 _QUEUE_CLIENT: Any = None

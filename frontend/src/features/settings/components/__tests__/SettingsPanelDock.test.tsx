@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import SettingsPanelDock from "@/features/settings/components/SettingsPanelDock";
+import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 
 describe("SettingsPanelDock", () => {
   test("keeps the tab rail sticky and labeled as a control surface", () => {
@@ -23,7 +24,8 @@ describe("SettingsPanelDock", () => {
     expect(dock).toHaveClass("sticky", "flex", "w-full", "justify-center");
     expect(dock).toHaveStyle({
       position: "sticky",
-      top: "calc(var(--card-pad) + var(--board-edge))",
+      top: SETTINGS_DENSITY.edgeChrome,
+      paddingInline: SETTINGS_DENSITY.edgeChrome,
     });
     expect(dock).toHaveAttribute("aria-orientation", "horizontal");
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();

@@ -1188,9 +1188,9 @@ export function SettingsView({
   }
 
   return (
-    <div className="w-full" style={{ color: "var(--text)" }}>
-      <SettingsPanelShell>
-        <div className="flex h-full min-h-0 flex-col gap-[var(--shell-gap)]">
+    <div className="flex h-full min-h-0 w-full justify-center" style={{ color: "var(--text)" }}>
+      <SettingsPanelShell className="w-full">
+        <div className="flex h-full min-h-0 w-full flex-col gap-[var(--settings-edge-chrome)]">
           <SettingsPanelDock>
             {visibleTabs.map(renderTabButton)}
           </SettingsPanelDock>
@@ -1198,8 +1198,12 @@ export function SettingsView({
           <div
             ref={settingsScrollContainerRef}
             data-testid="settings-panel-scroll-body"
-            className="flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)] overflow-x-visible overflow-y-auto"
+            className="flex min-h-0 flex-1 justify-center overflow-auto px-[var(--settings-edge-chrome)] pb-[var(--settings-edge-chrome)]"
           >
+            <div
+              data-testid="settings-panel-content"
+              className="flex w-full min-w-0 max-w-[72rem] flex-col gap-[var(--shell-gap)]"
+            >
             {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"
@@ -1788,6 +1792,7 @@ export function SettingsView({
             <MemoryBrowser activeThreadId={activeThreadId} />
           </SettingsSectionCard>
         )}
+            </div>
           </div>
         </div>
       </SettingsPanelShell>

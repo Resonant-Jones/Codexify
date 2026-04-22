@@ -29,6 +29,15 @@ class ToolTurnState(str, Enum):
     LIMIT_REACHED = "limit_reached"
 
 
+class LoopStopReason(str, Enum):
+    MODEL_FINAL_ANSWER = "model_final_answer"
+    TOOL_TURN_COMPLETED = "tool_turn_completed"
+    TOOL_TURN_BLOCKED = "tool_turn_blocked"
+    TOOL_TURN_FAILED = "tool_turn_failed"
+    TOOL_TURN_MALFORMED = "tool_turn_malformed"
+    TOOL_TURN_LIMIT_REACHED = "tool_turn_limit_reached"
+
+
 class ToolLoopStopReason(str, Enum):
     PLAIN_ANSWER = "plain_answer"
     TOOL_TURN_COMPLETED = "tool_turn_completed"
@@ -47,6 +56,13 @@ class DelegationJobStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class PersonalFactStatus(str, Enum):
+    CANDIDATE = "candidate"
+    VERIFIED = "verified"
+    DISPUTED = "disputed"
+    ARCHIVED = "archived"
 
 
 DELEGATION_SUMMARY_OUTCOME_TYPE = "task_summary"
@@ -142,11 +158,17 @@ TASK_EVENT_TYPES: frozenset[str] = frozenset(
 TOOL_TURN_STATES: frozenset[str] = frozenset(
     {state.value for state in ToolTurnState}
 )
+LOOP_STOP_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in LoopStopReason}
+)
 TOOL_LOOP_STOP_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in ToolLoopStopReason}
 )
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
+)
+PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in PersonalFactStatus}
 )
 DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
@@ -200,8 +222,10 @@ __all__ = [
     "AcceptanceStatus",
     "TaskEventType",
     "ToolTurnState",
+    "LoopStopReason",
     "ToolLoopStopReason",
     "DelegationJobStatus",
+    "PersonalFactStatus",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
     "ExecutorId",
@@ -217,8 +241,10 @@ __all__ = [
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
+    "LOOP_STOP_REASONS",
     "TOOL_LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
+    "PERSONAL_FACT_STATUSES",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",
     "EXECUTOR_RELEASE_POSTURES",

@@ -1605,6 +1605,19 @@ export default function AppShell({
     () => getMobileTopNavRailStyle(mobileShellProfile, mobileTopNavRailMotionState),
     [mobileShellProfile, mobileTopNavRailMotionState]
   );
+  const desktopTopNavRailStyle = useMemo<React.CSSProperties>(
+    () =>
+      isPhoneShell
+        ? mobileTopNavRailStyle
+        : {
+            ...mobileTopNavRailStyle,
+            flex: "0 0 auto",
+            display: "inline-flex",
+            width: "fit-content",
+            maxWidth: "fit-content",
+          },
+    [isPhoneShell, mobileTopNavRailStyle]
+  );
   const mobileInteractionContext = useMobileNavFeedbackContext(isPhoneShell);
   const getMobileNavPillStyle = useCallback(
     (navView: AppShellView) =>
@@ -2205,6 +2218,7 @@ export default function AppShell({
       }
     : {
         padding: "var(--board-edge)",
+        marginLeft: "auto",
         flexBasis: workspacePaneBasis,
         flexGrow: workspacePaneRatio,
         flexShrink: 1,
@@ -2591,7 +2605,7 @@ export default function AppShell({
             <div
               className="inline-flex min-w-0 items-center"
               data-testid="app-shell-top-nav-rail"
-              style={mobileTopNavRailStyle}
+              style={desktopTopNavRailStyle}
             >
               {/* brand badge — doubles as layout mode toggle */}
               <PhonePressButton
@@ -2665,26 +2679,6 @@ export default function AppShell({
                 style={getMobileNavPillStyle("gallery")}
               >
                 Gallery
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "flowBuilder" ? "active" : "inactive"}
-                aria-current={view === "flowBuilder" ? "page" : undefined}
-                onClick={() => navigateToView("flowBuilder")}
-                style={getMobileNavPillStyle("flowBuilder")}
-              >
-                Flow Builder
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "personaStudio" ? "active" : "inactive"}
-                aria-current={view === "personaStudio" ? "page" : undefined}
-                onClick={() => navigateToView("personaStudio")}
-                style={getMobileNavPillStyle("personaStudio")}
-              >
-                Persona Studio
               </PhonePressButton>
             </div>
           </div>

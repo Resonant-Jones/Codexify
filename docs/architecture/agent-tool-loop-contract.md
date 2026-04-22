@@ -10,14 +10,12 @@ Source anchors:
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
 
-# Agent Tool Loop Contract
-
 ## Scope
 
-- Backend-only, bounded chat completion slice.
-- Exactly one model-chosen tool turn is allowed.
-- The command bus is the only execution lane for the tool turn.
-- The plain-answer path remains unchanged when the model does not choose a tool.
+- This is the contract for the implemented first bounded tool-augmented completion slice.
+- The current runtime can still return a plain assistant answer with no tool turn, but it can now also execute exactly one model-chosen command-bus invoke, reinject the result, and request one final assistant answer.
+- This document is about runtime semantics and transcript integrity, not UI design.
+- It intentionally avoids any claim that the supported beta ships recursive or autonomous coding-agent execution.
 
 ## Implemented Runtime Truth
 

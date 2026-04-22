@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from "react";
 
 import { cn } from "@/lib/utils";
+import { SETTINGS_DENSITY } from "../settingsDensityContract";
 
 type SettingsPanelShellProps = PropsWithChildren<{
   className?: string;
@@ -23,7 +24,7 @@ export default function SettingsPanelShell({
         borderRadius: "calc(var(--card-radius) + var(--board-edge) / 2)",
         border: "1px solid color-mix(in srgb, var(--panel-bezel) 86%, transparent)",
         background: "color-mix(in srgb, var(--panel-bg) 80%, transparent)",
-        padding: "calc(var(--card-pad) + var(--board-edge))",
+        padding: SETTINGS_DENSITY.edgeChrome,
         boxShadow:
           "inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)",
       }}

@@ -56,6 +56,7 @@ from guardian.core.provider_registry import (
     validate_provider_model_selection,
 )
 from guardian.core.provider_truth import build_provider_truth
+from guardian.evals.spine import schedule_post_completion_eval
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     clear_cancelled,
@@ -1944,6 +1945,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         raise ValueError("ChatCompletionTask missing user_id")
     run_id = uuid.uuid4().hex
     started = time.monotonic()
+    worker_started_at = _utc_now_iso()
     turn_id = _extract_turn_id(task)
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     lifecycle_timings: dict[str, Any] = {}
@@ -2272,7 +2274,27 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             task.task_id,
             message_id,
         )
+        completion_persisted_at = _utc_now_iso()
         assistant_text = str(result.get("assistant_text") or "")
+        current_chatlog_db = getattr(dependencies, "chatlog_db", None)
+        thread_record = None
+        try:
+            getter = getattr(current_chatlog_db, "get_chat_thread", None)
+            if callable(getter):
+                thread_record = getter(task.thread_id)
+        except Exception:
+            thread_record = None
+        schedule_post_completion_eval(
+            current_chatlog_db,
+            task=task,
+            result=result,
+            assistant_message_id=message_id,
+            worker_started_at=worker_started_at,
+            completion_persisted_at=completion_persisted_at,
+            thread_record=thread_record
+            if isinstance(thread_record, dict)
+            else None,
+        )
         try:
             from guardian.memory_graph.graph_write_hook import (
                 build_graph_write_candidate,
@@ -2368,6 +2390,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
+                "tool_loop": result.get("tool_loop"),
                 "payload_summary": result.get("payload_summary"),
                 "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_query": result_retrieval_query,
