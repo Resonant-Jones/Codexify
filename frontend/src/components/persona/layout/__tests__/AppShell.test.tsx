@@ -5,6 +5,7 @@ import {
   fireEvent,
   waitFor,
   act,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -386,11 +387,9 @@ describe("AppShell logo wordmark color contract", () => {
   it("keeps the prior Guardian route reachable from Flow Builder even after the draft fields take focus", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "guardian");
-    setRouteThread(123);
+    setRoutePath("/flow-builder?mode=expertise");
 
     render(<AppShell />);
-
-    await user.click(screen.getByRole("button", { name: "Flow Builder" }));
 
     await user.click(await screen.findByTestId("flow-builder-mode-expertise"));
 
@@ -400,7 +399,7 @@ describe("AppShell logo wordmark color contract", () => {
     await user.click(screen.getByTestId("flow-builder-return-guardian"));
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/chat/123");
+      expect(window.location.pathname).toBe("/chat");
     });
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
   });
@@ -426,7 +425,7 @@ describe("AppShell settings utility trigger", () => {
     vi.clearAllMocks();
   });
 
-  it("moves Settings into the utility rail and opens the existing settings surface", async () => {
+  it("hides unfinished beta surfaces from the visible primary nav", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "dashboard");
 
@@ -453,9 +452,13 @@ describe("AppShell settings utility trigger", () => {
       "w-fit",
       "max-w-full"
     );
-    expect(
-      screen.getByRole("button", { name: "Flow Builder" }).nextElementSibling
-    ).toHaveTextContent(/^persona studio$/i);
+    const primaryNav = within(screen.getByTestId("app-shell-top-nav"));
+    expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Persona Studio" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("settings-utility-toggle"));
