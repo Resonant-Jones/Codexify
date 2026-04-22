@@ -41,7 +41,7 @@ Source anchors:
 |---|---|---|
 | `projects` | Top-level ownership and grouping boundary for threads and documents | `identity_depth` constrained to `light` or `deep` |
 | `chat_threads` | Primary conversation container | can be archived, nested via `parent_id`, and tied to a project/profile |
-| `chat_messages` | Ordered conversation state | hard-linked to thread by FK with cascade delete |
+| `chat_messages` | Ordered conversation state | hard-linked to thread by FK with cascade delete; assistant rows may carry durable completion breadcrumbs in `extra_meta` |
 | `memory_entries` | Stored episodic/semantic memory | `silo` constraint and retrieval policy dependence |
 | `personal_facts` | Higher-level fact memory | confidence/status constraints drive fact lifecycle |
 | `personal_fact_evidence` | Evidence rows that tie facts back to messages or sources | fact delete cascades; message link may be nullable |
