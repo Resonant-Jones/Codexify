@@ -1530,9 +1530,15 @@ def build_sanitized_payload_summary(
 
     retrieval_meta = {}
     docs_meta = {}
+    verified_personal_facts_meta: dict[str, Any] = {}
     if isinstance(prompt_meta, dict):
         retrieval_meta = prompt_meta.get("context") or {}
         docs_meta = prompt_meta.get("docs") or {}
+        verified_personal_facts_meta = (
+            retrieval_meta.get("verified_personal_facts")
+            or retrieval_meta.get("personal_facts")
+            or {}
+        )
 
     semantic_injected = bool(
         (retrieval_meta.get("semantic") or {}).get("injected")
@@ -1551,6 +1557,18 @@ def build_sanitized_payload_summary(
     )
     # Obsidian entries are injected via the semantic context block.
     obsidian_injected = bool(obsidian_count and semantic_injected)
+    verified_personal_facts_injected = bool(
+        verified_personal_facts_meta.get("injected")
+    )
+    verified_personal_fact_ids = [
+        item
+        for item in (
+            verified_personal_facts_meta.get("fact_ids")
+            or verified_personal_facts_meta.get("included_ids")
+            or []
+        )
+        if item is not None
+    ]
 
     summary = {
         "version": 1,
@@ -1596,6 +1614,11 @@ def build_sanitized_payload_summary(
         "federated_injected": federated_injected,
         "linked_document_injected": linked_document_injected,
         "obsidian_injected": obsidian_injected,
+        "verified_personal_facts_injected": verified_personal_facts_injected,
+        "verified_personal_fact_ids": verified_personal_fact_ids,
+        "verified_personal_facts_count": int(
+            verified_personal_facts_meta.get("count") or 0
+        ),
     }
     summary["graph_hit_count"] = summary["graph_count"]
     summary["graph_enrichment_status"] = (
@@ -1613,6 +1636,7 @@ def build_sanitized_payload_summary(
             "federated_injected",
             "linked_document_injected",
             "obsidian_injected",
+            "verified_personal_facts_injected",
         )
     )
     summary["normalized_source_mode"] = summary["source_mode"]

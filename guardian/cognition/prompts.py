@@ -9,6 +9,10 @@ are expected to be handled by the caller (see system_prompt_builder.py).
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from guardian.protocol_tokens import PersonalFactStatus
+
+VERIFIED_PERSONAL_FACT_LIMIT = 12
+
 
 def _clean_text(value: Any) -> str:
     if value is None:
@@ -150,14 +154,9 @@ def _compact_text(value: Any) -> str:
     return " ".join(str(value).split()).strip()
 
 
-def _format_personal_fact_row(item: Optional[Dict[str, Any]]) -> str:
+def _format_verified_personal_fact_row(item: Optional[Dict[str, Any]]) -> str:
     if not isinstance(item, dict):
         return ""
-    if str(item.get("status") or "").strip().lower() != "verified":
-        return ""
-    if item.get("is_active") is False:
-        return ""
-
     key = _compact_text(item.get("key"))
     value = _compact_text(item.get("value"))
     if not key or not value:
@@ -165,15 +164,43 @@ def _format_personal_fact_row(item: Optional[Dict[str, Any]]) -> str:
     return f"- {key}: {value}"
 
 
+def _verified_personal_facts(bundle: Optional[Dict[str, Any]]) -> list[dict]:
+    if not isinstance(bundle, dict):
+        return []
+    raw = bundle.get("verified_personal_facts")
+    if not isinstance(raw, list):
+        raw = bundle.get("personal_facts")
+    if not isinstance(raw, list):
+        return []
+    filtered: list[dict[str, Any]] = []
+    for item in raw[:VERIFIED_PERSONAL_FACT_LIMIT]:
+        if not isinstance(item, dict):
+            continue
+        if "status" in item or "is_active" in item:
+            if (
+                str(item.get("status") or "").strip().lower()
+                != PersonalFactStatus.VERIFIED.value
+            ):
+                continue
+            if item.get("is_active") is False:
+                continue
+        key = _compact_text(item.get("key"))
+        value = _compact_text(item.get("value"))
+        if not key or not value:
+            continue
+        filtered.append(item)
+    return filtered
+
+
 def _personal_facts_lines(bundle: Optional[Dict[str, Any]]) -> list[str]:
     if not isinstance(bundle, dict):
         return []
-    raw = bundle.get("personal_facts")
-    if not isinstance(raw, list):
-        return []
     return [
         line
-        for line in (_format_personal_fact_row(item) for item in raw)
+        for line in (
+            _format_verified_personal_fact_row(item)
+            for item in _verified_personal_facts(bundle)
+        )
         if line
     ]
 
@@ -200,7 +227,7 @@ def _rag_hint_block(bundle: Optional[Dict[str, Any]]) -> str:
     has_semantic = bool(bundle.get("semantic"))
     has_memory = bool(bundle.get("memory"))
     has_graph = bool(bundle.get("graph"))
-    has_personal_facts = bool(_personal_facts_lines(bundle))
+    has_personal_facts = bool(_verified_personal_facts(bundle))
 
     if (
         not has_semantic
@@ -311,7 +338,16 @@ def build_context_system_message_with_meta(
             "memory": {"count": 0, "injected": False},
             "graph": {"count": 0, "injected": False},
             "federated": {"count": 0, "injected": False},
-            "personal_facts": {"count": 0, "injected": False},
+            "verified_personal_facts": {
+                "count": 0,
+                "injected": False,
+                "fact_ids": [],
+            },
+            "personal_facts": {
+                "count": 0,
+                "injected": False,
+                "fact_ids": [],
+            },
         }
 
     context_parts = []
@@ -332,9 +368,23 @@ def build_context_system_message_with_meta(
             "count": len(bundle.get("federated", []) or []),
             "injected": False,
         },
-        "personal_facts": {
-            "count": len(_personal_facts_lines(bundle)),
+        "verified_personal_facts": {
+            "count": len(_verified_personal_facts(bundle)),
             "injected": False,
+            "fact_ids": [
+                item.get("id")
+                for item in _verified_personal_facts(bundle)
+                if item.get("id") is not None
+            ],
+        },
+        "personal_facts": {
+            "count": len(_verified_personal_facts(bundle)),
+            "injected": False,
+            "fact_ids": [
+                item.get("id")
+                for item in _verified_personal_facts(bundle)
+                if item.get("id") is not None
+            ],
         },
     }
 
@@ -379,7 +429,10 @@ def build_context_system_message_with_meta(
 
     personal_facts = _personal_facts_lines(bundle)
     if personal_facts:
-        context_parts.append("Personal Facts:\n" + "\n".join(personal_facts))
+        context_parts.append(
+            "Verified Personal Facts:\n" + "\n".join(personal_facts)
+        )
+        meta["verified_personal_facts"]["injected"] = True
         meta["personal_facts"]["injected"] = True
 
     if bundle.get("federated"):

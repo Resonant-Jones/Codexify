@@ -124,12 +124,13 @@ Sequence:
 2. Use the latest user utterance as the semantic retrieval query.
 3. `ContextBroker.assemble()` gathers:
    - recent messages
+   - verified active personal facts scoped to the resolved user
    - semantic vector matches unless depth is `shallow`
    - linked project/thread documents
    - memory retrieval for `deep` and `diagnostic`
    - graph context when `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`
    - sensor diagnostics and optional federated context when requested
-4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block.
+4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block, including a bounded verified-personal-facts section when eligible facts exist.
 5. The final LLM input is the system/context block plus conversation messages.
 
 Outputs:

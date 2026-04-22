@@ -244,6 +244,41 @@ def test_rag_trace_preserves_retrieval_override_and_effective_source_mode(
     chat._rag_traces.pop(79, None)
 
 
+def test_rag_trace_surfaces_verified_personal_fact_ids(monkeypatch):
+    chat._thread_latest_task[81] = "task-81"
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "source_mode": "project",
+                "widen_reason": "none",
+            },
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "source_mode": "project",
+                "effective_source_mode": "project",
+                "verified_personal_facts_injected": True,
+                "verified_personal_fact_ids": [9],
+                "verified_personal_facts_count": 1,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(81, api_key="test-key")
+
+    assert trace["payload_summary"]["verified_personal_facts_injected"] is True
+    assert trace["payload_summary"]["verified_personal_fact_ids"] == [9]
+    assert trace["payload_summary"]["verified_personal_facts_count"] == 1
+
+    chat._thread_latest_task.pop(81, None)
+    chat._rag_traces.pop(81, None)
+
+
 def test_rag_trace_preserves_conversation_override_and_effective_source_mode(
     monkeypatch,
 ):
