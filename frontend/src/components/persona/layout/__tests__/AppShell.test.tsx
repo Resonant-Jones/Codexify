@@ -710,7 +710,7 @@ describe("AppShell workspace drawer shell", () => {
     vi.clearAllMocks();
   });
 
-  it.each(["dashboard", "guardian", "documents"] as const)(
+  it.each(["guardian", "documents"] as const)(
     "renders the shared workspace drawer from the shell for %s and keeps open/close behavior intact",
     async (initialView) => {
       localStorage.setItem("cfy.lastView", initialView);
@@ -730,6 +730,15 @@ describe("AppShell workspace drawer shell", () => {
       });
     }
   );
+
+  it("does not render workspace controls on dashboard", () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    expect(screen.queryByTestId("workspace-drawer-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+  });
 
   it("keeps the documents workspace drawer right-anchored as its posture expands", async () => {
     const user = userEvent.setup();
