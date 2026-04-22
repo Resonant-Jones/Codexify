@@ -47,6 +47,7 @@ Use this note as the local map for all ADRs.
 11. [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|ADR-011 Graph Write Task Seam and Worker Scaffold]] — queue-backed graph-write handoff and inspection-only worker scaffold for derived graph candidates.
 12. [[012-Post-Completion-Eval-Spine|ADR-012 Post-Completion Eval Spine]] — durable post-completion trace snapshot and attempt-scoped quality verdict seam, inspection-only and non-gating.
 13. [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] — backend-only verified personal-facts injection seam, bounded and user-scoped.
+14. [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] — canonical contract for Guardian threads, flow drafts, Builder support lanes, and run receipts.
 
 ---
 
@@ -173,6 +174,16 @@ Primary companion notes:
   * [[chat-runtime-contract|Chat Runtime Contract]]
   * [[data-and-storage|Data and Storage]]
   * [[flows|Critical Flows]]
+  * [[00-current-state]]
+
+* [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] links to:
+
+  * [[006-flow-builder-elicitation-lane|Flow Builder Elicitation Lane]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[data-and-storage|Data and Storage]]
+  * [[flows|Critical Flows]]
+  * [[system-overview|System Overview]]
   * [[00-current-state]]
 ---
 
