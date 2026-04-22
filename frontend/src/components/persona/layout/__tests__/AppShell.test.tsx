@@ -8,23 +8,21 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import {
-  personaStudioApiMock,
-  resetPersonaStudioApiMock,
-} from "@/features/personaStudio/__tests__/personaStudioApiMock";
-import api from "@/lib/api";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   LIVE_EVENT_CONNECTION_STATES,
   RUNTIME_HEALTH_STATUSES,
 } from "@/contracts/runtimeTokens";
+import { resetPersonaStudioApiMock } from "@/features/personaStudio/__tests__/personaStudioApiMock";
 import {
   MIN_WORKSPACE_PRIMARY_PANE_WIDTH,
   getWorkspaceLayoutStorageKeyForThread,
   getWorkspacePaneRatioForLayoutMode,
   type WorkspaceLayoutMode,
 } from "@/features/workspace/state/useWorkspaceLayoutMode";
+import api from "@/lib/api";
 
 const runtimeHealthState = {
   status: RUNTIME_HEALTH_STATUSES.HEALTHY,
@@ -710,7 +708,7 @@ describe("AppShell workspace drawer shell", () => {
     vi.clearAllMocks();
   });
 
-  it.each(["dashboard", "guardian", "documents"] as const)(
+  it.each(["guardian", "documents"] as const)(
     "renders the shared workspace drawer from the shell for %s and keeps open/close behavior intact",
     async (initialView) => {
       localStorage.setItem("cfy.lastView", initialView);
@@ -730,6 +728,15 @@ describe("AppShell workspace drawer shell", () => {
       });
     }
   );
+
+  it("does not render workspace controls on dashboard", () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    expect(screen.queryByTestId("workspace-drawer-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+  });
 
   it("keeps the documents workspace drawer right-anchored as its posture expands", async () => {
     const user = userEvent.setup();
@@ -913,7 +920,10 @@ describe("AppShell workspace drawer shell", () => {
       if (originalVisualViewport) {
         Object.defineProperty(window, "visualViewport", originalVisualViewport);
       } else {
-        delete (window as any).visualViewport;
+        const windowWithVisualViewport = window as Window & {
+          visualViewport?: typeof window.visualViewport;
+        };
+        delete windowWithVisualViewport.visualViewport;
       }
     }
   });
@@ -1021,7 +1031,7 @@ describe("AppShell workspace drawer shell", () => {
 
     fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
 
-    const drawer = await screen.findByTestId("workspace-drawer");
+    await screen.findByTestId("workspace-drawer");
     const posture = screen.getByTestId("workspace-drawer-posture");
 
     await user.click(posture);

@@ -1,14 +1,14 @@
-import React, { useMemo } from "react";
 import { BookOpen, ChevronRight, FileText } from "lucide-react";
+import React, { useMemo } from "react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
-import useUploader from "@/hooks/useUploader";
-import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
-import TileShell from "@/components/surface/TileShell";
-import { DocumentLike, type DocumentScope } from "@/types/documents";
-import { ExtColors } from "@/types/ui";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useShellViewportProfile } from "@/components/persona/layout/shellBreakpointContract";
+import TileShell from "@/components/surface/TileShell";
+import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
+import useUploader from "@/hooks/useUploader";
+import { DocumentLike, type DocumentScope } from "@/types/documents";
+import { ExtColors } from "@/types/ui";
 
 interface DocumentsViewProps {
   documents: DocumentLike[];
@@ -30,6 +30,20 @@ type MobileDocumentRowProps = {
   doc: DocumentLike;
   extColors: ExtColors;
   onClick: () => void;
+};
+
+type DocumentUploadItem = {
+  id?: string | number;
+  name?: string;
+  title?: string;
+  filename?: string;
+  ext?: string;
+  extension?: string;
+  project_id?: number | string | null;
+  projectId?: number | string | null;
+  thread_id?: number | string | null;
+  threadId?: number | string | null;
+  [key: string]: unknown;
 };
 
 function MobileDocumentRow({
@@ -140,27 +154,31 @@ export default function DocumentsView({
     tag: "upload",
     projectId: defaultProjectId ?? undefined,
     onImages: () => {},
-    onDocuments: (items) => {
-      const normalized = (items || []).map((item: any, idx: number) => ({
+    onDocuments: (items: DocumentUploadItem[]) => {
+      const normalized = items.map((item, idx: number) => ({
         ...item,
-        id: item?.id || item?.name || `upload-${idx}`,
-        name: item?.name || item?.title || item?.filename || "Untitled",
-        title: item?.title || item?.name || item?.filename || "Untitled",
-        ext: item?.ext || item?.extension || "md",
+        id: item.id || item.name || `upload-${idx}`,
+        name: item.name || item.title || item.filename || "Untitled",
+        title: item.title || item.name || item.filename || "Untitled",
+        ext: item.ext || item.extension || "md",
         type: "file",
-        projectId: item?.project_id ?? item?.projectId,
-        threadId: item?.thread_id ?? item?.threadId ?? null,
+        projectId: item.project_id ?? item.projectId,
+        threadId: item.thread_id ?? item.threadId ?? null,
       }));
       try {
         window.dispatchEvent(
           new CustomEvent("cfy:documents:add", { detail: { items: normalized } })
         );
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     },
     onAnyUpload: () => {
       try {
         localStorage.setItem("cfy.hasUserUpload", "true");
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     },
   });
 
@@ -238,10 +256,9 @@ export default function DocumentsView({
     ? { padding: documentsCardPadding }
     : {
         padding: documentsCardPadding,
-        flex: "3 1 0%",
-        flexBasis: "74%",
-        minWidth: "clamp(28rem, 54vw, 72rem)",
-        maxWidth: "78%",
+        flex: "1 1 0%",
+        minWidth: 0,
+        maxWidth: "100%",
         alignSelf: "stretch",
       };
 
@@ -256,7 +273,7 @@ export default function DocumentsView({
         className={`flex-shrink-0 ${
           isPhoneShell
             ? "flex flex-col items-start gap-[var(--card-pad)]"
-            : "flex flex-wrap items-center justify-between gap-[var(--shell-gap)]"
+            : "flex flex-wrap items-start justify-between gap-[var(--shell-gap)]"
         }`}
       >
         <h2
@@ -266,17 +283,24 @@ export default function DocumentsView({
           Documents
         </h2>
         <div
+          data-testid="documents-scope-actions"
           style={{
             padding: 6,
             boxSizing: "border-box",
-            width: isPhoneShell ? "100%" : undefined,
-            display: isPhoneShell ? "block" : "inline-flex",
-            alignSelf: isPhoneShell ? "stretch" : "flex-start",
+            width: "100%",
+            display: isPhoneShell ? "block" : "flex",
+            alignSelf: "stretch",
+            minWidth: 0,
+            maxWidth: "100%",
           }}
         >
           <div
-            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : ""}`}
-            style={surfaceActionClusterStyle}
+            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : "w-full justify-end flex-wrap"}`}
+            style={{
+              ...surfaceActionClusterStyle,
+              minWidth: 0,
+              maxWidth: "100%",
+            }}
           >
             {scopePills.map(({ key, label, disabled }) => (
               <button

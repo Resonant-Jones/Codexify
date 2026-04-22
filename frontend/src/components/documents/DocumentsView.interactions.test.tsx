@@ -66,7 +66,7 @@ describe("DocumentsView interactions", () => {
   });
 
   it("shows only the Thread and Project scope pills in the header", () => {
-    render(
+    const { container } = render(
       <DocumentsView
         documents={[]}
         extColors={EXT_COLORS}
@@ -75,6 +75,21 @@ describe("DocumentsView interactions", () => {
         threadScopeEnabled
       />
     );
+
+    expect(screen.getByTestId("documents-layout").style.flexGrow).toBe("1");
+    expect(screen.getByTestId("documents-layout").style.flexShrink).toBe("1");
+    expect(screen.getByTestId("documents-layout").style.flexBasis).toBe("0%");
+    expect(screen.getByTestId("documents-layout").style.minWidth).toBe("0");
+    expect(screen.getByTestId("documents-layout").style.maxWidth).toBe("100%");
+    expect(screen.getByTestId("documents-scope-actions").style.minWidth).toBe(
+      "0"
+    );
+    expect(screen.getByTestId("documents-scope-actions").style.maxWidth).toBe(
+      "100%"
+    );
+    expect(
+      container.querySelector('[data-testid="documents-scope-actions"] > div')
+    ).toHaveClass("w-full", "justify-end", "flex-wrap");
 
     expect(screen.getByRole("button", { name: "Thread" })).toHaveAttribute(
       "data-state",
