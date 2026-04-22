@@ -47,7 +47,7 @@ describe("DocumentsView demo content", () => {
   });
 
   it("renders demo documents when no real documents exist and removes the manual mock toggle", () => {
-    render(
+    const { container } = render(
       <DocumentsView
         documents={[
           {
@@ -66,6 +66,7 @@ describe("DocumentsView demo content", () => {
     expect(screen.getByText("Demo Brief")).toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(container.querySelector(".fc-root")).toBeNull();
   });
 
   it("auto-hides demo documents once real documents exist", () => {

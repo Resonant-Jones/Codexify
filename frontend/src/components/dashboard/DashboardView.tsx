@@ -106,25 +106,6 @@ function MobileRecentDocumentRow({
   );
 }
 
-const DEMO_GALLERY_ITEMS: GalleryItem[] = [
-  {
-    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23ff6b6b;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23ee5a6f;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g1)'/%3E%3C/svg%3E",
-    prompt: "Demo: Warm Gradient",
-  },
-  {
-    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g2' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%234c2a7d;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%236d28d9;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g2)'/%3E%3C/svg%3E",
-    prompt: "Demo: Deep Purple",
-  },
-  {
-    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g3' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2360a5fa;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%233b82f6;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g3)'/%3E%3C/svg%3E",
-    prompt: "Demo: Cool Blue",
-  },
-  {
-    src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g4' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2310b981;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23059669;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g4)'/%3E%3C/svg%3E",
-    prompt: "Demo: Fresh Green",
-  },
-];
-
 type DashboardViewProps = {
   extColors: ExtColors;
   gallery: GalleryItem[];
@@ -144,7 +125,7 @@ export default function DashboardView({
   onRequestNewThread,
   onNavigateDocuments,
   onNavigateGallery,
-  threadGridRows,
+  threadGridRows: _threadGridRows,
 }: DashboardViewProps) {
   const auth = useAuthState();
   const mobileShellProfile = useMobileShellProfile();
@@ -292,10 +273,9 @@ export default function DashboardView({
     }
   }, []);
 
-  const rows = Math.max(1, Number.isFinite(threadGridRows) ? threadGridRows : 2);
   const threadColumns = mobileShellProfile.dashboard.threadColumns;
-  const threadLimit = threadColumns * rows;
-  const threadList = pinnedThreads.slice(0, threadLimit);
+  const desktopThreadColumns = 3;
+  const threadList = pinnedThreads.slice(0, 6);
   const dashboardCardPadding = mobileShellProfile.dashboard.contentPadding;
   const surfaceActionClusterStyle: React.CSSProperties = {
     paddingInline: mobileShellProfile.surfaceActions.clusterPaddingX,
@@ -311,17 +291,7 @@ export default function DashboardView({
         type: "file" as const,
       }));
 
-  const realGallery = React.useMemo(() => gallery.filter((item) => !item.mock), [gallery]);
-  const hasRealGallery = realGallery.length > 0;
-  const galleryToRender = React.useMemo(
-    () =>
-      hasRealGallery
-        ? realGallery
-        : gallery.length > 0
-          ? gallery
-          : DEMO_GALLERY_ITEMS,
-    [gallery, hasRealGallery, realGallery]
-  );
+  const galleryToRender = React.useMemo(() => gallery.filter((item) => !item.mock), [gallery]);
 
   const dashboardLayoutMode = isPhoneShell ? "mobile_stack" : "desktop_split";
   const dashboardSurfaceClassName = isPhoneShell
@@ -338,12 +308,13 @@ export default function DashboardView({
   const cardHeaderClassName = isPhoneShell
     ? "flex flex-col items-start gap-[var(--card-pad)]"
     : "flex items-center justify-between gap-[var(--shell-gap)]";
-  const compactButtonRowClassName = "glass-pill h-auto flex-wrap justify-start";
+  const compactButtonRowClassName =
+    "glass-pill h-auto flex flex-nowrap items-center justify-start gap-[var(--pill-gap)] whitespace-nowrap";
   const threadGridStyle = React.useMemo<React.CSSProperties>(
     () => ({
-      gridTemplateColumns: `repeat(${threadColumns}, minmax(0, 1fr))`,
+      gridTemplateColumns: `repeat(${isPhoneShell ? threadColumns : desktopThreadColumns}, minmax(0, 1fr))`,
     }),
-    [threadColumns]
+    [desktopThreadColumns, isPhoneShell, threadColumns]
   );
   const recentDocumentsGridStyle = React.useMemo<React.CSSProperties>(
     () => ({
@@ -354,9 +325,7 @@ export default function DashboardView({
     }),
     [mobileShellProfile.dashboard.documentColumns]
   );
-  const dashboardGalleryOuterClassName = isPhoneShell
-    ? "flex-1 min-h-0 overflow-visible"
-    : "flex-1 min-h-0 overflow-auto pr-1";
+  const dashboardGalleryOuterClassName = "flex-1 min-h-0 overflow-auto pr-1";
 
   return (
     <section
@@ -409,7 +378,11 @@ export default function DashboardView({
                       No threads yet. Start one above.
                     </div>
                   ) : (
-                    <div className="grid h-full gap-[var(--shell-gap)]" style={threadGridStyle}>
+                    <div
+                      className="grid h-full gap-[var(--shell-gap)]"
+                      style={threadGridStyle}
+                      data-testid="dashboard-recent-threads-grid"
+                    >
                       {threadList.map((t) => (
                         <TileShell
                           key={t.id}
@@ -523,13 +496,6 @@ export default function DashboardView({
                   </Button>
                 </div>
               </div>
-              {!hasRealGallery && (
-                <div className="flex items-center justify-between gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
-                  <p className="text-xs leading-6 opacity-75">
-                    Demo gallery images. They'll disappear once you add your own.
-                  </p>
-                </div>
-              )}
               <div className={dashboardGalleryOuterClassName}>
                 {galleryToRender.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
