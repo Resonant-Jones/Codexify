@@ -15,6 +15,7 @@ def _build_task(
     thread_id: int = 7,
 ) -> ChatCompletionTask:
     task = ChatCompletionTask(
+        user_id="local",
         task_id=task_id,
         thread_id=thread_id,
         provider="groq",
@@ -40,7 +41,7 @@ def _seed_service(
     monkeypatch.setattr(
         chat_completion_service,
         "build_sanitized_payload_summary",
-        lambda messages, bundle, provider, model: {
+        lambda messages, bundle, provider, model, **_kwargs: {
             "message_count": len(messages),
             "resolved_provider": provider,
             "resolved_model": model,
@@ -113,14 +114,14 @@ def test_plain_answer_path_skips_command_bus(monkeypatch: pytest.MonkeyPatch):
     )
 
     assert not command_bus_calls
-    assert len(chat_calls) == 1
+    assert len(chat_calls) == 2
     assert result["assistant_text"] == "plain answer"
-    assert result["messageId"] == 2
-    assert result["requestId"] == task.task_id
-    assert result["toolTurnId"] is None
-    assert result["toolTurnState"] == "idle"
-    assert result["loopStopReason"] == "plain_answer"
-    assert result["commandRunId"] is None
+    assert result["payload_summary"]["messageId"] == 2
+    assert result["payload_summary"]["requestId"] == task.task_id
+    assert result["payload_summary"]["toolTurnId"] is None
+    assert result["payload_summary"]["toolTurnState"] == "idle"
+    assert result["payload_summary"]["loopStopReason"] == "plain_answer"
+    assert result["payload_summary"]["commandRunId"] is None
     assert result["payload_summary"]["toolTurnState"] == "idle"
     assert result["payload_summary"]["loopStopReason"] == "plain_answer"
 
@@ -168,13 +169,13 @@ def test_single_tool_decision_path_invokes_command_bus_once_and_reinjects_result
     )
 
     assert len(command_calls) == 1
-    assert len(chat_calls) == 2
+    assert len(chat_calls) == 3
     assert command_calls[0]["payload"].command_id == "op::echo"
     assert result["assistant_text"] == "final answer"
-    assert result["toolTurnId"] is not None
-    assert result["toolTurnState"] == "completed"
-    assert result["loopStopReason"] == "tool_turn_completed"
-    assert result["commandRunId"] == "run-123"
+    assert result["payload_summary"]["toolTurnId"] is not None
+    assert result["payload_summary"]["toolTurnState"] == "completed"
+    assert result["payload_summary"]["loopStopReason"] == "tool_turn_completed"
+    assert result["payload_summary"]["commandRunId"] == "run-123"
     assert result["payload_summary"]["toolTurnState"] == "completed"
     assert result["payload_summary"]["loopStopReason"] == "tool_turn_completed"
     assert result["payload_summary"]["commandRunId"] == "run-123"

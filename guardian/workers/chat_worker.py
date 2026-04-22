@@ -164,6 +164,14 @@ _LIFECYCLE_TIMING_FIELDS = (
     "first_output_at",
     "completed_at",
 )
+_TOOL_LOOP_OBSERVABILITY_FIELDS = (
+    "messageId",
+    "requestId",
+    "toolTurnId",
+    "toolTurnState",
+    "loopStopReason",
+    "commandRunId",
+)
 _ASSISTANT_AUDIO_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(
         1,
@@ -623,6 +631,24 @@ def _task_error_metadata(exc: Exception) -> dict[str, Any]:
     if isinstance(metadata, dict):
         return dict(metadata)
     return {}
+
+
+def _tool_loop_observability_payload(
+    *,
+    result: dict[str, Any],
+    task: ChatCompletionTask,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for field in _TOOL_LOOP_OBSERVABILITY_FIELDS:
+        if field == "messageId":
+            value = result.get("messageId") or result.get("message_id")
+        elif field == "requestId":
+            value = result.get("requestId") or task.task_id
+        else:
+            value = result.get(field)
+        if value is not None:
+            payload[field] = value
+    return payload
 
 
 def _classify_runtime_status(detail: str) -> str | None:
@@ -1846,6 +1872,10 @@ def _run_chat_completion_task_compat(
     result["persistence_outcome"] = "persisted"
     completion_truth["completed"] = True
     final_provider_truth["completed"] = True
+    tool_loop_observability = _tool_loop_observability_payload(
+        result=result,
+        task=task,
+    )
     if callable(state_callback):
         state_callback(
             TaskLifecycleState.COMPLETED,
@@ -1853,13 +1883,7 @@ def _run_chat_completion_task_compat(
                 "message_id": message_id,
                 "provider": final_provider,
                 "model": final_model,
-                "messageId": result.get("messageId")
-                or result.get("message_id"),
-                "requestId": result.get("requestId") or task.task_id,
-                "toolTurnId": result.get("toolTurnId"),
-                "toolTurnState": result.get("toolTurnState"),
-                "loopStopReason": result.get("loopStopReason"),
-                "commandRunId": result.get("commandRunId"),
+                **tool_loop_observability,
             },
         )
 
@@ -1881,6 +1905,7 @@ def _run_chat_completion_task_compat(
                 "attempted_provider_truth": attempted_provider_truth,
                 "final_provider_truth": final_provider_truth,
                 "execution": execution,
+                **tool_loop_observability,
             },
         )
 
@@ -2299,6 +2324,10 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 exc_info=True,
             )
         duration_ms = int((time.monotonic() - started) * 1000)
+        tool_loop_observability = _tool_loop_observability_payload(
+            result=result,
+            task=task,
+        )
         _safe_publish(
             task.task_id,
             "task.completed",
@@ -2313,13 +2342,6 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     else result_latest_turn_message_id
                 ),
                 "message_id": message_id,
-                "messageId": result.get("messageId")
-                or result.get("message_id"),
-                "requestId": result.get("requestId") or task.task_id,
-                "toolTurnId": result.get("toolTurnId"),
-                "toolTurnState": result.get("toolTurnState"),
-                "loopStopReason": result.get("loopStopReason"),
-                "commandRunId": result.get("commandRunId"),
                 "provider": result.get("provider"),
                 "model": result.get("model"),
                 "attempted_provider": result.get("attempted_provider"),
@@ -2355,6 +2377,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 ),
                 "trace": result_trace,
                 **lifecycle_timings_payload,
+                **tool_loop_observability,
             },
         )
         logger.info(

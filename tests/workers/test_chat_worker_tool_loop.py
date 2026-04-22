@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -33,6 +34,7 @@ def _build_task(
     thread_id: int = 7,
 ) -> ChatCompletionTask:
     task = ChatCompletionTask(
+        user_id="local",
         task_id=task_id,
         thread_id=thread_id,
         provider="groq",
@@ -48,6 +50,8 @@ def _build_task(
 
 def _prepare_worker_harness(
     monkeypatch,
+    *,
+    persisted_meta: list[dict[str, Any]] | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     published: list[tuple[str, dict[str, Any]]] = []
     _isolate_turn_anchor(monkeypatch)
@@ -89,7 +93,12 @@ def _prepare_worker_harness(
     monkeypatch.setattr(
         chat_worker,
         "_persist_message_extra_meta",
-        lambda **_kwargs: True,
+        lambda **kwargs: (
+            persisted_meta.append(kwargs.get("payload") or {})
+            if persisted_meta is not None
+            else None
+        )
+        or True,
     )
     monkeypatch.setattr(
         chat_worker,
@@ -100,7 +109,7 @@ def _prepare_worker_harness(
     monkeypatch.setattr(
         chat_worker._chat_completion_service,
         "build_sanitized_payload_summary",
-        lambda messages, bundle, provider, model: {
+        lambda messages, bundle, provider, model, **_kwargs: {
             "message_count": len(messages),
             "resolved_provider": provider,
             "resolved_model": model,
@@ -178,10 +187,50 @@ def _prepare_worker_harness(
     return published
 
 
+def test_worker_persists_plain_answer_tool_observability_cleanly(monkeypatch):
+    persisted_meta: list[dict[str, Any]] = []
+    published = _prepare_worker_harness(
+        monkeypatch,
+        persisted_meta=persisted_meta,
+    )
+    task = _build_task(task_id="task-worker-plain-answer")
+
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "execute_invoke",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("command bus should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: "plain answer",
+    )
+
+    chat_worker._run_chat_task(task)
+
+    completed_payload = next(
+        payload
+        for event_type, payload in published
+        if event_type == "task.completed"
+    )
+    assert completed_payload["toolTurnState"] == "idle"
+    assert completed_payload["loopStopReason"] == "plain_answer"
+    assert persisted_meta
+    assert persisted_meta[-1]["toolTurnState"] == "idle"
+    assert persisted_meta[-1]["loopStopReason"] == "plain_answer"
+    assert json.dumps(persisted_meta[-1])
+
+
 def test_worker_surfaces_tool_loop_metadata_on_completion(
     monkeypatch,
 ):
-    published = _prepare_worker_harness(monkeypatch)
+    persisted_meta: list[dict[str, Any]] = []
+    published = _prepare_worker_harness(
+        monkeypatch,
+        persisted_meta=persisted_meta,
+    )
     task = _build_task(task_id="task-worker-tool-success")
 
     command_calls: list[dict[str, Any]] = []
@@ -235,6 +284,12 @@ def test_worker_surfaces_tool_loop_metadata_on_completion(
     assert completed_payload["loopStopReason"] == "tool_turn_completed"
     assert completed_payload["commandRunId"] == "run-worker-123"
     assert completed_payload["message_id"] == 42
+    assert persisted_meta
+    assert persisted_meta[-1]["toolTurnId"] == completed_payload["toolTurnId"]
+    assert persisted_meta[-1]["toolTurnState"] == "completed"
+    assert persisted_meta[-1]["loopStopReason"] == "tool_turn_completed"
+    assert persisted_meta[-1]["commandRunId"] == "run-worker-123"
+    assert json.dumps(persisted_meta[-1])
 
 
 def test_worker_surfaces_bounded_failure_metadata_on_tool_execution_error(
@@ -278,3 +333,4 @@ def test_worker_surfaces_bounded_failure_metadata_on_tool_execution_error(
     assert failure_payload["toolTurnState"] == "failed"
     assert failure_payload["loopStopReason"] == "tool_command_failed"
     assert failure_payload.get("commandRunId") is None
+    assert json.dumps(failure_payload)
