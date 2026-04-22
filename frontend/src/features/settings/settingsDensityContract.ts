@@ -12,6 +12,12 @@
 
 export const SETTINGS_DENSITY = {
   /**
+   * Inset buffer used to keep interactive content clear of the frame edge.
+   * This is intentionally 6px so controls do not touch the shell border.
+   */
+  edgeChrome: "calc(var(--radius-micro) * 0.75)", // 6px
+
+  /**
    * Space between major sections within a SettingsSectionCard.
    * Corresponds to the outer shell gap rhythm (var(--shell-gap) = 16px).
    */
