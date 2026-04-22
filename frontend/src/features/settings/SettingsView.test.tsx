@@ -176,6 +176,10 @@ describe("SettingsView save flow", () => {
       ).toBeInTheDocument();
     });
 
+    expect(
+      screen.queryByTestId("personal-facts-panel")
+    ).not.toBeInTheDocument();
+
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
   });
 

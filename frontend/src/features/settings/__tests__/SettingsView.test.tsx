@@ -137,6 +137,9 @@ describe("SettingsView", () => {
     expect(screen.getByTestId("imprint-workspace")).toBeInTheDocument();
     expect(screen.getByTestId("mock-imprint-review")).toBeInTheDocument();
     expect(screen.getByTestId("mock-system-prompt-inspector")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("mock-persona-settings")
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Imprint" })).toHaveAttribute(
       "aria-selected",
       "true"
