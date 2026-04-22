@@ -12,6 +12,7 @@ from guardian.queue.redis_queue import enqueue_chat_import_embed
 
 from .personal_fact_extraction import (
     extract_personal_fact_candidates,
+    extract_personal_fact_candidates_third_person,
     persist_personal_fact_candidates,
 )
 
@@ -393,6 +394,7 @@ def _ingest_canonical_messages(
     pending_embed_message_ids: List[int],
     filtered_count: int,
     filtered_reasons: Dict[str, int],
+    conversation_level_candidates: List[Dict[str, Any]] | None = None,
 ) -> Tuple[int, int]:
     thread_id = _find_existing_thread_for_source(
         chatlog_db, user_id=user_id, source_thread_id=source_thread_id
@@ -569,6 +571,29 @@ def _ingest_canonical_messages(
                     mid,
                     e,
                 )
+
+    # Persist conversation-level candidates (model_editable_context facts).
+    # These have no per-message database record, so require_message_db_id=False.
+    if conversation_level_candidates:
+        conv_message = {
+            "source_thread_id": source_thread_id,
+            "source_message_id": None,
+            "chatlog_message_id": None,
+        }
+        try:
+            persist_personal_fact_candidates(
+                chatlog_db,
+                user_id=user_id,
+                message=conv_message,
+                candidates=conversation_level_candidates,
+                require_message_db_id=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist %s conversation-level personal fact candidates: %s",
+                import_source,
+                exc,
+            )
 
     return threads_count, messages_count
 
@@ -1525,10 +1550,12 @@ def _normalize_mainline_messages(
     source_thread_id: str,
     conversation_created_at: Optional[datetime],
     imported_at: datetime,
-) -> Tuple[List[Dict[str, Any]], int, Dict[str, int]]:
+    import_grouping_metadata: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], int, Dict[str, int], List[Dict[str, Any]]]:
     messages: list[dict[str, Any]] = []
     filtered_count = 0
     filtered_reasons: dict[str, int] = {}
+    model_editable_context_candidates: list[dict[str, Any]] = []
 
     for turn_index, (node_id, node) in enumerate(mainline_nodes):
         message = node.get("message")
@@ -1555,6 +1582,21 @@ def _normalize_mainline_messages(
             message=message,
         )
         if filter_reason:
+            # Extract third-person personal facts from model_editable_context
+            # BEFORE discarding the message content from the thread.
+            if filter_reason == "content_type: model_editable_context":
+                context_text = _extract_text_content(content)
+                if context_text:
+                    temp_msg = {
+                        "content": context_text,
+                        "source_thread_id": source_thread_id,
+                    }
+                    third_person_candidates = (
+                        extract_personal_fact_candidates_third_person(temp_msg)
+                    )
+                    model_editable_context_candidates.extend(
+                        third_person_candidates
+                    )
             filtered_count += 1
             filtered_reasons[filter_reason] = (
                 filtered_reasons.get(filter_reason, 0) + 1
@@ -1606,7 +1648,12 @@ def _normalize_mainline_messages(
             }
         )
 
-    return messages, filtered_count, filtered_reasons
+    return (
+        messages,
+        filtered_count,
+        filtered_reasons,
+        model_editable_context_candidates,
+    )
 
 
 def _merge_thread_metadata(
@@ -1742,11 +1789,13 @@ def ingest_chatgpt_export(
                 messages,
                 conv_filtered_count,
                 filtered_reasons,
+                model_editable_context_candidates,
             ) = _normalize_mainline_messages(
                 mainline_nodes=mainline_nodes,
                 source_thread_id=source_thread_id,
                 conversation_created_at=conversation_created_at,
                 imported_at=imported_at,
+                import_grouping_metadata=import_grouping_metadata,
             )
             messages_filtered += conv_filtered_count
 
@@ -1771,6 +1820,7 @@ def ingest_chatgpt_export(
                 pending_embed_message_ids=pending_embed_message_ids,
                 filtered_count=conv_filtered_count,
                 filtered_reasons=filtered_reasons,
+                conversation_level_candidates=model_editable_context_candidates,
             )
             threads_count += imported_threads
             messages_count += imported_messages

@@ -152,6 +152,100 @@ _FACT_RULES = [
     ),
 ]
 
+# Third-person rules for ChatGPT "model_editable_context" (Custom Instructions).
+# These are user-authored facts about the user, phrased in third-person.
+# Confidence scores are higher than first-person rules because the user
+# explicitly wrote these in their ChatGPT persona settings.
+_THIRD_PERSON_FACT_RULES = [
+    (
+        "location",
+        "location",
+        0.95,
+        re.compile(
+            rf"\bUser\s+(?:lives in|from|is from|resides in)\s+"
+            rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "occupation",
+        "occupation",
+        0.90,
+        re.compile(
+            rf"\bUser\s+works as\s+(?:an?\s+)?"
+            rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "employer",
+        "employer",
+        0.90,
+        re.compile(
+            rf"\bUser\s+(?:works at|works for|is employed by)\s+"
+            rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "preference",
+        "preference",
+        0.88,
+        re.compile(
+            rf"\bUser\s+(?:prefers?|likes?|enjoys?)\s+"
+            rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "preference",
+        "preference",
+        0.90,
+        re.compile(
+            rf"\bUser\s+has\s+shared\s+that\s+they\s+prefer\s+"
+            rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "identity_attribute",
+        "identity_attribute",
+        0.85,
+        re.compile(
+            rf"\bUser\s+is\s+(?:a|an)\s+" rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "belief",
+        "belief",
+        0.82,
+        re.compile(
+            rf"\bUser\s+(?:believes?|thinks?|feels?)\s+"
+            rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "possession",
+        "possession",
+        0.88,
+        re.compile(
+            rf"\bUser\s+owns?\s+" rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "identity_attribute",
+        "identity_attribute",
+        0.82,
+        re.compile(
+            rf"\bUser's\s+" rf"(?P<value>.+?){_CLAUSE_BOUNDARY}",
+            re.IGNORECASE,
+        ),
+    ),
+]
+
 
 def _normalize_text(value: Any) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
@@ -273,6 +367,47 @@ def extract_personal_fact_candidates(
     return candidates
 
 
+def extract_personal_fact_candidates_third_person(
+    message: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return candidate personal facts from third-person persona content.
+
+    Used for ChatGPT ``model_editable_context`` (Custom Instructions) which
+    are authored in third-person form, e.g.  "User lives in Florida".
+    """
+    text = _normalize_text(message.get("content") or message.get("text"))
+    if not text:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for rule_name, key, confidence, pattern in _THIRD_PERSON_FACT_RULES:
+        for match in pattern.finditer(text):
+            value = _normalize_text(match.groupdict().get("value"))
+            if not value:
+                continue
+
+            candidate_key = key
+
+            signature = (candidate_key, value)
+            if signature in seen:
+                continue
+            seen.add(signature)
+
+            candidates.append(
+                {
+                    "key": candidate_key,
+                    "value": value,
+                    "confidence": confidence,
+                    "excerpt": _normalize_text(match.group(0)),
+                    "rule": rule_name,
+                }
+            )
+
+    return candidates
+
+
 def _find_existing_fact(
     chatlog_db,
     *,
@@ -340,6 +475,7 @@ def persist_personal_fact_candidates(
     user_id: str,
     message: dict[str, Any],
     candidates: Iterable[dict[str, Any]],
+    require_message_db_id: bool = True,
 ) -> dict[str, int]:
     """Persist candidate facts into the existing review-state tables.
 
@@ -348,12 +484,18 @@ def persist_personal_fact_candidates(
     - existing candidate facts get another evidence row,
     - active non-candidate facts are left untouched,
     - duplicate evidence for the same import message is skipped.
+
+    Args:
+        require_message_db_id: When True (default), facts without a chatlog
+            message ID are silently skipped. Set to False for conversation-level
+            facts (e.g. from model_editable_context) where no per-message
+            database record exists.
     """
     message_db_id = message.get("chatlog_message_id")
     source_thread_id = message.get("source_thread_id")
     source_message_export_id = message.get("source_message_id")
 
-    if message_db_id is None:
+    if message_db_id is None and require_message_db_id:
         logger.debug("Skipping fact persistence: missing chatlog_message_id")
         return {
             "candidates": 0,
@@ -482,7 +624,7 @@ def persist_personal_fact_candidates(
         try:
             add_fact_evidence(
                 fact_id,
-                int(message_db_id),
+                int(message_db_id) if message_db_id is not None else None,
                 excerpt,
                 modality="text",
                 confidence=confidence,
@@ -505,5 +647,6 @@ __all__ = [
     "CHATGPT_IMPORT_PROFILE",
     "CHATGPT_IMPORT_SOURCE",
     "extract_personal_fact_candidates",
+    "extract_personal_fact_candidates_third_person",
     "persist_personal_fact_candidates",
 ]
