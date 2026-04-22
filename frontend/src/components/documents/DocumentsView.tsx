@@ -238,10 +238,9 @@ export default function DocumentsView({
     ? { padding: documentsCardPadding }
     : {
         padding: documentsCardPadding,
-        flex: "3 1 0%",
-        flexBasis: "74%",
-        minWidth: "clamp(28rem, 54vw, 72rem)",
-        maxWidth: "78%",
+        flex: "1 1 0%",
+        minWidth: 0,
+        maxWidth: "100%",
         alignSelf: "stretch",
       };
 
@@ -256,7 +255,7 @@ export default function DocumentsView({
         className={`flex-shrink-0 ${
           isPhoneShell
             ? "flex flex-col items-start gap-[var(--card-pad)]"
-            : "flex flex-wrap items-center justify-between gap-[var(--shell-gap)]"
+            : "flex flex-wrap items-start justify-between gap-[var(--shell-gap)]"
         }`}
       >
         <h2
@@ -266,17 +265,24 @@ export default function DocumentsView({
           Documents
         </h2>
         <div
+          data-testid="documents-scope-actions"
           style={{
             padding: 6,
             boxSizing: "border-box",
-            width: isPhoneShell ? "100%" : undefined,
-            display: isPhoneShell ? "block" : "inline-flex",
-            alignSelf: isPhoneShell ? "stretch" : "flex-start",
+            width: "100%",
+            display: isPhoneShell ? "block" : "flex",
+            alignSelf: "stretch",
+            minWidth: 0,
+            maxWidth: "100%",
           }}
         >
           <div
-            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : ""}`}
-            style={surfaceActionClusterStyle}
+            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : "w-full justify-end flex-wrap"}`}
+            style={{
+              ...surfaceActionClusterStyle,
+              minWidth: 0,
+              maxWidth: "100%",
+            }}
           >
             {scopePills.map(({ key, label, disabled }) => (
               <button
