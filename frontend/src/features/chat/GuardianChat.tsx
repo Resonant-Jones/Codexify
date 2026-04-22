@@ -114,6 +114,7 @@ const DEFAULT_SOURCE_MODE = "project";
 const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
 const PROFILE_SWITCH_COMMAND_ID = "op::guardian.profile.switch";
 const COMMAND_BUS_ACTOR_ID = "local";
+const CANONICAL_SINGLE_USER_ID = "local";
 
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -2522,7 +2523,7 @@ export function GuardianChat({
         return effectiveThreadId;
       }
 
-      const normalizedUserId = userName || "default";
+      const normalizedUserId = CANONICAL_SINGLE_USER_ID;
       const originTabId = activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -2552,7 +2553,7 @@ export function GuardianChat({
       });
       return numericThreadId;
     },
-    [effectiveThreadId, onThreadPersisted, userName]
+    [effectiveThreadId, onThreadPersisted]
   );
 
   const handleBranchThread = async () => {
@@ -2648,7 +2649,7 @@ export function GuardianChat({
      * container and establishes the temporal message flow. The provisional
      * title becomes the thread's identity in the distributed awareness network.
      */
-    const normalizedUserId = userName || "default";
+    const normalizedUserId = CANONICAL_SINGLE_USER_ID;
     const originTabId = activeSessionTabIdRef.current;
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
     const requestedProfileId = resolveProfileIdFromCommand(text);

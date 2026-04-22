@@ -6,7 +6,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, TypedDict
 
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
@@ -21,6 +21,9 @@ def _utc_now_iso() -> str:
 def _base_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
     base: dict[str, Any] = {
         "task_id": str(payload.get("task_id") or uuid.uuid4()),
+        "request_id": str(
+            payload.get("request_id") or payload.get("requestId") or ""
+        ),
         "created_at": str(payload.get("created_at") or _utc_now_iso()),
         "origin": str(payload.get("origin") or "unknown"),
     }
@@ -117,6 +120,24 @@ def _normalize_executor_id(raw: Any) -> str:
         if value is not None
         else ""
     )
+
+
+class CandidateTraceIngestTask(TypedDict):
+    request_id: str
+    thread_id: int
+    candidate_trace_id: str
+    created_at: str
+    payload: dict[str, Any]
+
+
+class GraphWriteTask(TypedDict):
+    request_id: str
+    thread_id: str | int
+    candidate_trace_id: str
+    created_at: str
+    nodes: list[dict[str, Any]]
+    edges: list[dict[str, Any]]
+    warnings: list[str]
 
 
 @dataclass
@@ -416,9 +437,13 @@ class DelegationSummary:
 @dataclass
 class BaseTask:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    request_id: str = ""
     type: str = "base"
     created_at: str = field(default_factory=_utc_now_iso)
     origin: str = "unknown"
+
+    def __post_init__(self) -> None:
+        self.request_id = _coerce_optional_text(self.request_id) or ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -514,6 +539,38 @@ class ChatCompletionTask(BaseTask):
             preferred_name=_coerce_optional_text(payload.get("preferred_name")),
             profession=_coerce_optional_text(payload.get("profession")),
             guardian_name=_coerce_optional_text(payload.get("guardian_name")),
+            **base,
+        )
+
+
+@dataclass
+class EvalTask(BaseTask):
+    type: str = "eval.trace"
+    thread_id: int = 0
+    trace_snapshot_id: str = ""
+    evaluator_kind: str = "code"
+    evaluator_name: str = "groundedness_basic"
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> EvalTask:
+        base = _base_kwargs(payload or {})
+        base.setdefault("type", cls.type)
+        return cls(
+            thread_id=int(payload.get("thread_id") or 0),
+            trace_snapshot_id=str(
+                payload.get("trace_snapshot_id")
+                or payload.get("traceSnapshotId")
+                or ""
+            ).strip(),
+            evaluator_kind=_normalize_executor_id(
+                payload.get("evaluator_kind") or payload.get("evaluatorKind")
+            )
+            or "code",
+            evaluator_name=str(
+                payload.get("evaluator_name")
+                or payload.get("evaluatorName")
+                or "groundedness_basic"
+            ).strip(),
             **base,
         )
 
@@ -637,6 +694,7 @@ class DelegationTask(BaseTask):
 TASK_TYPE_REGISTRY: dict[str, type[BaseTask]] = {
     "warmup": WarmupTask,
     "chat_completion": ChatCompletionTask,
+    "eval.trace": EvalTask,
     "voice_turn": VoiceTurnTask,
     "cron.execute": CronExecutionTask,
     "delegation.task": DelegationTask,

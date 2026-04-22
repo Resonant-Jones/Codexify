@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-03-29
+Last updated: 2026-04-22
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -32,14 +32,21 @@ Sequence:
 5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
 7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, and resolves provider/model/profile settings.
-8. The provider call executes through `guardian/core/ai_router.py`. If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
+8. The provider call executes through `guardian/core/ai_router.py`.
+   - If the provider returns plain assistant text, the existing completion path continues.
+   - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
+   - No second tool turn is permitted in this slice.
+   - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
-10. The worker publishes terminal task events and releases the turn lock in `finally`.
+10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
+11. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
+12. The worker publishes terminal task events and releases the turn lock in `finally`.
 
 Outputs:
 - Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
 - Task event stream via `/api/tasks/{task_id}/events`
 - Assistant `chat_messages` row plus related audit/domain events
+- Durable eval trace snapshot row plus attempt-scoped verdict rows
 - Worker logs that now distinguish task execution from task-event visibility degradation
 
 Failure modes:
@@ -49,6 +56,9 @@ Failure modes:
 - Provider connectivity or timeout failures that become `task.failed`
 - Cloud-provider failure that rescues to local execution instead of failing outright
 - Blank or malformed provider output forcing fallback assistant text
+- Structured tool-decision failure that stops after one bounded tool turn and surfaces explicit loop-stop metadata
+- Eval snapshot persistence or enqueue failure, which is isolated from chat completion acceptance
+- Eval worker failure, which is isolated from chat completion acceptance and transcript persistence
 - Worker downtime causing tasks to queue without completion
 - Task-event publish failures that degrade progress or terminal visibility without necessarily stopping execution
 
@@ -56,6 +66,7 @@ Acceptance semantics:
 - Normal acceptance means the route acquired the turn lock and enqueued the task.
 - The route does not prove dequeue, eventual success, or UI receipt.
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
+- Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
 
 Conceptual state split:
 - The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
@@ -96,6 +107,9 @@ sequenceDiagram
     end
     LLM-->>Service: assistant output
     Service->>PG: persist assistant message
+    Worker->>PG: persist trace snapshot
+    Worker->>Redis: enqueue eval task
+    EvalWorker->>PG: persist groundedness verdicts
     Worker->>Redis: publish progress and terminal task events
     Worker->>Redis: release turn lock
 ```
@@ -110,12 +124,13 @@ Sequence:
 2. Use the latest user utterance as the semantic retrieval query.
 3. `ContextBroker.assemble()` gathers:
    - recent messages
+   - verified active personal facts scoped to the resolved user
    - semantic vector matches unless depth is `shallow`
    - linked project/thread documents
    - memory retrieval for `deep` and `diagnostic`
    - graph context when `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`
    - sensor diagnostics and optional federated context when requested
-4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block.
+4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block, including a bounded verified-personal-facts section when eligible facts exist.
 5. The final LLM input is the system/context block plus conversation messages.
 
 Outputs:
@@ -227,7 +242,10 @@ Sequence:
 3. Tool policy is evaluated and the run is persisted through `CommandBusStore`.
 4. Allowed commands execute via loopback HTTP back into the same backend, guarded against recursion.
 5. Run events are appended and can be streamed from `/api/guardian/commands/runs/{run_id}/events`.
-6. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
+6. The legacy `/tools` layer derives tool specs from the command manifest but still keeps some process-local job state.
+7. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
+8. The bounded chat tool-turn slice also lands on this command-bus lane, but it remains one turn only and does not become a recursive agent loop.
+9. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
 
 Outputs:
 - Command bus run record plus event stream
@@ -249,6 +267,8 @@ Concrete anchors:
 - `guardian/routes/cron.py`
 - `guardian/cron/scheduler.py`
 - `guardian/workers/cron_worker.py`
+
+The bounded chat tool-loop slice uses this same command-bus lane. It may execute one command, reinject the result into the completion context, and then hard-stop after that single tool turn.
 
 ```mermaid
 sequenceDiagram

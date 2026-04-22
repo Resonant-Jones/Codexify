@@ -422,6 +422,79 @@ def test_ingest_chatgpt_export_is_idempotent_for_personal_fact_candidates(
     assert len(import_store.evidence) == 2
 
 
+def test_ingest_chatgpt_export_model_editable_context_third_person_extraction(
+    import_store,
+):
+    """model_editable_context (Custom Instructions) is filtered from the thread but
+    its third-person facts are extracted and persisted as candidates."""
+    # Build an export with a model_editable_context node.
+    mapping = {
+        "sys1": {
+            "id": "sys1",
+            "parent": None,
+            "children": ["m1"],
+            "message": {
+                "author": {"role": "system"},
+                "content": {
+                    "content_type": "model_editable_context",
+                    "text": (
+                        "User lives in Florida. "
+                        "User owns a dog named Skippy. "
+                        "User prefers mechanical keyboards to other types."
+                    ),
+                },
+                "create_time": 1.0,
+            },
+        },
+        "m1": {
+            "id": "m1",
+            "parent": "sys1",
+            "children": [],
+            "message": {
+                "author": {"role": "user"},
+                "content": {"parts": ["Hello there."]},
+                "create_time": 2.0,
+            },
+        },
+    }
+    export = [
+        {
+            "id": "persona-thread",
+            "title": "Persona Facts Thread",
+            "current_node": "m1",
+            "mapping": mapping,
+        }
+    ]
+
+    stats = ingest_chatgpt_export(
+        json.dumps(export).encode("utf-8"),
+        user_id="tester",
+    )
+
+    assert stats["threads_imported"] == 1
+    # model_editable_context message is filtered, so only 1 user message counted
+    assert stats["messages_imported"] == 1
+
+    facts = import_store.list_facts("tester", active_only=True)
+    assert len(facts) == 3
+    assert {fact["key"] for fact in facts} == {
+        "location",
+        "possession",
+        "preference",
+    }
+    # All should be high-confidence candidates (user-authored)
+    for fact in facts:
+        assert fact["status"] == "candidate"
+        assert fact["confidence"] >= 0.85
+
+    # Verify evidence was created for each fact (from model_editable_context)
+    # source_message_id is None since there's no per-message DB record
+    evidence = import_store.evidence
+    assert len(evidence) == 3
+    for ev in evidence:
+        assert ev["source_message_id"] is None
+
+
 def test_ingest_chatgpt_export_without_fact_candidates_succeeds(import_store):
     export = _build_mainline_export(
         [

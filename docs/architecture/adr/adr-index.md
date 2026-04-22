@@ -35,7 +35,20 @@ Use this note as the local map for all ADRs.
 2. [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
 3. [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 4. [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
+5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
+6. [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
+7. [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] — bounded self-extending architecture for generated capabilities, plugin forge flow, and sovereignty boundaries.
 5. [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
+6. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] — retained as the legacy identity-ownership UI boundary note.
+7. [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
+8. [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] — derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
+9. [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] — backend-only candidate-output diagnostic surface, TTL-bound and excluded from export.
+10. [[009-Candidate-Trace-Ingest-Worker|ADR-009 Candidate Trace Ingest Worker Scaffold]] — asynchronous candidate-trace ingestion seam, log-only and non-blocking.
+11. [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|ADR-011 Graph Write Task Seam and Worker Scaffold]] — queue-backed graph-write handoff and inspection-only worker scaffold for derived graph candidates.
+12. [[012-Post-Completion-Eval-Spine|ADR-012 Post-Completion Eval Spine]] — durable post-completion trace snapshot and attempt-scoped quality verdict seam, inspection-only and non-gating.
+13. [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] — backend-only verified personal-facts injection seam, bounded and user-scoped.
+14. [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] — canonical contract for Guardian threads, flow drafts, Builder support lanes, and run receipts.
+15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
 
 ---
 
@@ -58,6 +71,7 @@ Primary companion notes:
 * [[flows|Critical Flows]]
 * [[completion_pipeline|Completion Request Pipeline]]
 * [[chat-runtime-contract|Chat Runtime Contract]]
+* [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
 * [[router-decision-table|Retrieval Router Decision Table]]
 * [[architecture-atlas|Architecture Atlas]]
 * [[tech-debt-and-risks|Tech Debt and Risks]]
@@ -97,6 +111,90 @@ Primary companion notes:
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[00-current-state]]
 
+* [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] links to:
+
+  * [[system-overview|System Overview]]
+  * [[modules-and-ownership|Modules and Ownership]]
+  * [[00-current-state]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+
+* [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]] links to:
+
+  * [[system-overview|System Overview]]
+  * [[flows|Critical Flows]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[delegation-runtime|Delegation Runtime Contract]]
+  * [[00-current-state]]
+
+* [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] links to:
+
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[flows|Critical Flows]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[completion_pipeline|Completion Request Pipeline]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[009-Candidate-Trace-Ingest-Worker|ADR-009 Candidate Trace Ingest Worker Scaffold]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[candidate-trace-surface|Candidate Trace Surface]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|ADR-011 Graph Write Task Seam and Worker Scaffold]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] links to:
+
+  * [[system-overview|System Overview]]
+  * [[modules-and-ownership|Modules and Ownership]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[persona-studio|Persona Studio Architecture]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+
+* [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] links to:
+
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[imprint-ui-deprecation-and-identity-ownership|Imprint UI Deprecation and Identity Ownership]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[data-and-storage|Data and Storage]]
+  * [[flows|Critical Flows]]
+  * [[00-current-state]]
+
+* [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] links to:
+
+  * [[006-flow-builder-elicitation-lane|Flow Builder Elicitation Lane]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[data-and-storage|Data and Storage]]
+  * [[flows|Critical Flows]]
+  * [[system-overview|System Overview]]
+  * [[00-current-state]]
+
+* [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] links to:
+
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[system-overview|System Overview]]
+  * [[tech-debt-and-risks|Tech Debt and Risks]]
+  * [[00-current-state]]
 ---
 
 ## Maintenance rule
