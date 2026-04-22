@@ -12,6 +12,7 @@ Source anchors:
 - guardian/command_bus/
 - guardian/vector/
 - guardian/sync/api.py
+- docs/architecture/adr/015-continuity-engine-working-set-and-decay-contract.md
 - frontend/src/
 
 # System Overview
@@ -76,6 +77,12 @@ Source anchors:
 ### Unverified runtime
 
 - Production deployment outside Docker Compose is `Unverified`; no Kubernetes, Nomad, or other infra manifests were found in this repo.
+
+## Continuity Direction
+
+- The current runtime remains thread-first: chat completion starts from the active thread and widens through retrieval, memory, and document paths.
+- No Continuity Engine is live today.
+- ADR-015 now defines the accepted future continuity direction as a user-governed continuity layer above thread-first chat, not a replacement for request-state or provider-state semantics.
 
 ## Provider Governance Contract
 
