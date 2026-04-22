@@ -274,6 +274,7 @@ export default function DashboardView({
   }, []);
 
   const threadColumns = mobileShellProfile.dashboard.threadColumns;
+  const desktopThreadColumns = 3;
   const threadList = pinnedThreads.slice(0, 6);
   const dashboardCardPadding = mobileShellProfile.dashboard.contentPadding;
   const surfaceActionClusterStyle: React.CSSProperties = {
@@ -311,9 +312,9 @@ export default function DashboardView({
     "glass-pill h-auto flex flex-nowrap items-center justify-start gap-[var(--pill-gap)] whitespace-nowrap";
   const threadGridStyle = React.useMemo<React.CSSProperties>(
     () => ({
-      gridTemplateColumns: `repeat(${threadColumns}, minmax(0, 1fr))`,
+      gridTemplateColumns: `repeat(${isPhoneShell ? threadColumns : desktopThreadColumns}, minmax(0, 1fr))`,
     }),
-    [threadColumns]
+    [desktopThreadColumns, isPhoneShell, threadColumns]
   );
   const recentDocumentsGridStyle = React.useMemo<React.CSSProperties>(
     () => ({
@@ -377,7 +378,11 @@ export default function DashboardView({
                       No threads yet. Start one above.
                     </div>
                   ) : (
-                    <div className="grid h-full gap-[var(--shell-gap)] overflow-hidden" style={threadGridStyle}>
+                    <div
+                      className="grid h-full gap-[var(--shell-gap)]"
+                      style={threadGridStyle}
+                      data-testid="dashboard-recent-threads-grid"
+                    >
                       {threadList.map((t) => (
                         <TileShell
                           key={t.id}
