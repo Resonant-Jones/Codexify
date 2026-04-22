@@ -58,8 +58,8 @@ def broker(chatlog_db: AsyncMock, vector_store: MagicMock) -> ContextBroker:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("depth_mode", ["deep", "diagnostic"])
-async def test_verified_personal_facts_are_included_in_deep_context(
+@pytest.mark.parametrize("depth_mode", ["normal", "deep", "diagnostic"])
+async def test_verified_personal_facts_are_included_in_non_conversation_context(
     broker: ContextBroker,
     chatlog_db: AsyncMock,
     depth_mode: str,
@@ -75,22 +75,25 @@ async def test_verified_personal_facts_are_included_in_deep_context(
         thread_id=1,
         query="hello",
         depth_mode=depth_mode,
+        user_id="user-1",
     )
 
     assert context["personal_facts"] == [verified_fact]
+    assert [fact["id"] for fact in context["verified_personal_facts"]] == [1]
     assert trace["personal_facts_context"]["status"] == "contributed"
     assert trace["personal_facts_context"]["count"] == 1
+    assert trace["personal_facts_context"]["included_ids"] == [1]
     chatlog_db.list_facts.assert_called_once_with(
         "user-1",
         status="verified",
         active_only=True,
-        limit=100,
+        limit=12,
     )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("depth_mode", ["normal", "shallow"])
-async def test_verified_personal_facts_are_excluded_in_non_rich_depths(
+async def test_verified_personal_facts_are_included_in_light_depths(
     broker: ContextBroker,
     chatlog_db: AsyncMock,
     depth_mode: str,
@@ -103,12 +106,21 @@ async def test_verified_personal_facts_are_excluded_in_non_rich_depths(
         thread_id=1,
         query="hello",
         depth_mode=depth_mode,
+        user_id="user-1",
     )
 
-    assert "personal_facts" not in context
-    assert trace["personal_facts_context"]["status"] == "skipped"
-    assert trace["personal_facts_context"]["reason"] == "depth_not_allowed"
-    chatlog_db.list_facts.assert_not_called()
+    assert context["personal_facts"] == [
+        _fact(fact_id=1, key="location", value="NYC")
+    ]
+    assert [fact["id"] for fact in context["verified_personal_facts"]] == [1]
+    assert trace["personal_facts_context"]["status"] == "contributed"
+    assert trace["personal_facts_context"]["count"] == 1
+    chatlog_db.list_facts.assert_called_once_with(
+        "user-1",
+        status="verified",
+        active_only=True,
+        limit=12,
+    )
 
 
 @pytest.mark.asyncio
@@ -150,6 +162,7 @@ async def test_non_verified_personal_facts_are_filtered_out(
         thread_id=1,
         query="hello",
         depth_mode="deep",
+        user_id="user-1",
     )
 
     assert context["personal_facts"] == [verified_fact]
@@ -172,6 +185,7 @@ async def test_broker_assembly_fails_soft_when_no_personal_facts_exist(
         thread_id=1,
         query="hello",
         depth_mode="deep",
+        user_id="user-1",
     )
 
     assert "personal_facts" not in context

@@ -2,7 +2,7 @@
 
 Purpose: define the canonical indexing blueprint for a Memory Graph layer that unifies relational memory, vector memory, and optional graph enrichment without changing the runtime source of truth.
 
-Last updated: 2026-04-19
+Last updated: 2026-04-21
 
 Source anchors:
 - docs/architecture/data-and-storage.md
@@ -11,6 +11,9 @@ Source anchors:
 - docs/architecture/completion_pipeline.md
 - docs/architecture/router-decision-table.md
 - docs/architecture/account-export-restore-contract.md
+- guardian/workers/graph_write_worker.py
+- guardian/tasks/types.py
+- docs/architecture/adr/011-graph-write-task-seam-and-worker-scaffold.md
 
 ## 1. Purpose and Scope
 
@@ -201,6 +204,36 @@ Graph indexing rules:
 - derive graph edges from explicit provenance, not inference alone
 - keep edge directionality deterministic
 - store enough metadata to recover the source row and the reason the edge exists
+
+### 5.4 Current Implementation Path
+
+The current derived pipeline now includes a pure graph-candidate mapper between
+normalized candidate entities and any future graph write path.
+
+That mapper is deliberately conservative:
+
+- provenance-first
+- deterministic
+- side-effect free
+- non-persistent
+
+Semantic relationship inference is explicitly deferred. The mapper may only
+emit structurally justified candidates from explicit metadata and scope
+signals.
+
+### 5.5 Graph-Write Task Seam
+
+The current implementation path now also includes a dedicated graph-write task
+seam and graph-write worker scaffold.
+
+This worker is log-only and exists to stabilize topology before persistence:
+
+- candidate ingest can hand off non-empty graph candidates as a derived task
+- the graph-write worker only inspects task payloads and emits summaries
+- no Neo4j writes, Postgres writes, or retrieval changes happen in this phase
+
+Actual graph persistence and idempotent write semantics remain deferred to a
+later task.
 
 ## 6. Invariants
 

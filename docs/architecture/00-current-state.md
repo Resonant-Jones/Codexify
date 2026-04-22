@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-19
+2026-04-22
 
 ## Interpretation rule
 This file is authoritative for:
@@ -16,9 +16,12 @@ This file is authoritative for:
 Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
 
 ## What changed recently
+- Verified active personal facts now flow through the backend chat context path and into the provider-ready prompt block as a bounded, user-scoped identity-context source; candidate, disputed, and inactive facts are excluded before prompt assembly.
 - A backend-only candidate-trace diagnostic surface was added: `GET /chat/{thread_id}/debug/candidate-trace/latest`. It captures transient pre-answer candidate outputs for the latest completion attempt, remains thread-scoped, and is intentionally excluded from export/restore.
 - A dedicated retrieval-posture diagnostics route was added to the backend: `GET /api/chat/debug/retrieval-posture/{thread_id}/latest`. It reuses the same latest-trace evidence path as the RAG trace route and returns the canonical posture snapshot or an empty state. A fallback synthesis path is included for legacy trace fields (source_mode, widen_reason, retrieval_override).
 - A companion frontend surface was added via `useRetrievalPosture` hook and a `RetrievalPostureSection` in `TraceWorkbench.tsx`. It shows source mode, boundary label, retrieval override mode, widen reason, and conversation-only flag as compact badges with distinct loading, empty, and error states.
+- A post-completion eval spine now exists in backend code: assistant completions can persist a durable trace snapshot and attempt-scoped groundedness verdicts in Postgres, with a diagnostics route at `GET /api/chat/debug/evals/{thread_id}/latest`. It is inspection-only and does not gate chat acceptance.
+- The RAG trace payload summary now carries graph-ready diagnostics placeholders (`graph_hit_count`, `graph_enrichment_status`) that report `not_used_yet` on current supported runs; graph remains enrichment-only and is not part of active retrieval here.
 - The retrieval broker now enforces strict `user_id` isolation at the aggregation boundary and requires widening to carry an explicit `widen_reason`; `widen_reason` normalizes to `none` when no widening occurs.
 - A retrieval-posture history route was added: `GET /api/chat/{thread_id}/debug/retrieval-posture/history` for richer temporal access.
 - A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
@@ -31,6 +34,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Supported beta posture is still local-only: `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
 - Chat acceptance, worker execution, and Postgres persistence remain the core validated loop.
 - Upload -> parse -> embed -> retrieve remains supported, with one shared runtime vector store.
+- Fresh live proof now exists on the current `main` tip for the bounded tool-augmented completion slice: plain-answer control, one bounded tool turn, hard-stop after one tool turn, and bounded failure-path behavior are all live-proven on the supported Compose stack.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
 - The import embed worker can drain a live backlog without breaking chat or health surfaces.
@@ -51,8 +55,9 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 
 ## Not yet true / do not assume
 - Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.
+- Do not assume the bounded tool-augmented completion proof closes the broader release gate by itself; it proves the tool-loop slice only, not the full release evidence pack.
 - Do not assume the Obsidian ingest→retrieve seam proof constitutes a full connector sync or live runtime validation; it uses an in-memory fixture at the backend route level.
-- Do not assume `personal_facts` is part of the supported beta surface; the supported profile quarantines it.
+- Do not assume the verified-personal-facts seam implies a UI fact-management surface or broader retrieval mode; this task only adds backend identity-context injection.
 - Do not assume delegation or autonomous coding-agent execution is shipped; the current release promise still excludes that loop.
 - Do not assume internal operator surfaces or quarantined routes represent the supported beta contract.
 - Do not assume older proof docs alone describe the current tip if a newer merge changed runtime wiring.
@@ -60,7 +65,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 ## Active blockers
 - Chat completion blocked: `LOCAL_CHAT_MODEL` was set to "Gemma 4 E 4 B Hauhau" but the Ollama instance at `100.109.4.57:11434` has `gemma4-e4b-hauhau:latest`. Codexify requests fail with HTTP 400 "invalid model name". **Fixed 2026-04-14:** `LOCAL_CHAT_MODEL` updated to `gemma4-e4b-hauhau:latest` in `.env.example`. Live verification still required.
 - Retrieval-posture populated state not yet demonstrated: The completion-service seam has not yet been updated to emit `payload_summary["retrieval_posture"]`. The diagnostics route is live and returns correct empty-state shape, but the fast path (reading canonical snapshot) is a dead letter until that seam is updated. The fallback synthesis path also returns empty because historical task.completed events lack the required legacy trace fields.
-- Fresh live release evidence on the exact current `main` tip is still required before release signoff; the proof was run on `codex/add-retrieval-explainer` (6 commits ahead of `main`). Backend-seam eval suites reduce scope-boundary ambiguity but do not substitute for live runtime proof.
+- Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; the bounded tool-augmented completion slice now has fresh live proof on `main`, but the broader signoff still needs the rest of the supported-path proof surface.
 - Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
 
 ## This week's priorities
@@ -73,7 +78,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - [ ] Supported-profile flags and mounted routes still match the beta contract.
 - [ ] Fresh live evidence exists on the current `main` tip for clean start, assistant completion, upload -> embed -> retrieve, and health surfaces.
 - [ ] Backend-seam eval suites (golden tasks, identity boundaries, source-mode matrix) are passing on the current `main` tip — this reduces scope-boundary ambiguity but does not replace the live proof requirement above.
-- [ ] The release promise does not include `personal_facts` unless the supported profile is updated.
+- [ ] The release promise does not include a UI fact-management surface or any broader personal-facts retrieval doctrine unless the supported profile is updated.
 - [ ] Delegation is either explicitly excluded or implemented with a real executor plus source-thread result return.
 - [ ] No internal-only or quarantined surface is part of the release claim.
 

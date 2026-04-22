@@ -35,6 +35,7 @@ def mock_chatlog_db():
     mock.last_messages = MagicMock(
         return_value=[{"id": 1, "role": "user", "content": "hello"}]
     )
+    mock.list_facts = MagicMock(return_value=[])
     mock.get_chat_thread = MagicMock(
         return_value={"id": 1, "user_id": "user-1", "project_id": 11}
     )
@@ -336,6 +337,103 @@ async def test_deterministic_retrieval_matrix_proves_boundary_model(
         assert excluded not in " ".join(
             doc["snippet"] for doc in trace["documents"]
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source_mode",
+    [
+        SOURCE_MODE_PROJECT,
+        SOURCE_MODE_PERSONAL_KNOWLEDGE,
+    ],
+)
+async def test_verified_personal_facts_are_included_for_non_conversation_source_modes(
+    context_broker,
+    mock_chatlog_db,
+    source_mode: str,
+):
+    verified_fact = {
+        "id": 9,
+        "user_id": "user-1",
+        "key": "home_city",
+        "value": "NYC",
+        "status": "verified",
+        "confidence": 0.9,
+        "is_active": True,
+    }
+    candidate_fact = {
+        "id": 10,
+        "user_id": "user-1",
+        "key": "home_city",
+        "value": "candidate-town",
+        "status": "candidate",
+        "confidence": 0.5,
+        "is_active": True,
+    }
+    disputed_fact = {
+        "id": 11,
+        "user_id": "user-1",
+        "key": "home_city",
+        "value": "disputed-town",
+        "status": "disputed",
+        "confidence": 0.4,
+        "is_active": True,
+    }
+    inactive_fact = {
+        "id": 12,
+        "user_id": "user-1",
+        "key": "home_city",
+        "value": "inactive-town",
+        "status": "verified",
+        "confidence": 0.9,
+        "is_active": False,
+    }
+    mock_chatlog_db.list_facts.return_value = [
+        candidate_fact,
+        disputed_fact,
+        inactive_fact,
+        verified_fact,
+    ]
+
+    context, trace = await context_broker.assemble(
+        thread_id=1,
+        query="hello",
+        depth_mode="normal",
+        user_id="user-1",
+        source_mode=source_mode,
+    )
+
+    assert [fact["id"] for fact in context["verified_personal_facts"]] == [9]
+    assert [fact["id"] for fact in context["personal_facts"]] == [9]
+    assert trace["personal_facts_context"]["count"] == 1
+    assert trace["personal_facts_context"]["retrieved_count"] == 4
+    assert trace["personal_facts_context"]["included_ids"] == [9]
+    mock_chatlog_db.list_facts.assert_called_once_with(
+        "user-1",
+        status="verified",
+        active_only=True,
+        limit=12,
+    )
+
+
+@pytest.mark.asyncio
+async def test_obsidian_only_source_mode_skips_personal_facts(
+    context_broker,
+    mock_chatlog_db,
+):
+    context, trace = await context_broker.assemble(
+        thread_id=1,
+        query="hello",
+        depth_mode="normal",
+        user_id="user-1",
+        source_mode=SOURCE_MODE_OBSIDIAN_ONLY,
+    )
+
+    assert "verified_personal_facts" not in context
+    assert "personal_facts" not in context
+    assert trace["personal_facts_context"]["status"] == "skipped"
+    assert trace["personal_facts_context"]["reason"] == "obsidian_only"
+    mock_chatlog_db.list_facts.assert_not_called()
 
 
 @pytest.mark.asyncio

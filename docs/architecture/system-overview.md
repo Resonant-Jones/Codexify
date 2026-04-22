@@ -1,5 +1,5 @@
 Purpose: Capture Codexify's current runtime architecture in one place so onboarding, estimation, and design review start from implemented behavior rather than assumptions.
-Last updated: 2026-03-17
+Last updated: 2026-04-20
 Source anchors:
 - docker-compose.yml
 - src-tauri/
@@ -101,6 +101,7 @@ The configured provider is not the same thing as discovered provider inventory. 
   - enqueue `ChatCompletionTask`
   - worker assembles context and calls provider
   - if the provider returns a structured tool decision, the worker executes exactly one command through the command bus, reinjects the result, and requests one final assistant answer
+  - when the model emits a structured tool decision, the completion service executes exactly one command-bus invoke, reinjects the result, and requests one final assistant answer
   - persist assistant message and emit task/domain events
 - Anchors: `guardian/routes/chat.py`, `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py`, `guardian/queue/redis_queue.py`
 
