@@ -58,6 +58,13 @@ class DelegationJobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class PersonalFactStatus(str, Enum):
+    CANDIDATE = "candidate"
+    VERIFIED = "verified"
+    DISPUTED = "disputed"
+    ARCHIVED = "archived"
+
+
 DELEGATION_SUMMARY_OUTCOME_TYPE = "task_summary"
 
 
@@ -160,6 +167,9 @@ TOOL_LOOP_STOP_REASONS: frozenset[str] = frozenset(
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
 )
+PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in PersonalFactStatus}
+)
 DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
 )
@@ -215,6 +225,7 @@ __all__ = [
     "LoopStopReason",
     "ToolLoopStopReason",
     "DelegationJobStatus",
+    "PersonalFactStatus",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
     "ExecutorId",
@@ -233,6 +244,7 @@ __all__ = [
     "LOOP_STOP_REASONS",
     "TOOL_LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
+    "PERSONAL_FACT_STATUSES",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",
     "EXECUTOR_RELEASE_POSTURES",

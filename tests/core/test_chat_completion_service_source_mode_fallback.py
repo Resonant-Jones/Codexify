@@ -494,3 +494,123 @@ def test_run_chat_completion_task_persists_retrieval_provenance(
         result["payload_summary"]["requested_source_mode"]
         == "Personal_Knowledge"
     )
+
+
+def test_run_chat_completion_task_surfaces_verified_personal_fact_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _seed_completion_service(monkeypatch)
+
+    async def _fake_build_messages_for_llm(_task):
+        captured["source_mode"] = SOURCE_MODE_PROJECT
+        return (
+            [{"role": "system", "content": "SYSTEM"}],
+            "groq",
+            "mock-model",
+            {
+                "verified_personal_facts": [
+                    {
+                        "id": 9,
+                        "key": "home_city",
+                        "value": "NYC",
+                        "user_id": "local",
+                    }
+                ],
+                "verified_personal_facts_context": {
+                    "attempted": True,
+                    "status": "contributed",
+                    "reason": "verified_active_facts",
+                    "count": 1,
+                    "retrieved_count": 1,
+                    "included_ids": [9],
+                    "user_id": "local",
+                    "source_mode": SOURCE_MODE_PROJECT,
+                    "boundary": "project",
+                },
+                "retrieval_provenance": {
+                    "requested_source_mode": "project",
+                    "normalized_source_mode": SOURCE_MODE_PROJECT,
+                    "source_hit_counts": {
+                        "semantic_total": 0,
+                        "thread_semantic": 0,
+                        "obsidian_semantic": 0,
+                        "other_semantic": 0,
+                        "project_documents": 0,
+                        "thread_documents": 0,
+                        "global_documents": 0,
+                        "other_documents": 0,
+                        "memory": 0,
+                        "graph": 0,
+                    },
+                    "retrieval_status": "no_obsidian_results",
+                },
+                "_prompt_meta": {
+                    "context": {
+                        "verified_personal_facts": {
+                            "count": 1,
+                            "injected": True,
+                            "fact_ids": [9],
+                        },
+                        "personal_facts": {
+                            "count": 1,
+                            "injected": True,
+                            "fact_ids": [9],
+                        },
+                    },
+                    "docs": {"count": 0, "injected": False},
+                },
+            },
+            {
+                "source_mode": SOURCE_MODE_PROJECT,
+                "widen_reason": WIDEN_REASON_NONE,
+            },
+        )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_messages_for_llm",
+        _fake_build_messages_for_llm,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_context_system_message_with_meta",
+        lambda bundle: (
+            "Verified Personal Facts:\n- home_city: NYC",
+            {
+                "verified_personal_facts": {
+                    "count": 1,
+                    "injected": True,
+                    "fact_ids": [9],
+                },
+                "personal_facts": {
+                    "count": 1,
+                    "injected": True,
+                    "fact_ids": [9],
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "assistant reply",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="groq",
+        model="mock-model",
+        origin="api:chat.complete|turn_id=abc|source_mode=project",
+    )
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert captured["source_mode"] == SOURCE_MODE_PROJECT
+    assert result["payload_summary"]["verified_personal_facts_count"] == 1
+    assert result["payload_summary"]["verified_personal_facts_injected"] is True
+    assert result["payload_summary"]["verified_personal_fact_ids"] == [9]
+    assert result["payload_summary"]["verified_personal_facts_count"] == 1

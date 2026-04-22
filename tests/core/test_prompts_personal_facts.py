@@ -24,7 +24,7 @@ def _fact(
 
 def test_personal_facts_render_into_context_system_message_when_present():
     bundle = {
-        "personal_facts": [
+        "verified_personal_facts": [
             _fact(key="location", value="NYC"),
             _fact(key="occupation", value="software engineer"),
         ]
@@ -33,9 +33,11 @@ def test_personal_facts_render_into_context_system_message_when_present():
     message, meta = build_context_system_message_with_meta(bundle)
 
     assert message is not None
-    assert "Personal Facts:" in message
+    assert "Verified Personal Facts:" in message
     assert "- location: NYC" in message
     assert "- occupation: software engineer" in message
+    assert meta["verified_personal_facts"]["count"] == 2
+    assert meta["verified_personal_facts"]["fact_ids"] == []
     assert meta["personal_facts"]["count"] == 2
     assert meta["personal_facts"]["injected"] is True
 
@@ -46,14 +48,14 @@ def test_no_personal_facts_block_is_rendered_when_absent():
     message, meta = build_context_system_message_with_meta(bundle)
 
     assert message is not None
-    assert "Personal Facts:" not in message
+    assert "Verified Personal Facts:" not in message
     assert meta["personal_facts"]["count"] == 0
     assert meta["personal_facts"]["injected"] is False
 
 
 def test_rendered_personal_facts_exclude_non_verified_entries():
     bundle = {
-        "personal_facts": [
+        "verified_personal_facts": [
             _fact(key="location", value="candidate-town", status="candidate"),
             _fact(key="occupation", value="disputed-role", status="disputed"),
             _fact(
@@ -69,7 +71,7 @@ def test_rendered_personal_facts_exclude_non_verified_entries():
     message, meta = build_context_system_message_with_meta(bundle)
 
     assert message is not None
-    assert "Personal Facts:" in message
+    assert "Verified Personal Facts:" in message
     assert "- home_base: NYC" in message
     assert "candidate-town" not in message
     assert "disputed-role" not in message
@@ -79,7 +81,9 @@ def test_rendered_personal_facts_exclude_non_verified_entries():
 
 
 def test_rag_hint_block_truthful_about_personal_fact_availability():
-    available_bundle = {"personal_facts": [_fact(key="location", value="NYC")]}
+    available_bundle = {
+        "verified_personal_facts": [_fact(key="location", value="NYC")]
+    }
     available_result = _rag_hint_block(available_bundle)
 
     assert "Verified personal facts are available." in available_result

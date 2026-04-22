@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
 
 ## What changed recently
+- Verified active personal facts now flow through the backend chat context path and into the provider-ready prompt block as a bounded, user-scoped identity-context source; candidate, disputed, and inactive facts are excluded before prompt assembly.
 - A backend-only candidate-trace diagnostic surface was added: `GET /chat/{thread_id}/debug/candidate-trace/latest`. It captures transient pre-answer candidate outputs for the latest completion attempt, remains thread-scoped, and is intentionally excluded from export/restore.
 - A dedicated retrieval-posture diagnostics route was added to the backend: `GET /api/chat/debug/retrieval-posture/{thread_id}/latest`. It reuses the same latest-trace evidence path as the RAG trace route and returns the canonical posture snapshot or an empty state. A fallback synthesis path is included for legacy trace fields (source_mode, widen_reason, retrieval_override).
 - A companion frontend surface was added via `useRetrievalPosture` hook and a `RetrievalPostureSection` in `TraceWorkbench.tsx`. It shows source mode, boundary label, retrieval override mode, widen reason, and conversation-only flag as compact badges with distinct loading, empty, and error states.
@@ -56,7 +57,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.
 - Do not assume the bounded tool-augmented completion proof closes the broader release gate by itself; it proves the tool-loop slice only, not the full release evidence pack.
 - Do not assume the Obsidian ingest→retrieve seam proof constitutes a full connector sync or live runtime validation; it uses an in-memory fixture at the backend route level.
-- Do not assume `personal_facts` is part of the supported beta surface; the supported profile quarantines it.
+- Do not assume the verified-personal-facts seam implies a UI fact-management surface or broader retrieval mode; this task only adds backend identity-context injection.
 - Do not assume delegation or autonomous coding-agent execution is shipped; the current release promise still excludes that loop.
 - Do not assume internal operator surfaces or quarantined routes represent the supported beta contract.
 - Do not assume older proof docs alone describe the current tip if a newer merge changed runtime wiring.
@@ -77,7 +78,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - [ ] Supported-profile flags and mounted routes still match the beta contract.
 - [ ] Fresh live evidence exists on the current `main` tip for clean start, assistant completion, upload -> embed -> retrieve, and health surfaces.
 - [ ] Backend-seam eval suites (golden tasks, identity boundaries, source-mode matrix) are passing on the current `main` tip — this reduces scope-boundary ambiguity but does not replace the live proof requirement above.
-- [ ] The release promise does not include `personal_facts` unless the supported profile is updated.
+- [ ] The release promise does not include a UI fact-management surface or any broader personal-facts retrieval doctrine unless the supported profile is updated.
 - [ ] Delegation is either explicitly excluded or implemented with a real executor plus source-thread result return.
 - [ ] No internal-only or quarantined surface is part of the release claim.
 

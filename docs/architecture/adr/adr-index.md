@@ -46,6 +46,7 @@ Use this note as the local map for all ADRs.
 10. [[009-Candidate-Trace-Ingest-Worker|ADR-009 Candidate Trace Ingest Worker Scaffold]] — asynchronous candidate-trace ingestion seam, log-only and non-blocking.
 11. [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|ADR-011 Graph Write Task Seam and Worker Scaffold]] — queue-backed graph-write handoff and inspection-only worker scaffold for derived graph candidates.
 12. [[012-Post-Completion-Eval-Spine|ADR-012 Post-Completion Eval Spine]] — durable post-completion trace snapshot and attempt-scoped quality verdict seam, inspection-only and non-gating.
+13. [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] — backend-only verified personal-facts injection seam, bounded and user-scoped.
 
 ---
 
@@ -164,6 +165,15 @@ Primary companion notes:
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[persona-studio|Persona Studio Architecture]]
   * [[chat-runtime-contract|Chat Runtime Contract]]
+
+* [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] links to:
+
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[imprint-ui-deprecation-and-identity-ownership|Imprint UI Deprecation and Identity Ownership]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[data-and-storage|Data and Storage]]
+  * [[flows|Critical Flows]]
+  * [[00-current-state]]
 ---
 
 ## Maintenance rule
