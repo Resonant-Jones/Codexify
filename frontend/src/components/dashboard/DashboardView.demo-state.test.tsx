@@ -205,6 +205,9 @@ describe("DashboardView beta contract", () => {
 
     expect(await screen.findByRole("button", { name: "Open thread Thread 1" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Open thread / })).toHaveLength(6);
+    expect(screen.getByTestId("dashboard-recent-threads-grid")).toHaveStyle({
+      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    });
     const actionRow = screen.getByRole("button", { name: "Create new thread" }).parentElement;
     expect(actionRow).toHaveClass("flex-nowrap");
     expect(actionRow).not.toHaveClass("flex-wrap");
