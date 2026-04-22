@@ -73,6 +73,7 @@ from guardian.depth import (
     project_requested_depth_mode,
     resolve_depth,
 )
+from guardian.evals.spine import get_latest_eval_diagnostics
 from guardian.protocol_tokens import AcceptanceStatus, ErrorCode, TaskEventType
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
@@ -3705,6 +3706,14 @@ def _empty_candidate_trace(thread_id: int) -> dict[str, Any]:
     }
 
 
+def _empty_eval_diagnostics(thread_id: int) -> dict[str, Any]:
+    return {
+        "thread_id": thread_id,
+        "trace_snapshot": None,
+        "verdicts": [],
+    }
+
+
 @router.get("/{thread_id}/debug/candidate-trace/latest", tags=["Debug"])
 def get_latest_candidate_trace(
     thread_id: int,
@@ -3736,6 +3745,31 @@ def get_latest_candidate_trace(
     candidate_trace.setdefault("selection_strategy", "")
     candidate_trace.setdefault("created_at", "")
     return candidate_trace
+
+
+@router.get("/debug/evals/{thread_id}/latest", tags=["Debug"])
+def get_latest_eval_diagnostics_route(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """[DEV ONLY] Get the latest persisted eval diagnostics for a thread."""
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    diagnostics = get_latest_eval_diagnostics(
+        chatlog_db,
+        thread_id=thread_id,
+    )
+    if not diagnostics:
+        return _empty_eval_diagnostics(thread_id)
+    return diagnostics
 
 
 def _synthesize_retrieval_posture(
@@ -4237,6 +4271,20 @@ def api_get_latest_retrieval_posture(
 ):
     """Compat alias for GET /chat/debug/retrieval-posture/{thread_id}/latest."""
     return get_latest_retrieval_posture(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get("/debug/evals/{thread_id}/latest", tags=["Debug"])
+def api_get_latest_eval_diagnostics_route(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Compat alias for GET /chat/debug/evals/{thread_id}/latest."""
+    return get_latest_eval_diagnostics_route(
         thread_id,
         api_key=api_key,
         request_user_scope=request_user_scope,

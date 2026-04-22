@@ -544,6 +544,38 @@ class ChatCompletionTask(BaseTask):
 
 
 @dataclass
+class EvalTask(BaseTask):
+    type: str = "eval.trace"
+    thread_id: int = 0
+    trace_snapshot_id: str = ""
+    evaluator_kind: str = "code"
+    evaluator_name: str = "groundedness_basic"
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> EvalTask:
+        base = _base_kwargs(payload or {})
+        base.setdefault("type", cls.type)
+        return cls(
+            thread_id=int(payload.get("thread_id") or 0),
+            trace_snapshot_id=str(
+                payload.get("trace_snapshot_id")
+                or payload.get("traceSnapshotId")
+                or ""
+            ).strip(),
+            evaluator_kind=_normalize_executor_id(
+                payload.get("evaluator_kind") or payload.get("evaluatorKind")
+            )
+            or "code",
+            evaluator_name=str(
+                payload.get("evaluator_name")
+                or payload.get("evaluatorName")
+                or "groundedness_basic"
+            ).strip(),
+            **base,
+        )
+
+
+@dataclass
 class VoiceTurnTask(BaseTask):
     type: str = "voice_turn"
     thread_id: int = 0
@@ -662,6 +694,7 @@ class DelegationTask(BaseTask):
 TASK_TYPE_REGISTRY: dict[str, type[BaseTask]] = {
     "warmup": WarmupTask,
     "chat_completion": ChatCompletionTask,
+    "eval.trace": EvalTask,
     "voice_turn": VoiceTurnTask,
     "cron.execute": CronExecutionTask,
     "delegation.task": DelegationTask,

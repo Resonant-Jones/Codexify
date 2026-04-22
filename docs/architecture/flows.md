@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-04-20
+Last updated: 2026-04-22
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -38,12 +38,15 @@ Sequence:
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
-10. The worker publishes terminal task events and releases the turn lock in `finally`.
+10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
+11. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
+12. The worker publishes terminal task events and releases the turn lock in `finally`.
 
 Outputs:
 - Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
 - Task event stream via `/api/tasks/{task_id}/events`
 - Assistant `chat_messages` row plus related audit/domain events
+- Durable eval trace snapshot row plus attempt-scoped verdict rows
 - Worker logs that now distinguish task execution from task-event visibility degradation
 
 Failure modes:
@@ -54,6 +57,8 @@ Failure modes:
 - Cloud-provider failure that rescues to local execution instead of failing outright
 - Blank or malformed provider output forcing fallback assistant text
 - Structured tool-decision failure that stops after one bounded tool turn and surfaces explicit loop-stop metadata
+- Eval snapshot persistence or enqueue failure, which is isolated from chat completion acceptance
+- Eval worker failure, which is isolated from chat completion acceptance and transcript persistence
 - Worker downtime causing tasks to queue without completion
 - Task-event publish failures that degrade progress or terminal visibility without necessarily stopping execution
 
@@ -61,6 +66,7 @@ Acceptance semantics:
 - Normal acceptance means the route acquired the turn lock and enqueued the task.
 - The route does not prove dequeue, eventual success, or UI receipt.
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
+- Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
 
 Conceptual state split:
 - The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
@@ -101,6 +107,9 @@ sequenceDiagram
     end
     LLM-->>Service: assistant output
     Service->>PG: persist assistant message
+    Worker->>PG: persist trace snapshot
+    Worker->>Redis: enqueue eval task
+    EvalWorker->>PG: persist groundedness verdicts
     Worker->>Redis: publish progress and terminal task events
     Worker->>Redis: release turn lock
 ```
