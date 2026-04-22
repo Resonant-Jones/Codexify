@@ -2,7 +2,6 @@ import * as React from "react";
 import ContextMenu, { type ContextMenuItem } from "@/components/menus/ContextMenu";
 import MediaGrid from "@/components/media/MediaGrid";
 import TileShell from "@/components/surface/TileShell";
-import { Button } from "@/components/ui/button";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import {
   getMobilePressSurfaceStyle,
@@ -198,15 +197,6 @@ export default function DashboardGallery({
 }: DashboardGalleryProps) {
   const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
-  const overflowPressFeedback = usePressFeedback({ enabled: isPhoneShell });
-  const {
-    className: overflowPressFeedbackClassName,
-    style: overflowPressFeedbackStyle,
-    ...overflowPressFeedbackProps
-  } = overflowPressFeedback.getPressFeedbackProps({
-    className: "dashboardGalleryOverflowButton",
-  });
-  const INITIAL_VISIBLE = 4;
   const [menu, setMenu] = React.useState<{
     x: number;
     y: number;
@@ -214,16 +204,6 @@ export default function DashboardGallery({
     resolvedSrc: string;
     alt: string;
   } | null>(null);
-  const [showAll, setShowAll] = React.useState(false);
-
-  const hasOverflow = items.length > INITIAL_VISIBLE;
-  const visibleItems = showAll ? items : items.slice(0, INITIAL_VISIBLE);
-
-  React.useEffect(() => {
-    if (items.length <= INITIAL_VISIBLE) {
-      setShowAll(false);
-    }
-  }, [items.length]);
 
   const provenanceLabel = React.useCallback(
     (item: DashboardGalleryItem): "Uploaded" | "Generated" => {
@@ -316,7 +296,7 @@ export default function DashboardGallery({
     >
       {isPhoneShell ? (
         <div className="flex flex-col gap-[var(--shell-gap)]">
-          {visibleItems.map((item, index) => {
+          {items.map((item, index) => {
             const resolvedSrc = normalizeMediaUrl(item.src);
             const alt = item.prompt || "Gallery image";
             const key = `${item.id ?? "dashboard"}:${item.src}:${index}`;
@@ -352,7 +332,7 @@ export default function DashboardGallery({
         </div>
       ) : (
         <MediaGrid className="codexifyMediaGrid--dashboard-image">
-          {visibleItems.map((item, index) => {
+          {items.map((item, index) => {
             const resolvedSrc = normalizeMediaUrl(item.src);
             const alt = item.prompt || "Gallery image";
             const key = `${item.id ?? "dashboard"}:${item.src}:${index}`;
@@ -386,33 +366,6 @@ export default function DashboardGallery({
             );
           })}
         </MediaGrid>
-      )}
-      {hasOverflow && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={`${overflowPressFeedbackClassName ?? ""} self-start`.trim()}
-          style={{
-            ...overflowPressFeedbackStyle,
-            ...getMobileTapTargetStyle(isPhoneShell),
-            ...getMobilePressSurfaceStyle(
-              isPhoneShell,
-              overflowPressFeedback.prefersReducedMotion
-            ),
-          }}
-          {...overflowPressFeedbackProps}
-          onClick={() => {
-            overflowPressFeedback.releasePressed();
-            setShowAll((prev) => !prev);
-          }}
-        >
-          {showAll
-            ? "Show fewer images"
-            : `Show ${items.length - INITIAL_VISIBLE} more image${
-                items.length - INITIAL_VISIBLE === 1 ? "" : "s"
-              }`}
-        </Button>
       )}
       <ContextMenu
         open={!!menu}

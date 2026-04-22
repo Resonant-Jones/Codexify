@@ -153,7 +153,7 @@ describe("DashboardGallery mobile interaction feedback", () => {
     });
   });
 
-  it("shares press feedback with the overflow affordance", () => {
+  it("renders every supplied image without a show-more fallback", () => {
     render(
       <DashboardGallery
         items={[
@@ -167,20 +167,23 @@ describe("DashboardGallery mobile interaction feedback", () => {
       />
     );
 
-    const overflowButton = screen.getByRole("button", { name: "Show 1 more image" });
-    expect(overflowButton).toHaveClass("mobile-press-feedback");
-    expect(overflowButton).toHaveAttribute("data-press-feedback", "idle");
+    expect(screen.getAllByRole("button", { name: /^(One|Two|Three|Four|Five)$/ })).toHaveLength(5);
+    expect(screen.getByRole("button", { name: "Five" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show/i })).not.toBeInTheDocument();
 
-    fireEvent.pointerDown(overflowButton, {
+    const tile = screen.getByRole("button", { name: "One" });
+    expect(tile).toHaveClass("mobile-press-feedback");
+    expect(tile).toHaveAttribute("data-press-feedback", "idle");
+
+    fireEvent.pointerDown(tile, {
       button: 0,
       buttons: 1,
       isPrimary: true,
       pointerType: "touch",
     });
-    expect(overflowButton).toHaveAttribute("data-press-feedback", "pressed");
+    expect(tile).toHaveAttribute("data-press-feedback", "pressed");
 
-    fireEvent.click(overflowButton);
-    expect(screen.getByRole("button", { name: "Show fewer images" })).toBeInTheDocument();
-    expect(overflowButton).toHaveAttribute("data-press-feedback", "idle");
+    fireEvent.click(tile);
+    expect(tile).toHaveAttribute("data-press-feedback", "idle");
   });
 });

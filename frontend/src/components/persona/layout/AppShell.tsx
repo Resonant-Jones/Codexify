@@ -2218,6 +2218,7 @@ export default function AppShell({
       }
     : {
         padding: "var(--board-edge)",
+        marginLeft: "auto",
         flexBasis: workspacePaneBasis,
         flexGrow: workspacePaneRatio,
         flexShrink: 1,
