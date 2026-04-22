@@ -22,6 +22,7 @@ from guardian.extensions.contracts import (
     InstallGateDecisionRecord,
 )
 from guardian.extensions.tokens import (
+    CapabilityRegistryStatus,
     ExtensionInstallBindingStatus,
     normalize_capability_registry_status,
     normalize_extension_install_binding_scope,
@@ -460,6 +461,22 @@ class ExtensionProposalStore:
             )
             return [self._registry_row_to_record(row) for row in rows]
 
+    def list_registered_registry_entries(
+        self,
+        *,
+        account_id: str,
+        project_id: int | None = None,
+        profile_id: str | None = None,
+        proposal_id: str | None = None,
+    ) -> list[CapabilityRegistryEntry]:
+        return self.list_registry_entries(
+            account_id=account_id,
+            project_id=project_id,
+            profile_id=profile_id,
+            proposal_id=proposal_id,
+            status=CapabilityRegistryStatus.REGISTERED.value,
+        )
+
     def update_registry_status(
         self,
         *,
@@ -574,6 +591,26 @@ class ExtensionProposalStore:
                 .all()
             )
             return [self._binding_row_to_record(row) for row in rows]
+
+    def list_active_bindings(
+        self,
+        *,
+        account_id: str,
+        registry_entry_id: str | None = None,
+        scope: str | None = None,
+        project_id: int | None = None,
+        profile_id: str | None = None,
+        account_scope_target_id: str | None = None,
+    ) -> list[ExtensionBindingRecord]:
+        return self.list_bindings(
+            account_id=account_id,
+            registry_entry_id=registry_entry_id,
+            scope=scope,
+            project_id=project_id,
+            profile_id=profile_id,
+            account_scope_target_id=account_scope_target_id,
+            status=ExtensionInstallBindingStatus.ACTIVE.value,
+        )
 
     def update_binding_status(
         self,
