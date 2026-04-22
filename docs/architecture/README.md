@@ -57,6 +57,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Candidate Trace Ingestion Pipeline](./candidate-ingest-pipeline.md): backend-only ingest seam for normalized candidate-trace payloads; log-only scaffold for future graph/entity extraction.
 - [Candidate Trace Ingest Worker ADR](./adr/009-candidate-trace-ingest-worker.md): asynchronous candidate-trace ingestion scaffold, log-only and non-blocking.
 - [Graph Write Task Seam ADR](./adr/011-graph-write-task-seam-and-worker-scaffold.md): queue-backed graph-write task handoff and inspection-only worker scaffold for derived graph candidates.
+- [Post-Completion Eval Spine ADR](./adr/012-post-completion-eval-spine.md): durable post-completion trace snapshot and attempt-scoped verdict layer; inspection-only and non-gating.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.

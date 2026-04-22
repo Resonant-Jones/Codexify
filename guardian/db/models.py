@@ -492,6 +492,149 @@ class ChatMessage(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class EvalTraceSnapshot(Base):
+    """Durable post-completion trace snapshot for inspection-only evals."""
+
+    __tablename__ = "eval_trace_snapshots"
+
+    trace_snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True
+    )
+    request_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    assistant_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    project_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="SET NULL")
+    )
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_mode: Mapped[str | None] = mapped_column(String(64))
+    widen_reason: Mapped[str | None] = mapped_column(String(128))
+    retrieval_summary_json: Mapped[dict] = mapped_column(
+        "retrieval_summary", JSONB, nullable=False, server_default="{}"
+    )
+    assistant_output_text: Mapped[str] = mapped_column(Text, nullable=False)
+    trace_json: Mapped[dict] = mapped_column(
+        "trace", JSONB, nullable=False, server_default="{}"
+    )
+    payload_summary_json: Mapped[dict] = mapped_column(
+        "payload_summary", JSONB, nullable=False, server_default="{}"
+    )
+    timestamps_json: Mapped[dict] = mapped_column(
+        "timestamps", JSONB, nullable=False, server_default="{}"
+    )
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    thread: Mapped[ChatThread] = relationship("ChatThread")
+    user_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[user_message_id]
+    )
+    assistant_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[assistant_message_id]
+    )
+    project: Mapped[Project | None] = relationship("Project")
+
+    __table_args__ = (
+        Index(
+            "ix_eval_trace_snapshots_thread_created", "thread_id", "created_at"
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class EvalVerdict(Base):
+    """Attempt-scoped verdict rows produced by post-completion evaluators."""
+
+    __tablename__ = "eval_verdicts"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    eval_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    trace_snapshot_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "eval_trace_snapshots.trace_snapshot_id", ondelete="CASCADE"
+        ),
+        nullable=False,
+    )
+    request_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    assistant_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    evaluator_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    evaluator_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    label: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    structured_findings_json: Mapped[dict] = mapped_column(
+        "structured_findings", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    trace_snapshot: Mapped[EvalTraceSnapshot] = relationship(
+        "EvalTraceSnapshot"
+    )
+    thread: Mapped[ChatThread] = relationship("ChatThread")
+    user_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[user_message_id]
+    )
+    assistant_message: Mapped[ChatMessage | None] = relationship(
+        "ChatMessage", foreign_keys=[assistant_message_id]
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "evaluator_kind IN ('code','llm_judge')",
+            name="eval_verdicts_evaluator_kind_check",
+        ),
+        CheckConstraint(
+            "status IN ('succeeded','failed')",
+            name="eval_verdicts_status_check",
+        ),
+        UniqueConstraint(
+            "eval_run_id",
+            "evaluator_name",
+            name="uq_eval_verdicts_run_evaluator",
+        ),
+        Index(
+            "ix_eval_verdicts_thread_created",
+            "thread_id",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 class ThreadMove(Base):
     """Explicit project move audit trail for chat threads."""
 

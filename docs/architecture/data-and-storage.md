@@ -1,5 +1,5 @@
 Purpose: Map where Codexify stores state today, which entities carry the most architectural weight, and which invariants or exposure points change work must preserve.
-Last updated: 2026-03-20
+Last updated: 2026-04-22
 Source anchors:
 - guardian/db/models.py
 - guardian/db/migrations/
@@ -42,6 +42,8 @@ Source anchors:
 | `projects` | Top-level ownership and grouping boundary for threads and documents | `identity_depth` constrained to `light` or `deep` |
 | `chat_threads` | Primary conversation container | can be archived, nested via `parent_id`, and tied to a project/profile |
 | `chat_messages` | Ordered conversation state | hard-linked to thread by FK with cascade delete |
+| `eval_trace_snapshots` | Durable post-completion trace snapshots for derived inspection | attempt-scoped, thread-linked, and persisted only after assistant completion |
+| `eval_verdicts` | Attempt-scoped evaluator verdicts | each row links back to one trace snapshot and one evaluator run |
 | `memory_entries` | Stored episodic/semantic memory | `silo` constraint and retrieval policy dependence |
 | `personal_facts` | Higher-level fact memory | confidence/status constraints drive fact lifecycle |
 | `personal_fact_evidence` | Evidence rows that tie facts back to messages or sources | fact delete cascades; message link may be nullable |
@@ -87,6 +89,8 @@ Source anchors:
 
 - `chat_threads -> chat_messages`
   - assistant persistence, thread recency ordering, and thread deletion assume this FK remains intact.
+- `chat_threads -> eval_trace_snapshots -> eval_verdicts`
+  - post-completion eval snapshots and verdicts are derived inspection artifacts; they must stay linked to the original attempt and remain outside the completion acceptance path.
 - `projects -> chat_threads`
   - project identity depth affects whether chat can run `deep` retrieval modes.
 - `projects -> project_document_links -> uploaded_documents/generated_documents`
@@ -111,6 +115,8 @@ Source anchors:
   - `guardian/queue/redis_queue.py` still contains older helper functions for turn-lock behavior, but that is no longer the main path the chat route relies on.
 - Chat completion, cron execution, and document embedding are queue-backed, not fire-and-forget in the API process.
   - Anchors: `guardian/routes/chat.py`, `guardian/routes/cron.py`, `guardian/queue/document_embed_queue.py`
+- Post-completion eval is derived and non-gating.
+  - assistant message persistence triggers a best-effort trace snapshot + eval enqueue, but completion success still depends only on the existing chat acceptance/persistence path.
 - Postgres is the source of truth for conversation, document metadata, command runs, and audit state.
   - Anchors: `guardian/core/db.py`, `guardian/db/models.py`
 - Federation and collaboration access are explicit, not ambient.

@@ -46,6 +46,9 @@ def _build_task(
 def _stubbed_success_setup(monkeypatch):
     published: list[tuple[str, dict]] = []
     _isolate_turn_anchor(monkeypatch)
+    monkeypatch.setattr(
+        chat_worker.dependencies, "chatlog_db", None, raising=False
+    )
 
     monkeypatch.setattr(
         chat_worker,
@@ -74,6 +77,16 @@ def _stubbed_success_setup(monkeypatch):
         chat_worker,
         "_find_assistant_message_id_by_turn_id",
         lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_turn_id_metadata",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "schedule_post_completion_eval",
+        lambda *_args, **_kwargs: None,
     )
     return published
 
@@ -189,6 +202,107 @@ def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
     assert completed_payloads[-1].get("message_id") == 501
     assert completed_payloads[-1].get("selection_source") == "turn_id_dedupe"
     assert all(event_type != "task.failed" for event_type, _ in published)
+
+
+def test_eval_enqueue_failure_is_non_fatal(monkeypatch, caplog):
+    published: list[tuple[str, dict]] = []
+    _isolate_turn_anchor(monkeypatch)
+    monkeypatch.setattr(
+        chat_worker.dependencies, "chatlog_db", None, raising=False
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_safe_publish",
+        lambda _task_id, event_type, data: published.append(
+            (event_type, dict(data or {}))
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker, "_safe_emit_live_event", lambda *a, **k: None
+    )
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        chat_worker, "release_turn_lock", lambda *_a, **_k: True
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_a, **_k: {
+            "message_id": 501,
+            "provider": "groq",
+            "model": "moonshotai/kimi-k2-instruct-0905",
+        },
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_find_assistant_message_id_by_turn_id",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_turn_id_metadata",
+        lambda **_kwargs: True,
+    )
+
+    class _EvalFakeCursor:
+        def __init__(self) -> None:
+            self.params: dict[str, object] | None = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _query, params):
+            self.params = dict(params)
+
+        def fetchone(self):
+            return dict(self.params or {})
+
+        def fetchall(self):
+            return []
+
+    class _EvalFakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _EvalFakeCursor()
+
+    class _EvalFakeChatlogDB:
+        def get_chat_thread(self, thread_id: int):
+            return {"id": thread_id, "project_id": 7}
+
+        def _connect(self):
+            return _EvalFakeConn()
+
+    monkeypatch.setattr(
+        chat_worker.dependencies,
+        "chatlog_db",
+        _EvalFakeChatlogDB(),
+        raising=False,
+    )
+
+    from guardian.evals import spine as eval_spine
+
+    def _raise_enqueue(*_args, **_kwargs):
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(eval_spine, "enqueue", _raise_enqueue)
+
+    with caplog.at_level(logging.WARNING):
+        chat_worker._run_chat_task(_build_task(thread_id=31, turn_id=TURN_ID))
+
+    event_types = [event_type for event_type, _payload in published]
+    assert "task.completed" in event_types
+    assert "task.failed" not in event_types
+    assert any(
+        "[eval] enqueue failed" in record.message for record in caplog.records
+    )
 
 
 def test_worker_failure_before_assistant_emit_marks_failed_and_emits_completion_error(
