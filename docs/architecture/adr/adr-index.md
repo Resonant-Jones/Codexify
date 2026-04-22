@@ -48,6 +48,7 @@ Use this note as the local map for all ADRs.
 12. [[012-Post-Completion-Eval-Spine|ADR-012 Post-Completion Eval Spine]] — durable post-completion trace snapshot and attempt-scoped quality verdict seam, inspection-only and non-gating.
 13. [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] — backend-only verified personal-facts injection seam, bounded and user-scoped.
 14. [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] — canonical contract for Guardian threads, flow drafts, Builder support lanes, and run receipts.
+15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
 
 ---
 
@@ -184,6 +185,15 @@ Primary companion notes:
   * [[data-and-storage|Data and Storage]]
   * [[flows|Critical Flows]]
   * [[system-overview|System Overview]]
+  * [[00-current-state]]
+
+* [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] links to:
+
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[system-overview|System Overview]]
+  * [[tech-debt-and-risks|Tech Debt and Risks]]
   * [[00-current-state]]
 ---
 

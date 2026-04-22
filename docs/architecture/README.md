@@ -36,6 +36,8 @@ If you are working on Flow Builder, delegation/specification workflows, tacit-kn
 
 If you are working on Guardian-thread binding, FlowDraft identity, Builder view semantics, or run receipts, start with [`ADR-014: Flow Builder Thread, Draft, and Receipts Contract`](./adr/014-flow-builder-thread-draft-and-receipts-contract.md) after ADR-006. That ADR defines the canonical relationship between conversation state, authored flow state, alternate Builder views, and run evidence.
 
+If you are working on continuity governance, working-set decay, or import-aware continuity framing, start with [`ADR-015: Continuity Engine Working Set and Decay Contract`](./adr/015-continuity-engine-working-set-and-decay-contract.md) after the identity and retrieval contracts. That ADR defines the user-governed continuity layer above the current thread-first chat runtime.
+
 ## KB Validity and Diagram Source Sets
 
 Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
@@ -76,6 +78,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md): canonical architecture note for bounded generated extensions, plugin forge flow, and sovereignty boundaries.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
+- [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.
@@ -93,6 +96,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - Candidate trace ingestion scaffold: `guardian/core/chat_completion_service.py`, `guardian/queue/redis_queue.py`, `guardian/workers/candidate_ingest_worker.py`, `guardian/workers/graph_write_worker.py`, `docs/architecture/candidate-ingest-pipeline.md`
 - Identity precedence, persona/imprint assembly, and status-surface wording: `docs/architecture/identity-precedence-contract.md`, `guardian/cognition/identity_contract.py`, `guardian/cognition/identity_resolution.py`, `guardian/cognition/system_prompt_builder.py`, `guardian/core/chat_completion_service.py`, `guardian/routes/imprint.py`, `guardian/routes/chat.py`, `frontend/src/features/settings/`
 - RAG depth behavior and retrieval composition: `guardian/context/broker.py`, `guardian/memoryos/retriever.py`
+- Continuity working-set builder, decay governance, and import-aware continuity framing: `docs/architecture/adr/015-continuity-engine-working-set-and-decay-contract.md`
 - Flow Builder elicitation lane, delegation/specification workflows, tacit-knowledge extraction, and workflow authoring semantics: `docs/architecture/adr/006-flow-builder-elicitation-lane.md`
 - Flow Builder / Guardian integration semantics, FlowDraft identity, Builder support lanes, and run receipts: `docs/architecture/adr/014-flow-builder-thread-draft-and-receipts-contract.md`
 - Provider catalog, model selection, and runtime support: `guardian/core/llm_catalog.py`, `guardian/core/ai_router.py`
