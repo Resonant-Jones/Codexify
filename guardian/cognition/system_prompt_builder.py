@@ -133,6 +133,22 @@ def _build_docs_block(docs: list[Any]) -> str:
     return "\n".join(sections).strip()
 
 
+# Inserted: Current-turn priority block
+def _current_turn_priority_block() -> str:
+    return (
+        "Current-turn instruction:\n"
+        "Respond only to the user's most recent message.\n"
+        "Use earlier conversation only as background context for continuity, "
+        "reference resolution, and relevance.\n"
+        "Do not answer prior messages as separate pending requests, "
+        "do not continue older threads unless explicitly asked, "
+        "and do not respond sequentially to the conversation history.\n"
+        "If prior context is not needed to answer the latest message, ignore it.\n"
+        "Avoid repeating earlier framing, summaries, metaphors, or recommendations "
+        "unless the current message asks for them or repetition is necessary for clarity."
+    )
+
+
 def build_guardian_system_prompt(
     *,
     user_id: str,
@@ -191,6 +207,7 @@ def build_guardian_system_prompt(
 
     scratchpad_parts = [
         _depth_block(depth).strip(),
+        _current_turn_priority_block().strip(),
         _system_profile_block(profile_text).strip(),
         _rag_hint_block(bundle_payload).strip(),
     ]

@@ -27,18 +27,19 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
 - The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
 - Executable backend-seam evaluation suites continue to provide coverage for: identity-boundary proof (project scope containment, explicit widening, exclusion filters), supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam), and broker/source-mode matrix reconciliation.
-- Live runtime proof was attempted on `codex/add-retrieval-explainer` (branch 6 commits ahead of `main`). The retrieval-posture diagnostics route is confirmed live and returns correct empty-state shape. Chat completion proof is blocked by an Ollama model name mismatch (`LOCAL_CHAT_MODEL` set to "Gemma 4 E 4 B Hauhau" but Ollama instance has `gemma4-e4b-hauhau:latest`). Chroma retrieval remains healthy (`proof_capable: true`). **Fixed:** `LOCAL_CHAT_MODEL` updated to `gemma4-e4b-hauhau:latest` in `.env.example` (2026-04-14).
+- Fresh live proof was re-run on the exact current `main` tip. Chat completion still works and the chat ownership seam normalizes a browser display label to `local`, but the live backend container is not in the supported local-only posture, document upload fails with `upload_failed` because the expected `agent_extension_*` tables are missing, and the bounded tool-loop cases regress instead of matching the claimed supported-path behavior.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
-- Supported beta posture is still local-only: `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`.
-- Chat acceptance, worker execution, and Postgres persistence remain the core validated loop.
-- Upload -> parse -> embed -> retrieve remains supported, with one shared runtime vector store.
-- Fresh live proof now exists on the current `main` tip for the bounded tool-augmented completion slice: plain-answer control, one bounded tool turn, hard-stop after one tool turn, and bounded failure-path behavior are all live-proven on the supported Compose stack.
+- Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
+- Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
+- Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
+- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. Direct document upload returned `upload_failed` because backend schema consistency checks require missing `agent_extension_*` tables, so retrieval was not reached.
+- The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
 - The import embed worker can drain a live backlog without breaking chat or health surfaces.
-- `/health`, `/health/chat`, `/api/health/llm`, `/api/health/retrieval`, and `/api/llm/catalog?include=all` remain the primary runtime evidence surfaces.
+- `/health`, `/health/chat`, `/api/health/llm`, `/api/health/retrieval`, and `/api/llm/catalog?include=all` remain the primary runtime evidence surfaces, but this runtime now shows a supported-profile/catalog mismatch that must be resolved before any release claim.
 - Executable evaluation suites now cover backend seam evidence for:
   - Supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam).
   - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
@@ -63,16 +64,17 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Do not assume older proof docs alone describe the current tip if a newer merge changed runtime wiring.
 
 ## Active blockers
-- Chat completion blocked: `LOCAL_CHAT_MODEL` was set to "Gemma 4 E 4 B Hauhau" but the Ollama instance at `100.109.4.57:11434` has `gemma4-e4b-hauhau:latest`. Codexify requests fail with HTTP 400 "invalid model name". **Fixed 2026-04-14:** `LOCAL_CHAT_MODEL` updated to `gemma4-e4b-hauhau:latest` in `.env.example`. Live verification still required.
+- Live backend posture mismatch: the running backend container reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, while the catalog still exposes cloud inventory such as `groq` as enabled. Supported-path signoff is not satisfied until the live runtime is brought back into the local-only supported profile.
 - Retrieval-posture populated state not yet demonstrated: The completion-service seam has not yet been updated to emit `payload_summary["retrieval_posture"]`. The diagnostics route is live and returns correct empty-state shape, but the fast path (reading canonical snapshot) is a dead letter until that seam is updated. The fallback synthesis path also returns empty because historical task.completed events lack the required legacy trace fields.
-- Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; the bounded tool-augmented completion slice now has fresh live proof on `main`, but the broader signoff still needs the rest of the supported-path proof surface.
+- Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; this run proves chat acceptance and chat ownership normalization, but upload -> embed -> retrieve and bounded tool-loop behavior are still failing on the live runtime.
 - Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
 
 ## This week's priorities
 1. ~~Resolve Ollama model name mismatch~~ — **Done 2026-04-14:** `LOCAL_CHAT_MODEL` in `.env.example` updated to `gemma4-e4b-hauhau:latest`. Live verification still required.
-2. Update the completion-service seam (`guardian/core/chat_completion_service.py`) to emit `payload_summary["retrieval_posture"]` so the diagnostics route's fast path becomes functional.
-3. Re-run the supported local Compose beta proof on `main` once the above are resolved; verify chat completion, retrieval-posture populated state, and all health surfaces pass.
-4. Keep the supported-profile contract, catalog, and health surfaces aligned with the local-only provider posture.
+2. Repair the live runtime schema consistency gap that blocks document upload and retrieval (`agent_extension_*` tables missing during upload/document fetch).
+3. Repair the bounded tool-loop path that currently fails with `tool_command_execution_failed` and does not preserve the claimed hard-stop / blocked-result behavior.
+4. Update the completion-service seam (`guardian/core/chat_completion_service.py`) to emit `payload_summary["retrieval_posture"]` so the diagnostics route's fast path becomes functional.
+5. Re-run the supported local Compose beta proof on `main` once the above are resolved; verify chat completion, retrieval-posture populated state, and all health surfaces pass.
 
 ## Release definition right now
 - [ ] Supported-profile flags and mounted routes still match the beta contract.
