@@ -17,7 +17,6 @@ from sqlalchemy.dialects import postgresql
 revision: str = "e4f5a6b7c8d9"
 down_revision: str | Sequence[str] | None = (
     "a1b2c3d4e5f6",
-    "c1d2e3f4a5b6",
     "f2b3c4d5e6f8",
 )
 branch_labels: str | Sequence[str] | None = None

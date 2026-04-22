@@ -1,8 +1,14 @@
 """
 System document storage helpers.
 
+This module is the backend storage seam for system documents.
 System docs are long-form, optionally scoped documents that can be attached
 to a user's configuration and included in the system prompt.
+
+Today this file supports retrieval and link management only; it does not by
+itself expose any Settings UI. The intended product surface is Settings > Data,
+alongside ChatGPT import/export, so frontend settings work should call into a
+backend route that uses these helpers.
 """
 
 from __future__ import annotations
