@@ -68,9 +68,23 @@ def issue_session_token(
     now = int(time.time())
     exp = now + int(ttl_seconds)
     nonce = secrets.token_urlsafe(10)
-    payload = f"{subject}.{exp}.{nonce}".encode()
+    payload = json.dumps(
+        {
+            "subject": subject,
+            "exp": exp,
+            "nonce": nonce,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
     sig = hmac.new(_session_secret(), payload, hashlib.sha256).digest()
-    packed = base64.urlsafe_b64encode(payload + b"." + sig).decode("ascii")
+    packed = ".".join(
+        (
+            base64.urlsafe_b64encode(payload).decode("ascii").rstrip("="),
+            base64.urlsafe_b64encode(sig).decode("ascii").rstrip("="),
+        )
+    )
     return packed, exp
 
 
@@ -80,8 +94,39 @@ def verify_session_token(token: str) -> tuple[bool, str | None]:
 
     Returns `(valid, subject)`.
     """
+
+    def _urlsafe_b64decode(raw_text: str) -> bytes | None:
+        padded = raw_text + ("=" * (-len(raw_text) % 4))
+        try:
+            return base64.urlsafe_b64decode(padded.encode("ascii"))
+        except Exception:
+            return None
+
     try:
-        raw = base64.urlsafe_b64decode(token.encode("ascii"))
+        packed = token.strip()
+        if not packed:
+            return False, None
+
+        if "." in packed:
+            payload_b64, sig_b64 = packed.split(".", 1)
+            payload = _urlsafe_b64decode(payload_b64)
+            sig = _urlsafe_b64decode(sig_b64)
+            if payload is not None and sig is not None:
+                digest = hmac.new(
+                    _session_secret(),
+                    payload,
+                    hashlib.sha256,
+                ).digest()
+                if hmac.compare_digest(sig, digest):
+                    decoded = json.loads(payload.decode("utf-8"))
+                    subject = str(decoded.get("subject") or "").strip()
+                    exp = int(decoded.get("exp") or 0)
+                    if subject and exp >= int(time.time()):
+                        return True, subject
+
+        raw = base64.urlsafe_b64decode(
+            (packed + ("=" * (-len(packed) % 4))).encode("ascii")
+        )
         parts = raw.split(b".")
         if len(parts) != 4:
             return False, None
