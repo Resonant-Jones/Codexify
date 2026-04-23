@@ -1414,6 +1414,43 @@ export function SettingsView({
             aria-labelledby={getSettingsTabButtonId("data")}
             className="space-y-[var(--shell-gap)]"
           >
+            <div
+              data-testid="settings-system-docs-surface"
+              className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]"
+            >
+              <div className="flex items-start justify-between gap-[var(--radius-micro)]">
+                <div className="space-y-[calc(var(--radius-micro)/2)]">
+                  <div
+                    className="text-sm font-semibold"
+                    style={SETTINGS_DENSITY.sectionTitle}
+                  >
+                    System Docs
+                  </div>
+                  <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+                    System Docs are high-authority constitutional overlays for
+                    the assistant prompt. Keep them short and deliberate:
+                    every extra token is replayed into the prompt, so they add
+                    cost and latency, especially on cloud-backed usage. They
+                    are not the normal place for project documents or project
+                    knowledge ingestion.
+                  </p>
+                </div>
+                <div
+                  className="shrink-0 rounded-full border px-2 py-1 text-[11px] font-medium"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    color: "var(--muted)",
+                  }}
+                >
+                  Constitutional overlay
+                </div>
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+                Project-local working docs will live in a separate Project
+                Knowledge Base surface in the project menu.
+              </p>
+            </div>
+
             <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
               <div className="flex items-start justify-between gap-[var(--radius-micro)]">
                 <div className="space-y-[calc(var(--radius-micro)/2)]">

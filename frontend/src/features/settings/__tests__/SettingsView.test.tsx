@@ -226,6 +226,34 @@ describe("SettingsView", () => {
     }
   });
 
+  test("shows the System Docs boundary copy without turning Data into a project corpus lane", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+
+    render(<SettingsView {...props} />);
+
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+
+    expect(
+      screen.getByTestId("settings-system-docs-surface")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/constitutional overlays for the assistant prompt/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/cloud-backed usage/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Project Knowledge Base surface in the project menu/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/project corpus lane/i)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Import ChatGPT history" })
+    ).toBeInTheDocument();
+  });
+
   test("falls back safely when the persisted tab is invalid", () => {
     window.sessionStorage.setItem("cfy.settingsTab", "definitely-not-a-tab");
 
