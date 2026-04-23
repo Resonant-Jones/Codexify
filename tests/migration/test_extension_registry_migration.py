@@ -244,11 +244,13 @@ def test_extension_registry_migration_round_trip(tmp_path, monkeypatch):
                 },
             )
             session.add(proposal)
+            session.commit()
+            session.refresh(proposal)
 
             decision = AgentExtensionInstallGateDecision(
                 decision_id="decision-1",
                 account_id="user-123",
-                proposal_id="proposal-1",
+                proposal_id=proposal.proposal_id,
                 decision_token="approved",
                 reason="manual approval",
                 notes_json={
@@ -273,12 +275,14 @@ def test_extension_registry_migration_round_trip(tmp_path, monkeypatch):
                 ],
             )
             session.add(decision)
+            session.commit()
+            session.refresh(decision)
 
             registry = AgentExtensionRegistryEntry(
                 registry_id="registry-1",
                 account_id="user-123",
-                proposal_id="proposal-1",
-                decision_id="decision-1",
+                proposal_id=proposal.proposal_id,
+                decision_id=decision.decision_id,
                 project_id=17,
                 profile_id="profile-alpha",
                 source_thread_id=21,
@@ -329,21 +333,21 @@ def test_extension_registry_migration_round_trip(tmp_path, monkeypatch):
                     ],
                 },
                 registration_metadata_json={
-                    "decision_id": "decision-1",
+                    "decision_id": decision.decision_id,
                     "decision_token": "approved",
                     "decision_reason": "manual approval",
                     "decision_notes": {
                         "reviewer": "alice",
                         "note": "approved for testing",
                     },
-                    "proposal_id": "proposal-1",
+                    "proposal_id": proposal.proposal_id,
                     "account_id": "user-123",
                 },
                 provenance_class_token="proposal_approval",
                 provenance_json={
                     "provenance_class": "proposal_approval",
-                    "proposal_id": "proposal-1",
-                    "decision_id": "decision-1",
+                    "proposal_id": proposal.proposal_id,
+                    "decision_id": decision.decision_id,
                     "source_thread_id": 21,
                     "source_message_id": 22,
                     "target_surface": "command_bus",
@@ -351,8 +355,6 @@ def test_extension_registry_migration_round_trip(tmp_path, monkeypatch):
             )
             session.add(registry)
             session.commit()
-            session.refresh(proposal)
-            session.refresh(decision)
             session.refresh(registry)
 
         with Session() as session:
