@@ -291,7 +291,7 @@ function resolvePersistedFlowBuilderMode(): FlowBuilderMode {
 }
 
 function isWorkspaceShellView(view: AppShellView): view is WorkspaceShellView {
-  return view === "dashboard" || view === "documents" || view === "guardian";
+  return view === "documents" || view === "guardian";
 }
 
 function normalizeDoc(raw: any, idx = 0): DocItem {
@@ -2804,19 +2804,8 @@ export default function AppShell({
                       ? primaryPaneMinWidth
                       : "0px"
                   }
-                  className="min-w-0 min-h-0 overflow-visible rounded-[var(--radius)]"
-                  style={{
-                    padding: "var(--board-edge)",
-                    width: "var(--w, auto)",
-                    maxWidth: "var(--max-w, none)",
-                    minWidth: "var(--min-w, 0)",
-                    height: "var(--h, auto)",
-                    minHeight: "var(--min-h, 0)",
-                    maxHeight: "var(--max-h, none)",
-                    ["--min-h"]: shellViewportProfile.contentMinHeight,
-                    borderRadius: "var(--card-radius)",
-                    ...workspacePrimaryPaneStyle,
-                  }}
+                  className="min-h-0 min-w-0"
+                  style={workspacePrimaryPaneStyle}
                 >
                   <FrameCard
                     fill
