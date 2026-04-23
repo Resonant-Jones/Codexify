@@ -55,6 +55,8 @@ import {
   waitForRuntimeReady,
 } from "./lib/runtimeBootstrap";
 import EventsConsole from "./pages/EventsConsole";
+import LoginPage from "./pages/login/LoginPage";
+import RegisterPage from "./pages/login/RegisterPage";
 import { SharePage } from "./pages/SharePage";
 import {
   isTauriRuntime,
@@ -117,6 +119,16 @@ function isPersonaStudioRoute() {
 function isShareRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/share/");
+}
+
+function isLoginRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/login");
+}
+
+function isRegisterRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/register");
 }
 
 function getShareToken() {
@@ -530,6 +542,8 @@ export default function App() {
   const commandCenterRoute = isCommandCenterRoute();
   const personaStudioRoute = isPersonaStudioRoute();
   const shareRoute = isShareRoute();
+  const loginRoute = isLoginRoute();
+  const registerRoute = isRegisterRoute();
   const shareToken = shareRoute ? getShareToken() : null;
   const desktopRuntime = isTauriRuntime();
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
@@ -574,6 +588,8 @@ export default function App() {
     !eventsRoute &&
     !commandCenterRoute &&
     !personaStudioRoute &&
+    !loginRoute &&
+    !registerRoute &&
     !(shareRoute && !!shareToken) &&
     (desktopStartupCanBootstrap || desktopRecoveryRequested);
   const [docGenOpen, setDocGenOpen] = React.useState(false);
@@ -1243,6 +1259,12 @@ export default function App() {
 
   if (tuneRoute) {
     return <DevTuneGate />;
+  }
+  if (loginRoute) {
+    return <LoginPage />;
+  }
+  if (registerRoute) {
+    return <RegisterPage />;
   }
   if (desktopStartupPending) {
     return <DesktopStartupRoutingGate detail={desktopStartupRouting?.detail ?? null} />;

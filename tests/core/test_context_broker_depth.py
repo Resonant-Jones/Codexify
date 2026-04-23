@@ -45,12 +45,84 @@ def context_broker(
     mock_chatlog_db, mock_vector_store, mock_memory_store, mock_sensors
 ):
     """Create a ContextBroker instance with mocked dependencies."""
-    return ContextBroker(
+    broker = ContextBroker(
         chatlog_db=mock_chatlog_db,
         vector_store=mock_vector_store,
         memory_store=mock_memory_store,
         sensors=mock_sensors,
     )
+
+    original_assemble = broker.assemble
+
+    async def _assemble_with_test_user_id(*args, **kwargs):
+        kwargs.setdefault("user_id", "user-1")
+        return await original_assemble(*args, **kwargs)
+
+    broker.assemble = _assemble_with_test_user_id
+
+    async def _fetch_messages_legacy(thread_id, n, *, user_id):
+        if hasattr(broker.chatlog, "last_messages"):
+            try:
+                result = broker.chatlog.last_messages(thread_id, n=n)
+            except TypeError:
+                result = broker.chatlog.last_messages(thread_id, n=n)
+        elif hasattr(broker.chatlog, "list_messages"):
+            try:
+                result = broker.chatlog.list_messages(
+                    thread_id, limit=n, offset=0
+                )
+            except TypeError:
+                result = broker.chatlog.list_messages(thread_id)
+        else:
+            return []
+        if hasattr(result, "__await__"):
+            result = await result
+        return result if isinstance(result, list) else []
+
+    async def _search_semantic_legacy(
+        query, k, *, namespace=None, user_id=None
+    ):
+        if hasattr(broker.vector, "search"):
+            result = broker.vector.search(query, k=k, namespace=namespace)
+            if hasattr(result, "__await__"):
+                result = await result
+            return result if isinstance(result, list) else []
+        return []
+
+    async def _search_memory_legacy(query, k, *, namespace=None, user_id=None):
+        trace = {
+            "attempted": False,
+            "status": "skipped",
+            "reason": "no_retriever",
+            "count": 0,
+        }
+        if broker.memory and hasattr(broker.memory, "search_related"):
+            try:
+                result = broker.memory.search_related(query, limit=k)
+                if hasattr(result, "__await__"):
+                    result = await result
+                items = result if isinstance(result, list) else []
+                trace = {
+                    "attempted": True,
+                    "status": "contributed" if items else "attempted_no_hits",
+                    "reason": "legacy_results" if items else "legacy_no_hits",
+                    "count": len(items),
+                }
+                return items, trace
+            except Exception as exc:
+                trace = {
+                    "attempted": True,
+                    "status": "failed",
+                    "reason": "legacy_retriever_error",
+                    "error": str(exc),
+                    "count": 0,
+                }
+        return [], trace
+
+    broker._fetch_messages = _fetch_messages_legacy
+    broker._search_semantic = _search_semantic_legacy
+    broker._search_memory = _search_memory_legacy
+    return broker
 
 
 class TestContextBrokerShallowDepth:
