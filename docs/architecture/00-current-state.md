@@ -27,14 +27,14 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
 - The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
 - Executable backend-seam evaluation suites continue to provide coverage for: identity-boundary proof (project scope containment, explicit widening, exclusion filters), supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam), and broker/source-mode matrix reconciliation.
-- Fresh live proof was re-run on the exact current `main` tip. Chat completion still works and the chat ownership seam normalizes a browser display label to `local`, but the live backend container is not in the supported local-only posture, document upload fails with `upload_failed` because the expected `agent_extension_*` tables are missing, and the bounded tool-loop cases regress instead of matching the claimed supported-path behavior.
+- Fresh live proof was re-run on the exact current `main` tip. Chat completion still works and the chat ownership seam normalizes a browser display label to `local`, and the supported local Compose migrator now reaches the merged extension/eval head cleanly so the expected `agent_extension_*` tables are present again. The live backend container still needs a separate supported-profile recheck, and the bounded tool-loop cases still regress instead of matching the claimed supported-path behavior.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
 - Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
-- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. Direct document upload returned `upload_failed` because backend schema consistency checks require missing `agent_extension_*` tables, so retrieval was not reached.
+- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. The schema-consistency gap that previously blocked document upload on missing `agent_extension_*` tables has been repaired on the supported local Compose path, but the full end-to-end upload -> embed -> retrieve proof still needs a fresh rerun on the current tip.
 - The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
@@ -67,7 +67,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 ## Active blockers
 - Live backend posture mismatch: the running backend container reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, while the catalog still exposes cloud inventory such as `groq` as enabled. Supported-path signoff is not satisfied until the live runtime is brought back into the local-only supported profile.
 - Retrieval-posture populated state not yet demonstrated: The completion-service seam has not yet been updated to emit `payload_summary["retrieval_posture"]`. The diagnostics route is live and returns correct empty-state shape, but the fast path (reading canonical snapshot) is a dead letter until that seam is updated. The fallback synthesis path also returns empty because historical task.completed events lack the required legacy trace fields.
-- Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; this run proves chat acceptance and chat ownership normalization, but upload -> embed -> retrieve and bounded tool-loop behavior are still failing on the live runtime.
+- Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; this run now proves chat acceptance, chat ownership normalization, and migration/schema consistency on the supported Compose stack, but upload -> embed -> retrieve and bounded tool-loop behavior still need fresh live proof.
 - Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
 
 ## This week's priorities
