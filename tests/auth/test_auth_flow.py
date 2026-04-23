@@ -8,6 +8,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from guardian.core.passwords import verify_password
+from guardian.core.user_manager import get_or_create_default_user
 from guardian.db.models import User
 
 
@@ -114,3 +116,19 @@ def test_login_and_authenticated_request(monkeypatch):
             mock_chatlog_db.create_project.call_args.kwargs["user_id"]
             == expected_user_id
         )
+
+
+def test_default_user_bootstrap_does_not_seed_known_password(monkeypatch):
+    from guardian.core import user_manager as user_manager_module
+
+    monkeypatch.setattr(
+        user_manager_module,
+        "load_guardian_db_from_env",
+        lambda: None,
+    )
+
+    user = get_or_create_default_user()
+
+    assert user["id"] == "local"
+    assert user["username"] == "local"
+    assert not verify_password("local", user["password_hash"])
