@@ -5,6 +5,7 @@ Revises: f2b3c4d5e6f8
 Create Date: 2026-04-20 00:00:00.000000
 """
 
+import secrets
 from typing import Sequence, Union
 
 import bcrypt
@@ -17,12 +18,11 @@ down_revision: Union[str, Sequence[str], None] = "f2b3c4d5e6f8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-DEFAULT_BOOTSTRAP_PASSWORD = "local"
-
 
 def _bootstrap_password_hash() -> str:
+    bootstrap_password = secrets.token_urlsafe(32).encode("utf-8")
     return bcrypt.hashpw(
-        DEFAULT_BOOTSTRAP_PASSWORD.encode("utf-8"),
+        bootstrap_password,
         bcrypt.gensalt(),
     ).decode("utf-8")
 

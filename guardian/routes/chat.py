@@ -46,7 +46,7 @@ from starlette.responses import StreamingResponse
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
-from guardian.core.auth_dependencies import get_current_user_id
+from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -139,21 +139,24 @@ def _run_completion_redis_op(fn, *, reason: str, log_message: str):
 
 def _request_account_id(
     request_user_scope: RequestUserScope,
-    request: Request | None = None,
 ) -> str:
-    if request is not None:
-        return get_current_user_id(request)
     account_id = str(request_user_scope.account_id or "").strip()
-    return account_id or get_single_user_id()
+    if account_id:
+        return account_id
+
+    user_id = str(getattr(request_user_scope, "user_id", "") or "").strip()
+    if user_id:
+        return user_id
+
+    return get_single_user_id()
 
 
 def _resolve_thread_owner_hint(
     raw_user_id: Any,
     request_user_scope: RequestUserScope,
-    request: Request | None = None,
 ) -> str:
     requested_user_id = str(raw_user_id or "").strip()
-    account_id = _request_account_id(request_user_scope, request=request)
+    account_id = _request_account_id(request_user_scope)
     if request_user_scope.multi_user_enabled:
         if requested_user_id and requested_user_id != account_id:
             raise HTTPException(
@@ -2201,7 +2204,6 @@ def chat_create_thread(
     user_id = _resolve_thread_owner_hint(
         raw_user,
         request_user_scope,
-        request=request,
     )
     raw_summary = payload.get("summary")
     summary = str(raw_summary).strip() if raw_summary is not None else ""
@@ -2334,7 +2336,6 @@ def chat_post_message(
     owner = _resolve_thread_owner_hint(
         body.get("user_id"),
         request_user_scope,
-        request=request,
     )
     try:
         result = _persist_message_to_thread(
@@ -2378,7 +2379,6 @@ def chat_post_message_create_on_send(
     owner = _resolve_thread_owner_hint(
         body.user_id,
         request_user_scope,
-        request=request,
     )
     requested_thread_id = _coerce_positive_int(body.thread_id)
     created_thread = False
@@ -3174,7 +3174,7 @@ def branch_thread(
 
     child = chatlog_db.create_chat_thread(
         user_id=(
-            _request_account_id(request_user_scope, request=request)
+            _request_account_id(request_user_scope)
             if request_user_scope.multi_user_enabled
             else parent.get("user_id", "default")
         ),

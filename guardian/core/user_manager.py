@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,11 +14,18 @@ from guardian.db.models import User
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_BOOTSTRAP_PASSWORD = "local"
-
-
 def _resolve_default_user_id() -> str:
     return "local"
+
+
+def _bootstrap_password_hash() -> str:
+    """
+    Generate an unpredictable bootstrap password hash.
+
+    The canonical default user remains seedable for ownership boundaries, but
+    the bootstrap credential itself must not be a fixed, guessable value.
+    """
+    return hash_password(secrets.token_urlsafe(32))
 
 
 def get_or_create_default_user(
@@ -35,7 +43,7 @@ def get_or_create_default_user(
         return {
             "id": user_id,
             "username": user_id,
-            "password_hash": hash_password(DEFAULT_BOOTSTRAP_PASSWORD),
+            "password_hash": _bootstrap_password_hash(),
             "created_at": None,
         }
 
@@ -45,7 +53,7 @@ def get_or_create_default_user(
             user = User(
                 id=user_id,
                 username=user_id,
-                password_hash=hash_password(DEFAULT_BOOTSTRAP_PASSWORD),
+                password_hash=_bootstrap_password_hash(),
                 created_at=datetime.now(timezone.utc),
             )
             session.add(user)
