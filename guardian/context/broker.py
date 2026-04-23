@@ -421,6 +421,8 @@ class ContextBroker:
         )
 
         context: Dict[str, Any] = {}
+        widened = False
+        widen_reason = WIDEN_REASON_NONE
 
         # Always include recent messages
         try:
@@ -553,12 +555,11 @@ class ContextBroker:
                     widening_enabled=widening_enabled,
                     search_fn=self._search_semantic,
                 )
-                if semantic_widen_reason != WIDEN_REASON_NONE:
-                    widened = True
-                    widen_reason = self._merge_widen_reason(
-                        widen_reason or WIDEN_REASON_NONE,
-                        semantic_widen_reason,
-                    )
+                widened = widened or semantic_widen_reason != WIDEN_REASON_NONE
+                widen_reason = self._merge_widen_reason(
+                    widen_reason,
+                    semantic_widen_reason,
+                )
                 semantic_obsidian: list[dict[str, Any]] = []
                 if normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE:
                     semantic_obsidian = await self._retrieve_obsidian_documents(
@@ -763,6 +764,13 @@ class ContextBroker:
                         widening_enabled=widening_enabled,
                         search_fn=self._search_memory,
                     )
+                    widened = (
+                        widened or memory_widen_reason != WIDEN_REASON_NONE
+                    )
+                    widen_reason = self._merge_widen_reason(
+                        widen_reason,
+                        memory_widen_reason,
+                    )
                     context["memory"] = memory
                     if memory_widen_reason != WIDEN_REASON_NONE:
                         widened = True
@@ -819,32 +827,36 @@ class ContextBroker:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
 
-        raw_all_results: List[Any] = []
-        for key in ("semantic", "obsidian", "memory", "graph", "federated"):
-            value = context.get(key, [])
+        all_results: list[Any] = []
+        for key in (
+            "semantic",
+            "obsidian",
+            "memory",
+            "graph",
+            "personal_facts",
+        ):
+            value = context.get(key)
             if isinstance(value, list):
-                raw_all_results.extend(value)
-
-        docs_bundle = context.get("docs", {})
-        if isinstance(docs_bundle, dict):
-            for key in ("project", "thread", "global"):
-                value = docs_bundle.get(key, [])
+                all_results.extend(value)
+        docs_value = context.get("docs")
+        if isinstance(docs_value, dict):
+            for value in docs_value.values():
                 if isinstance(value, list):
-                    raw_all_results.extend(value)
+                    all_results.extend(value)
 
-        if isinstance(context.get("verified_personal_facts"), list):
-            raw_all_results.extend(context["verified_personal_facts"])
+        filtered_results = [
+            item
+            for item in all_results
+            if self._result_user_id(item) == resolved_user_id
+        ]
+        if len(filtered_results) != len(all_results):
+            raise AssertionError("retrieval_user_isolation_violation")
 
-        all_results = _assert_user_scoped_results(
-            raw_all_results,
-            user_id=resolved_user_id,
-        )
-
+        if widened and not widen_reason:
+            raise AssertionError("missing_widen_reason")
         if not widened:
             widen_reason = WIDEN_REASON_NONE
-        elif not widen_reason:
-            raise AssertionError("missing_widen_reason")
-        elif widen_reason == WIDEN_REASON_NONE:
+        if not widened and widen_reason != WIDEN_REASON_NONE:
             raise AssertionError("invalid_widen_reason_without_widening")
 
         # Keep source-boundary diagnostics stable while source_mode still
@@ -900,6 +912,27 @@ class ContextBroker:
             pass
 
         return context, rag_trace
+
+    @staticmethod
+    def _result_user_id(item: Any) -> Optional[str]:
+        if isinstance(item, dict):
+            user_value = item.get("user_id") or item.get("owner_user_id")
+            if user_value not in (None, ""):
+                return str(user_value).strip() or None
+            metadata = item.get("metadata")
+            if isinstance(metadata, dict):
+                nested_user_value = metadata.get("user_id") or metadata.get(
+                    "owner_user_id"
+                )
+                if nested_user_value not in (None, ""):
+                    return str(nested_user_value).strip() or None
+
+        user_value = getattr(item, "user_id", None) or getattr(
+            item, "owner_user_id", None
+        )
+        if user_value not in (None, ""):
+            return str(user_value).strip() or None
+        return None
 
     async def _fetch_verified_personal_facts(
         self,
@@ -1111,7 +1144,7 @@ class ContextBroker:
                 query,
                 k,
                 namespace=OBSIDIAN_NAMESPACE,
-                user_id=str(user_id or ""),
+                user_id=str(user_id or "").strip(),
             )
         except Exception as exc:
             logger.warning(

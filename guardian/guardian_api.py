@@ -495,7 +495,9 @@ def _retrieval_proof_state(
 
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
-from guardian.routes import admin, agent, agent_orchestration, backfill
+from guardian.routes import admin, agent, agent_orchestration
+from guardian.routes import auth as auth_routes
+from guardian.routes import backfill
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
@@ -962,6 +964,15 @@ _include_router(
     label="admin",
     flag_name="CODEXIFY_ENABLE_ADMIN_ROUTES",
     include_fn=lambda: app.include_router(admin.router),
+    core_surface=True,
+)
+_include_router(
+    label="auth",
+    flag_name="CODEXIFY_ENABLE_AUTH_ROUTES",
+    include_fn=lambda: (
+        app.include_router(auth_routes.router),
+        app.include_router(auth_routes.api_router),
+    ),
     core_surface=True,
 )
 _include_router(

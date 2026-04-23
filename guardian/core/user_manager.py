@@ -7,9 +7,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
+from guardian.core.passwords import hash_password
 from guardian.db.models import User
 
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_BOOTSTRAP_PASSWORD = "local"
 
 
 def _resolve_default_user_id() -> str:
@@ -31,6 +35,7 @@ def get_or_create_default_user(
         return {
             "id": user_id,
             "username": user_id,
+            "password_hash": hash_password(DEFAULT_BOOTSTRAP_PASSWORD),
             "created_at": None,
         }
 
@@ -40,6 +45,7 @@ def get_or_create_default_user(
             user = User(
                 id=user_id,
                 username=user_id,
+                password_hash=hash_password(DEFAULT_BOOTSTRAP_PASSWORD),
                 created_at=datetime.now(timezone.utc),
             )
             session.add(user)
@@ -48,6 +54,7 @@ def get_or_create_default_user(
         return {
             "id": user.id,
             "username": user.username,
+            "password_hash": user.password_hash,
             "created_at": user.created_at,
         }
 

@@ -52,6 +52,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
   - API routes
   - retrieval
   - persistence
+- Retrieval now enforces strict user isolation and explicit widening semantics at the broker boundary.
 - exportability is now a first-class invariant.
 
 ## Not yet true / do not assume

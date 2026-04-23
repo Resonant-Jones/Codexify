@@ -1,183 +1,139 @@
 # Desktop Runtime Monitor Runbook
 
-## Purpose
+Purpose: give operators a read-only way to inspect the supported local Docker Compose runtime and the desktop-launcher proof surfaces together, without treating a single endpoint as the whole truth.
 
-Provide operators with a read-only, single-command view of Codexify's supported runtime health and the packaged desktop-launcher materialization state. The monitor aggregates multiple independent truth surfaces and presents them without collapsing ambiguity into a binary healthy/unhealthy flag.
+## Scope
 
-This tool is an **operator proof aid**, not an auto-remediation agent. It never changes code, restarts services, runs migrations, rewrites config, or patches files.
+- Supported runtime: local Docker Compose stack.
+- Desktop shell: alternate launcher/client surface around that runtime.
+- Operator task: compare runtime health, provider health, and launcher materialization evidence in one command.
+- Non-goal: automatic repair.
 
-## Supported Scope
+## What the monitor proves
 
-### Runtime surfaces (HTTP — requires running Docker Compose stack)
+- The backend runtime is reachable or unreachable as a distinct fact.
+- The chat, provider, and retrieval evidence surfaces can be read separately.
+- The launcher startup-state file is present or absent as a separate fact.
+- The packaged runtime manifest and marker are present or absent as a separate fact.
+- One operator command can produce a structured summary without guessing from a single endpoint.
 
-| Surface | Endpoint | What it proves |
-|---|---|---|
-| Backend liveness | `GET /health` | Backend process is up and the app bootstrapped successfully |
-| Chat queue/worker health | `GET /health/chat` | Redis reachable, queue round-trips succeed, chat workers have fresh heartbeats |
-| Active provider runtime | `GET /api/health/llm` | Currently selected model provider is reachable and in a known runtime state |
-| Retrieval health | `GET /api/health/retrieval` | Vector store and retrieval layer are reachable |
-| Model catalog | `GET /api/llm/catalog?include=all` | Discovered model inventory is accessible |
+## What the monitor does not prove
 
-### Desktop-launcher proof artifacts (on-disk, platform-specific)
+- It does not prove a user-facing UI receipt.
+- It does not prove accepted work completed successfully.
+- It does not prove the launcher self-healed.
+- It does not rewrite config, restart services, run migrations, or patch files.
+- It does not replace live launch ritual proof in the installed app.
 
-| Artifact | Location (macOS) | What its presence proves |
-|---|---|---|
-| `.codexify-launcher-startup-state.json` | `~/Library/Application Support/Codexify/` | Setup completed and a backend handoff target was recorded |
-| `.codexify-runtime-manifest.json` | `~/Library/Application Support/Codexify/` | Packaged runtime config snapshot was written |
-| `.codexify-packaged-runtime` (directory) | `~/Library/Application Support/Codexify/` | Packaged runtime materialization completed |
+## Status vocabulary
 
-### What the monitor does NOT prove
+The monitor uses a bounded status vocabulary:
 
-- **Accepted work ≠ completion.** A green `/health/chat` proves Redis reachability, queue round-trip, and worker heartbeat freshness — not that any particular chat task has completed or that the UI received it.
-- **Provider reachable ≠ model ready.** A `runtime_available` state on `/api/health/llm` means the provider transport is up; it does not mean the model is warm and ready to generate tokens.
-- **Artifact present ≠ first-launch succeeded.** A present `.codexify-launcher-startup-state.json` proves the file was written; it does not prove the backend it points to is still running.
-- **Task-event visibility ≠ downstream receipt.** Task event publication success proves the event was published to the transport; it does not prove the frontend or any subscriber received it.
-- **One green endpoint ≠ runtime truth.** The monitor intentionally reads multiple surfaces. Treat any single surface as necessary but not sufficient.
+- `ready`
+- `degraded`
+- `unreachable`
+- `missing_artifact`
+- `not_ready`
 
-## Bounded Status Vocabulary
+`ready` is the only exit-0 state. Any other status yields a nonzero exit code in `--once` mode.
 
-The monitor classifies each surface using an explicit, limited vocabulary:
+## Files and roots
 
-| Status | Meaning |
-|---|---|
-| `ready` | Surface responded with a healthy/ok status |
-| `degraded` | Surface responded but with a degraded or warning indicator |
-| `not_ready` | Surface responded but content indicates it is still initializing (e.g., model warming) |
-| `unreachable` | Transport-level failure — timeout, connection error, or HTTP 5xx |
-| `missing_artifact` | Expected on-disk file or directory is absent |
+- Launcher startup state:
+  - `~/Library/Application Support/Codexify/.codexify-launcher-startup-state.json`
+- Packaged runtime materialization:
+  - `~/Codexify/.codexify-runtime-manifest.json`
+  - `~/Codexify/.codexify-packaged-runtime`
 
-The monitor aggregates these into an **overall status** using priority order (highest wins):
+The monitor accepts overrides for both roots, which makes it safe to test against a temporary directory tree.
 
-```
-UNREACHABLE > MISSING_ARTIFACT > NOT_READY > DEGRADED > READY
-```
+## Exact commands
 
-## Exact Commands
-
-### One-shot check
+Run a single read-only snapshot:
 
 ```bash
-# Default backend URL (http://localhost:8888)
 python scripts/ops/monitor_desktop_runtime.py --once
+```
 
-# Custom backend URL
-python scripts/ops/monitor_desktop_runtime.py --once --backend-url http://localhost:8888
+Run a single snapshot as JSON:
 
-# Emit JSON instead of human-readable output
+```bash
 python scripts/ops/monitor_desktop_runtime.py --once --json
 ```
 
-### Continuous watch mode
+Watch repeatedly:
 
 ```bash
-# Poll every 15 seconds (default)
 python scripts/ops/monitor_desktop_runtime.py --watch
-
-# Custom interval
-python scripts/ops/monitor_desktop_runtime.py --watch --interval 30
 ```
 
-### Using the env var for backend URL
+Use custom roots during proof or test sessions:
 
 ```bash
-CODEXIFY_MONITOR_BACKEND_URL=http://localhost:8888 \
-  python scripts/ops/monitor_desktop_runtime.py --once --json
+python scripts/ops/monitor_desktop_runtime.py \
+  --once \
+  --base-url http://127.0.0.1:8888 \
+  --app-support-root "$HOME/Library/Application Support/Codexify" \
+  --runtime-root "$HOME/Codexify"
 ```
 
-## Exit Codes
+## Surface-by-surface interpretation
 
-| Exit code | Meaning |
-|---|---|
-| `0` | Overall status is `ready` or `degraded` — no unreachable or missing-artifact surfaces |
-| `1` | One or more surfaces are `degraded` or `not_ready` |
-| `2` | One or more surfaces are `unreachable` or `missing_artifact` |
+### `GET /health`
 
-> Exit code 1 (degraded) is advisory — the runtime is reachable but some surface is not fully healthy. Exit code 2 signals a more serious condition requiring operator attention.
+- Proves the backend is answering and exposes the active supported-profile view.
+- If this is unreachable, the supported runtime itself is not trustworthy for proof.
 
-## JSON Output Schema
+### `GET /health/chat`
 
-```json
-{
-  "overall_status": "ready | degraded | not_ready | unreachable | missing_artifact",
-  "runtime": {
-    "<surface_name>": {
-      "url": "http://localhost:8888/...",
-      "status": "ready | degraded | not_ready | unreachable",
-      "http_status_code": 200,
-      "error": null
-    }
-  },
-  "launcher_artifacts": {
-    "<filename>": {
-      "path": "/full/path/to/artifact",
-      "status": "ready | degraded | missing_artifact",
-      "detail": "present | permission denied | ..."
-    }
-  },
-  "next_actions": [
-    "Advisory string — never a command to auto-remediate"
-  ]
-}
-```
+- Proves the queue-backed chat lane is healthy enough to inspect.
+- This is not proof of UI receipt or eventual completion.
 
-## Platform Notes
+### `GET /api/health/llm`
 
-### macOS (desktop launcher)
+- Proves the provider lane is reachable, warming, degraded, or offline as a distinct fact.
+- This does not prove the catalog or launcher materialization is valid.
 
-Desktop artifacts are written to `~/Library/Application Support/Codexify/`. This directory is created by the Tauri desktop shell during first-launch setup. If artifacts are missing, re-run the Codexify desktop setup wizard.
+### `GET /api/health/retrieval`
 
-### Linux (desktop launcher)
+- Proves the retrieval runtime can be inspected separately from provider health.
+- This does not prove the UI consumed the result or that every retrieval path is live.
 
-Artifacts are written to `~/.local/share/Codexify/` (or `$XDG_DATA_HOME/Codexify/` if `XDG_DATA_HOME` is set).
+### `GET /api/llm/catalog?include=all`
 
-### Windows (desktop launcher)
+- Proves the discovered provider inventory can be inspected in operator mode.
+- This does not prove model execution is healthy by itself.
 
-Artifacts are written to `%LOCALAPPDATA%\Codexify\`.
+### Launcher startup state
 
-### Backend always
+- Proves whether the packaged launcher wrote a startup-state file.
+- A present file that still says setup is incomplete remains `not_ready`.
 
-The backend always runs on port `8888` in the Docker Compose topology. The monitor defaults to `http://localhost:8888`. If your Compose stack exposes the backend on a different port, pass `--backend-url` explicitly.
+### Packaged runtime manifest and marker
 
-## Relationship to Existing Health Endpoints
+- Proves whether the packaged runtime materialization is present.
+- Missing manifest or marker stays `missing_artifact`, not guessed.
 
-The monitor does not replace direct endpoint inspection. Operators may still run:
+## Operator workflow
+
+1. Run `--once` before or after an installed-app launch ritual.
+2. Check `overall_status` first.
+3. Read runtime, provider, and launcher sections separately.
+4. Treat `next_actions` as advisory only.
+5. If launcher artifacts are missing, rerun the launcher ritual rather than editing files.
+
+## Practical reading guide
+
+- `ready`: the surface is healthy enough for the supported proof.
+- `degraded`: the surface is reachable, but the proof is incomplete or slower/less trustworthy than expected.
+- `not_ready`: the surface is present but not ready for proof.
+- `missing_artifact`: the file or materialization is absent.
+- `unreachable`: the request could not reach the surface at all.
+
+## Example
 
 ```bash
-curl -s http://localhost:8888/health | jq .
-curl -s http://localhost:8888/health/chat | jq .
-curl -s "http://localhost:8888/api/health/llm" | jq .
-curl -s "http://localhost:8888/api/health/retrieval" | jq .
-curl -s "http://localhost:8888/api/llm/catalog?include=all" | jq .
+python scripts/ops/monitor_desktop_runtime.py --once --json
 ```
 
-The monitor simply aggregates and summarizes all of these in one pass, alongside the desktop-launcher artifact state, with advisory next actions.
-
-## Reading the Monitor During Operator Proof Sessions
-
-Use the monitor to establish baseline state before and after proof activities:
-
-1. **Pre-proof baseline:** Run `--once --json` before starting a proof session. Record the output. All runtime surfaces should be `ready`; launcher artifacts should be `ready` if the desktop shell has been launched at least once.
-
-2. **Post-activity check:** Run `--once --json` after chat completion, document upload, or retrieval operations. Compare runtime surface statuses to confirm no surface regressed to `unreachable` or `missing_artifact`.
-
-3. **Watch during proof:** Use `--watch --interval 5` during active proof to observe surface stability in real time.
-
-## Read-Only Constraint
-
-The monitor is strictly read-only by design. If any surface reports `degraded` or `unreachable`:
-
-- Do NOT run the monitor with elevated privileges expecting it to "fix" the issue
-- Use the `next_actions` advisory strings as investigation leads, not as automated remediation commands
-- Manually inspect the referenced surfaces using `curl` or your browser
-- Check Docker Compose logs: `docker compose logs -f backend`, `docker compose logs -f worker-chat`, etc.
-- Verify the desktop launcher setup completed: re-run the Codexify desktop setup wizard if launcher artifacts are `missing_artifact`
-
-## Monitor Internals
-
-The monitor is implemented in `scripts/ops/monitor_desktop_runtime.py`. Key design decisions:
-
-- **No external dependencies beyond stdlib and `requests`** (requests is optional; the monitor degrades gracefully if it is absent)
-- **All HTTP calls use a 5-second timeout** (configurable via `--timeout`)
-- **HTTP surface classification inspects response body semantics**, not just HTTP status codes, to distinguish `ready` from `degraded` from `not_ready`
-- **Artifact checks validate JSON parseability** for `.json` files, and distinguish "not found" from "permission denied" from "malformed"
-- **The `next_actions` field never contains commands** that change code, restart services, run migrations, or rewrite config — it is strictly advisory for human operators
+The JSON output is intended to be machine-readable, but it is still read-only operator truth. It is not a remediation loop.

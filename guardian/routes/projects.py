@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
 try:
+    from guardian.core.auth_dependencies import get_current_user_id
     from guardian.core.dependencies import (
         RequestUserScope,
         chatlog_db,
@@ -44,6 +45,9 @@ except ImportError:
 
     def get_single_user_id() -> str:  # type: ignore[unused-argument]
         return "local"
+
+    def get_current_user_id(request):  # type: ignore[unused-argument]
+        return get_single_user_id()
 
 
 # Helper: ensure default project exists at startup
@@ -83,7 +87,12 @@ class ProjectCreate(BaseModel):
 _PROJECT_OWNER_SENTINEL = "__codexify_project_owner__"
 
 
-def _request_account_id(request_user_scope: RequestUserScope) -> str:
+def _request_account_id(
+    request_user_scope: RequestUserScope,
+    request: Request | None = None,
+) -> str:
+    if request is not None:
+        return get_current_user_id(request)
     account_id = str(
         getattr(request_user_scope, "account_id", "") or ""
     ).strip()
@@ -93,9 +102,10 @@ def _request_account_id(request_user_scope: RequestUserScope) -> str:
 def _resolve_project_owner_hint(
     raw_user_id: str | None,
     request_user_scope: RequestUserScope,
+    request: Request | None = None,
 ) -> str:
     requested_user_id = str(raw_user_id or "").strip()
-    account_id = _request_account_id(request_user_scope)
+    account_id = _request_account_id(request_user_scope, request=request)
     if getattr(request_user_scope, "multi_user_enabled", False):
         if requested_user_id and requested_user_id != account_id:
             raise HTTPException(
@@ -253,6 +263,7 @@ def list_projects(
 @api_router.post("")
 def create_project(
     body: ProjectCreate,
+    request: Request = None,
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
@@ -265,7 +276,11 @@ def create_project(
         Created project dict with id, name, description
     """
     try:
-        owner_id = _resolve_project_owner_hint(body.user_id, request_user_scope)
+        owner_id = _resolve_project_owner_hint(
+            body.user_id,
+            request_user_scope,
+            request=request,
+        )
         requested_name = (
             DEFAULT_PROJECT_NAME
             if is_default_project_name(body.name)

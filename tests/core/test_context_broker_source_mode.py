@@ -20,6 +20,8 @@ from guardian.context.retrieval_router_policy import (
     source_mode_boundary_label,
 )
 
+TEST_USER_ID = "user-1"
+
 
 class _TemporalLike:
     def __init__(self, iso_text: str) -> None:
@@ -91,12 +93,16 @@ def mock_vector_store():
 
 @pytest.fixture
 def context_broker(mock_chatlog_db, mock_vector_store):
-    return ContextBroker(
+    broker = ContextBroker(
         chatlog_db=mock_chatlog_db,
         vector_store=mock_vector_store,
         memory_store=AsyncMock(),
         sensors=None,
     )
+    broker.get_scoped_documents = AsyncMock(
+        return_value={"project": [], "thread": [], "global": []}
+    )
+    return broker
 
 
 def _namespaces(mock_vector_store):
@@ -286,7 +292,7 @@ MATRIX_CASES = [
 async def test_deterministic_retrieval_matrix_proves_boundary_model(
     context_broker, mock_vector_store, case
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         hits = MATRIX_RESULTS.get(namespace or "", {}).get(query, [])
         return [
             {
@@ -307,6 +313,7 @@ async def test_deterministic_retrieval_matrix_proves_boundary_model(
         k_semantic=1,
         user_id="user-1",
         source_mode=case["source_mode"],
+        user_id=TEST_USER_ID,
     )
 
     expected_docs = [_trace_document(hit) for hit in case["expected_hits"]]
@@ -494,6 +501,7 @@ async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_wid
         federated=True,
         user_id="user-1",
         source_mode=SOURCE_MODE_CONVERSATION,
+        user_id=TEST_USER_ID,
     )
 
     assert context["messages"] == [
@@ -543,14 +551,15 @@ async def test_conversation_source_mode_keeps_only_thread_messages_and_skips_wid
 async def test_project_source_widens_only_within_same_project(
     context_broker, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return []
         if namespace == "thread:2":
             return [
                 {
                     "text": "project sibling hit",
-                    "metadata": {"message_id": 20, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 20},
                     "score": 0.81,
                 }
             ]
@@ -558,7 +567,8 @@ async def test_project_source_widens_only_within_same_project(
             return [
                 {
                     "text": "cross project hit",
-                    "metadata": {"message_id": 30, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 30},
                     "score": 0.92,
                 }
             ]
@@ -573,6 +583,7 @@ async def test_project_source_widens_only_within_same_project(
         k_semantic=2,
         user_id="user-1",
         source_mode=SOURCE_MODE_PROJECT,
+        user_id=TEST_USER_ID,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
@@ -589,14 +600,15 @@ async def test_project_source_widens_only_within_same_project(
 async def test_personal_knowledge_widens_same_user_across_projects(
     context_broker, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return []
         if namespace == "thread:2":
             return [
                 {
                     "text": "same project sibling",
-                    "metadata": {"message_id": 20, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 20},
                     "score": 0.73,
                 }
             ]
@@ -604,7 +616,8 @@ async def test_personal_knowledge_widens_same_user_across_projects(
             return [
                 {
                     "text": "cross project sibling",
-                    "metadata": {"message_id": 30, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 30},
                     "score": 0.77,
                 }
             ]
@@ -619,6 +632,7 @@ async def test_personal_knowledge_widens_same_user_across_projects(
         k_semantic=2,
         user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id=TEST_USER_ID,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
@@ -636,12 +650,13 @@ async def test_personal_knowledge_widens_same_user_across_projects(
 async def test_low_confidence_thread_hits_trigger_project_widening(
     context_broker, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return [
                 {
                     "text": "weak local hit",
-                    "metadata": {"message_id": 10, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 10},
                     "score": 0.05,
                 }
             ]
@@ -649,7 +664,8 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
             return [
                 {
                     "text": "project sibling hit",
-                    "metadata": {"message_id": 20, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 20},
                     "score": 0.95,
                 }
             ]
@@ -664,6 +680,7 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
         k_semantic=1,
         user_id="user-1",
         source_mode=SOURCE_MODE_PROJECT,
+        user_id=TEST_USER_ID,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
@@ -680,14 +697,15 @@ async def test_low_confidence_thread_hits_trigger_project_widening(
 async def test_personal_knowledge_marks_explicit_widening_even_when_same_project_hit_satisfies_query(
     context_broker, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return []
         if namespace == "thread:2":
             return [
                 {
                     "text": "same project sibling",
-                    "metadata": {"message_id": 20, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 20},
                     "score": 0.89,
                 }
             ]
@@ -695,7 +713,8 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
             return [
                 {
                     "text": "cross project sibling",
-                    "metadata": {"message_id": 30, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 30},
                     "score": 0.91,
                 }
             ]
@@ -710,6 +729,7 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
         k_semantic=1,
         user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id=TEST_USER_ID,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
@@ -726,12 +746,13 @@ async def test_personal_knowledge_marks_explicit_widening_even_when_same_project
 async def test_strong_thread_hits_keep_trace_stable_without_widening(
     context_broker, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return [
                 {
                     "text": "strong local hit",
-                    "metadata": {"message_id": 10, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 10},
                     "score": 0.91,
                 }
             ]
@@ -739,7 +760,8 @@ async def test_strong_thread_hits_keep_trace_stable_without_widening(
             return [
                 {
                     "text": "project sibling hit",
-                    "metadata": {"message_id": 20, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {"message_id": 20},
                     "score": 0.99,
                 }
             ]
@@ -754,6 +776,7 @@ async def test_strong_thread_hits_keep_trace_stable_without_widening(
         k_semantic=1,
         user_id="user-1",
         source_mode=SOURCE_MODE_PROJECT,
+        user_id=TEST_USER_ID,
     )
 
     assert [item["text"] for item in context["semantic"]] == [
@@ -811,7 +834,7 @@ async def test_graph_context_temporal_values_are_coerced(
         thread_id=1,
         query="status",
         depth_mode="shallow",
-        user_id="user-1",
+        user_id=TEST_USER_ID,
     )
 
     assert context["graph"][0]["message_id"] == "msg-1"
@@ -830,6 +853,7 @@ async def test_personal_knowledge_memory_trace_skips_when_depth_disallows_it(
         depth_mode="normal",
         user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id=TEST_USER_ID,
     )
 
     assert "memory" not in context
@@ -841,7 +865,7 @@ async def test_personal_knowledge_memory_trace_skips_when_depth_disallows_it(
 async def test_personal_knowledge_memory_trace_reports_no_eligible_candidates(
     context_broker, mock_chatlog_db, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         return []
 
     mock_vector_store.search = MagicMock(side_effect=_search)
@@ -854,6 +878,7 @@ async def test_personal_knowledge_memory_trace_reports_no_eligible_candidates(
         k_memory=2,
         user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id=TEST_USER_ID,
     )
 
     assert context["memory"] == []
@@ -865,7 +890,7 @@ async def test_personal_knowledge_memory_trace_reports_no_eligible_candidates(
 async def test_personal_knowledge_memory_trace_reports_attempted_no_hits(
     context_broker, mock_chatlog_db, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         return []
 
     mock_vector_store.search = MagicMock(side_effect=_search)
@@ -877,6 +902,7 @@ async def test_personal_knowledge_memory_trace_reports_attempted_no_hits(
         k_memory=2,
         user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id=TEST_USER_ID,
     )
 
     assert context["memory"] == []
@@ -888,14 +914,18 @@ async def test_personal_knowledge_memory_trace_reports_attempted_no_hits(
 async def test_personal_knowledge_memory_trace_reports_contributed_hits(
     context_broker, mock_vector_store
 ):
-    def _search(query, k, namespace=None):
+    def _search(query, k, namespace=None, user_id=None):
         if namespace == "thread:1":
             return []
         if namespace == "thread:2":
             return [
                 {
                     "text": "same-user memory hit",
-                    "metadata": {"message_id": 201, "user_id": "user-1"},
+                    "user_id": TEST_USER_ID,
+                    "metadata": {
+                        "message_id": 201,
+                        "user_id": TEST_USER_ID,
+                    },
                     "score": 0.88,
                 }
             ]
@@ -910,6 +940,7 @@ async def test_personal_knowledge_memory_trace_reports_contributed_hits(
         k_memory=1,
         user_id="user-1",
         source_mode=SOURCE_MODE_PERSONAL_KNOWLEDGE,
+        user_id=TEST_USER_ID,
     )
 
     assert [item["text"] for item in context["memory"]] == [

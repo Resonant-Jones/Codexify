@@ -323,7 +323,7 @@ async def test_context_broker_merges_retrieval_override_without_skipping_thread_
                     "id": "doc-1",
                     "score": 0.9,
                     "text": "thread hit",
-                    "metadata": {"user_id": "test_user"},
+                    "user_id": user_id,
                 }
             ],
             "none",
