@@ -19,6 +19,7 @@ const mockSetProvenanceFilter = vi.fn();
 const mockSidebarState = vi.hoisted(() => ({
   currentProjectId: null as string | null,
   provenanceFilter: null as string | null,
+  projectList: [] as Array<{ id: string; name: string; icon?: string; description?: string }>,
 }));
 
 vi.mock("../useSidebarThreads", () => ({
@@ -43,7 +44,7 @@ vi.mock("../useSidebarThreads", () => ({
 
 vi.mock("../useProjectsCache", () => ({
   default: () => ({
-    projectList: [],
+    projectList: mockSidebarState.projectList,
     setProjectList: vi.fn(),
     refreshProjectsFromServer: vi.fn(),
     looseCount: 0,
@@ -65,6 +66,7 @@ describe("SidebarRoot provenance filter wiring", () => {
     window.localStorage.setItem("cfy.sidebarTab", "threads");
     mockSidebarState.currentProjectId = null;
     mockSidebarState.provenanceFilter = "chatgpt";
+    mockSidebarState.projectList = [];
   });
 
   it("renders the canonical source dock and forwards stable keys", () => {
@@ -99,6 +101,8 @@ describe("SidebarRoot provenance filter wiring", () => {
 
   it("exposes Project Knowledge Base as a project-local entry point", () => {
     const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+    mockSidebarState.currentProjectId = "project-42";
+    mockSidebarState.projectList = [{ id: "project-42", name: "Launch Project" }];
 
     render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
 
@@ -123,6 +127,13 @@ describe("SidebarRoot provenance filter wiring", () => {
     expect(dispatchEventSpy).toHaveBeenCalled();
     expect(dispatchEventSpy.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({ type: "cfy:project-kb:open" })
+    );
+    expect((dispatchEventSpy.mock.calls.at(-1)?.[0] as CustomEvent).detail).toEqual(
+      expect.objectContaining({
+        projectId: "project-42",
+        projectName: "Launch Project",
+        source: "sidebar-projects",
+      })
     );
 
     dispatchEventSpy.mockRestore();

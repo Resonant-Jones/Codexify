@@ -179,14 +179,21 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
   default: ({
     onRequestNewProject,
     gallery,
+    activeProjectId,
+    activeProjectName,
   }: {
     onRequestNewProject: () => void;
     gallery?: Array<{ src: string; prompt: string }>;
+    activeProjectId?: number | string | null;
+    activeProjectName?: string | null;
   }) => (
     <div data-testid="dashboard-view-mock">
       <button type="button" onClick={onRequestNewProject}>
         New Project
       </button>
+      <div data-testid="dashboard-project-kb-context">
+        {activeProjectId ?? "no-project"}:{activeProjectName ?? "no-name"}
+      </div>
       <div data-testid="dashboard-gallery-mock">
         {(gallery ?? []).map((item) => (
           <span key={item.src}>{item.prompt}</span>
@@ -473,12 +480,19 @@ describe("AppShell settings utility trigger", () => {
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
 
     act(() => {
-      window.dispatchEvent(new CustomEvent("cfy:project-kb:open"));
+      window.dispatchEvent(
+        new CustomEvent("cfy:project-kb:open", {
+          detail: { projectId: 42, projectName: "Launch Project" },
+        })
+      );
     });
 
     await waitFor(() => {
       expect(screen.getByTestId("dashboard-view-mock")).toBeInTheDocument();
     });
+    expect(screen.getByTestId("dashboard-project-kb-context")).toHaveTextContent(
+      "42:Launch Project"
+    );
   });
 });
 

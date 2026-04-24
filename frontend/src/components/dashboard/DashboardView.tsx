@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BookOpen, ChevronRight, FileText, ImagePlus } from "lucide-react";
+import { BookOpen, ChevronRight, FileText, ImagePlus, UploadCloud } from "lucide-react";
 import DocumentTile, { type DocumentFile } from "@/components/documents/DocumentTile";
 import FrameCard from "@/components/surface/FrameCard";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,46 @@ function inferDocumentExtension(filename: string): string {
 function getDocumentAccentColor(extColors: ExtColors, ext?: string): string {
   const normalizedExt = String(ext ?? "").trim().toLowerCase();
   return extColors[normalizedExt] ?? extColors.md ?? "#6B7280";
+}
+
+function unwrapDashboardDocumentsPayload(value: any): any[] {
+  const unwrap = (candidate: any): any => {
+    if (!candidate || typeof candidate !== "object") return candidate;
+    return (
+      candidate.documents ??
+      candidate.items ??
+      candidate.data ??
+      candidate.results ??
+      candidate
+    );
+  };
+
+  const candidate1 = Array.isArray(value) ? value : unwrap(value);
+  const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
+  return Array.isArray(candidate2) ? candidate2 : [];
+}
+
+function normalizeDashboardDocument(value: any): DocumentFile | null {
+  const name = value?.filename || value?.name || value?.title || "Untitled";
+  if (typeof name !== "string" || !name.trim()) return null;
+  return {
+    id: typeof value?.id === "string" ? value.id : undefined,
+    name,
+    ext: value?.ext || value?.extension || inferDocumentExtension(name),
+    src_url:
+      typeof value?.src_url === "string"
+        ? value.src_url
+        : typeof value?.srcUrl === "string"
+          ? value.srcUrl
+          : typeof value?.src === "string"
+            ? value.src
+            : typeof value?.url === "string"
+              ? value.url
+              : undefined,
+    type: "file" as const,
+    embeddingStatus: value?.embedding_status || value?.embeddingStatus,
+    embeddingError: value?.embedding_error || value?.embeddingError,
+  };
 }
 
 function MobileRecentDocumentRow({
@@ -109,6 +149,8 @@ function MobileRecentDocumentRow({
 type DashboardViewProps = {
   extColors: ExtColors;
   gallery: GalleryItem[];
+  activeProjectId?: string | number | null;
+  activeProjectName?: string | null;
   onImagePrompt: (p: string) => void;
   onRequestNewProject: () => void;
   onRequestNewThread: () => void;
@@ -120,6 +162,8 @@ type DashboardViewProps = {
 export default function DashboardView({
   extColors,
   gallery,
+  activeProjectId = null,
+  activeProjectName = null,
   onImagePrompt: _onImagePrompt,
   onRequestNewProject,
   onRequestNewThread,
@@ -135,10 +179,25 @@ export default function DashboardView({
   >([]);
   const [showImgGen, setShowImgGen] = React.useState(false);
   const [recentDocs, setRecentDocs] = React.useState<DocumentFile[]>([]);
+  const [projectKnowledgeDocs, setProjectKnowledgeDocs] = React.useState<DocumentFile[]>([]);
+  const [projectKnowledgeLoading, setProjectKnowledgeLoading] = React.useState(false);
+  const [projectKnowledgeUploading, setProjectKnowledgeUploading] = React.useState(false);
+  const [projectKnowledgeError, setProjectKnowledgeError] = React.useState<string | null>(null);
+  const projectKnowledgeFileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [previewImage, setPreviewImage] = React.useState<{
     src: string;
     alt: string;
   } | null>(null);
+
+  const normalizedProjectId = React.useMemo(() => {
+    const value = String(activeProjectId ?? "").trim();
+    return value || null;
+  }, [activeProjectId]);
+  const activeProjectLabel = React.useMemo(() => {
+    const cleanName = String(activeProjectName ?? "").trim();
+    if (cleanName) return cleanName;
+    return normalizedProjectId ? `Project ${normalizedProjectId}` : null;
+  }, [activeProjectName, normalizedProjectId]);
 
   const openRecentDocument = React.useCallback((doc: DocumentFile) => {
     requestWorkspaceOpen(
@@ -201,15 +260,7 @@ export default function DashboardView({
       try {
         const res = await api.get("/media/documents", { params: { limit: 4 } });
         const data = res?.data;
-
-        const unwrap = (value: any): any => {
-          if (!value || typeof value !== "object") return value;
-          return (value as any).documents ?? (value as any).items ?? (value as any).data ?? (value as any).results ?? value;
-        };
-
-        const candidate1 = Array.isArray(data) ? data : unwrap(data);
-        const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
-        const docs: any[] = Array.isArray(candidate2) ? candidate2 : [];
+        const docs = unwrapDashboardDocumentsPayload(data);
 
         if (docs.length === 0 && data != null) {
           try {
@@ -223,28 +274,7 @@ export default function DashboardView({
         }
 
         const normalizedDocs = docs
-          .map((d: any) => {
-            const name = d?.filename || d?.name || d?.title || "Untitled";
-            if (typeof name !== "string" || !name.trim()) return null;
-            return {
-              id: typeof d?.id === "string" ? d.id : undefined,
-              name,
-              ext: d?.ext || d?.extension || inferDocumentExtension(name),
-              src_url:
-                typeof d?.src_url === "string"
-                  ? d.src_url
-                  : typeof d?.srcUrl === "string"
-                    ? d.srcUrl
-                    : typeof d?.src === "string"
-                      ? d.src
-                      : typeof d?.url === "string"
-                        ? d.url
-                        : undefined,
-              type: "file" as const,
-              embeddingStatus: d?.embedding_status || d?.embeddingStatus,
-              embeddingError: d?.embedding_error || d?.embeddingError,
-            };
-          })
+          .map(normalizeDashboardDocument)
           .filter((doc: DocumentFile | null): doc is DocumentFile => !!doc);
 
         if (!cancelled) setRecentDocs(normalizedDocs);
@@ -258,6 +288,82 @@ export default function DashboardView({
       cancelled = true;
     };
   }, [auth]);
+
+  const loadProjectKnowledgeDocuments = React.useCallback(async () => {
+    if (!normalizedProjectId) {
+      setProjectKnowledgeDocs([]);
+      setProjectKnowledgeLoading(false);
+      setProjectKnowledgeError(null);
+      return;
+    }
+    if (!checkAuthGate(auth, "project knowledge documents load")) {
+      setProjectKnowledgeDocs([]);
+      setProjectKnowledgeLoading(false);
+      return;
+    }
+
+    setProjectKnowledgeLoading(true);
+    setProjectKnowledgeError(null);
+    try {
+      const res = await api.get("/media/documents", {
+        params: { limit: 8, project_id: normalizedProjectId },
+      });
+      const docs = unwrapDashboardDocumentsPayload(res?.data)
+        .map(normalizeDashboardDocument)
+        .filter((doc: DocumentFile | null): doc is DocumentFile => !!doc);
+      setProjectKnowledgeDocs(docs);
+    } catch (error) {
+      console.warn("[dashboard] failed to load project knowledge documents", error);
+      setProjectKnowledgeDocs([]);
+      setProjectKnowledgeError("Project Knowledge Base documents could not be loaded.");
+    } finally {
+      setProjectKnowledgeLoading(false);
+    }
+  }, [auth, normalizedProjectId]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await loadProjectKnowledgeDocuments();
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadProjectKnowledgeDocuments]);
+
+  const handleProjectKnowledgeUpload = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? []);
+      event.target.value = "";
+      if (!normalizedProjectId || files.length === 0) return;
+      if (!checkAuthGate(auth, "project knowledge document upload")) {
+        setProjectKnowledgeError("Sign in before uploading project knowledge documents.");
+        return;
+      }
+
+      setProjectKnowledgeUploading(true);
+      setProjectKnowledgeError(null);
+      try {
+        for (const file of files) {
+          const form = new FormData();
+          form.append("project_id", normalizedProjectId);
+          form.append("file", file);
+          form.append("tag", "uploaded");
+          await api.post("/api/media/upload/document", form, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        }
+        await loadProjectKnowledgeDocuments();
+      } catch (error) {
+        console.warn("[dashboard] project knowledge upload failed", error);
+        setProjectKnowledgeError("Upload failed. The document was not added to this project.");
+      } finally {
+        setProjectKnowledgeUploading(false);
+      }
+    },
+    [auth, loadProjectKnowledgeDocuments, normalizedProjectId]
+  );
 
   const openThread = React.useCallback((id: string) => {
     const normalizedId = String(id ?? "").trim();
@@ -480,7 +586,7 @@ export default function DashboardView({
             <FrameCard
               refractiveFallback
               shimmerMode="subtle"
-              className={isPhoneShell ? "w-full min-h-[180px]" : "flex-1 min-h-[180px]"}
+              className={isPhoneShell ? "w-full min-h-[240px]" : "flex-1 min-h-[240px]"}
             >
               <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
                 <div className={cardHeaderClassName}>
@@ -489,26 +595,104 @@ export default function DashboardView({
                       Project Knowledge Base
                     </h2>
                     <p className="text-xs leading-6 opacity-70">
-                      Project-local docs, notes, specs, and working references
-                      live here.
+                      Uploaded docs, notes, specs, and working references inform
+                      project work.
                     </p>
                   </div>
-                  <div className="rounded-full border border-[var(--panel-border)] px-2 py-1 text-[11px] font-medium text-[var(--muted)]">
-                    Project-local
-                  </div>
+                  {normalizedProjectId ? (
+                    <div className={`flex items-center gap-[var(--pill-gap)] ${isPhoneShell ? "flex-wrap justify-start" : ""}`}>
+                      <input
+                        ref={projectKnowledgeFileInputRef}
+                        type="file"
+                        className="hidden"
+                        multiple
+                        accept=".pdf,.doc,.docx,.md,.txt,application/pdf,text/plain,text/markdown,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        onChange={handleProjectKnowledgeUpload}
+                        aria-label="Project Knowledge Base document files"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => projectKnowledgeFileInputRef.current?.click()}
+                        disabled={projectKnowledgeUploading}
+                        aria-label="Upload Project Knowledge Base documents"
+                      >
+                        <UploadCloud className="mr-1 h-4 w-4" />
+                        {projectKnowledgeUploading ? "Uploading..." : "Upload"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="rounded-full border border-[var(--panel-border)] px-2 py-1 text-[11px] font-medium text-[var(--muted)]">
+                      Project required
+                    </div>
+                  )}
                 </div>
-                <div className="flex flex-1 items-center rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
-                  <div className="space-y-2">
-                    <p className="text-sm leading-6">
-                      No project knowledge has been captured yet. Use the
-                      Projects menu to pick a project and start collecting the
-                      docs, notes, specs, and working references that belong
-                      to that project.
-                    </p>
-                    <p className="text-xs leading-6 opacity-75">
-                      System Docs stay in Settings &gt; Data as the
-                      constitutional overlay layer.
-                    </p>
+                <div className="flex flex-1 min-h-0 flex-col gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
+                  {normalizedProjectId ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-[var(--pill-gap)] text-xs leading-6 opacity-80">
+                        <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
+                          Active project: {activeProjectLabel}
+                        </span>
+                        <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
+                          Project-local
+                        </span>
+                      </div>
+                      <p className="text-sm leading-6">
+                        Project Knowledge Base informs project work. System Docs
+                        govern the assistant from Settings &gt; Data; they are
+                        separate from this project-local document lane.
+                      </p>
+                      {projectKnowledgeError ? (
+                        <p className="text-xs leading-6 text-red-300">{projectKnowledgeError}</p>
+                      ) : null}
+                      <div className="min-h-0 flex-1 overflow-hidden">
+                        {projectKnowledgeLoading ? (
+                          <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
+                            Loading project documents...
+                          </div>
+                        ) : projectKnowledgeDocs.length === 0 ? (
+                          <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
+                            No project documents yet. Upload docs, notes, specs,
+                            or working references for this project.
+                          </div>
+                        ) : (
+                          <div className="grid content-start gap-[var(--pill-gap)] overflow-auto pr-1">
+                            {projectKnowledgeDocs.map((doc) => (
+                              <button
+                                key={doc.id ?? doc.name}
+                                type="button"
+                                className="flex min-w-0 items-center justify-between gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] px-3 py-2 text-left text-sm transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                                onClick={() => openRecentDocument(doc)}
+                                aria-label={`Open ${doc.name} from Project Knowledge Base`}
+                              >
+                                <span className="min-w-0 truncate">{doc.name}</span>
+                                <span className="shrink-0 text-[11px] opacity-60">
+                                  {doc.embeddingStatus ? String(doc.embeddingStatus) : "document"}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-1 items-center">
+                      <div className="space-y-2">
+                        <p className="text-sm leading-6">
+                          Select or create a project to build its Knowledge Base.
+                        </p>
+                        <p className="text-xs leading-6 opacity-75">
+                          Project Knowledge Base informs project work; System
+                          Docs govern the assistant from Settings &gt; Data.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="text-xs leading-6 opacity-75">
+                    This surface uses existing project document storage. It does
+                    not change global behavior or retrieval policy.
                   </div>
                 </div>
               </div>
