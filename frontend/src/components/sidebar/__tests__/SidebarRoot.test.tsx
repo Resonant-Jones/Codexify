@@ -96,4 +96,35 @@ describe("SidebarRoot provenance filter wiring", () => {
     expect(screen.getByTestId("project-list")).toBeInTheDocument();
     expect(screen.queryByRole("toolbar", { name: "Imported source filter" })).not.toBeInTheDocument();
   });
+
+  it("exposes Project Knowledge Base as a project-local entry point", () => {
+    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+
+    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+
+    expect(
+      screen.getByTestId("project-knowledge-base-entry")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open Project Knowledge Base" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Project-local docs, notes, specs, and working references live here\./i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/System Docs stay in Settings > Data/i)
+    ).toBeInTheDocument();
+
+    dispatchEventSpy.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Open Project Knowledge Base" }));
+
+    expect(dispatchEventSpy).toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ type: "cfy:project-kb:open" })
+    );
+
+    dispatchEventSpy.mockRestore();
+  });
 });
