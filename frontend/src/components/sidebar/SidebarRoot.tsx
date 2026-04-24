@@ -334,16 +334,24 @@ export default function SidebarRoot({
   );
 
   const openProjectKnowledgeBase = React.useCallback(() => {
+    const project = projectList.find(
+      (candidate) => String(candidate.id) === String(currentProjectId)
+    );
+    const projectName = project ? cleanSidebarProjectTitle(project as any) : null;
     try {
       window.dispatchEvent(
         new CustomEvent("cfy:project-kb:open", {
-          detail: { source: "sidebar-projects" },
+          detail: {
+            source: "sidebar-projects",
+            projectId: currentProjectId,
+            projectName,
+          },
         })
       );
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [currentProjectId, projectList]);
 
   const handleDeleteProject = React.useCallback(
     async (projectId: string) => {
