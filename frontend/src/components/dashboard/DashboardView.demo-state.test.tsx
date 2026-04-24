@@ -160,6 +160,43 @@ describe("DashboardView beta contract", () => {
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });
 
+  it("renders the Project Knowledge Base stub as a project-local lane and keeps it distinct from System Docs", () => {
+    render(
+      <DashboardView
+        extColors={EXT_COLORS}
+        gallery={[]}
+        onImagePrompt={vi.fn()}
+        onRequestNewProject={vi.fn()}
+        onRequestNewThread={vi.fn()}
+        onNavigateDocuments={vi.fn()}
+        onNavigateGallery={vi.fn()}
+        threadGridRows={2}
+      />
+    );
+
+    expect(
+      screen.getByRole("heading", { name: /Project Knowledge Base/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Project-local docs, notes, specs, and working references live here\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /No project knowledge has been captured yet\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /System Docs stay in Settings > Data as the constitutional overlay layer\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/^Constitutional overlay$/i)
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps recent threads capped and renders saved gallery images without demo fallbacks", async () => {
     authState.allowGate = true;
     apiState.get.mockImplementation(async (url: string) => {

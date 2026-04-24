@@ -1883,6 +1883,22 @@ export default function AppShell({
     return () => window.removeEventListener("cfy:gallery:add", onAdd as EventListener);
   }, []);
 
+  useEffect(() => {
+    const onOpenProjectKnowledgeBase = () => {
+      navigateToView("dashboard");
+    };
+
+    window.addEventListener(
+      "cfy:project-kb:open",
+      onOpenProjectKnowledgeBase as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "cfy:project-kb:open",
+        onOpenProjectKnowledgeBase as EventListener
+      );
+  }, [navigateToView]);
+
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",

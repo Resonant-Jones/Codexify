@@ -333,6 +333,18 @@ export default function SidebarRoot({
     [onCreateProject, refreshProjectsFromServer, setScope, setProjectList]
   );
 
+  const openProjectKnowledgeBase = React.useCallback(() => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("cfy:project-kb:open", {
+          detail: { source: "sidebar-projects" },
+        })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const handleDeleteProject = React.useCallback(
     async (projectId: string) => {
       const normalizedId = String(projectId ?? "").trim();
@@ -491,18 +503,57 @@ export default function SidebarRoot({
         </div>
 
         {tab === "projects" ? (
-          <ProjectList
-            projects={projectList}
-            search={q}
-            currentId={currentProjectId}
-            onPick={(id) => { setScope(id); setTab("threads"); }}
-            onDeleteProject={handleDeleteProject}
-            onOpenNewProject={() => {
-              setProjectModalError(null);
-              setShowProjectModal(true);
-            }}
-            className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
-          />
+          <div className="space-y-3">
+            <div
+              className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[var(--chip-bg)] p-[var(--card-pad)]"
+              data-testid="project-knowledge-base-entry"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                    Project Knowledge Base
+                  </div>
+                  <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+                    Project-local docs, notes, specs, and working references
+                    live here. This is the operational knowledge lane for a
+                    project, not a constitutional overlay.
+                  </p>
+                </div>
+                <div
+                  className="shrink-0 rounded-full border px-2 py-1 text-[11px] font-medium"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    color: "var(--muted)",
+                  }}
+                >
+                  Project-local
+                </div>
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+                System Docs stay in Settings &gt; Data.
+              </p>
+              <button
+                type="button"
+                className="embedded-btn mt-1 w-full justify-center"
+                onClick={openProjectKnowledgeBase}
+                aria-label="Open Project Knowledge Base"
+              >
+                Open Project Knowledge Base
+              </button>
+            </div>
+            <ProjectList
+              projects={projectList}
+              search={q}
+              currentId={currentProjectId}
+              onPick={(id) => { setScope(id); setTab("threads"); }}
+              onDeleteProject={handleDeleteProject}
+              onOpenNewProject={() => {
+                setProjectModalError(null);
+                setShowProjectModal(true);
+              }}
+              className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
+            />
+          </div>
         ) : (
           <ThreadList
             threads={filteredThreads}

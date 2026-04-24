@@ -476,6 +476,43 @@ export default function DashboardView({
                 </div>
               </div>
             </FrameCard>
+
+            <FrameCard
+              refractiveFallback
+              shimmerMode="subtle"
+              className={isPhoneShell ? "w-full min-h-[180px]" : "flex-1 min-h-[180px]"}
+            >
+              <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
+                <div className={cardHeaderClassName}>
+                  <div>
+                    <h2 className="text-lg font-semibold tracking-tight">
+                      Project Knowledge Base
+                    </h2>
+                    <p className="text-xs leading-6 opacity-70">
+                      Project-local docs, notes, specs, and working references
+                      live here.
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-[var(--panel-border)] px-2 py-1 text-[11px] font-medium text-[var(--muted)]">
+                    Project-local
+                  </div>
+                </div>
+                <div className="flex flex-1 items-center rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
+                  <div className="space-y-2">
+                    <p className="text-sm leading-6">
+                      No project knowledge has been captured yet. Use the
+                      Projects menu to pick a project and start collecting the
+                      docs, notes, specs, and working references that belong
+                      to that project.
+                    </p>
+                    <p className="text-xs leading-6 opacity-75">
+                      System Docs stay in Settings &gt; Data as the
+                      constitutional overlay layer.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </FrameCard>
           </div>
 
           <FrameCard

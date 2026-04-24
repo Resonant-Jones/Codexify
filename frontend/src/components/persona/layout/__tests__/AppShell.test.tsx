@@ -463,6 +463,23 @@ describe("AppShell settings utility trigger", () => {
 
     expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
   });
+
+  it("routes Project Knowledge Base requests to the dashboard surface", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("cfy:project-kb:open"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-view-mock")).toBeInTheDocument();
+    });
+  });
 });
 
 describe("AppShell dashboard create project flow", () => {
