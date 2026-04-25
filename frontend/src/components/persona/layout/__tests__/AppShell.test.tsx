@@ -786,24 +786,24 @@ describe("AppShell workspace drawer shell", () => {
     expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
     expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
       "data-workspace-layout-mode",
-      "chat_focus"
+      "balanced_split"
     );
     expect(readPaneBasis(primaryPane)).toBeGreaterThan(readPaneBasis(drawerPane));
 
     await user.click(posture);
 
-    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
+    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
     expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
     expect(screen.getByTestId("workspace-layout-surface")).toHaveAttribute(
       "data-workspace-layout-mode",
-      "balanced_split"
+      "workspace_focus"
     );
 
     await user.click(posture);
 
-    expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
+    expect(drawer).toHaveAttribute("data-layout-mode", "balanced_split");
     expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
-    expect(readPaneBasis(drawerPane)).toBeGreaterThan(readPaneBasis(primaryPane));
+    expect(readPaneBasis(primaryPane)).toBeGreaterThan(readPaneBasis(drawerPane));
   });
 
   it("keeps the mobile workspace summon explicit and opens the drawer as an overlay", async () => {
