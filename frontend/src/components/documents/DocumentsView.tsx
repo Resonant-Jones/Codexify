@@ -427,7 +427,7 @@ export default function DocumentsView({
       : "tablet_stack";
   const documentsRootStyle: React.CSSProperties = isPhoneShell
     ? {
-        padding: documentsCardPadding,
+        padding: 0,
         flex: "1 1 0%",
         minWidth: 0,
         maxWidth: "100%",
@@ -435,9 +435,9 @@ export default function DocumentsView({
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-      }
+    }
     : {
-        padding: documentsCardPadding,
+        padding: 0,
         flex: "1 1 0%",
         minWidth: 0,
         maxWidth: "100%",

@@ -90,6 +90,7 @@ describe("DocumentsView interactions", () => {
     expect(screen.getByTestId("documents-layout").style.flexBasis).toBe("0%");
     expect(screen.getByTestId("documents-layout").style.minWidth).toBe("0");
     expect(screen.getByTestId("documents-layout").style.maxWidth).toBe("100%");
+    expect(screen.getByTestId("documents-layout").style.padding).toBe("0px");
     expect(screen.getByTestId("documents-layout").style.display).toBe("grid");
     expect(screen.getByTestId("documents-scope-rail")).toBeInTheDocument();
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
