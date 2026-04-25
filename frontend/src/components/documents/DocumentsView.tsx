@@ -438,6 +438,7 @@ export default function DocumentsView({
     }
     : {
         padding: 0,
+        width: "100%",
         flex: "1 1 0%",
         minWidth: 0,
         maxWidth: "100%",
@@ -469,7 +470,7 @@ export default function DocumentsView({
       />
 
       <div
-        className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-hidden"
+        className="flex min-h-0 min-w-0 w-full flex-col gap-[var(--shell-gap)] overflow-hidden"
         data-testid="documents-center-panel"
         style={{
           background: "var(--panel-bg)",
