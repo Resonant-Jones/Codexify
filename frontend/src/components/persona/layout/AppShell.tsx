@@ -38,6 +38,7 @@ import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
+import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import {
   MOBILE_MOTION,
@@ -1214,6 +1215,38 @@ export default function AppShell({
     }
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [activeRouteThreadId]);
+  const navigateToThread = useCallback((threadId: string | number | null) => {
+    setView("guardian");
+    if (typeof window === "undefined") return;
+
+    const normalizedThreadId =
+      threadId == null ? null : Number.parseInt(String(threadId), 10);
+    const nextPath = resolvePathForView(
+      "guardian",
+      normalizedThreadId != null && Number.isFinite(normalizedThreadId)
+        ? normalizedThreadId
+        : null
+    );
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
+  const handleDocumentsSidebarProjectChange = useCallback(
+    (projectId: string | null) => {
+      const normalizedProjectId =
+        projectId == null ? null : Number.parseInt(String(projectId), 10);
+      setGeneralProjectId(
+        normalizedProjectId != null && Number.isFinite(normalizedProjectId)
+          ? normalizedProjectId
+          : null
+      );
+      setDocumentScope(
+        projectId == null && activeRouteThreadId != null ? "thread" : "project"
+      );
+    },
+    [activeRouteThreadId]
+  );
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
@@ -2798,7 +2831,7 @@ export default function AppShell({
           )}
           {!startupLocked && view === "documents" && (
             <div
-              className="isolate"
+              className="h-full w-full isolate"
               data-active-view="documents"
               data-active-view-contract="left-center-right"
               data-thread-rail="present"
@@ -2818,7 +2851,6 @@ export default function AppShell({
                 className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
-                {/* LIST COLUMN (left) */}
                 <div
                   data-testid="workspace-primary-pane"
                   data-pane-basis={
@@ -2834,23 +2866,74 @@ export default function AppShell({
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
                 >
-                  <FrameCard
-                    fill
-                    refractiveFallback
-                    shimmerMode="subtle"
-                    className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+                  <div
+                    className={
+                      isPhoneShell
+                        ? "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                        : "grid h-full w-full min-h-0 overflow-hidden"
+                    }
+                    data-testid="documents-shared-shell"
+                    data-documents-shared-shell="sidebar-center"
+                    style={{
+                      gridTemplateColumns: isPhoneShell
+                        ? undefined
+                        : "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+                      gap: "var(--gutter)",
+                    }}
                   >
-                    <DocumentsView
-                      documents={allDocuments}
-                      extColors={extColors}
-                      onOpenInThread={openDocInThread}
-                      onDeleteDocument={deleteDocument}
-                      defaultProjectId={generalProjectId}
-                      documentScope={documentScope}
-                      onDocumentScopeChange={setDocumentScope}
-                      threadScopeEnabled={activeRouteThreadId != null}
-                    />
-                  </FrameCard>
+                    {!isPhoneShell && (
+                      <div
+                        className="relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)] overflow-hidden"
+                        data-testid="documents-shared-sidebar-pane"
+                        data-shared-sidebar="true"
+                      >
+                        <FrameCard
+                          fill
+                          refractiveFallback
+                          shimmerMode="subtle"
+                          liquidBezelWidth={3}
+                          className="flex h-full w-full min-h-0 flex-col box-border"
+                          style={{
+                            borderRadius: "var(--card-radius)",
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: "var(--panel-border)",
+                          }}
+                        >
+                          <SidebarRoot
+                            threads={[]}
+                            activeId={
+                              activeRouteThreadId == null
+                                ? null
+                                : String(activeRouteThreadId)
+                            }
+                            onSelect={(id) => navigateToThread(id)}
+                            onNewChat={() => navigateToThread(null)}
+                            projectId={
+                              generalProjectId == null
+                                ? null
+                                : String(generalProjectId)
+                            }
+                            onProjectChange={handleDocumentsSidebarProjectChange}
+                          />
+                        </FrameCard>
+                      </div>
+                    )}
+                    <FrameCard
+                      fill
+                      refractiveFallback
+                      shimmerMode="subtle"
+                      className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+                    >
+                      <DocumentsView
+                        documents={allDocuments}
+                        extColors={extColors}
+                        onOpenInThread={openDocInThread}
+                        onDeleteDocument={deleteDocument}
+                        defaultProjectId={generalProjectId}
+                      />
+                    </FrameCard>
+                  </div>
                 </div>
                 {sharedWorkspaceDrawer}
               </div>
