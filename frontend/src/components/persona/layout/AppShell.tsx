@@ -80,11 +80,7 @@ import {
   useWorkspaceUiState,
   type WorkspaceDrawerTab,
 } from "@/features/workspace/state/useWorkspaceUiState";
-import {
-  getWorkspaceLayoutRatioBucket,
-  getWorkspacePaneRatioForLayoutMode,
-  useWorkspaceLayoutMode,
-} from "@/features/workspace/state/useWorkspaceLayoutMode";
+import { useWorkspaceLayoutMode } from "@/features/workspace/state/useWorkspaceLayoutMode";
 import {
   createDocumentContextTile,
   type DocumentContextTile,
@@ -1972,19 +1968,6 @@ export default function AppShell({
     isOpen: workspaceDrawerOpen,
     activeThreadId: activeRouteThreadId,
   });
-  const workspaceLayoutModeForView =
-    view === "documents" && workspaceLayoutMode !== "workspace_focus"
-      ? "balanced_split"
-      : workspaceLayoutMode;
-  const workspacePaneRatioForView = getWorkspacePaneRatioForLayoutMode(
-    workspaceLayoutModeForView
-  );
-  const workspacePrimaryPaneRatioForView = 1 - workspacePaneRatioForView;
-  const workspacePaneBasisForView = `${(workspacePaneRatioForView * 100).toFixed(2)}%`;
-  const workspacePrimaryPaneBasisForView = `${(workspacePrimaryPaneRatioForView * 100).toFixed(2)}%`;
-  const workspaceRatioBucketForView = getWorkspaceLayoutRatioBucket(
-    workspaceLayoutModeForView
-  );
   const handleWorkspaceDrawerTabChange = useCallback(
     (tab: WorkspaceDrawerTab) => {
       setWorkspaceDrawerTab(tab);
@@ -2220,7 +2203,7 @@ export default function AppShell({
     ? getMobileWorkspaceMotionState(
         isPhoneShell,
         workspaceDrawerOpen || workspaceDrawerMotionPhase === "closing",
-        workspaceLayoutModeForView
+        workspaceLayoutMode
       )
     : workspaceDrawerOpen
       ? "open"
@@ -2233,8 +2216,8 @@ export default function AppShell({
           minHeight: 0,
         }
       : {
-          flexBasis: workspacePrimaryPaneBasisForView,
-          flexGrow: workspacePrimaryPaneRatioForView,
+          flexBasis: primaryPaneBasis,
+          flexGrow: primaryPaneRatio,
           flexShrink: 1,
           minWidth: primaryPaneMinWidth,
           minHeight: 0,
@@ -2263,26 +2246,25 @@ export default function AppShell({
     : {
         padding: "var(--board-edge)",
         marginLeft: "auto",
-        flexBasis: workspacePaneBasisForView,
-        flexGrow: workspacePaneRatioForView,
+        flexBasis: workspacePaneBasis,
+        flexGrow: workspacePaneRatio,
         flexShrink: 1,
         minWidth: workspacePaneMinWidth,
         minHeight: "0",
         maxHeight: "100%",
         borderRadius: "var(--card-radius)",
         boxShadow:
-          workspaceLayoutModeForView === "workspace_focus"
+          workspaceLayoutMode === "workspace_focus"
             ? "0 0 0 1px color-mix(in oklab, var(--panel-border-strong) 72%, transparent)"
             : undefined,
       };
   const workspaceSplitSurfaceProps = workspaceShellEnabled
     ? {
         "data-testid": "workspace-layout-surface",
-        "data-workspace-layout-mode": workspaceLayoutModeForView,
-        "data-workspace-ratio-bucket": workspaceRatioBucketForView,
-        "data-workspace-dominant":
-          workspaceLayoutModeForView === "workspace_focus" ? "true" : "false",
-        "data-workspace-pane-ratio": workspacePaneRatioForView.toFixed(2),
+        "data-workspace-layout-mode": workspaceLayoutMode,
+        "data-workspace-ratio-bucket": workspaceRatioBucket,
+        "data-workspace-dominant": isWorkspaceDominant ? "true" : "false",
+        "data-workspace-pane-ratio": workspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-min": minWorkspacePaneRatio.toFixed(2),
         "data-workspace-pane-ratio-max": maxWorkspacePaneRatio.toFixed(2),
         "data-shell-viewport-class": shellViewportProfile.viewportClass,
@@ -2319,8 +2301,8 @@ export default function AppShell({
             routeContext={workspaceRouteContext}
             isOpen={workspaceDrawerOpen}
             activeTab={workspaceDrawerTab}
-            layoutMode={workspaceLayoutModeForView}
-            paneRatio={workspacePaneRatioForView}
+            layoutMode={workspaceLayoutMode}
+            paneRatio={workspacePaneRatio}
             minPaneRatio={minWorkspacePaneRatio}
             maxPaneRatio={maxWorkspacePaneRatio}
             onOpenChange={(nextOpen) => {
@@ -2339,7 +2321,7 @@ export default function AppShell({
     ) : (
       <div
         data-testid="workspace-drawer-pane"
-        data-pane-basis={workspacePaneBasisForView}
+        data-pane-basis={workspacePaneBasis}
         data-pane-min-width={workspacePaneMinWidth}
         data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
         className="min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
@@ -2349,8 +2331,8 @@ export default function AppShell({
           routeContext={workspaceRouteContext}
           isOpen={workspaceDrawerOpen}
           activeTab={workspaceDrawerTab}
-          layoutMode={workspaceLayoutModeForView}
-          paneRatio={workspacePaneRatioForView}
+          layoutMode={workspaceLayoutMode}
+          paneRatio={workspacePaneRatio}
           minPaneRatio={minWorkspacePaneRatio}
           maxPaneRatio={maxWorkspacePaneRatio}
           onOpenChange={(nextOpen) => {
