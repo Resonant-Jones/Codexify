@@ -65,22 +65,35 @@ describe("DocumentsView interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows only the Thread and Project scope pills in the header", () => {
+  it("anchors Scope on the left, Documents in the center, and Workspace to the right contract", () => {
+    const onDocumentScopeChange = vi.fn();
     const { container } = render(
       <DocumentsView
         documents={[]}
         extColors={EXT_COLORS}
         documentScope="thread"
-        onDocumentScopeChange={vi.fn()}
+        onDocumentScopeChange={onDocumentScopeChange}
         threadScopeEnabled
       />
     );
 
+    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+      "data-documents-layout",
+      "desktop_three_panel"
+    );
+    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+      "data-workspace-anchor",
+      "app-shell-right"
+    );
     expect(screen.getByTestId("documents-layout").style.flexGrow).toBe("1");
     expect(screen.getByTestId("documents-layout").style.flexShrink).toBe("1");
     expect(screen.getByTestId("documents-layout").style.flexBasis).toBe("0%");
     expect(screen.getByTestId("documents-layout").style.minWidth).toBe("0");
     expect(screen.getByTestId("documents-layout").style.maxWidth).toBe("100%");
+    expect(screen.getByTestId("documents-layout").style.display).toBe("grid");
+    expect(screen.getByTestId("documents-scope-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-upload-affordance")).toBeInTheDocument();
     expect(screen.getByTestId("documents-scope-actions").style.minWidth).toBe(
       "0"
     );
@@ -89,18 +102,24 @@ describe("DocumentsView interactions", () => {
     );
     expect(
       container.querySelector('[data-testid="documents-scope-actions"] > div')
-    ).toHaveClass("w-full", "justify-end", "flex-wrap");
+    ).toHaveClass("w-full", "justify-between", "flex-wrap");
 
-    expect(screen.getByRole("button", { name: "Thread" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Thread" })).toHaveAttribute(
       "data-state",
       "active"
     );
-    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Project" }));
+    expect(onDocumentScopeChange).toHaveBeenCalledWith("project");
+    expect(screen.getByRole("tab", { name: "Project" })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Open in Workspace/i })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Open in Thread/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Applet|Workbench/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Prioritized|Knowledge Base|cost tier|book badge/i)
     ).not.toBeInTheDocument();
   });
 
@@ -178,8 +197,10 @@ describe("DocumentsView interactions", () => {
     await waitFor(() => {
       expect(screen.getByTestId("documents-layout")).toHaveAttribute(
         "data-documents-layout",
-        "mobile_list"
+        "mobile_stack"
       );
+      expect(screen.getByTestId("documents-scope-rail")).toBeInTheDocument();
+      expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
       expect(
         container.querySelector('[data-layout-mode="mobile-list"]')
       ).toBeTruthy();

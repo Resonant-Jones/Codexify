@@ -46,6 +46,173 @@ type DocumentUploadItem = {
   [key: string]: unknown;
 };
 
+type ScopePill = {
+  key: DocumentScope;
+  label: string;
+  disabled: boolean;
+};
+
+function getDocumentMeta(doc: DocumentLike): string {
+  const parts = [
+    doc.ext ? `.${String(doc.ext).replace(/^\./, "").toUpperCase()}` : null,
+    doc.embeddingStatus ? String(doc.embeddingStatus).trim() : null,
+  ].filter(Boolean);
+  return parts.join(" • ");
+}
+
+type DocumentsScopeRailProps = {
+  docItems: DocumentLike[];
+  documentScope: DocumentScope;
+  scopePills: ScopePill[];
+  onDocumentScopeChange?: (mode: DocumentScope) => void;
+  onDocumentClick: (doc: DocumentLike) => void;
+  isPhoneShell: boolean;
+  surfaceActionClusterStyle: React.CSSProperties;
+};
+
+function DocumentsScopeRail({
+  docItems,
+  documentScope,
+  scopePills,
+  onDocumentScopeChange,
+  onDocumentClick,
+  isPhoneShell,
+  surfaceActionClusterStyle,
+}: DocumentsScopeRailProps) {
+  const visibleItems = docItems.slice(0, isPhoneShell ? 4 : 12);
+
+  return (
+    <aside
+      className="flex min-h-0 min-w-0 flex-col gap-[var(--card-pad)] overflow-hidden"
+      data-testid="documents-scope-rail"
+      aria-label="Documents scope"
+      style={{
+        background: "var(--panel-sheet, var(--panel-bg))",
+        border: "1px solid var(--panel-border)",
+        borderRadius: "var(--card-radius)",
+        padding: "var(--card-pad)",
+      }}
+    >
+      <div className="flex shrink-0 items-center justify-between gap-[var(--shell-gap)]">
+        <h3
+          className="text-sm font-semibold leading-none"
+          style={{ color: "var(--text)" }}
+        >
+          Scope
+        </h3>
+        <span
+          className="rounded-full border px-2 py-1 text-[11px] font-medium"
+          style={{
+            borderColor: "var(--panel-border)",
+            color: "var(--muted)",
+          }}
+          data-testid="documents-scope-count"
+        >
+          {docItems.length}
+        </span>
+      </div>
+
+      <div
+        data-testid="documents-scope-actions"
+        style={{
+          padding: 6,
+          boxSizing: "border-box",
+          width: "100%",
+          minWidth: 0,
+          maxWidth: "100%",
+        }}
+      >
+        <div
+          className="glass-pill h-auto w-full flex-wrap justify-between"
+          style={{
+            ...surfaceActionClusterStyle,
+            minWidth: 0,
+            maxWidth: "100%",
+          }}
+          role="tablist"
+          aria-label="Document scope mode"
+        >
+          {scopePills.map(({ key, label, disabled }) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              className="pill-tab text-xs"
+              data-state={documentScope === key ? "active" : undefined}
+              aria-selected={documentScope === key}
+              disabled={disabled}
+              onClick={() => {
+                if (disabled) return;
+                onDocumentScopeChange?.(key);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="min-h-0 flex-1 overflow-auto pr-1"
+        data-testid="documents-scope-list"
+      >
+        {visibleItems.length === 0 ? (
+          <div
+            className="rounded-[var(--tile-radius)] border px-[var(--card-pad)] py-[var(--shell-gap)] text-xs leading-5"
+            style={{
+              borderColor: "var(--panel-border)",
+              color: "var(--muted)",
+            }}
+          >
+            No documents
+          </div>
+        ) : (
+          <div className="flex flex-col gap-[calc(var(--shell-gap)/2)]">
+            {visibleItems.map((doc) => {
+              const key = String(doc.id || `${doc.title}.${doc.ext}`);
+              const meta = getDocumentMeta(doc);
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className="flex min-w-0 items-start gap-[calc(var(--shell-gap)/2)] rounded-[var(--tile-radius)] border px-[var(--card-pad)] py-[calc(var(--card-pad)*0.75)] text-left transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                  style={{
+                    background: "var(--chip-bg)",
+                    borderColor: "var(--panel-border)",
+                    color: "var(--text)",
+                  }}
+                  onClick={() => onDocumentClick(doc)}
+                  aria-label={`Open ${doc.title} in Workspace from scope rail`}
+                >
+                  <FileText
+                    className="mt-0.5 h-4 w-4 shrink-0"
+                    style={{ color: "var(--icon-muted)" }}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium">
+                      {doc.title}
+                    </span>
+                    {meta ? (
+                      <span
+                        className="mt-1 block truncate text-[11px]"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        {meta}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 function MobileDocumentRow({
   doc,
   extColors,
@@ -127,10 +294,10 @@ function MobileDocumentRow({
  * DocumentsView
  *
  * Structure:
- * - Shell-free inner layout
- *   - Header (title + scope pill)
- *   - Content area (scrollable grid of documents)
- *   - Footer (upload UI + controls)
+ * - Shell-owned primary pane
+ *   - Left Scope rail for Thread/Project posture
+ *   - Center Documents panel for upload affordance and document grid/list
+ *   - Right Workspace remains anchored by the shared AppShell drawer lane
  */
 export default function DocumentsView({
   documents,
@@ -198,7 +365,7 @@ export default function DocumentsView({
     [documents, realDocuments]
   );
 
-  const scopePills = [
+  const scopePills: ScopePill[] = [
     { key: "thread" as const, label: "Thread", disabled: !threadScopeEnabled },
     { key: "project" as const, label: "Project", disabled: false },
   ];
@@ -251,149 +418,153 @@ export default function DocumentsView({
     shellViewportProfile.documentsGridColumns,
   ]);
 
-  const documentsLayoutMode = isPhoneShell ? "mobile_list" : "desktop_grid";
+  const isSplitDocumentsLayout =
+    !isPhoneShell && shellViewportProfile.sidebarArrangement === "split";
+  const documentsLayoutMode = isPhoneShell
+    ? "mobile_stack"
+    : isSplitDocumentsLayout
+      ? "desktop_three_panel"
+      : "tablet_stack";
   const documentsRootStyle: React.CSSProperties = isPhoneShell
-    ? { padding: documentsCardPadding }
+    ? {
+        padding: documentsCardPadding,
+        flex: "1 1 0%",
+        minWidth: 0,
+        maxWidth: "100%",
+        alignSelf: "stretch",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }
     : {
         padding: documentsCardPadding,
         flex: "1 1 0%",
         minWidth: 0,
         maxWidth: "100%",
         alignSelf: "stretch",
+        display: isSplitDocumentsLayout ? "grid" : "flex",
+        gridTemplateColumns: isSplitDocumentsLayout
+          ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+          : undefined,
+        flexDirection: isSplitDocumentsLayout ? undefined : "column",
+        overflow: "hidden",
       };
 
   return (
     <section
-      className="flex h-full w-full min-h-0 flex-col gap-[var(--shell-gap)]"
+      className="h-full w-full min-h-0 gap-[var(--shell-gap)]"
       style={documentsRootStyle}
       data-documents-layout={documentsLayoutMode}
+      data-workspace-anchor="app-shell-right"
       data-testid="documents-layout"
     >
+      <DocumentsScopeRail
+        docItems={docItems}
+        documentScope={documentScope}
+        scopePills={scopePills}
+        onDocumentScopeChange={onDocumentScopeChange}
+        onDocumentClick={handleDocumentClick}
+        isPhoneShell={isPhoneShell}
+        surfaceActionClusterStyle={surfaceActionClusterStyle}
+      />
+
       <div
-        className={`flex-shrink-0 ${
-          isPhoneShell
-            ? "flex flex-col items-start gap-[var(--card-pad)]"
-            : "flex flex-wrap items-start justify-between gap-[var(--shell-gap)]"
-        }`}
+        className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-hidden"
+        data-testid="documents-center-panel"
+        style={{
+          background: "var(--panel-bg)",
+          border: "1px solid var(--panel-border)",
+          borderRadius: "var(--card-radius)",
+          padding: "var(--card-pad)",
+        }}
       >
-        <h2
-          className="text-lg font-semibold tracking-tight leading-none"
-          style={{ color: "var(--text)" }}
-        >
-          Documents
-        </h2>
-        <div
-          data-testid="documents-scope-actions"
-          style={{
-            padding: 6,
-            boxSizing: "border-box",
-            width: "100%",
-            display: isPhoneShell ? "block" : "flex",
-            alignSelf: "stretch",
-            minWidth: 0,
-            maxWidth: "100%",
-          }}
-        >
-          <div
-            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : "w-full justify-end flex-wrap"}`}
-            style={{
-              ...surfaceActionClusterStyle,
-              minWidth: 0,
-              maxWidth: "100%",
-            }}
+        <div className="flex-shrink-0">
+          <h2
+            className="text-lg font-semibold tracking-tight leading-none"
+            style={{ color: "var(--text)" }}
           >
-            {scopePills.map(({ key, label, disabled }) => (
-              <button
-                key={key}
-                type="button"
-                className="pill-tab text-xs"
-                data-state={documentScope === key ? "active" : undefined}
-                disabled={disabled}
-                onClick={() => {
-                  if (disabled) return;
-                  onDocumentScopeChange?.(key);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+            Documents
+          </h2>
         </div>
-      </div>
 
-      <div
-        className={contentAreaClassName}
-        style={{ overflowX: "hidden" }}
-        data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
-        onDrop={uploader.onDrop}
-        onDragOver={uploader.onDragOver}
-      >
-        {docItems.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
-              No documents yet. Drag files here or use the button below to get started.
+        <div
+          className={contentAreaClassName}
+          style={{ overflowX: "hidden" }}
+          data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
+          onDrop={uploader.onDrop}
+          onDragOver={uploader.onDragOver}
+        >
+          {docItems.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
+                No documents yet. Drag files here or use the button below to get started.
+              </div>
             </div>
-          </div>
-        ) : (
-          <div style={documentsGridStyle}>
-            {docItems.map((d) => {
-              const key = d.id || `${d.title}.${d.ext}`;
+          ) : (
+            <div style={documentsGridStyle}>
+              {docItems.map((d) => {
+                const key = d.id || `${d.title}.${d.ext}`;
 
-              return (
-                <div key={key} className="relative">
-                  {isPhoneShell ? (
-                    <MobileDocumentRow
-                      doc={d}
-                      extColors={extColors}
-                      onClick={() => handleDocumentClick(d)}
-                    />
-                  ) : (
-                    <DocumentTile
-                      file={{
-                        name: d.title,
-                        ext: d.ext,
-                        embeddingStatus: d.embeddingStatus,
-                        embeddingError: d.embeddingError,
-                      }}
-                      onClick={() => handleDocumentClick(d)}
-                      onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
-                      contextMenuItems={
-                        d.type === "codex_entry" || !onOpenInThread
-                          ? []
-                          : [
-                              {
-                                label: "Open in Thread",
-                                onSelect: () => onOpenInThread(d),
-                              },
-                            ]
-                      }
-                    />
-                  )}
-                  {d.mock ? (
-                    <span
-                      className="absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[10px]"
-                      style={{
-                        background: "rgba(255,255,255,0.2)",
-                        color: "#111",
-                        borderColor: "rgba(255,255,255,0.5)",
-                      }}
-                    >
-                      Mock
-                    </span>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                return (
+                  <div key={key} className="relative">
+                    {isPhoneShell ? (
+                      <MobileDocumentRow
+                        doc={d}
+                        extColors={extColors}
+                        onClick={() => handleDocumentClick(d)}
+                      />
+                    ) : (
+                      <DocumentTile
+                        file={{
+                          name: d.title,
+                          ext: d.ext,
+                          embeddingStatus: d.embeddingStatus,
+                          embeddingError: d.embeddingError,
+                        }}
+                        onClick={() => handleDocumentClick(d)}
+                        onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
+                        contextMenuItems={
+                          d.type === "codex_entry" || !onOpenInThread
+                            ? []
+                            : [
+                                {
+                                  label: "Open in Thread",
+                                  onSelect: () => onOpenInThread(d),
+                                },
+                              ]
+                        }
+                      />
+                    )}
+                    {d.mock ? (
+                      <span
+                        className="absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[10px]"
+                        style={{
+                          background: "var(--chip-bg)",
+                          color: "var(--text)",
+                          borderColor: "var(--panel-border)",
+                        }}
+                      >
+                        Mock
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-      <div className={footerClassName} style={{ color: "var(--muted)" }}>
-        <div className={`flex items-center gap-[var(--shell-gap)] ${isPhoneShell ? "flex-wrap" : ""}`}>
-          <span>Drag & drop files here, or</span>
-          <button type="button" className="underline hover:opacity-80" onClick={uploader.pick}>
-            choose files
-          </button>
+        <div
+          className={footerClassName}
+          style={{ color: "var(--muted)" }}
+          data-testid="documents-upload-affordance"
+        >
+          <div className={`flex items-center gap-[var(--shell-gap)] ${isPhoneShell ? "flex-wrap" : ""}`}>
+            <span>Drag & drop files here, or</span>
+            <button type="button" className="underline hover:opacity-80" onClick={uploader.pick}>
+              choose files
+            </button>
+          </div>
         </div>
       </div>
     </section>
