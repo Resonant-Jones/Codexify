@@ -68,7 +68,7 @@ describe("DocumentsView demo content", () => {
       "data-workspace-anchor",
       "app-shell-right"
     );
-    expect(screen.getByTestId("documents-scope-rail")).toBeInTheDocument();
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
     expect(screen.getByTestId("documents-upload-affordance")).toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();

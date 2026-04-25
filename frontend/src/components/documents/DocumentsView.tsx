@@ -7,7 +7,7 @@ import { useShellViewportProfile } from "@/components/persona/layout/shellBreakp
 import TileShell from "@/components/surface/TileShell";
 import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 import useUploader from "@/hooks/useUploader";
-import { DocumentLike, type DocumentScope } from "@/types/documents";
+import { DocumentLike } from "@/types/documents";
 import { ExtColors } from "@/types/ui";
 
 interface DocumentsViewProps {
@@ -16,9 +16,6 @@ interface DocumentsViewProps {
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
   defaultProjectId?: number | string | null;
-  documentScope?: DocumentScope;
-  onDocumentScopeChange?: (mode: DocumentScope) => void;
-  threadScopeEnabled?: boolean;
 }
 
 function getDocumentAccentColor(extColors: ExtColors, ext?: string): string {
@@ -45,173 +42,6 @@ type DocumentUploadItem = {
   threadId?: number | string | null;
   [key: string]: unknown;
 };
-
-type ScopePill = {
-  key: DocumentScope;
-  label: string;
-  disabled: boolean;
-};
-
-function getDocumentMeta(doc: DocumentLike): string {
-  const parts = [
-    doc.ext ? `.${String(doc.ext).replace(/^\./, "").toUpperCase()}` : null,
-    doc.embeddingStatus ? String(doc.embeddingStatus).trim() : null,
-  ].filter(Boolean);
-  return parts.join(" • ");
-}
-
-type DocumentsScopeRailProps = {
-  docItems: DocumentLike[];
-  documentScope: DocumentScope;
-  scopePills: ScopePill[];
-  onDocumentScopeChange?: (mode: DocumentScope) => void;
-  onDocumentClick: (doc: DocumentLike) => void;
-  isPhoneShell: boolean;
-  surfaceActionClusterStyle: React.CSSProperties;
-};
-
-function DocumentsScopeRail({
-  docItems,
-  documentScope,
-  scopePills,
-  onDocumentScopeChange,
-  onDocumentClick,
-  isPhoneShell,
-  surfaceActionClusterStyle,
-}: DocumentsScopeRailProps) {
-  const visibleItems = docItems.slice(0, isPhoneShell ? 4 : 12);
-
-  return (
-    <aside
-      className="flex min-h-0 min-w-0 flex-col gap-[var(--card-pad)] overflow-hidden"
-      data-testid="documents-scope-rail"
-      aria-label="Documents scope"
-      style={{
-        background: "var(--panel-sheet, var(--panel-bg))",
-        border: "1px solid var(--panel-border)",
-        borderRadius: "var(--card-radius)",
-        padding: "var(--card-pad)",
-      }}
-    >
-      <div className="flex shrink-0 items-center justify-between gap-[var(--shell-gap)]">
-        <h3
-          className="text-sm font-semibold leading-none"
-          style={{ color: "var(--text)" }}
-        >
-          Scope
-        </h3>
-        <span
-          className="rounded-full border px-2 py-1 text-[11px] font-medium"
-          style={{
-            borderColor: "var(--panel-border)",
-            color: "var(--muted)",
-          }}
-          data-testid="documents-scope-count"
-        >
-          {docItems.length}
-        </span>
-      </div>
-
-      <div
-        data-testid="documents-scope-actions"
-        style={{
-          padding: 6,
-          boxSizing: "border-box",
-          width: "100%",
-          minWidth: 0,
-          maxWidth: "100%",
-        }}
-      >
-        <div
-          className="glass-pill h-auto w-full flex-wrap justify-between"
-          style={{
-            ...surfaceActionClusterStyle,
-            minWidth: 0,
-            maxWidth: "100%",
-          }}
-          role="tablist"
-          aria-label="Document scope mode"
-        >
-          {scopePills.map(({ key, label, disabled }) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              className="pill-tab text-xs"
-              data-state={documentScope === key ? "active" : undefined}
-              aria-selected={documentScope === key}
-              disabled={disabled}
-              onClick={() => {
-                if (disabled) return;
-                onDocumentScopeChange?.(key);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div
-        className="min-h-0 flex-1 overflow-auto pr-1"
-        data-testid="documents-scope-list"
-      >
-        {visibleItems.length === 0 ? (
-          <div
-            className="rounded-[var(--tile-radius)] border px-[var(--card-pad)] py-[var(--shell-gap)] text-xs leading-5"
-            style={{
-              borderColor: "var(--panel-border)",
-              color: "var(--muted)",
-            }}
-          >
-            No documents
-          </div>
-        ) : (
-          <div className="flex flex-col gap-[calc(var(--shell-gap)/2)]">
-            {visibleItems.map((doc) => {
-              const key = String(doc.id || `${doc.title}.${doc.ext}`);
-              const meta = getDocumentMeta(doc);
-
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className="flex min-w-0 items-start gap-[calc(var(--shell-gap)/2)] rounded-[var(--tile-radius)] border px-[var(--card-pad)] py-[calc(var(--card-pad)*0.75)] text-left transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
-                  style={{
-                    background: "var(--chip-bg)",
-                    borderColor: "var(--panel-border)",
-                    color: "var(--text)",
-                  }}
-                  onClick={() => onDocumentClick(doc)}
-                  aria-label={`Open ${doc.title} in Workspace from scope rail`}
-                >
-                  <FileText
-                    className="mt-0.5 h-4 w-4 shrink-0"
-                    style={{ color: "var(--icon-muted)" }}
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium">
-                      {doc.title}
-                    </span>
-                    {meta ? (
-                      <span
-                        className="mt-1 block truncate text-[11px]"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        {meta}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </aside>
-  );
-}
 
 function MobileDocumentRow({
   doc,
@@ -295,9 +125,8 @@ function MobileDocumentRow({
  *
  * Structure:
  * - Shell-owned primary pane
- *   - Left Scope rail for Thread/Project posture
  *   - Center Documents panel for upload affordance and document grid/list
- *   - Right Workspace remains anchored by the shared AppShell drawer lane
+ *   - Left sidebar and right Workspace remain anchored by AppShell
  */
 export default function DocumentsView({
   documents,
@@ -305,18 +134,10 @@ export default function DocumentsView({
   onOpenInThread,
   onDeleteDocument,
   defaultProjectId,
-  documentScope = "project",
-  onDocumentScopeChange,
-  threadScopeEnabled = true,
 }: DocumentsViewProps) {
   const mobileShellProfile = useMobileShellProfile();
   const shellViewportProfile = useShellViewportProfile();
   const isPhoneShell = mobileShellProfile.active;
-  const documentsCardPadding = mobileShellProfile.documents.contentPadding;
-  const surfaceActionClusterStyle: React.CSSProperties = {
-    paddingInline: mobileShellProfile.surfaceActions.clusterPaddingX,
-    paddingBlock: mobileShellProfile.surfaceActions.clusterPaddingY,
-  };
   const uploader = useUploader({
     tag: "upload",
     projectId: defaultProjectId ?? undefined,
@@ -364,11 +185,6 @@ export default function DocumentsView({
     () => (realDocuments.length > 0 ? realDocuments : (documents ?? [])),
     [documents, realDocuments]
   );
-
-  const scopePills: ScopePill[] = [
-    { key: "thread" as const, label: "Thread", disabled: !threadScopeEnabled },
-    { key: "project" as const, label: "Project", disabled: false },
-  ];
 
   const contentAreaClassName = "flex-1 min-h-0 overflow-auto";
   const footerClassName = isPhoneShell
@@ -418,13 +234,9 @@ export default function DocumentsView({
     shellViewportProfile.documentsGridColumns,
   ]);
 
-  const isSplitDocumentsLayout =
-    !isPhoneShell && shellViewportProfile.sidebarArrangement === "split";
   const documentsLayoutMode = isPhoneShell
     ? "mobile_stack"
-    : isSplitDocumentsLayout
-      ? "desktop_three_panel"
-      : "tablet_stack";
+    : "center_lane";
   const documentsRootStyle: React.CSSProperties = isPhoneShell
     ? {
         padding: 0,
@@ -443,11 +255,8 @@ export default function DocumentsView({
         minWidth: 0,
         maxWidth: "100%",
         alignSelf: "stretch",
-        display: isSplitDocumentsLayout ? "grid" : "flex",
-        gridTemplateColumns: isSplitDocumentsLayout
-          ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
-          : undefined,
-        flexDirection: isSplitDocumentsLayout ? undefined : "column",
+        display: "flex",
+        flexDirection: "column",
         overflow: "hidden",
       };
 
@@ -459,16 +268,6 @@ export default function DocumentsView({
       data-workspace-anchor="app-shell-right"
       data-testid="documents-layout"
     >
-      <DocumentsScopeRail
-        docItems={docItems}
-        documentScope={documentScope}
-        scopePills={scopePills}
-        onDocumentScopeChange={onDocumentScopeChange}
-        onDocumentClick={handleDocumentClick}
-        isPhoneShell={isPhoneShell}
-        surfaceActionClusterStyle={surfaceActionClusterStyle}
-      />
-
       <div
         className="flex min-h-0 min-w-0 w-full flex-col gap-[var(--shell-gap)] overflow-hidden"
         data-testid="documents-center-panel"
@@ -492,6 +291,7 @@ export default function DocumentsView({
           className={contentAreaClassName}
           style={{ overflowX: "hidden" }}
           data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
+          data-testid="documents-drop-zone"
           onDrop={uploader.onDrop}
           onDragOver={uploader.onDragOver}
         >

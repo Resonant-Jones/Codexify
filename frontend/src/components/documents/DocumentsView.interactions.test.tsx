@@ -4,8 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DocumentsView from "@/components/documents/DocumentsView";
 import type { ExtColors } from "@/types/ui";
 
-const { requestWorkspaceOpenMock } = vi.hoisted(() => ({
+const { requestWorkspaceOpenMock, uploaderMocks } = vi.hoisted(() => ({
   requestWorkspaceOpenMock: vi.fn(() => true),
+  uploaderMocks: {
+    onDrop: vi.fn(),
+    onDragOver: vi.fn(),
+    pick: vi.fn(),
+  },
 }));
 
 vi.mock("@/features/workspace/state/useWorkspaceState", () => ({
@@ -14,9 +19,9 @@ vi.mock("@/features/workspace/state/useWorkspaceState", () => ({
 
 vi.mock("@/hooks/useUploader", () => ({
   default: () => ({
-    onDrop: vi.fn(),
-    onDragOver: vi.fn(),
-    pick: vi.fn(),
+    onDrop: uploaderMocks.onDrop,
+    onDragOver: uploaderMocks.onDragOver,
+    pick: uploaderMocks.pick,
   }),
 }));
 
@@ -62,24 +67,23 @@ describe("DocumentsView interactions", () => {
       setViewportWidth(1280);
     });
     requestWorkspaceOpenMock.mockReset();
+    uploaderMocks.onDrop.mockReset();
+    uploaderMocks.onDragOver.mockReset();
+    uploaderMocks.pick.mockReset();
     vi.restoreAllMocks();
   });
 
-  it("anchors Scope on the left, Documents in the center, and Workspace to the right contract", () => {
-    const onDocumentScopeChange = vi.fn();
-    const { container } = render(
+  it("keeps DocumentsView focused on the center lane without a route-local rail", () => {
+    render(
       <DocumentsView
         documents={[]}
         extColors={EXT_COLORS}
-        documentScope="thread"
-        onDocumentScopeChange={onDocumentScopeChange}
-        threadScopeEnabled
       />
     );
 
     expect(screen.getByTestId("documents-layout")).toHaveAttribute(
       "data-documents-layout",
-      "desktop_three_panel"
+      "center_lane"
     );
     expect(screen.getByTestId("documents-layout")).toHaveAttribute(
       "data-workspace-anchor",
@@ -91,27 +95,14 @@ describe("DocumentsView interactions", () => {
     expect(screen.getByTestId("documents-layout").style.minWidth).toBe("0");
     expect(screen.getByTestId("documents-layout").style.maxWidth).toBe("100%");
     expect(screen.getByTestId("documents-layout").style.padding).toBe("0px");
-    expect(screen.getByTestId("documents-layout").style.display).toBe("grid");
-    expect(screen.getByTestId("documents-scope-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-layout").style.display).toBe("flex");
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
     expect(screen.getByTestId("documents-upload-affordance")).toBeInTheDocument();
-    expect(screen.getByTestId("documents-scope-actions").style.minWidth).toBe(
-      "0"
-    );
-    expect(screen.getByTestId("documents-scope-actions").style.maxWidth).toBe(
-      "100%"
-    );
-    expect(
-      container.querySelector('[data-testid="documents-scope-actions"] > div')
-    ).toHaveClass("w-full", "justify-between", "flex-wrap");
-
-    expect(screen.getByRole("tab", { name: "Thread" })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    fireEvent.click(screen.getByRole("tab", { name: "Project" }));
-    expect(onDocumentScopeChange).toHaveBeenCalledWith("project");
-    expect(screen.getByRole("tab", { name: "Project" })).toBeInTheDocument();
+    fireEvent.drop(screen.getByTestId("documents-drop-zone"));
+    expect(uploaderMocks.onDrop).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "choose files" }));
+    expect(uploaderMocks.pick).toHaveBeenCalledTimes(1);
     expect(
       screen.queryByRole("button", { name: /Open in Workspace/i })
     ).not.toBeInTheDocument();
@@ -129,8 +120,6 @@ describe("DocumentsView interactions", () => {
       <DocumentsView
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
       />
     );
 
@@ -161,8 +150,6 @@ describe("DocumentsView interactions", () => {
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
         onOpenInThread={onOpenInThread}
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
       />
     );
 
@@ -190,8 +177,6 @@ describe("DocumentsView interactions", () => {
       <DocumentsView
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
       />
     );
 
@@ -200,7 +185,7 @@ describe("DocumentsView interactions", () => {
         "data-documents-layout",
         "mobile_stack"
       );
-      expect(screen.getByTestId("documents-scope-rail")).toBeInTheDocument();
+      expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
       expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
       expect(
         container.querySelector('[data-layout-mode="mobile-list"]')

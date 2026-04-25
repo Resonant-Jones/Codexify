@@ -212,7 +212,17 @@ vi.mock("@/components/ErrorBoundary", () => ({
 }));
 
 vi.mock("@/components/documents/DocumentsView", () => ({
-  default: () => <div data-testid="documents-view-mock" />,
+  default: () => (
+    <div data-testid="documents-view-mock">
+      <section
+        data-testid="documents-layout"
+        data-documents-layout="center_lane"
+        data-workspace-anchor="app-shell-right"
+      >
+        <div data-testid="documents-center-panel">Documents center</div>
+      </section>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
@@ -804,6 +814,71 @@ describe("AppShell workspace drawer shell", () => {
     expect(drawer).toHaveAttribute("data-layout-mode", "workspace_focus");
     expect(drawerPane).toHaveStyle({ marginLeft: "auto" });
     expect(readPaneBasis(drawerPane)).toBeGreaterThan(readPaneBasis(primaryPane));
+  });
+
+  it("gives Documents the same shared sidebar, center lane, and right workspace shell as Guardian", async () => {
+    localStorage.setItem("cfy.lastView", "documents");
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("documents-shared-shell")).toHaveAttribute(
+      "data-documents-shared-shell",
+      "sidebar-center"
+    );
+    expect(screen.getByTestId("documents-shared-sidebar-pane")).toHaveAttribute(
+      "data-shared-sidebar",
+      "true"
+    );
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-primary-pane")).toHaveAttribute(
+      "data-pane-basis",
+      "100.00%"
+    );
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId("documents-shared-sidebar-pane")).toHaveLength(1);
+    expect(screen.queryByTestId("workspace-drawer-pane")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+
+    expect(await screen.findByTestId("workspace-drawer-pane")).toHaveAttribute(
+      "data-shell-workspace-arrangement",
+      "split"
+    );
+    expect(screen.getByTestId("workspace-drawer-pane")).toHaveStyle({
+      marginLeft: "auto",
+      padding: "var(--board-edge)",
+    });
+    expect(screen.queryAllByTestId("workspace-drawer")).toHaveLength(1);
+    expect(screen.queryAllByTestId("workspace-drawer-pane")).toHaveLength(1);
+    expect(screen.getByTestId("workspace-primary-pane")).not.toHaveAttribute(
+      "data-pane-basis",
+      "100.00%"
+    );
+  });
+
+  it("keeps Documents responsive without reintroducing route-local sidebar or workspace copies", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "documents");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-drawer-overlay")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open Workspace" }));
+
+    expect(screen.getByTestId("workspace-drawer-overlay")).toHaveAttribute(
+      "data-overlay-mode",
+      "mobile"
+    );
+    expect(screen.queryAllByTestId("workspace-drawer-overlay")).toHaveLength(1);
+    expect(screen.queryAllByTestId("workspace-drawer-pane")).toHaveLength(1);
+    expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
   });
 
   it("keeps the mobile workspace summon explicit and opens the drawer as an overlay", async () => {
