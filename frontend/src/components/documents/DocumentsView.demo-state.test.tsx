@@ -63,9 +63,20 @@ describe("DocumentsView demo content", () => {
       />
     );
 
-    expect(screen.getByText("Demo Brief")).toBeInTheDocument();
+    expect(screen.getAllByText("Demo Brief").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+      "data-workspace-anchor",
+      "app-shell-right"
+    );
+    expect(screen.getByTestId("documents-scope-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-upload-affordance")).toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Applet|Workbench/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Prioritized|Knowledge Base|cost tier|book badge/i)
+    ).not.toBeInTheDocument();
     expect(container.querySelector(".fc-root")).toBeNull();
   });
 
@@ -93,7 +104,7 @@ describe("DocumentsView demo content", () => {
       />
     );
 
-    expect(screen.getByText("User Plan")).toBeInTheDocument();
+    expect(screen.getAllByText("User Plan").length).toBeGreaterThan(0);
     expect(screen.queryByText("Demo Brief")).not.toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
   });
