@@ -115,6 +115,22 @@ describe("DocumentsView interactions", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("preserves center lane usability when sidebar is dismissed in the shell", () => {
+    render(
+      <DocumentsView
+        documents={[]}
+        extColors={EXT_COLORS}
+      />
+    );
+
+    const layout = screen.getByTestId("documents-layout");
+    expect(layout).toHaveAttribute("data-documents-layout", "center_lane");
+    expect(layout.style.flex).toBe("1 1 0%");
+    expect(layout.style.minWidth).toBe("0");
+    expect(layout.style.maxWidth).toBe("100%");
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+  });
+
   it("opens the workspace on primary click", () => {
     render(
       <DocumentsView
