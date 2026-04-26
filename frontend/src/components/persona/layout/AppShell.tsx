@@ -2073,6 +2073,42 @@ export default function AppShell({
       window.clearTimeout(timer);
     };
   }, [isPhoneShell, workspaceDrawerOpen]);
+  const [documentsSidebarOpen, setDocumentsSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const raw = window.localStorage.getItem("cfy.documentsSidebarOpen");
+    return raw === "false" ? false : true;
+  });
+  const [documentsSidebarOverlayOpen, setDocumentsSidebarOverlayOpen] = useState(false);
+  const documentsSidebarVisible = !isPhoneShell && documentsSidebarOpen;
+  const documentsSidebarOverlayVisible = isPhoneShell && documentsSidebarOverlayOpen;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("cfy.documentsSidebarOpen", String(documentsSidebarOpen));
+  }, [documentsSidebarOpen]);
+
+  useEffect(() => {
+    if (view !== "documents") return;
+    if (isPhoneShell) return;
+    if (workspaceLayoutMode !== "workspace_focus") return;
+    const vw = window.innerWidth;
+    if (vw < 1200 && documentsSidebarOpen) {
+      setDocumentsSidebarOpen(false);
+    }
+  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
+
+  const toggleDocumentsSidebar = useCallback(() => {
+    if (isPhoneShell) {
+      setDocumentsSidebarOverlayOpen((prev) => !prev);
+      return;
+    }
+    setDocumentsSidebarOpen((prev) => !prev);
+  }, [isPhoneShell]);
+
+  const closeDocumentsSidebarOverlay = useCallback(() => {
+    setDocumentsSidebarOverlayOpen(false);
+  }, []);
+
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
@@ -2505,16 +2541,56 @@ export default function AppShell({
       }}
     />
   ) : null;
+  const documentsSidebarToggle = view === "documents" ? (
+    <PhonePressButton
+      type="button"
+      isPhoneShell={isPhoneShell}
+      className="pill-tab shrink-0 whitespace-nowrap"
+      data-state={documentsSidebarOpen || documentsSidebarOverlayOpen ? "active" : "inactive"}
+      data-testid="documents-sidebar-toggle"
+      aria-pressed={documentsSidebarOpen || documentsSidebarOverlayOpen}
+      aria-label={
+        isPhoneShell
+          ? documentsSidebarOverlayOpen
+            ? "Close sidebar"
+            : "Open sidebar"
+          : documentsSidebarOpen
+            ? "Hide sidebar"
+            : "Show sidebar"
+      }
+      title={
+        isPhoneShell
+          ? documentsSidebarOverlayOpen
+            ? "Close sidebar"
+            : "Open sidebar"
+          : documentsSidebarOpen
+            ? "Hide sidebar"
+            : "Show sidebar"
+      }
+      onClick={toggleDocumentsSidebar}
+    >
+      {isPhoneShell ? (
+        <span className="inline-flex items-center" style={{ gap: "6px" }}>
+          <span className="h-4 w-4" aria-hidden="true">☰</span>
+          <span>{documentsSidebarOverlayOpen ? "Close" : "Sidebar"}</span>
+        </span>
+      ) : (
+        documentsSidebarOpen ? "Hide Sidebar" : "Show Sidebar"
+      )}
+    </PhonePressButton>
+  ) : null;
   const desktopHeaderUtilityActions = (
     <>
       {settingsUtilityAction}
       {workspaceDrawerToggle}
+      {documentsSidebarToggle}
       {shareUtilityAction}
     </>
   );
   const mobileHeaderUtilityActions = (
     <>
       {workspaceDrawerToggle}
+      {documentsSidebarToggle}
       {settingsUtilityAction}
       {shareUtilityAction}
     </>
@@ -2863,25 +2939,31 @@ export default function AppShell({
                       ? primaryPaneMinWidth
                       : "0px"
                   }
-                  className="min-h-0 min-w-0"
+                  className="min-h-0 min-w-0 relative"
                   style={workspacePrimaryPaneStyle}
                 >
                   <div
                     className={
                       isPhoneShell
                         ? "flex h-full w-full min-h-0 flex-col overflow-hidden"
-                        : "grid h-full w-full min-h-0 overflow-hidden"
+                        : documentsSidebarVisible
+                          ? "grid h-full w-full min-h-0 overflow-hidden"
+                          : "flex h-full w-full min-h-0 flex-col overflow-hidden"
                     }
                     data-testid="documents-shared-shell"
                     data-documents-shared-shell="sidebar-center"
-                    style={{
-                      gridTemplateColumns: isPhoneShell
+                    style={
+                      isPhoneShell
                         ? undefined
-                        : "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
-                      gap: "var(--gutter)",
-                    }}
+                        : documentsSidebarVisible
+                          ? {
+                              gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+                              gap: "var(--gutter)",
+                            }
+                          : undefined
+                    }
                   >
-                    {!isPhoneShell && (
+                    {!isPhoneShell && documentsSidebarVisible && (
                       <div
                         className="relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)] overflow-hidden"
                         data-testid="documents-shared-sidebar-pane"
@@ -2919,6 +3001,19 @@ export default function AppShell({
                         </FrameCard>
                       </div>
                     )}
+                    {!isPhoneShell && !documentsSidebarVisible && (
+                      <button
+                        type="button"
+                        className="absolute left-0 top-0 z-10 flex h-full w-6 items-center justify-center border-0 bg-transparent opacity-0 transition-opacity duration-200 hover:opacity-100 focus:opacity-100"
+                        data-testid="documents-sidebar-edge-affordance"
+                        aria-label="Show sidebar"
+                        title="Show sidebar"
+                        onClick={toggleDocumentsSidebar}
+                        style={{ background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)" }}
+                      >
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>▶</span>
+                      </button>
+                    )}
                     <FrameCard
                       fill
                       refractiveFallback
@@ -2934,6 +3029,62 @@ export default function AppShell({
                       />
                     </FrameCard>
                   </div>
+                  {documentsSidebarOverlayVisible && (
+                    <div
+                      data-testid="documents-sidebar-overlay"
+                      data-overlay-mode="mobile"
+                      className="absolute inset-0 z-20 flex items-stretch bg-black/35 backdrop-blur-sm"
+                    >
+                      <button
+                        type="button"
+                        aria-label="Close sidebar"
+                        className="absolute inset-0 border-0 bg-transparent p-0"
+                        onClick={closeDocumentsSidebarOverlay}
+                      />
+                      <div
+                        data-testid="documents-sidebar-overlay-pane"
+                        data-overlay="true"
+                        className="relative z-10 h-full min-h-0 overflow-visible rounded-[var(--card-radius)]"
+                        style={{
+                          width: "clamp(300px, 80vw, 360px)",
+                          minWidth: 0,
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <FrameCard
+                          fill
+                          refractiveFallback
+                          shimmerMode="subtle"
+                          liquidBezelWidth={3}
+                          className="flex h-full w-full min-h-0 flex-col box-border"
+                          style={{
+                            borderRadius: "var(--card-radius)",
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: "var(--panel-border)",
+                          }}
+                        >
+                          <SidebarRoot
+                            threads={[]}
+                            activeId={
+                              activeRouteThreadId == null
+                                ? null
+                                : String(activeRouteThreadId)
+                            }
+                            onSelect={(id) => navigateToThread(id)}
+                            onNewChat={() => navigateToThread(null)}
+                            projectId={
+                              generalProjectId == null
+                                ? null
+                                : String(generalProjectId)
+                            }
+                            onProjectChange={handleDocumentsSidebarProjectChange}
+                          />
+                        </FrameCard>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {sharedWorkspaceDrawer}
               </div>

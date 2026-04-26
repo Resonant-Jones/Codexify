@@ -225,6 +225,15 @@ vi.mock("@/components/documents/DocumentsView", () => ({
   ),
 }));
 
+vi.mock("@/components/sidebar/SidebarRoot", () => ({
+  default: () => (
+    <div data-testid="sidebar-root-mock">
+      <div data-testid="sidebar-threads-tab">Threads</div>
+      <div data-testid="sidebar-projects-tab">Projects</div>
+    </div>
+  ),
+}));
+
 vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
   default: () => <div data-testid="guardian-chat-with-sidebar-mock" />,
 }));
@@ -1191,5 +1200,214 @@ describe("AppShell workspace drawer shell", () => {
 
     expect(screen.queryByTestId("workspace-drawer-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppShell documents sidebar posture", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    document.documentElement.classList.remove("dark");
+    setRouteThread(null);
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    listCodexEntriesSpy.mockClear();
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("renders the shared sidebar on Documents by default on desktop", () => {
+    localStorage.setItem("cfy.lastView", "documents");
+    setViewportWidth(1280);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("documents-shared-sidebar-pane")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-shared-sidebar-pane")).toHaveAttribute(
+      "data-shared-sidebar",
+      "true"
+    );
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+  });
+
+  it("dismisses the Documents sidebar via the toggle button and expands the center lane", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "documents");
+    setViewportWidth(1280);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("documents-shared-sidebar-pane")).toBeInTheDocument();
+
+    const sidebarToggle = screen.getByTestId("documents-sidebar-toggle");
+    expect(sidebarToggle).toHaveAttribute("data-state", "active");
+
+    await user.click(sidebarToggle);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("documents-sidebar-edge-affordance")).toBeInTheDocument();
+    expect(sidebarToggle).toHaveAttribute("data-state", "inactive");
+
+    const primaryPane = screen.getByTestId("workspace-primary-pane");
+    expect(primaryPane).toHaveAttribute("data-pane-basis", "100.00%");
+  });
+
+  it("re-invokes the Documents sidebar from the edge affordance after dismissal", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "documents");
+    setViewportWidth(1280);
+
+    render(<AppShell />);
+
+    const sidebarToggle = screen.getByTestId("documents-sidebar-toggle");
+    await user.click(sidebarToggle);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    });
+
+    const edgeAffordance = screen.getByTestId("documents-sidebar-edge-affordance");
+    await user.click(edgeAffordance);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-shared-sidebar-pane")).toBeInTheDocument();
+    });
+  });
+
+  it("re-invokes the Documents sidebar from the toggle button after dismissal", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "documents");
+    setViewportWidth(1280);
+
+    render(<AppShell />);
+
+    const sidebarToggle = screen.getByTestId("documents-sidebar-toggle");
+    await user.click(sidebarToggle);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    });
+
+    await user.click(sidebarToggle);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-shared-sidebar-pane")).toBeInTheDocument();
+    });
+    expect(sidebarToggle).toHaveAttribute("data-state", "active");
+  });
+
+  it("uses sidebar overlay on mobile instead of permanent sidebar", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "documents");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("documents-sidebar-overlay")).not.toBeInTheDocument();
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+
+    const sidebarToggle = screen.getByTestId("documents-sidebar-toggle");
+    await user.click(sidebarToggle);
+
+    expect(await screen.findByTestId("documents-sidebar-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-sidebar-overlay")).toHaveAttribute(
+      "data-overlay-mode",
+      "mobile"
+    );
+    expect(screen.getByTestId("documents-sidebar-overlay-pane")).toHaveAttribute(
+      "data-overlay",
+      "true"
+    );
+
+    const overlayBackdrop = screen.getByTestId("documents-sidebar-overlay").querySelector(
+      'button[aria-label="Close sidebar"]'
+    );
+    expect(overlayBackdrop).toBeInTheDocument();
+  });
+
+  it("closes the Documents sidebar overlay on mobile via backdrop click", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "documents");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    await user.click(screen.getByTestId("documents-sidebar-toggle"));
+    expect(await screen.findByTestId("documents-sidebar-overlay")).toBeInTheDocument();
+
+    const backdrop = screen.getByTestId("documents-sidebar-overlay").querySelector(
+      'button[aria-label="Close sidebar"]'
+    );
+    fireEvent.click(backdrop!);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("documents-sidebar-overlay")).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not show duplicate sidebar or workspace drawer on Documents", () => {
+    localStorage.setItem("cfy.lastView", "documents");
+    setViewportWidth(1280);
+
+    render(<AppShell />);
+
+    expect(screen.queryAllByTestId("documents-shared-sidebar-pane")).toHaveLength(1);
+    expect(screen.queryAllByTestId("workspace-drawer-pane")).toHaveLength(0);
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
+  });
+
+  it("keeps Guardian shell behavior unaffected by Documents sidebar fix", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(101);
+
+    render(<AppShell />);
+
+    expect(screen.queryByTestId("documents-sidebar-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("documents-sidebar-overlay")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+    expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
+  });
+
+  it("shows no duplicate sidebar on constrained viewport with workspace focus", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(1024);
+    localStorage.setItem("cfy.lastView", "documents");
+    setRouteThread(null);
+
+    render(<AppShell />);
+
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+    await screen.findByTestId("workspace-drawer");
+
+    const posture = screen.getByTestId("workspace-drawer-posture");
+    await user.click(posture);
+    await user.click(posture);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-drawer")).toHaveAttribute(
+        "data-layout-mode",
+        "workspace_focus"
+      );
+    });
+
+    expect(screen.queryAllByTestId("documents-shared-sidebar-pane")).toHaveLength(0);
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
   });
 });
