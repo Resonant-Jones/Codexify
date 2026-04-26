@@ -29,6 +29,10 @@ const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_CORRUPT: &str = "packaged-runtime-ass
 const FAILURE_KIND_PACKAGED_RUNTIME_ASSETS_INVALID: &str = "packaged-runtime-assets-invalid";
 const FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED: &str =
     "packaged-runtime-materialization-failed";
+const FAILURE_KIND_REGISTRY_RUNTIME_UNAVAILABLE: &str = "registry-runtime-unavailable";
+const FAILURE_KIND_RUNTIME_COMPOSE_FILE_MISSING: &str = "runtime-compose-file-missing";
+const FAILURE_KIND_RUNTIME_IMAGES_MISSING: &str = "runtime-images-missing";
+const FAILURE_KIND_RUNTIME_IMAGE_PULL_FAILED: &str = "runtime-image-pull-failed";
 const FAILURE_KIND_DOCKER_MOUNT_PATH_UNSHARED_OR_UNSUPPORTED: &str =
     "docker-mount-path-unshared-or-unsupported";
 const FAILURE_KIND_DOCKER_CLI_UNAVAILABLE: &str = "docker-cli-unavailable";
@@ -52,6 +56,8 @@ const PACKAGED_RUNTIME_METADATA_DIRNAME: &str = "Codexify";
 const PACKAGED_RUNTIME_ROOT_DIRNAME: &str = "Codexify";
 const PACKAGED_RUNTIME_MANIFEST_FILENAME: &str = ".codexify-runtime-manifest.json";
 const PACKAGED_RUNTIME_MARKER_FILENAME: &str = ".codexify-packaged-runtime";
+const PACKAGED_RUNTIME_IMAGE_STATE_FILENAME: &str = ".codexify-runtime-images.json";
+const PACKAGED_RUNTIME_COMPOSE_FILENAME: &str = "docker-compose.runtime.yml";
 const LAUNCHER_STARTUP_STATE_FILENAME: &str = ".codexify-launcher-startup-state.json";
 const PACKAGED_SETUP_DEFAULT_NEO4J_USER: &str = "neo4j";
 const PACKAGED_SETUP_DEFAULT_NEO4J_PASS: &str = "codexify";
@@ -60,7 +66,7 @@ const PACKAGED_RUNTIME_REQUIRED_ASSETS: [&str; 12] = [
     ".env.template",
     "backend",
     "docker",
-    "docker-compose.yml",
+    "docker-compose.runtime.yml",
     "guardian",
     "plugins",
     "pytest.ini",
@@ -496,6 +502,10 @@ struct PackagedRuntimeManifest {
     app_version: String,
     runtime_context: String,
     packaged: bool,
+    distribution_mode: String,
+    image_registry: String,
+    image_tag: String,
+    backend_image: String,
     runtime_home: String,
     compose_file: String,
     env_file: String,
@@ -508,8 +518,31 @@ struct PackagedRuntimeManifest {
     placeholder_directories: Vec<String>,
 }
 
-fn compose_file_path(runtime_root: &Path) -> PathBuf {
-    runtime_root.join("docker-compose.yml")
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PackagedRuntimeImageState {
+    image_registry: String,
+    image_tag: String,
+}
+
+fn runtime_distribution_mode(runtime: &BootstrapRuntime) -> &'static str {
+    if runtime.packaged {
+        "packaged-registry"
+    } else {
+        "source-dev"
+    }
+}
+
+fn runtime_compose_file_name(runtime: &BootstrapRuntime) -> &'static str {
+    if runtime.packaged {
+        PACKAGED_RUNTIME_COMPOSE_FILENAME
+    } else {
+        "docker-compose.yml"
+    }
+}
+
+fn compose_file_path(runtime_root: &Path, runtime: &BootstrapRuntime) -> PathBuf {
+    runtime_root.join(runtime_compose_file_name(runtime))
 }
 
 fn runtime_env_file_path(runtime_root: &Path) -> PathBuf {
@@ -522,6 +555,145 @@ fn runtime_env_template_path(runtime_root: &Path) -> PathBuf {
 
 fn runtime_env_example_path(runtime_root: &Path) -> PathBuf {
     runtime_root.join(".env.example")
+}
+
+fn runtime_image_state_path(runtime: &BootstrapRuntime) -> Option<PathBuf> {
+    runtime
+        .runtime_home
+        .as_ref()
+        .map(|runtime_home| runtime_home.join(PACKAGED_RUNTIME_IMAGE_STATE_FILENAME))
+}
+
+fn packaged_runtime_image_registry(runtime: &BootstrapRuntime) -> String {
+    runtime
+        .runtime_root_path()
+        .and_then(|runtime_root| {
+            read_env_file_ordered(&runtime_env_file_path(runtime_root))
+                .ok()
+                .and_then(|(_order, values)| values.get("CODEXIFY_IMAGE_REGISTRY").cloned())
+        })
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| env_first(&["CODEXIFY_IMAGE_REGISTRY"], "ghcr.io/resonant-jones"))
+}
+
+fn packaged_runtime_image_tag(runtime: &BootstrapRuntime) -> String {
+    runtime
+        .runtime_root_path()
+        .and_then(|runtime_root| {
+            read_env_file_ordered(&runtime_env_file_path(runtime_root))
+                .ok()
+                .and_then(|(_order, values)| values.get("CODEXIFY_IMAGE_TAG").cloned())
+        })
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| env_first(&["CODEXIFY_IMAGE_TAG"], "local-beta"))
+}
+
+fn packaged_runtime_backend_image(runtime: &BootstrapRuntime) -> String {
+    format!(
+        "{}/codexify-backend:{}",
+        packaged_runtime_image_registry(runtime),
+        packaged_runtime_image_tag(runtime)
+    )
+}
+
+fn packaged_runtime_image_state(runtime: &BootstrapRuntime) -> PackagedRuntimeImageState {
+    PackagedRuntimeImageState {
+        image_registry: packaged_runtime_image_registry(runtime),
+        image_tag: packaged_runtime_image_tag(runtime),
+    }
+}
+
+fn read_packaged_runtime_image_state(
+    runtime: &BootstrapRuntime,
+) -> Result<Option<PackagedRuntimeImageState>, String> {
+    let Some(path) = runtime_image_state_path(runtime) else {
+        return Ok(None);
+    };
+
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|err| format!("Failed to read packaged runtime image state {}: {err}", path.display()))?;
+    serde_json::from_str::<PackagedRuntimeImageState>(&contents)
+        .map(Some)
+        .map_err(|err| {
+            format!(
+                "Failed to parse packaged runtime image state {}: {err}",
+                path.display()
+            )
+        })
+}
+
+fn runtime_images_are_current(runtime: &BootstrapRuntime) -> Result<bool, String> {
+    let expected = packaged_runtime_image_state(runtime);
+    match read_packaged_runtime_image_state(runtime)? {
+        Some(actual) => Ok(
+            actual.image_registry.trim() == expected.image_registry.trim()
+                && actual.image_tag.trim() == expected.image_tag.trim(),
+        ),
+        None => Ok(false),
+    }
+}
+
+fn write_packaged_runtime_image_state(
+    runtime: &BootstrapRuntime,
+) -> Result<PathBuf, BootstrapRuntimeMaterializationError> {
+    let Some(state_path) = runtime_image_state_path(runtime) else {
+        return Err(BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: join_lines(vec![
+                "Packaged runtime image state could not resolve an Application Support home."
+                    .to_string(),
+                format!("runtimeContext={}", runtime.runtime_context),
+                runtime
+                    .runtime_home
+                    .as_ref()
+                    .map(|path| format!("runtimeHome={}", path.display()))
+                    .unwrap_or_else(|| "runtimeHome=<unavailable>".to_string()),
+            ]),
+        });
+    };
+
+    if let Some(parent) = state_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+            detail: join_lines(vec![
+                "Packaged runtime image state could not prepare its parent directory."
+                    .to_string(),
+                format!("runtimeContext={}", runtime.runtime_context),
+                format!("statePath={}", state_path.display()),
+                format!("parent={}", parent.display()),
+                format!("error={err}"),
+            ]),
+        })?;
+    }
+
+    let serialized = serde_json::to_string_pretty(&packaged_runtime_image_state(runtime))
+        .map_err(|err| BootstrapRuntimeMaterializationError {
+            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+            detail: join_lines(vec![
+                "Packaged runtime image state failed while serializing the image state file."
+                    .to_string(),
+                format!("runtimeContext={}", runtime.runtime_context),
+                format!("statePath={}", state_path.display()),
+                format!("error={err}"),
+            ]),
+        })?;
+
+    fs::write(&state_path, serialized).map_err(|err| BootstrapRuntimeMaterializationError {
+        failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+        detail: join_lines(vec![
+            "Packaged runtime image state failed while writing the image state file."
+                .to_string(),
+            format!("runtimeContext={}", runtime.runtime_context),
+            format!("statePath={}", state_path.display()),
+            format!("error={err}"),
+        ]),
+    })?;
+
+    Ok(state_path)
 }
 
 fn packaged_runtime_manifest_path(runtime_root: &Path) -> PathBuf {
@@ -681,6 +853,7 @@ fn copy_dir_all(source: &Path, destination: &Path) -> Result<(), String> {
 }
 
 fn write_packaged_runtime_manifest(
+    runtime: &BootstrapRuntime,
     resource_root: &Path,
     runtime_root: &Path,
     attachment_state: &str,
@@ -698,8 +871,12 @@ fn write_packaged_runtime_manifest(
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         runtime_context: RUNTIME_CONTEXT_PACKAGED.to_string(),
         packaged: true,
+        distribution_mode: runtime_distribution_mode(runtime).to_string(),
+        image_registry: packaged_runtime_image_registry(runtime),
+        image_tag: packaged_runtime_image_tag(runtime),
+        backend_image: packaged_runtime_backend_image(runtime),
         runtime_home: runtime_root.display().to_string(),
-        compose_file: compose_file_path(runtime_root).display().to_string(),
+        compose_file: compose_file_path(runtime_root, runtime).display().to_string(),
         env_file: runtime_env_file_path(runtime_root).display().to_string(),
         env_template: runtime_env_template_path(runtime_root)
             .display()
@@ -875,6 +1052,7 @@ fn validate_packaged_runtime_attachment(
 }
 
 fn materialize_packaged_runtime_assets(
+    runtime: &BootstrapRuntime,
     resource_root: &Path,
     runtime_root: &Path,
 ) -> Result<Vec<String>, BootstrapRuntimeMaterializationError> {
@@ -1013,7 +1191,7 @@ fn materialize_packaged_runtime_assets(
     }
 
     let manifest_path =
-        write_packaged_runtime_manifest(resource_root, runtime_root, attachment_state)?;
+        write_packaged_runtime_manifest(runtime, resource_root, runtime_root, attachment_state)?;
     let marker_contents = join_lines(vec![
         format!("version={}", env!("CARGO_PKG_VERSION")),
         format!("attachmentState={attachment_state}"),
@@ -1071,7 +1249,7 @@ fn materialize_packaged_runtime_assets(
     detail_lines.push(format!("manifest={}", manifest_path.display()));
     detail_lines.push(format!(
         "composeFile={}",
-        compose_file_path(runtime_root).display()
+        compose_file_path(runtime_root, runtime).display()
     ));
     detail_lines.push(format!(
         "runtimeEnvTemplate={}",
@@ -1525,6 +1703,8 @@ fn materialize_packaged_setup_env(
         ("LLM_PROVIDER", "local"),
         ("CODEXIFY_LOCAL_ONLY_MODE", "true"),
         ("ALLOW_CLOUD_PROVIDERS", "false"),
+        ("CODEXIFY_IMAGE_REGISTRY", "ghcr.io/resonant-jones"),
+        ("CODEXIFY_IMAGE_TAG", "local-beta"),
         ("LOCAL_BASE_URL", "http://host.docker.internal:11434"),
         ("NEO4J_USER", PACKAGED_SETUP_DEFAULT_NEO4J_USER),
         ("NEO4J_PASS", PACKAGED_SETUP_DEFAULT_NEO4J_PASS),
@@ -1854,7 +2034,21 @@ fn resolve_packaged_bootstrap_runtime(
         resource_root.display()
     );
 
-    match materialize_packaged_runtime_assets(&resource_root, &runtime_root) {
+    let runtime_for_materialization = BootstrapRuntime::success(
+        RUNTIME_CONTEXT_PACKAGED,
+        true,
+        runtime_root.clone(),
+        None,
+        Some(runtime_home.clone()),
+        Some(resource_root.clone()),
+        join_lines(detail_lines.clone()),
+    );
+
+    match materialize_packaged_runtime_assets(
+        &runtime_for_materialization,
+        &resource_root,
+        &runtime_root,
+    ) {
         Ok(materialization_detail) => {
             detail_lines.extend(materialization_detail);
             match write_packaged_launcher_startup_state(
@@ -2043,6 +2237,56 @@ fn validate_packaged_runtime(
     }
 
     Ok(())
+}
+
+fn validate_packaged_runtime_compose_file(
+    runtime: &BootstrapRuntime,
+    step: &str,
+) -> Result<PathBuf, BootstrapRuntimeValidationError> {
+    if !runtime.packaged {
+        return Err(BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_REGISTRY_RUNTIME_UNAVAILABLE,
+            detail: join_lines(vec![
+                format!("{step} is only available in packaged registry mode."),
+                format!("runtimeContext={}", runtime.runtime_context),
+                format!("packaged={}", runtime.packaged),
+            ]),
+        });
+    }
+
+    let runtime_root =
+        runtime
+            .runtime_root_path()
+            .ok_or_else(|| BootstrapRuntimeValidationError {
+                failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
+                detail: join_lines(vec![
+                    format!("Packaged {step} could not resolve a usable runtime root."),
+                    format!("runtimeContext={}", runtime.runtime_context),
+                    format!("packaged={}", runtime.packaged),
+                    runtime
+                        .runtime_home
+                        .as_ref()
+                        .map(|path| format!("runtimeHome={}", path.display()))
+                        .unwrap_or_else(|| "runtimeHome=<unavailable>".to_string()),
+                    runtime.resolution_detail.clone().unwrap_or_else(|| {
+                        "Packaged runtime resolution detail unavailable.".to_string()
+                    }),
+                ]),
+            })?;
+
+    let compose_file = compose_file_path(runtime_root, runtime);
+    if !compose_file.is_file() {
+        return Err(BootstrapRuntimeValidationError {
+            failure_kind: FAILURE_KIND_RUNTIME_COMPOSE_FILE_MISSING,
+            detail: join_lines(vec![
+                format!("Packaged {step} could not find the registry-backed Compose file."),
+                format!("runtimeRoot={}", runtime_root.display()),
+                format!("composeFile={}", compose_file.display()),
+            ]),
+        });
+    }
+
+    Ok(compose_file)
 }
 
 fn build_context_lines(label: &str, binary: &ResolvedDockerBinary) -> Vec<String> {
@@ -2364,7 +2608,7 @@ fn apply_runtime_command_environment(command: &mut Command, runtime: &BootstrapR
         );
         command.env(
             "CODEXIFY_RUNTIME_COMPOSE_FILE",
-            compose_file_path(runtime_root),
+            compose_file_path(runtime_root, runtime),
         );
         command.env(
             "CODEXIFY_RUNTIME_MANIFEST",
@@ -2502,8 +2746,12 @@ fn render_step_detail(
     }
 }
 
-fn build_generic_compose_command_display(runtime_root: &Path, compose_args: &[&str]) -> String {
-    let compose_file = compose_file_path(runtime_root);
+fn build_generic_compose_command_display(
+    runtime: &BootstrapRuntime,
+    runtime_root: &Path,
+    compose_args: &[&str],
+) -> String {
+    let compose_file = compose_file_path(runtime_root, runtime);
     let env_file = runtime_env_file_path(runtime_root);
     let tail = if compose_args.is_empty() {
         String::new()
@@ -2522,10 +2770,11 @@ fn build_generic_compose_command_display(runtime_root: &Path, compose_args: &[&s
 
 fn build_compose_command_display(
     binary: &ResolvedDockerBinary,
+    runtime: &BootstrapRuntime,
     runtime_root: &Path,
     compose_args: &[&str],
 ) -> String {
-    build_generic_compose_command_display(runtime_root, compose_args).replacen(
+    build_generic_compose_command_display(runtime, runtime_root, compose_args).replacen(
         "docker compose",
         &format!("{} compose", binary.display),
         1,
@@ -2541,7 +2790,9 @@ fn spawn_compose_command(
     let mut command = spawn_docker_command(binary, &[]);
     command.arg("compose");
     command.arg("--project-directory").arg(runtime_root);
-    command.arg("--file").arg(compose_file_path(runtime_root));
+    command
+        .arg("--file")
+        .arg(compose_file_path(runtime_root, runtime));
     command.args(compose_args);
     command.current_dir(runtime_root);
     apply_runtime_command_environment(&mut command, runtime);
@@ -2553,6 +2804,7 @@ fn build_compose_runtime_lines(context: &BootstrapRuntime) -> Vec<String> {
     let mut lines = vec![
         format!("runtimeContext={}", context.runtime_context),
         format!("packaged={}", context.packaged),
+        format!("distributionMode={}", runtime_distribution_mode(context)),
     ];
 
     if let Some(repo_root) = &context.repo_root {
@@ -2568,7 +2820,7 @@ fn build_compose_runtime_lines(context: &BootstrapRuntime) -> Vec<String> {
         lines.push(format!("runtimeRoot={}", runtime_root.display()));
         lines.push(format!(
             "composeFile={}",
-            compose_file_path(runtime_root).display()
+            compose_file_path(runtime_root, context).display()
         ));
         lines.push(format!(
             "runtimeEnvFile={}",
@@ -3118,6 +3370,67 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
     None
 }
 
+fn packaged_runtime_images_detail(runtime: &BootstrapRuntime) -> String {
+    let expected_registry = packaged_runtime_image_registry(runtime);
+    let expected_tag = packaged_runtime_image_tag(runtime);
+    let image_state_path = runtime_image_state_path(runtime)
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "<unavailable>".to_string());
+    let runtime_root = runtime
+        .runtime_root_path()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "<unavailable>".to_string());
+    let compose_file = runtime
+        .runtime_root_path()
+        .map(|path| compose_file_path(path, runtime).display().to_string())
+        .unwrap_or_else(|| "<unavailable>".to_string());
+
+    match read_packaged_runtime_image_state(runtime) {
+        Ok(Some(actual)) if actual.image_registry == expected_registry && actual.image_tag == expected_tag => {
+            join_lines(vec![
+                "runtime image state=matched".to_string(),
+                format!("distributionMode={}", runtime_distribution_mode(runtime)),
+                format!("runtimeRoot={runtime_root}"),
+                format!("composeFile={compose_file}"),
+                format!("imageStatePath={image_state_path}"),
+                format!("imageRegistry={expected_registry}"),
+                format!("imageTag={expected_tag}"),
+            ])
+        }
+        Ok(Some(actual)) => join_lines(vec![
+            "runtime image state=stale".to_string(),
+            format!("distributionMode={}", runtime_distribution_mode(runtime)),
+            format!("runtimeRoot={runtime_root}"),
+            format!("composeFile={compose_file}"),
+            format!("imageStatePath={image_state_path}"),
+            format!("expectedImageRegistry={expected_registry}"),
+            format!("expectedImageTag={expected_tag}"),
+            format!("actualImageRegistry={}", actual.image_registry),
+            format!("actualImageTag={}", actual.image_tag),
+            "Registry-backed runtime images need to be refreshed.".to_string(),
+        ]),
+        Ok(None) => join_lines(vec![
+            "runtime image state=missing".to_string(),
+            format!("distributionMode={}", runtime_distribution_mode(runtime)),
+            format!("runtimeRoot={runtime_root}"),
+            format!("composeFile={compose_file}"),
+            format!("imageStatePath={image_state_path}"),
+            format!("imageRegistry={expected_registry}"),
+            format!("imageTag={expected_tag}"),
+        ]),
+        Err(err) => join_lines(vec![
+            "runtime image state=unreadable".to_string(),
+            format!("distributionMode={}", runtime_distribution_mode(runtime)),
+            format!("runtimeRoot={runtime_root}"),
+            format!("composeFile={compose_file}"),
+            format!("imageStatePath={image_state_path}"),
+            format!("imageRegistry={expected_registry}"),
+            format!("imageTag={expected_tag}"),
+            err,
+        ]),
+    }
+}
+
 fn run_simple_command(command: &mut Command) -> (bool, String) {
     match command.output() {
         Ok(output) => {
@@ -3185,6 +3498,17 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         );
     }
 
+    if runtime.packaged {
+        if let Err(err) = validate_packaged_runtime_compose_file(runtime, "launcher readiness") {
+            return setup_readiness_summary(
+                err.failure_kind,
+                "Packaged runtime Compose file is missing from this app bundle.",
+                "Reinstall or repair Codexify, then retry.",
+                Some(err.detail),
+            );
+        }
+    }
+
     let (ollama_cli_ok, ollama_cli_detail) =
         run_simple_command(Command::new("ollama").arg("--version"));
     if !ollama_cli_ok {
@@ -3247,6 +3571,28 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         );
     }
 
+    if runtime.packaged {
+        match runtime_images_are_current(runtime) {
+            Ok(true) => {}
+            Ok(false) => {
+                return setup_readiness_summary(
+                    FAILURE_KIND_RUNTIME_IMAGES_MISSING,
+                    "Codexify needs to download its local runtime images.",
+                    "Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
+                    Some(packaged_runtime_images_detail(runtime)),
+                );
+            }
+            Err(err) => {
+                return setup_readiness_summary(
+                    FAILURE_KIND_RUNTIME_IMAGES_MISSING,
+                    "Codexify needs to download its local runtime images.",
+                    "Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
+                    Some(err),
+                );
+            }
+        }
+    }
+
     let (volumes_ok, volumes_detail) = run_simple_command(
         spawn_docker_command(&docker, &["volume", "ls", "--format", "{{.Name}}"])
             .current_dir(runtime_root),
@@ -3285,19 +3631,21 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         );
     }
 
-    let frontend_url = env_first(
-        &["CODEXIFY_DESKTOP_SHARE_BASE_URL"],
-        "http://127.0.0.1:5173",
-    );
-    let (frontend_check, _frontend_body) =
-        probe_http_endpoint_with_body(&trim_trailing_slash(&frontend_url), true);
-    if !frontend_check.ok {
-        return setup_readiness_summary(
-            "frontend_not_running",
-            "Frontend is not running.",
-            "Start the Web UI service.",
-            frontend_check.detail,
+    if !runtime.packaged {
+        let frontend_url = env_first(
+            &["CODEXIFY_DESKTOP_SHARE_BASE_URL"],
+            "http://127.0.0.1:5173",
         );
+        let (frontend_check, _frontend_body) =
+            probe_http_endpoint_with_body(&trim_trailing_slash(&frontend_url), true);
+        if !frontend_check.ok {
+            return setup_readiness_summary(
+                "frontend_not_running",
+                "Frontend is not running.",
+                "Start the Web UI service.",
+                frontend_check.detail,
+            );
+        }
     }
 
     setup_readiness_summary(
@@ -3936,8 +4284,11 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                     serde_json::json!({
                         "source": "desktop_run_setup_cli",
                         "mode": "packaged-native-env-materialization",
+                        "distribution_mode": runtime_distribution_mode(&*runtime),
                         "runtime_root": runtime_root.display().to_string(),
                         "env_path": result.env_path.display().to_string(),
+                        "image_registry": packaged_runtime_image_registry(&*runtime),
+                        "image_tag": packaged_runtime_image_tag(&*runtime),
                         "preserved_keys": result.preserved_keys,
                         "generated_guardian_api_key": result.generated_guardian_api_key,
                         "created_new_env_file": result.created_new_env_file,
@@ -3964,6 +4315,12 @@ pub fn desktop_run_setup_cli(runtime: tauri::State<'_, BootstrapRuntime>) -> Boo
                             .as_ref()
                             .map(|path| format!("runtimeHome={}", path.display()))
                             .unwrap_or_default(),
+                        format!("distributionMode={}", runtime_distribution_mode(&*runtime)),
+                        format!(
+                            "imageRegistry={}",
+                            packaged_runtime_image_registry(&*runtime)
+                        ),
+                        format!("imageTag={}", packaged_runtime_image_tag(&*runtime)),
                         format!("runtimeEnvFile={}", result.env_path.display()),
                         "setupSource=packaged-native-env-materialization".to_string(),
                         format!(
@@ -4158,6 +4515,23 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
             }
         }
     };
+    if let Err(err) = validate_packaged_runtime_compose_file(&runtime, "compose-up") {
+        return build_step_result(
+            false,
+            "compose-up",
+            Some(err.detail),
+            Some(build_generic_compose_command_display(
+                &runtime,
+                &runtime_root,
+                &["up", "-d"],
+            )),
+            None,
+            None,
+            None,
+            Some(&*runtime),
+            Some(err.failure_kind),
+        );
+    }
     let docker = match resolve_docker_binary(&runtime) {
         Ok(binary) => binary,
         Err(probe) => {
@@ -4166,6 +4540,7 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
                 "compose-up",
                 Some(probe.detail),
                 Some(build_generic_compose_command_display(
+                    &runtime,
                     &runtime_root,
                     &["up", "-d"],
                 )),
@@ -4177,7 +4552,7 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
             )
         }
     };
-    let command_display = build_compose_command_display(&docker, &runtime_root, &["up", "-d"]);
+    let command_display = build_compose_command_display(&docker, &runtime, &runtime_root, &["up", "-d"]);
 
     match spawn_compose_command(&docker, &runtime, &runtime_root, &["up", "-d"]).output() {
         Ok(output) => {
@@ -4225,6 +4600,171 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
         Err(err) => build_step_result(
             false,
             "compose-up",
+            Some(format!("Failed to execute `{command_display}`: {err}")),
+            Some(command_display),
+            None,
+            None,
+            None,
+            Some(&*runtime),
+            Some(FAILURE_KIND_UNEXPECTED_EXECUTION_ERROR),
+        ),
+    }
+}
+
+#[tauri::command]
+pub fn desktop_pull_registry_runtime_images(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> BootstrapStepResult {
+    let runtime_root = match runtime.runtime_root_path() {
+        Some(path) => path.to_path_buf(),
+        None => {
+            return BootstrapStepResult {
+                ok: false,
+                step: "pull-images".to_string(),
+                detail: runtime.resolution_detail.clone(),
+                failure_kind: runtime.failure_kind.clone(),
+                runtime_context: Some(runtime.runtime_context.clone()),
+                repo_root: runtime.repo_root_display(),
+                runtime_home: runtime.runtime_home_display(),
+                runtime_root: runtime.runtime_root_display(),
+                packaged: Some(runtime.packaged),
+                command: None,
+                stdout: None,
+                stderr: None,
+                exit_code: None,
+            }
+        }
+    };
+
+    if !runtime.packaged {
+        return build_step_result(
+            false,
+            "pull-images",
+            Some(
+                "Registry-backed runtime images are only available in the packaged desktop launcher."
+                    .to_string(),
+            ),
+            Some(build_generic_compose_command_display(
+                &runtime,
+                &runtime_root,
+                &["pull"],
+            )),
+            None,
+            None,
+            None,
+            Some(&*runtime),
+            Some(FAILURE_KIND_REGISTRY_RUNTIME_UNAVAILABLE),
+        );
+    }
+
+    if let Err(err) = validate_packaged_runtime_compose_file(&runtime, "pull-images") {
+        return build_step_result(
+            false,
+            "pull-images",
+            Some(err.detail),
+            Some(build_generic_compose_command_display(
+                &runtime,
+                &runtime_root,
+                &["pull"],
+            )),
+            None,
+            None,
+            None,
+            Some(&*runtime),
+            Some(err.failure_kind),
+        );
+    }
+
+    let docker = match resolve_docker_binary(&runtime) {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return build_step_result(
+                false,
+                "pull-images",
+                Some(probe.detail),
+                Some(build_generic_compose_command_display(
+                    &runtime,
+                    &runtime_root,
+                    &["pull"],
+                )),
+                None,
+                None,
+                None,
+                Some(&*runtime),
+                probe.failure_kind.map(FailureKind::as_str),
+            )
+        }
+    };
+
+    let command_display = build_compose_command_display(&docker, &runtime, &runtime_root, &["pull"]);
+    match spawn_compose_command(&docker, &runtime, &runtime_root, &["pull"]).output() {
+        Ok(output) => {
+            let stdout = normalize_output(&output.stdout);
+            let stderr = normalize_output(&output.stderr);
+            let pull_state = if output.status.success() {
+                match write_packaged_runtime_image_state(&*runtime) {
+                    Ok(state_path) => Some(state_path.display().to_string()),
+                    Err(err) => {
+                        return build_step_result(
+                            false,
+                            "pull-images",
+                            Some(err.detail),
+                            Some(command_display),
+                            stdout,
+                            stderr,
+                            output.status.code(),
+                            Some(&*runtime),
+                            Some(err.failure_kind),
+                        )
+                    }
+                }
+            } else {
+                None
+            };
+
+            let detail = render_step_detail(
+                {
+                    let mut lines = build_compose_runtime_lines(&runtime);
+                    lines.push(format!(
+                        "imageRegistry={}",
+                        packaged_runtime_image_registry(&runtime)
+                    ));
+                    lines.push(format!("imageTag={}", packaged_runtime_image_tag(&runtime)));
+                    lines.push(format!(
+                        "imageStatePath={}",
+                        runtime_image_state_path(&runtime)
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|| "<unavailable>".to_string())
+                    ));
+                    if let Some(state_path) = pull_state {
+                        lines.push(format!("imageStateWritten={state_path}"));
+                    }
+                    lines.push(format!("status={}", output.status));
+                    lines
+                },
+                stdout.as_ref(),
+                stderr.as_ref(),
+            );
+
+            build_step_result(
+                output.status.success(),
+                "pull-images",
+                detail,
+                Some(command_display),
+                stdout,
+                stderr,
+                output.status.code(),
+                Some(&*runtime),
+                if output.status.success() {
+                    None
+                } else {
+                    Some(FAILURE_KIND_RUNTIME_IMAGE_PULL_FAILED)
+                },
+            )
+        }
+        Err(err) => build_step_result(
+            false,
+            "pull-images",
             Some(format!("Failed to execute `{command_display}`: {err}")),
             Some(command_display),
             None,
@@ -4396,6 +4936,7 @@ pub fn desktop_get_bootstrap_logs(
     };
     let command_display = build_compose_command_display(
         &docker,
+        &runtime,
         &runtime_root,
         &[
             "logs",
@@ -4510,10 +5051,12 @@ pub fn desktop_restart_runtime_services(
                 command: Some(format!(
                     "{} && {}",
                     build_generic_compose_command_display(
+                        &runtime,
                         &runtime_root,
                         &["restart", "db", "redis", "backend", "worker-chat"]
                     ),
                     build_generic_compose_command_display(
+                        &runtime,
                         &runtime_root,
                         &[
                             "up",
@@ -4533,13 +5076,10 @@ pub fn desktop_restart_runtime_services(
         }
     };
 
-    let restart_command_display = build_compose_command_display(
-        &docker,
-        &runtime_root,
-        &["restart", "db", "redis", "backend", "worker-chat"],
-    );
+    let restart_command_display = build_compose_command_display(&docker, &runtime, &runtime_root, &["restart", "db", "redis", "backend", "worker-chat"]);
     let up_command_display = build_compose_command_display(
         &docker,
+        &runtime,
         &runtime_root,
         &[
             "up",
@@ -4868,6 +5408,27 @@ mod tests {
         path
     }
 
+    fn test_runtime(
+        packaged: bool,
+        runtime_root: PathBuf,
+        runtime_home: Option<PathBuf>,
+    ) -> BootstrapRuntime {
+        BootstrapRuntime {
+            runtime_context: if packaged {
+                RUNTIME_CONTEXT_PACKAGED.to_string()
+            } else {
+                RUNTIME_CONTEXT_DEVELOPMENT.to_string()
+            },
+            packaged,
+            runtime_root: Some(runtime_root),
+            repo_root: None,
+            runtime_home,
+            resource_root: None,
+            resolution_detail: Some("test runtime".to_string()),
+            failure_kind: None,
+        }
+    }
+
     #[test]
     fn packaged_runtime_assets_refuse_unmanaged_existing_root() {
         let root = unique_temp_dir("codexify-packaged-root-conflict");
@@ -4878,7 +5439,12 @@ mod tests {
         fs::write(runtime_root.join("unrelated.txt"), "source-checkout")
             .expect("failed to write sentinel");
 
-        let err = materialize_packaged_runtime_assets(&resource_root, &runtime_root)
+        let bootstrap_runtime = test_runtime(true, runtime_root.clone(), None);
+        let err = materialize_packaged_runtime_assets(
+            &bootstrap_runtime,
+            &resource_root,
+            &runtime_root,
+        )
             .expect_err("expected unmanaged runtime root to be rejected");
 
         assert_eq!(
@@ -4888,6 +5454,68 @@ mod tests {
         assert!(err
             .detail
             .contains("Refusing to overwrite a pre-existing non-managed directory."));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn dev_runtime_uses_source_compose_filename() {
+        let root = unique_temp_dir("codexify-dev-compose-path");
+        let runtime = test_runtime(false, root.clone(), None);
+
+        assert_eq!(
+            compose_file_path(&root, &runtime),
+            root.join("docker-compose.yml")
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn packaged_runtime_uses_registry_compose_filename() {
+        let root = unique_temp_dir("codexify-packaged-compose-path");
+        let runtime = test_runtime(true, root.clone(), Some(root.join("Application Support")));
+
+        assert_eq!(
+            compose_file_path(&root, &runtime),
+            root.join(PACKAGED_RUNTIME_COMPOSE_FILENAME)
+        );
+        assert_eq!(runtime_distribution_mode(&runtime), "packaged-registry");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn packaged_runtime_reports_missing_compose_file_explicitly() {
+        let root = unique_temp_dir("codexify-packaged-missing-compose");
+        let runtime = test_runtime(true, root.clone(), Some(root.join("Application Support")));
+
+        let err = validate_packaged_runtime_compose_file(&runtime, "compose-up")
+            .expect_err("expected packaged compose file validation to fail");
+
+        assert_eq!(err.failure_kind, FAILURE_KIND_RUNTIME_COMPOSE_FILE_MISSING);
+        assert!(err.detail.contains("Packaged compose-up could not find"));
+        assert!(err.detail.contains("composeFile="));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn packaged_runtime_image_state_round_trips_and_matches() {
+        let root = unique_temp_dir("codexify-packaged-image-state");
+        let runtime_home = root.join("Application Support").join("Codexify");
+        let runtime_root = root.join("Codexify");
+        fs::create_dir_all(&runtime_home).expect("failed to create runtime home");
+        fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
+        let runtime = test_runtime(true, runtime_root.clone(), Some(runtime_home.clone()));
+
+        let written = write_packaged_runtime_image_state(&runtime)
+            .expect("expected image state write to succeed");
+        assert_eq!(
+            written,
+            runtime_home.join(PACKAGED_RUNTIME_IMAGE_STATE_FILENAME)
+        );
+        assert!(runtime_images_are_current(&runtime).expect("expected image state check"));
 
         fs::remove_dir_all(&root).ok();
     }

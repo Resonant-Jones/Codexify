@@ -34,6 +34,7 @@ pub fn run() {
             commands::desktop_open_docker_desktop,
             commands::desktop_runtime_preflight_check,
             commands::desktop_run_setup_cli,
+            commands::desktop_pull_registry_runtime_images,
             commands::desktop_compose_up,
             commands::desktop_get_bootstrap_logs,
             commands::desktop_restart_runtime_services,
