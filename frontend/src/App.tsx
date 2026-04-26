@@ -425,10 +425,10 @@ function DesktopStartupRecoveryGate({
   const stateLabel = setupReadiness?.state?.replace(/_/g, " ") ?? "setup unknown";
   const explanation =
     setupReadiness?.explanation ??
-    "Codexify could not read a launcher setup readiness result yet.";
+    "Codexify could not read or refresh a launcher setup readiness result yet.";
   const recommendedAction =
     setupReadiness?.recommendedAction ??
-    "Use the existing bootstrap flow to retry setup and startup.";
+    "Use Retry setup checks to rerun the launcher handoff and readiness checks from the desktop app.";
   const details = setupReadiness?.details ?? detail;
 
   return (
@@ -1272,9 +1272,11 @@ export default function App() {
     });
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
-  const handleOpenBootstrapPath = React.useCallback(() => {
-    setDesktopRecoveryRequested(true);
-    setBootstrapPhase("bootstrap");
+  const handleOpenBootstrapPath = React.useCallback(async () => {
+    const decision = await readDesktopStartupRoutingDecision();
+    if (decision) {
+      setDesktopStartupRouting(decision);
+    }
   }, []);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";

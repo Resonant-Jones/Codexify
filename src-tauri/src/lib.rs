@@ -18,8 +18,7 @@ pub fn run() {
                     .build(),
             )?;
             let handle = app.handle().clone();
-            let bootstrap_runtime = commands::resolve_bootstrap_runtime(&handle);
-            commands::prime_packaged_runtime_environment(&bootstrap_runtime);
+            let bootstrap_runtime = initialize_bootstrap_runtime(&handle);
             commands::prime_packaged_launcher_startup_state(&bootstrap_runtime);
             app.manage(bootstrap_runtime);
             Ok(())

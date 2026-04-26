@@ -118,4 +118,39 @@ describe("runtime config", () => {
       "Open Docker Desktop, then retry."
     );
   });
+
+  it("refreshes launcher setup readiness when the first handoff is incomplete", async () => {
+    (window as any).__TAURI_IPC__ = {};
+    (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
+    invokeMock
+      .mockResolvedValueOnce({
+        shouldRunWizard: true,
+        setupComplete: true,
+        runtimeProfile: "local",
+        envPath: "/tmp/.env",
+        handoffTarget: null,
+        detail: "launcher handoff missing readiness",
+        setupReadiness: null,
+      })
+      .mockResolvedValueOnce({
+        shouldRunWizard: true,
+        setupComplete: true,
+        runtimeProfile: "local",
+        envPath: "/tmp/.env",
+        handoffTarget: null,
+        detail: "launcher handoff refreshed",
+        setupReadiness: {
+          state: "backend_not_running",
+          explanation: "Backend is not running.",
+          recommendedAction: "Start the backend service, then retry.",
+          details: "backend service missing",
+        },
+      });
+
+    const decision = await readDesktopStartupRoutingDecision();
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(decision?.setupReadiness?.state).toBe("backend_not_running");
+    expect(decision?.detail).toBe("launcher handoff refreshed");
+  });
 });
