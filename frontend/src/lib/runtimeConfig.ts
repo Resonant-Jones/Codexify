@@ -59,6 +59,17 @@ type TauriCoreApi = {
   ) => Promise<T>;
 };
 
+export const NATIVE_BRIDGE_FAILURE_KIND = "native-bridge-unavailable" as const;
+
+export class NativeBridgeUnavailableError extends Error {
+  readonly code = NATIVE_BRIDGE_FAILURE_KIND;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "NativeBridgeUnavailableError";
+  }
+}
+
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
     typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
@@ -156,10 +167,18 @@ function readInjectedTauriCore(): TauriCoreApi | null {
 async function loadTauriCore(): Promise<TauriCoreApi> {
   const injected = readInjectedTauriCore();
   if (injected) return injected;
-  const imported = (await new Function(
-    'return import("@tauri-apps/api/core")'
-  )()) as TauriCoreApi;
-  return imported;
+  try {
+    const imported = (await new Function(
+      'return import("@tauri-apps/api/core")'
+    )()) as TauriCoreApi;
+    return imported;
+  } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.message
+        : String(error ?? "Unknown native bridge import error");
+    throw new NativeBridgeUnavailableError(detail);
+  }
 }
 
 function normalizeLauncherStartupHandoff(
@@ -559,7 +578,9 @@ export async function invokeTauriCommand<T = unknown>(
   payload?: Record<string, unknown>
 ): Promise<T> {
   if (!isTauriRuntime()) {
-    throw new Error("Tauri command invocation requested outside desktop runtime");
+    throw new NativeBridgeUnavailableError(
+      "Tauri native bridge is unavailable outside the desktop runtime."
+    );
   }
   const core = await loadTauriCore();
   return core.invoke<T>(command, payload);

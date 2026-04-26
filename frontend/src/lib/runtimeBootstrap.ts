@@ -1,16 +1,19 @@
 import {
+  NATIVE_BRIDGE_FAILURE_KIND,
+  NativeBridgeUnavailableError,
   invokeTauriCommand,
   isTauriRuntime,
   openExternalUrl,
 } from "@/lib/runtimeConfig";
 
 export type RuntimePreflight = {
-  dockerCliInstalled: boolean;
-  dockerComposeAvailable: boolean;
-  dockerDaemonReachable: boolean;
+  dockerCliInstalled: boolean | null;
+  dockerComposeAvailable: boolean | null;
+  dockerDaemonReachable: boolean | null;
   ready: boolean;
   failureKind?: string;
   detail?: string;
+  checksExecuted?: boolean;
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
   runtimeHome?: string;
@@ -167,6 +170,12 @@ export const BOOTSTRAP_LOG_SERVICES: BootstrapLogService[] = [
 
 function asBoolean(value: unknown): boolean {
   return value === true;
+}
+
+function asOptionalBoolean(value: unknown): boolean | null {
+  if (value === true) return true;
+  if (value === false) return false;
+  return null;
 }
 
 function normalizeText(value: unknown): string | undefined {
@@ -355,12 +364,14 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
       : {};
 
   const preflight: RuntimePreflight = {
-    dockerCliInstalled: asBoolean(source.dockerCliInstalled),
-    dockerComposeAvailable: asBoolean(source.dockerComposeAvailable),
-    dockerDaemonReachable: asBoolean(source.dockerDaemonReachable),
+    dockerCliInstalled: asOptionalBoolean(source.dockerCliInstalled),
+    dockerComposeAvailable: asOptionalBoolean(source.dockerComposeAvailable),
+    dockerDaemonReachable: asOptionalBoolean(source.dockerDaemonReachable),
     ready: asBoolean(source.ready),
     failureKind: normalizeFailureKind(source.failureKind),
     detail: normalizeText(source.detail),
+    checksExecuted:
+      typeof source.checksExecuted === "boolean" ? source.checksExecuted : undefined,
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
     runtimeHome: normalizeText(source.runtimeHome),
@@ -370,9 +381,9 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
 
   if (
     preflight.ready &&
-    (!preflight.dockerCliInstalled ||
-      !preflight.dockerComposeAvailable ||
-      !preflight.dockerDaemonReachable)
+    (preflight.dockerCliInstalled === false ||
+      preflight.dockerComposeAvailable === false ||
+      preflight.dockerDaemonReachable === false)
   ) {
     preflight.ready = false;
   }
@@ -437,10 +448,17 @@ function buildRuntimeBootstrapState(
 }
 
 function formatPreflightDetail(preflight: RuntimePreflight): string | undefined {
+  const formatOptionalBoolean = (value: boolean | null): string =>
+    value === null ? "unknown" : String(value);
   const lines = [
-    `dockerCliInstalled=${preflight.dockerCliInstalled}`,
-    `dockerComposeAvailable=${preflight.dockerComposeAvailable}`,
-    `dockerDaemonReachable=${preflight.dockerDaemonReachable}`,
+    `checksExecuted=${preflight.checksExecuted === false ? "false" : "true"}`,
+    `dockerCliInstalled=${formatOptionalBoolean(preflight.dockerCliInstalled)}`,
+    `dockerComposeAvailable=${formatOptionalBoolean(
+      preflight.dockerComposeAvailable
+    )}`,
+    `dockerDaemonReachable=${formatOptionalBoolean(
+      preflight.dockerDaemonReachable
+    )}`,
     `ready=${preflight.ready}`,
   ];
   if (preflight.runtimeContext) {
@@ -746,7 +764,24 @@ export function mapRuntimePreflightFailureToState(
     );
   }
 
-  if (!preflight.dockerCliInstalled || preflight.failureKind === "docker-cli-unavailable") {
+  if (preflight.failureKind === NATIVE_BRIDGE_FAILURE_KIND) {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Desktop native bridge unavailable",
+      "Codexify could not run native setup checks from this context. Open Codexify from the desktop app, then retry. This is a native bridge problem, not a Docker installation problem.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (
+    preflight.dockerCliInstalled === false ||
+    preflight.failureKind === "docker-cli-unavailable"
+  ) {
     return buildRuntimeBootstrapState(
       "docker-missing",
       "Docker Desktop is required",
@@ -762,7 +797,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (
     preflight.failureKind === "docker-compose-unavailable" ||
-    !preflight.dockerComposeAvailable
+    preflight.dockerComposeAvailable === false
   ) {
     return buildRuntimeBootstrapState(
       "compose-missing",
@@ -779,7 +814,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (
     preflight.failureKind === "docker-daemon-unavailable" ||
-    !preflight.dockerDaemonReachable
+    preflight.dockerDaemonReachable === false
   ) {
     return buildRuntimeBootstrapState(
       "docker-not-running",
@@ -1013,6 +1048,14 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
       title: "Docker Desktop is required",
       message:
         "Codexify could not find a usable Docker CLI or Compose entrypoint on this machine. Install or repair Docker Desktop, then retry.",
+    };
+  }
+
+  if (failureKind === NATIVE_BRIDGE_FAILURE_KIND) {
+    return {
+      title: "Desktop native bridge unavailable",
+      message:
+        "Codexify could not run native setup checks from this context. Open Codexify from the desktop app, then retry. This is a native bridge problem, not a Docker installation problem.",
     };
   }
 
@@ -1562,12 +1605,13 @@ export function formatRuntimeHealthCheckResult(
 export async function runRuntimeBootstrapPreflight(): Promise<RuntimePreflight> {
   if (!shouldRunRuntimeBootstrap()) {
     return {
-      dockerCliInstalled: false,
-      dockerComposeAvailable: false,
-      dockerDaemonReachable: false,
+      dockerCliInstalled: null,
+      dockerComposeAvailable: null,
+      dockerDaemonReachable: null,
       ready: false,
       failureKind: "desktop-runtime-unavailable",
       detail: "window.__TAURI_IPC__ was not detected.",
+      checksExecuted: false,
     };
   }
 
@@ -1577,16 +1621,36 @@ export async function runRuntimeBootstrapPreflight(): Promise<RuntimePreflight> 
     );
     return normalizeRuntimePreflight(payload);
   } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.message
+        : String(error ?? "Unknown error");
+    const errorCode =
+      error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    const nativeBridgeUnavailable =
+      error instanceof NativeBridgeUnavailableError ||
+      errorCode === NATIVE_BRIDGE_FAILURE_KIND;
+    if (nativeBridgeUnavailable) {
+      return {
+        dockerCliInstalled: null,
+        dockerComposeAvailable: null,
+        dockerDaemonReachable: null,
+        ready: false,
+        failureKind: NATIVE_BRIDGE_FAILURE_KIND,
+        detail,
+        checksExecuted: false,
+      };
+    }
     return {
-      dockerCliInstalled: false,
-      dockerComposeAvailable: false,
-      dockerDaemonReachable: false,
+      dockerCliInstalled: null,
+      dockerComposeAvailable: null,
+      dockerDaemonReachable: null,
       ready: false,
       failureKind: "native-command-failed",
-      detail:
-        error instanceof Error
-          ? error.message
-          : String(error ?? "Unknown error"),
+      detail,
+      checksExecuted: false,
     };
   }
 }

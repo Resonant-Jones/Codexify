@@ -67,6 +67,7 @@ const PREFLIGHT_FAILURE_KINDS = new Set([
   "docker-cli-unavailable",
   "docker-cli-execution-failed",
   "docker-cli-found-but-unusable-from-packaged-context",
+  "native-bridge-unavailable",
   "docker-compose-unavailable",
   "docker-daemon-unavailable",
   "docker-missing",
