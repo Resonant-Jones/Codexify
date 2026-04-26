@@ -1380,7 +1380,7 @@ describe("AppShell documents sidebar posture", () => {
     expect(screen.queryByTestId("documents-shared-sidebar-pane")).not.toBeInTheDocument();
     expect(screen.queryByTestId("documents-sidebar-overlay")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+    await user.click(screen.getByTestId("workspace-drawer-toggle"));
     expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
   });
 
