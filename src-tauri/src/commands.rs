@@ -104,6 +104,18 @@ pub struct LauncherStartupHandoff {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handoff_target: Option<String>,
     pub detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_readiness: Option<LauncherSetupReadiness>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherSetupReadiness {
+    pub state: String,
+    pub explanation: String,
+    pub recommended_action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1340,7 +1352,12 @@ fn read_env_file_ordered(
 }
 
 fn sanitize_env_value(value: &str) -> String {
-    if value.contains(' ') || value.contains('#') {
+    if value.contains(' ')
+        || value.contains('#')
+        || value.contains(';')
+        || value.contains('"')
+        || value.contains('\'')
+    {
         format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         value.to_string()
@@ -1485,7 +1502,7 @@ fn materialize_packaged_setup_env(
     let existing_guardian_api_key = values
         .get("GUARDIAN_API_KEY")
         .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        .filter(|value| !is_placeholder_config_value(Some(value)));
     let generated_guardian_api_key = existing_guardian_api_key.is_none();
     let guardian_api_key = match existing_guardian_api_key {
         Some(value) => value,
@@ -1504,6 +1521,11 @@ fn materialize_packaged_setup_env(
         ("GUARDIAN_AUTH_MODE", "local"),
         ("CODEXIFY_DESKTOP_BACKEND_URL", "http://127.0.0.1:8888"),
         ("CODEXIFY_DESKTOP_SHARE_BASE_URL", "http://127.0.0.1:5173"),
+        ("AI_BACKEND", "ollama"),
+        ("LLM_PROVIDER", "local"),
+        ("CODEXIFY_LOCAL_ONLY_MODE", "true"),
+        ("ALLOW_CLOUD_PROVIDERS", "false"),
+        ("LOCAL_BASE_URL", "http://host.docker.internal:11434"),
         ("NEO4J_USER", PACKAGED_SETUP_DEFAULT_NEO4J_USER),
         ("NEO4J_PASS", PACKAGED_SETUP_DEFAULT_NEO4J_PASS),
     ];
@@ -1511,7 +1533,7 @@ fn materialize_packaged_setup_env(
     for (key, default_value) in defaults {
         let replace_value = values
             .get(key)
-            .map(|value| value.trim().is_empty())
+            .map(|value| is_placeholder_config_value(Some(value)))
             .unwrap_or(true);
         if replace_value {
             values.insert(key.to_string(), default_value.to_string());
@@ -2944,12 +2966,355 @@ fn normalize_handoff_target(value: Option<String>) -> Option<String> {
     }
 }
 
+fn setup_readiness_summary(
+    state: &str,
+    explanation: &str,
+    recommended_action: &str,
+    details: Option<String>,
+) -> LauncherSetupReadiness {
+    LauncherSetupReadiness {
+        state: state.to_string(),
+        explanation: explanation.to_string(),
+        recommended_action: recommended_action.to_string(),
+        details: details.and_then(|value| {
+            let trimmed = redact_setup_diagnostics(&value);
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }),
+    }
+}
+
+fn is_placeholder_config_value(value: Option<&String>) -> bool {
+    let normalized = value
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    normalized.is_empty()
+        || matches!(
+            normalized.as_str(),
+            "change-me"
+                | "changeme"
+                | "replace-me"
+                | "replace-with-real-key"
+                | "replace-with-neo4j-password"
+                | "dev-local-only-change-me"
+                | "example"
+                | "example-key"
+                | "placeholder"
+                | "todo"
+        )
+        || normalized.starts_with("replace-with-")
+        || normalized.ends_with("-change-me")
+}
+
+fn redact_setup_diagnostics(value: &str) -> String {
+    value
+        .lines()
+        .map(|line| {
+            let normalized = line.trim_start();
+            let secret_prefixes = [
+                "GUARDIAN_API_KEY=",
+                "VITE_GUARDIAN_API_KEY=",
+                "NEO4J_PASS=",
+                "OPENAI_API_KEY=",
+                "GROQ_API_KEY=",
+                "MINIMAX_API_KEY=",
+                "NOTION_API_KEY=",
+                "GITHUB_TOKEN=",
+            ];
+            if let Some(prefix) = secret_prefixes
+                .iter()
+                .find(|prefix| normalized.starts_with(**prefix))
+            {
+                format!("{prefix}<redacted>")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadiness> {
+    let env_path = runtime_env_file_path(runtime_root);
+    if !env_path.is_file() {
+        return Some(setup_readiness_summary(
+            "missing_config",
+            "Local config is missing. Codexify needs to create your runtime config.",
+            "Run the setup wizard to create .env for Local via Ollama.",
+            Some(format!("envPath={}", env_path.display())),
+        ));
+    }
+
+    let values = match read_env_file_ordered(&env_path) {
+        Ok((_order, values)) => values,
+        Err(err) => {
+            return Some(setup_readiness_summary(
+                "config_incomplete",
+                "Local config could not be read as dotenv config.",
+                "Run the setup wizard to repair .env.",
+                Some(err),
+            ))
+        }
+    };
+
+    let required = [
+        "GUARDIAN_API_KEY",
+        "AI_BACKEND",
+        "LLM_PROVIDER",
+        "LOCAL_BASE_URL",
+        "LOCAL_CHAT_MODEL",
+        "NEO4J_USER",
+        "NEO4J_PASS",
+    ];
+    let missing = required
+        .iter()
+        .filter(|key| is_placeholder_config_value(values.get(**key)))
+        .map(|key| key.to_string())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Some(setup_readiness_summary(
+            "config_incomplete",
+            "Local config is incomplete. Codexify needs to create or repair your runtime config.",
+            "Run the setup wizard to repair missing local beta config values.",
+            Some(format!("missingOrPlaceholderKeys={}", missing.join(","))),
+        ));
+    }
+
+    let ai_backend = values
+        .get("AI_BACKEND")
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    let llm_provider = values
+        .get("LLM_PROVIDER")
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    let mut conflicts = Vec::new();
+    if ai_backend == "local" {
+        conflicts.push("AI_BACKEND=local is invalid for the legacy setting");
+    }
+    if llm_provider == "ollama" {
+        conflicts.push("LLM_PROVIDER=ollama is invalid for the canonical provider lane");
+    }
+    if ai_backend != "ollama" {
+        conflicts.push("AI_BACKEND must be ollama");
+    }
+    if llm_provider != "local" {
+        conflicts.push("LLM_PROVIDER must be local");
+    }
+    if !conflicts.is_empty() {
+        return Some(setup_readiness_summary(
+            "config_conflict",
+            "Config conflict found. Current local setup requires Local via Ollama.",
+            "Repair config so AI_BACKEND=ollama and LLM_PROVIDER=local.",
+            Some(format!("conflicts={}", conflicts.join("; "))),
+        ));
+    }
+
+    None
+}
+
+fn run_simple_command(command: &mut Command) -> (bool, String) {
+    match command.output() {
+        Ok(output) => {
+            let detail = join_lines(
+                [normalize_output(&output.stdout), normalize_output(&output.stderr)]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+            );
+            (output.status.success(), truncate_chars(&detail, 1200))
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => (false, "not found".to_string()),
+        Err(err) => (false, err.to_string()),
+    }
+}
+
+fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetupReadiness {
+    let Some(runtime_root) = runtime.runtime_root_path() else {
+        return setup_readiness_summary(
+            "missing_config",
+            "Codexify could not resolve a local runtime root.",
+            "Run the setup wizard from a valid Codexify runtime.",
+            runtime.resolution_detail.clone(),
+        );
+    };
+
+    if let Some(config_state) = classify_config_readiness(runtime_root) {
+        return config_state;
+    }
+
+    let docker = match resolve_docker_binary(runtime) {
+        Ok(binary) => binary,
+        Err(probe) => {
+            return setup_readiness_summary(
+                "docker_missing",
+                "Docker is not installed or could not be found.",
+                "Install Docker Desktop, then retry.",
+                Some(probe.detail),
+            )
+        }
+    };
+
+    let (compose_ok, compose_detail) = run_simple_command(
+        spawn_docker_command(&docker, &["compose", "version"]).current_dir(runtime_root),
+    );
+    if !compose_ok {
+        return setup_readiness_summary(
+            "docker_compose_missing",
+            "Docker Compose is not available through the Docker CLI.",
+            "Install or update Docker Desktop, then retry.",
+            Some(compose_detail),
+        );
+    }
+
+    let (daemon_ok, daemon_detail) = run_simple_command(
+        spawn_docker_command(&docker, &["info", "--format", "{{json .ServerVersion}}"])
+            .current_dir(runtime_root),
+    );
+    if !daemon_ok {
+        return setup_readiness_summary(
+            "docker_not_running",
+            "Docker is installed, but the daemon is not running.",
+            "Open Docker Desktop, then retry.",
+            Some(daemon_detail),
+        );
+    }
+
+    let (ollama_cli_ok, ollama_cli_detail) =
+        run_simple_command(Command::new("ollama").arg("--version"));
+    if !ollama_cli_ok {
+        return setup_readiness_summary(
+            "ollama_missing",
+            "Ollama is not installed or could not be found.",
+            "Install Ollama, then retry.",
+            Some(ollama_cli_detail),
+        );
+    }
+
+    let (ollama_check, ollama_body) =
+        probe_http_endpoint_with_body("http://127.0.0.1:11434/api/tags", false);
+    if !ollama_check.ok {
+        return setup_readiness_summary(
+            "ollama_not_running",
+            "Ollama is installed, but it is not running.",
+            "Start Ollama, then retry.",
+            Some(ollama_check.detail.unwrap_or_else(|| "Ollama API did not respond.".to_string())),
+        );
+    }
+
+    if let Ok((_order, values)) = read_env_file_ordered(&runtime_env_file_path(runtime_root)) {
+        if let Some(model) = values.get("LOCAL_CHAT_MODEL").map(|value| value.trim()) {
+            let installed = ollama_body
+                .as_deref()
+                .and_then(parse_json_body)
+                .and_then(|payload| payload.get("models").cloned())
+                .and_then(|models| models.as_array().cloned())
+                .map(|models| {
+                    models.iter().any(|entry| {
+                        entry
+                            .get("name")
+                            .or_else(|| entry.get("model"))
+                            .and_then(|value| value.as_str())
+                            .map(|name| name == model)
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false);
+            if !installed {
+                return setup_readiness_summary(
+                    "model_missing",
+                    &format!("The selected Ollama model is not installed: {model}."),
+                    &format!("Install the model with `ollama pull {model}`, then retry."),
+                    None,
+                );
+            }
+        }
+    }
+
+    let (config_ok, config_detail) =
+        run_simple_command(&mut spawn_compose_command(&docker, runtime, runtime_root, &["config"]));
+    if !config_ok {
+        return setup_readiness_summary(
+            "compose_config_invalid",
+            "Docker Compose config is invalid.",
+            "Repair the compose/env configuration, then retry.",
+            Some(config_detail),
+        );
+    }
+
+    let (volumes_ok, volumes_detail) = run_simple_command(
+        spawn_docker_command(&docker, &["volume", "ls", "--format", "{{.Name}}"])
+            .current_dir(runtime_root),
+    );
+    if volumes_ok {
+        let volumes = volumes_detail
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("codexify"))
+            .collect::<Vec<_>>();
+        if !volumes.is_empty() {
+            return setup_readiness_summary(
+                "existing_volumes_detected",
+                "Existing Codexify data was found. No data was deleted.",
+                "Continue if this is expected, or back up/reset local beta data later. Reset is not implemented in this setup flow yet.",
+                Some(format!("volumes={}", volumes.join(","))),
+            );
+        }
+    }
+
+    let readiness = runtime_readiness_snapshot(Some(runtime));
+    if !readiness.backend_reachable {
+        return setup_readiness_summary(
+            "backend_not_running",
+            "Backend is not running.",
+            "Start the backend service, then retry.",
+            readiness.detail,
+        );
+    }
+    if !readiness.ready {
+        return setup_readiness_summary(
+            "backend_unhealthy",
+            "Backend is reachable but not healthy.",
+            "Check backend and worker health, then retry.",
+            readiness.detail,
+        );
+    }
+
+    let frontend_url = env_first(
+        &["CODEXIFY_DESKTOP_SHARE_BASE_URL"],
+        "http://127.0.0.1:5173",
+    );
+    let (frontend_check, _frontend_body) =
+        probe_http_endpoint_with_body(&trim_trailing_slash(&frontend_url), true);
+    if !frontend_check.ok {
+        return setup_readiness_summary(
+            "frontend_not_running",
+            "Frontend is not running.",
+            "Start the Web UI service.",
+            frontend_check.detail,
+        );
+    }
+
+    setup_readiness_summary(
+        "ready",
+        "Codexify local runtime is ready.",
+        "Open Codexify.",
+        Some("provider=Local via Ollama".to_string()),
+    )
+}
+
 fn launcher_startup_handoff_result(
     setup_complete: bool,
     runtime_profile: String,
     env_path: Option<String>,
     handoff_target: Option<String>,
     detail: String,
+    setup_readiness: Option<LauncherSetupReadiness>,
 ) -> LauncherStartupHandoff {
     let should_run_wizard = !setup_complete || handoff_target.is_none();
 
@@ -2960,10 +3325,12 @@ fn launcher_startup_handoff_result(
         env_path,
         handoff_target,
         detail,
+        setup_readiness,
     }
 }
 
 fn read_launcher_startup_handoff(runtime: &BootstrapRuntime) -> LauncherStartupHandoff {
+    let setup_readiness = Some(launcher_setup_readiness_snapshot(runtime));
     let candidates = launcher_startup_state_candidates(runtime);
     let fallback_profile = "unknown".to_string();
     let runtime_context = format!("runtimeContext={}", runtime.runtime_context.as_str());
@@ -2983,6 +3350,7 @@ fn read_launcher_startup_handoff(runtime: &BootstrapRuntime) -> LauncherStartupH
             format!(
                 "launcher startup state missing; run setup. {runtime_context}; runtimeHome={runtime_home}; runtimeRoot={runtime_root}"
             ),
+            setup_readiness,
         );
     };
 
@@ -2998,6 +3366,7 @@ fn read_launcher_startup_handoff(runtime: &BootstrapRuntime) -> LauncherStartupH
                 "failed to read launcher startup state at {}: {err}; run setup. {runtime_context}",
                 state_path.display()
             ),
+                setup_readiness,
             )
         }
     };
@@ -3014,6 +3383,7 @@ fn read_launcher_startup_handoff(runtime: &BootstrapRuntime) -> LauncherStartupH
                     "launcher startup state malformed at {}: {err}; run setup. {runtime_context}",
                     state_path.display()
                 ),
+                setup_readiness,
             )
         }
     };
@@ -3061,6 +3431,7 @@ fn read_launcher_startup_handoff(runtime: &BootstrapRuntime) -> LauncherStartupH
             handoff_target
         },
         status_detail,
+        setup_readiness,
     )
 }
 
