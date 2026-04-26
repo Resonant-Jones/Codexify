@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-03-23
+Last updated: 2026-04-26
 Source anchors:
 - Makefile
 - package.json
@@ -151,6 +151,14 @@ Source anchors:
 | `VITE_PROXY_TARGET` | Frontend dev proxy target in Compose | `docker-compose.yml` |
 | desktop backend/share envs | Tauri can inject backend/share base URLs at runtime | `src-tauri/src/commands.rs`, `frontend/src/lib/runtimeConfig.ts` |
 | browser-stored overrides | Desktop/web runtime can be overridden by local storage keys | `frontend/src/lib/runtimeConfig.ts` |
+
+### Desktop first-run setup readiness
+
+- The desktop launcher/setup wizard now classifies local first-run readiness into explicit states such as missing or incomplete config, Docker/Ollama availability, selected Ollama model availability, Compose config validity, existing Codexify volumes, backend/frontend availability, and ready.
+- Native bridge failures in the desktop shell are classified separately from Docker preflight failures so browser-mode or Tauri bridge import problems do not masquerade as a missing Docker installation.
+- The wizard/launcher presents the user-facing local provider posture as “Local via Ollama.”
+- The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`, with `LOCAL_BASE_URL=http://host.docker.internal:11434` for the Docker Compose runtime.
+- Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
 
 ## Config Resolution Order and Defaults
 

@@ -63,6 +63,7 @@ import {
   readDesktopStartupRoutingDecision,
   type DesktopStartupRoutingStatus,
   type DesktopStartupRoutingDecision,
+  type LauncherSetupReadiness,
 } from "./lib/runtimeConfig";
 
 /**
@@ -414,11 +415,22 @@ function DesktopStartupRoutingGate({
 
 function DesktopStartupRecoveryGate({
   detail,
+  setupReadiness,
   onOpenBootstrapPath,
 }: {
   detail: string | null;
+  setupReadiness: LauncherSetupReadiness | null;
   onOpenBootstrapPath: () => void;
 }) {
+  const stateLabel = setupReadiness?.state?.replace(/_/g, " ") ?? "setup unknown";
+  const explanation =
+    setupReadiness?.explanation ??
+    "Codexify could not read or refresh a launcher setup readiness result yet.";
+  const recommendedAction =
+    setupReadiness?.recommendedAction ??
+    "Use Retry setup checks to rerun the launcher handoff and readiness checks from the desktop app.";
+  const details = setupReadiness?.details ?? detail;
+
   return (
     <div className="flex min-h-screen w-full items-center justify-center p-6 sm:p-8">
       <div className="absolute inset-0 bg-black/35 backdrop-blur-xl" />
@@ -451,21 +463,42 @@ function DesktopStartupRecoveryGate({
         <div className="space-y-4 px-6 py-7 sm:px-8 sm:py-9">
           <div className="space-y-3">
             <h1 className="text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">
-              Configured, but the local runtime is not ready
+              {stateLabel}
             </h1>
             <p
               className="max-w-xl text-sm leading-6 sm:text-[15px]"
               style={{ color: "var(--muted)" }}
             >
-              Codexify has launcher state, but it cannot hand off to a ready
-              local runtime yet.
+              {explanation}
             </p>
-            <p
-              className="max-w-xl text-xs leading-6"
-              style={{ color: "var(--muted)" }}
+            <div
+              className="rounded-[18px] border px-4 py-3 text-sm leading-6"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "rgba(255,255,255,0.04)",
+                color: "var(--text)",
+              }}
             >
-              {detail || "The desktop runtime is unavailable right now."}
-            </p>
+              <div
+                className="text-xs uppercase tracking-[0.18em]"
+                style={{ color: "var(--muted)" }}
+              >
+                Recommended next action
+              </div>
+              <p className="mt-1">{recommendedAction}</p>
+            </div>
+            {details ? (
+              <pre
+                className="max-h-44 overflow-auto whitespace-pre-wrap rounded-[16px] border px-4 py-3 text-xs leading-5"
+                style={{
+                  borderColor: "var(--panel-border)",
+                  background: "rgba(0,0,0,0.18)",
+                  color: "var(--muted)",
+                }}
+              >
+                {details}
+              </pre>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -474,10 +507,10 @@ function DesktopStartupRecoveryGate({
               className="rounded-full px-5"
               onClick={onOpenBootstrapPath}
             >
-              Return to bootstrap path
+              Retry setup checks
             </Button>
             <p className="text-sm" style={{ color: "var(--muted)" }}>
-              Use the existing bootstrap flow to retry setup and startup.
+              This reruns the existing non-destructive setup/startup checks.
             </p>
           </div>
         </div>
@@ -1239,9 +1272,11 @@ export default function App() {
     });
   }, [appendDiagnostics, bootstrapState, runBootstrapFlow, runStartupOrchestration]);
 
-  const handleOpenBootstrapPath = React.useCallback(() => {
-    setDesktopRecoveryRequested(true);
-    setBootstrapPhase("bootstrap");
+  const handleOpenBootstrapPath = React.useCallback(async () => {
+    const decision = await readDesktopStartupRoutingDecision();
+    if (decision) {
+      setDesktopStartupRouting(decision);
+    }
   }, []);
 
   const startupLocked = bootstrapEnabled && bootstrapPhase !== "unlocked";
@@ -1273,6 +1308,7 @@ export default function App() {
     return (
       <DesktopStartupRecoveryGate
         detail={desktopStartupRouting?.detail ?? null}
+        setupReadiness={desktopStartupRouting?.setupReadiness ?? null}
         onOpenBootstrapPath={handleOpenBootstrapPath}
       />
     );

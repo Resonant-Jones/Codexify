@@ -21,6 +21,14 @@ export type LauncherStartupHandoff = {
   envPath: string | null;
   handoffTarget: string | null;
   detail: string;
+  setupReadiness: LauncherSetupReadiness | null;
+};
+
+export type LauncherSetupReadiness = {
+  state: string;
+  explanation: string;
+  recommendedAction: string;
+  details: string | null;
 };
 
 export type DesktopStartupRoutingStatus =
@@ -35,6 +43,7 @@ export type DesktopStartupRoutingDecision = {
   setupComplete: boolean;
   handoffTarget: string | null;
   detail: string;
+  setupReadiness: LauncherSetupReadiness | null;
 };
 
 const DESKTOP_BACKEND_STORAGE_KEY = "cfy.desktop.backendBaseUrl";
@@ -49,6 +58,17 @@ type TauriCoreApi = {
     payload?: Record<string, unknown>
   ) => Promise<T>;
 };
+
+export const NATIVE_BRIDGE_FAILURE_KIND = "native-bridge-unavailable" as const;
+
+export class NativeBridgeUnavailableError extends Error {
+  readonly code = NATIVE_BRIDGE_FAILURE_KIND;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "NativeBridgeUnavailableError";
+  }
+}
 
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
@@ -86,6 +106,10 @@ function normalizeNullableText(value: unknown): string | null {
   return normalized || null;
 }
 
+function asBoolean(value: unknown): boolean {
+  return value === true;
+}
+
 function normalizeRuntimeProfile(value: unknown): string {
   return normalizeNullableText(value) ?? "unknown";
 }
@@ -116,13 +140,29 @@ function resolveDesktopStartupRoutingDetail(
       "desktop launcher is configured, but the local runtime is not ready",
     "ready-handoff": "desktop launcher handoff is ready",
     "launcher-unavailable":
-      "desktop launcher startup state is unavailable",
+      "Codexify could not read or refresh launcher setup readiness yet. Retry setup checks from the desktop launcher and review Docker, Ollama, config, backend, and frontend readiness.",
   };
 
   return (
     normalizeNullableText(handoff?.detail) ??
     canonicalDetailByStatus[status]
   );
+}
+
+function buildDesktopStartupRoutingDecision(
+  handoff: LauncherStartupHandoff | null
+): DesktopStartupRoutingDecision | null {
+  if (!handoff) return null;
+
+  const status = resolveDesktopStartupRoutingStatus(handoff);
+  return {
+    status,
+    shouldRunWizard: status === "setup-incomplete",
+    setupComplete: handoff.setupComplete,
+    handoffTarget: handoff.handoffTarget,
+    detail: resolveDesktopStartupRoutingDetail(status, handoff),
+    setupReadiness: handoff.setupReadiness,
+  };
 }
 
 export function isTauriRuntime(): boolean {
@@ -143,10 +183,18 @@ function readInjectedTauriCore(): TauriCoreApi | null {
 async function loadTauriCore(): Promise<TauriCoreApi> {
   const injected = readInjectedTauriCore();
   if (injected) return injected;
-  const imported = (await new Function(
-    'return import("@tauri-apps/api/core")'
-  )()) as TauriCoreApi;
-  return imported;
+  try {
+    const imported = (await new Function(
+      'return import("@tauri-apps/api/core")'
+    )()) as TauriCoreApi;
+    return imported;
+  } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.message
+        : String(error ?? "Unknown native bridge import error");
+    throw new NativeBridgeUnavailableError(detail);
+  }
 }
 
 function normalizeLauncherStartupHandoff(
@@ -162,6 +210,22 @@ function normalizeLauncherStartupHandoff(
   const shouldRunWizard =
     asBoolean(source.shouldRunWizard) || !setupComplete || !handoffTarget;
   const detail = normalizeNullableText(source.detail);
+  const readinessSource =
+    source.setupReadiness && typeof source.setupReadiness === "object"
+      ? (source.setupReadiness as Record<string, unknown>)
+      : null;
+  const setupReadiness = readinessSource
+    ? {
+        state: normalizeNullableText(readinessSource.state) ?? "unknown",
+        explanation:
+          normalizeNullableText(readinessSource.explanation) ??
+          "Codexify is checking local setup readiness.",
+        recommendedAction:
+          normalizeNullableText(readinessSource.recommendedAction) ??
+          "Retry setup after checking local services.",
+        details: normalizeNullableText(readinessSource.details),
+      }
+    : null;
 
   return {
     shouldRunWizard,
@@ -174,6 +238,7 @@ function normalizeLauncherStartupHandoff(
       (shouldRunWizard
         ? "launcher startup state favors wizard/recovery"
         : "launcher startup state resolved"),
+    setupReadiness,
   };
 }
 
@@ -194,24 +259,18 @@ export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartu
   if (!isTauriRuntime()) return null;
 
   const handoff = await readDesktopLauncherStartupHandoff();
-  const status = resolveDesktopStartupRoutingStatus(handoff);
-  if (!handoff) {
-    return {
-      status,
-      shouldRunWizard: false,
-      setupComplete: false,
-      handoffTarget: null,
-      detail: resolveDesktopStartupRoutingDetail(status, handoff),
-    };
+  const decision = buildDesktopStartupRoutingDecision(handoff);
+  if (!handoff || handoff.setupReadiness) {
+    return decision;
   }
 
-  return {
-    status,
-    shouldRunWizard: status === "setup-incomplete",
-    setupComplete: handoff.setupComplete,
-    handoffTarget: handoff.handoffTarget,
-    detail: resolveDesktopStartupRoutingDetail(status, handoff),
-  };
+  const refreshedHandoff = await readDesktopLauncherStartupHandoff();
+  const refreshedDecision = buildDesktopStartupRoutingDecision(refreshedHandoff);
+  if (refreshedDecision?.setupReadiness) {
+    return refreshedDecision;
+  }
+
+  return refreshedDecision ?? decision;
 }
 
 function readDesktopStorage(key: string): string {
@@ -527,7 +586,9 @@ export async function invokeTauriCommand<T = unknown>(
   payload?: Record<string, unknown>
 ): Promise<T> {
   if (!isTauriRuntime()) {
-    throw new Error("Tauri command invocation requested outside desktop runtime");
+    throw new NativeBridgeUnavailableError(
+      "Tauri native bridge is unavailable outside the desktop runtime."
+    );
   }
   const core = await loadTauriCore();
   return core.invoke<T>(command, payload);
