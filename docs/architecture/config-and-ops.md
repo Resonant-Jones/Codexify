@@ -155,6 +155,7 @@ Source anchors:
 ### Desktop first-run setup readiness
 
 - The desktop launcher/setup wizard now classifies local first-run readiness into explicit states such as missing or incomplete config, Docker/Ollama availability, selected Ollama model availability, Compose config validity, existing Codexify volumes, backend/frontend availability, and ready.
+- Native bridge failures in the desktop shell are classified separately from Docker preflight failures so browser-mode or Tauri bridge import problems do not masquerade as a missing Docker installation.
 - The wizard/launcher presents the user-facing local provider posture as “Local via Ollama.”
 - The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`, with `LOCAL_BASE_URL=http://host.docker.internal:11434` for the Docker Compose runtime.
 - Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
