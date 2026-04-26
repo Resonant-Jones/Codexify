@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   initRuntimeConfig,
+  readDesktopStartupRoutingDecision,
   resolveApiUrl,
   resolveSseEndpoint,
 } from "@/lib/runtimeConfig";
@@ -12,7 +13,22 @@ describe("runtime config", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     invokeMock.mockReset();
-    localStorage.clear();
+    const storage = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      value: {
+        getItem: vi.fn((key: string) => storage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          storage.set(key, value);
+        }),
+        removeItem: vi.fn((key: string) => {
+          storage.delete(key);
+        }),
+        clear: vi.fn(() => {
+          storage.clear();
+        }),
+      },
+      configurable: true,
+    });
     delete (window as any).__TAURI_IPC__;
     delete (window as any).__TAURI_INTERNALS__;
     delete (window as any).__CFY_TAURI_CORE__;
@@ -74,5 +90,32 @@ describe("runtime config", () => {
     expect(config.apiBaseUrl).toBe("http://127.0.0.1:7777/api");
     expect(config.sseUrl).toBe("http://127.0.0.1:7777/api/events");
     expect(config.sharePublicBaseUrl).toBe("https://public.example");
+  });
+
+  it("normalizes desktop setup readiness diagnostics", async () => {
+    (window as any).__TAURI_IPC__ = {};
+    (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
+    invokeMock.mockResolvedValue({
+      shouldRunWizard: true,
+      setupComplete: true,
+      runtimeProfile: "local",
+      envPath: "/tmp/.env",
+      handoffTarget: null,
+      detail: "launcher handoff missing",
+      setupReadiness: {
+        state: "docker_not_running",
+        explanation: "Docker is installed, but the daemon is not running.",
+        recommendedAction: "Open Docker Desktop, then retry.",
+        details: "docker info failed",
+      },
+    });
+
+    const decision = await readDesktopStartupRoutingDecision();
+
+    expect(decision?.status).toBe("runtime-unavailable");
+    expect(decision?.setupReadiness?.state).toBe("docker_not_running");
+    expect(decision?.setupReadiness?.recommendedAction).toBe(
+      "Open Docker Desktop, then retry."
+    );
   });
 });
