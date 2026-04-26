@@ -140,13 +140,29 @@ function resolveDesktopStartupRoutingDetail(
       "desktop launcher is configured, but the local runtime is not ready",
     "ready-handoff": "desktop launcher handoff is ready",
     "launcher-unavailable":
-      "Local setup readiness is unavailable. Run setup checks from the desktop launcher and review Docker, Ollama, config, backend, and frontend readiness.",
+      "Codexify could not read or refresh launcher setup readiness yet. Retry setup checks from the desktop launcher and review Docker, Ollama, config, backend, and frontend readiness.",
   };
 
   return (
     normalizeNullableText(handoff?.detail) ??
     canonicalDetailByStatus[status]
   );
+}
+
+function buildDesktopStartupRoutingDecision(
+  handoff: LauncherStartupHandoff | null
+): DesktopStartupRoutingDecision | null {
+  if (!handoff) return null;
+
+  const status = resolveDesktopStartupRoutingStatus(handoff);
+  return {
+    status,
+    shouldRunWizard: status === "setup-incomplete",
+    setupComplete: handoff.setupComplete,
+    handoffTarget: handoff.handoffTarget,
+    detail: resolveDesktopStartupRoutingDetail(status, handoff),
+    setupReadiness: handoff.setupReadiness,
+  };
 }
 
 export function isTauriRuntime(): boolean {
@@ -243,26 +259,18 @@ export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartu
   if (!isTauriRuntime()) return null;
 
   const handoff = await readDesktopLauncherStartupHandoff();
-  const status = resolveDesktopStartupRoutingStatus(handoff);
-  if (!handoff) {
-    return {
-      status,
-      shouldRunWizard: false,
-      setupComplete: false,
-      handoffTarget: null,
-      detail: resolveDesktopStartupRoutingDetail(status, handoff),
-      setupReadiness: null,
-    };
+  const decision = buildDesktopStartupRoutingDecision(handoff);
+  if (!handoff || handoff.setupReadiness) {
+    return decision;
   }
 
-  return {
-    status,
-    shouldRunWizard: status === "setup-incomplete",
-    setupComplete: handoff.setupComplete,
-    handoffTarget: handoff.handoffTarget,
-    detail: resolveDesktopStartupRoutingDetail(status, handoff),
-    setupReadiness: handoff.setupReadiness,
-  };
+  const refreshedHandoff = await readDesktopLauncherStartupHandoff();
+  const refreshedDecision = buildDesktopStartupRoutingDecision(refreshedHandoff);
+  if (refreshedDecision?.setupReadiness) {
+    return refreshedDecision;
+  }
+
+  return refreshedDecision ?? decision;
 }
 
 function readDesktopStorage(key: string): string {
