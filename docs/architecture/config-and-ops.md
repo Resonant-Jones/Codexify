@@ -5,6 +5,7 @@ Source anchors:
 - package.json
 - frontend/src/package.json
 - docker-compose.yml
+- docker-compose.runtime.yml
 - guardian/guardian_api.py
 - guardian/core/
 - guardian/config/
@@ -159,6 +160,14 @@ Source anchors:
 - The wizard/launcher presents the user-facing local provider posture as “Local via Ollama.”
 - The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`, with `LOCAL_BASE_URL=http://host.docker.internal:11434` for the Docker Compose runtime.
 - Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
+
+### Packaged launcher and runtime distribution contract
+
+- The DMG installs `Codexify.app`, which contains the Tauri launcher, setup wizard, bundled frontend, and native command layer.
+- Packaged first-run uses registry-backed Docker images for Codexify services instead of building local runtime images from source on the user’s machine.
+- Source/dev installs may still use the repository Compose path and local build workflow.
+- The launcher/wizard is responsible for creating local config, validating Compose, pulling the registry-backed runtime images, and starting services in the packaged path.
+- Packaged first-run users should not need Rust, pnpm, Python dev tooling, or a source checkout to reach a usable local runtime.
 
 ## Config Resolution Order and Defaults
 
