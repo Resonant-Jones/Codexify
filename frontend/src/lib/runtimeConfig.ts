@@ -21,6 +21,14 @@ export type LauncherStartupHandoff = {
   envPath: string | null;
   handoffTarget: string | null;
   detail: string;
+  setupReadiness: LauncherSetupReadiness | null;
+};
+
+export type LauncherSetupReadiness = {
+  state: string;
+  explanation: string;
+  recommendedAction: string;
+  details: string | null;
 };
 
 export type DesktopStartupRoutingStatus =
@@ -35,6 +43,7 @@ export type DesktopStartupRoutingDecision = {
   setupComplete: boolean;
   handoffTarget: string | null;
   detail: string;
+  setupReadiness: LauncherSetupReadiness | null;
 };
 
 const DESKTOP_BACKEND_STORAGE_KEY = "cfy.desktop.backendBaseUrl";
@@ -86,6 +95,10 @@ function normalizeNullableText(value: unknown): string | null {
   return normalized || null;
 }
 
+function asBoolean(value: unknown): boolean {
+  return value === true;
+}
+
 function normalizeRuntimeProfile(value: unknown): string {
   return normalizeNullableText(value) ?? "unknown";
 }
@@ -116,7 +129,7 @@ function resolveDesktopStartupRoutingDetail(
       "desktop launcher is configured, but the local runtime is not ready",
     "ready-handoff": "desktop launcher handoff is ready",
     "launcher-unavailable":
-      "desktop launcher startup state is unavailable",
+      "Local setup readiness is unavailable. Run setup checks from the desktop launcher and review Docker, Ollama, config, backend, and frontend readiness.",
   };
 
   return (
@@ -162,6 +175,22 @@ function normalizeLauncherStartupHandoff(
   const shouldRunWizard =
     asBoolean(source.shouldRunWizard) || !setupComplete || !handoffTarget;
   const detail = normalizeNullableText(source.detail);
+  const readinessSource =
+    source.setupReadiness && typeof source.setupReadiness === "object"
+      ? (source.setupReadiness as Record<string, unknown>)
+      : null;
+  const setupReadiness = readinessSource
+    ? {
+        state: normalizeNullableText(readinessSource.state) ?? "unknown",
+        explanation:
+          normalizeNullableText(readinessSource.explanation) ??
+          "Codexify is checking local setup readiness.",
+        recommendedAction:
+          normalizeNullableText(readinessSource.recommendedAction) ??
+          "Retry setup after checking local services.",
+        details: normalizeNullableText(readinessSource.details),
+      }
+    : null;
 
   return {
     shouldRunWizard,
@@ -174,6 +203,7 @@ function normalizeLauncherStartupHandoff(
       (shouldRunWizard
         ? "launcher startup state favors wizard/recovery"
         : "launcher startup state resolved"),
+    setupReadiness,
   };
 }
 
@@ -202,6 +232,7 @@ export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartu
       setupComplete: false,
       handoffTarget: null,
       detail: resolveDesktopStartupRoutingDetail(status, handoff),
+      setupReadiness: null,
     };
   }
 
@@ -211,6 +242,7 @@ export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartu
     setupComplete: handoff.setupComplete,
     handoffTarget: handoff.handoffTarget,
     detail: resolveDesktopStartupRoutingDetail(status, handoff),
+    setupReadiness: handoff.setupReadiness,
   };
 }
 
