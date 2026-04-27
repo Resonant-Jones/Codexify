@@ -168,6 +168,10 @@ Source anchors:
 - Source/dev installs may still use the repository Compose path and local build workflow.
 - The launcher/wizard is responsible for creating local config, validating Compose, pulling the registry-backed runtime images, and starting services in the packaged path.
 - Packaged first-run users should not need Rust, pnpm, Python dev tooling, or a source checkout to reach a usable local runtime.
+- The backend registry image now has a compiled/frozen proof target built with PyInstaller at `backend/compiled_backend_entry.py`.
+- The proof target lives in `backend/Dockerfile` as `compiled-runtime` and keeps the source-backed runtime stage intact for dev and legacy Compose paths.
+- The proof image is intentionally backend-only for now; workers and migrator still remain source-backed in the existing Docker path until they are proven separately.
+- The proof image still ships a small set of non-source runtime files needed by startup, including supported-profile YAML and bundled help content.
 
 ## Config Resolution Order and Defaults
 
