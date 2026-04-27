@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-16
 **Scope:** Repo-wide inventory of every dependency edge tied to the removed legacy `/api/tools` compatibility shim. The bare `/tools` mount has been removed from the primary app, and the shim route code was deleted in the final excision pass.
-**Status:** Runtime shim and live `ToolJob` ORM surface were removed in this task. The tables below are retained as historical removal evidence only; upgraded databases may still carry the historical `tool_jobs` table until a separate schema-drop migration is chosen.
+**Status:** Runtime shim and live `ToolJob` ORM surface were removed in the prior task. The dedicated cleanup migration now drops the historical `tool_jobs` table on upgrade; the tables below remain historical removal evidence and downgrade reference only.
 **Method:** Grep-driven evidence collection. No runtime behavior changed.
 
 ---
@@ -117,7 +117,7 @@ const response = await api.post("/tools/execute", {
 
 **Historical usage:** lived only in deleted `guardian/routes/tools.py` during the legacy shim era.
 
-**Classification:** `historical migration truth` — the ORM model is gone, but upgraded databases may still retain the old table until a dedicated drop migration is applied.
+**Classification:** `historical migration truth` — the ORM model is gone, the cleanup revision drops the live table on upgrade, and downgrade recreates the historical shape for rollback continuity.
 
 ### 5.2 In-memory `JOBS` dict
 
@@ -245,8 +245,8 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 
 5. **`tool_jobs` table**:
    - The ORM model is gone.
-   - The historical migration remains for upgrade history.
-   - If the physical table should be dropped from live databases, do that in a dedicated schema-drop migration after confirming the rollback story you want to preserve.
+   - The historical migration remains as rollback history.
+   - The dedicated cleanup revision now drops the physical table on upgrade and recreates the historical shape on downgrade.
 
 ### Minimum safe deletion sequence
 
@@ -254,7 +254,7 @@ The shim does **not** define its own `CommandBusStore` — it borrows the one fr
 2. **Remove route registrations** — completed in this task.
 3. **Delete `guardian/routes/tools.py`** — completed in this task.
 4. **Audit and consolidate `guardian/tools/`** — move or delete any remaining live utilities if separate consumers still need them.
-5. **Decide on `tool_jobs` table drop** — the runtime model is gone; any physical table removal should happen in a dedicated schema migration if desired.
+5. **Track the cleanup revision** — the runtime model is gone, and the physical table is now removed on upgrade while remaining recoverable on downgrade for rollback continuity.
 6. **Delete `guardian/server/tools_api.py`** and clean up `guardian/server/app.py` tools references if/when that legacy entry point becomes part of the supported path review.
 7. **Update architecture docs** — keep historical removal records accurate and remove any stale runtime claims.
 
