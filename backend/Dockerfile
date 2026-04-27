@@ -187,7 +187,7 @@ FROM runtime AS tts-runtime
 # Copy the site-packages tree with pinned TTS dependency graph.
 COPY --from=builder-tts /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages
 
-# === Compiled backend proof stage: build a frozen artifact for the API entrypoint ===
+# === Compiled runtime build stage: build a frozen artifact for runtime roles ===
 FROM builder AS compiled-builder
 
 WORKDIR /src
@@ -199,14 +199,15 @@ COPY backend /src/backend
 COPY config /src/config
 COPY docs/builtin-help /src/docs/builtin-help
 COPY packaging/pyinstaller /src/packaging/pyinstaller
+COPY pyinstaller_shared.py /src/pyinstaller_shared.py
 
 RUN mkdir -p /src/guardian/contracts && \
     cp /src/guardian/contracts.py /src/guardian/contracts/__init__.py
 
 RUN python -m pip install pyinstaller
-RUN pyinstaller /src/packaging/pyinstaller/codexify_backend.spec --noconfirm --clean --distpath /src/build/dist --workpath /src/build/work
+RUN pyinstaller /src/packaging/pyinstaller/codexify_runtime.spec --noconfirm --clean --distpath /src/build/dist --workpath /src/build/work
 
-# === Compiled backend runtime proof image ===
+# === Compiled runtime image ===
 FROM dhi.io/python:3.11.14-debian13-dev AS compiled-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -221,10 +222,24 @@ WORKDIR /app
 
 RUN mkdir -p /home/codexify
 
-COPY --from=compiled-builder /src/build/dist/codexify-backend /app/runtime
+COPY --from=compiled-builder /src/build/dist/codexify-runtime/ /app/runtime/
+RUN ln -s /app/runtime/codexify-runtime /app/runtime/codexify-backend
+COPY backend/alembic.ini /app/runtime/alembic.ini
+COPY guardian/db/migrations /app/runtime/migrations
 COPY config /app/config
 COPY docs/builtin-help /app/docs/builtin-help
+RUN python - <<'PY'
+from pathlib import Path
+
+cfg = Path("/app/runtime/alembic.ini")
+text = cfg.read_text(encoding="utf-8")
+text = text.replace(
+    "script_location = %(here)s/../guardian/db/migrations",
+    "script_location = %(here)s/migrations",
+)
+cfg.write_text(text, encoding="utf-8")
+PY
 
 EXPOSE 8888
 
-ENTRYPOINT ["/app/runtime/codexify-backend"]
+ENTRYPOINT ["/app/runtime/codexify-runtime"]

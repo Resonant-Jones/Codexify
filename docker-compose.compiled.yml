@@ -1,7 +1,39 @@
 name: codexify
 
+x-runtime-image: &runtime_image codexify-runtime-compiled:local
+
 services:
+  migrator:
+    image: *runtime_image
+    entrypoint: ["/app/runtime/codexify-runtime"]
+    command: ["migrator"]
+
+  model-prep:
+    image: *runtime_image
+    entrypoint: ["/app/runtime/codexify-runtime"]
+    command: ["model-prep"]
+
   backend:
-    image: codexify-runtime-compiled:local
-    entrypoint: ["/app/runtime/codexify-backend"]
-    command: []
+    image: *runtime_image
+    entrypoint: ["/app/runtime/codexify-runtime"]
+    command: ["backend"]
+
+  worker-warmup:
+    image: *runtime_image
+    entrypoint: ["/app/runtime/codexify-runtime"]
+    command: ["worker-warmup"]
+
+  worker-chat:
+    image: *runtime_image
+    entrypoint: ["/app/runtime/codexify-runtime"]
+    command: ["worker-chat"]
+
+  worker-document-embed:
+    image: *runtime_image
+    entrypoint: ["/app/runtime/codexify-runtime"]
+    command: ["worker-document-embed"]
+
+  worker-chat-embed:
+    image: *runtime_image
+    entrypoint: ["/app/runtime/codexify-runtime"]
+    command: ["worker-chat-embed"]

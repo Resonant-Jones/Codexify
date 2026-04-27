@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-04-26
+Last updated: 2026-04-27
 Source anchors:
 - Makefile
 - package.json
@@ -170,8 +170,11 @@ Source anchors:
 - Packaged first-run users should not need Rust, pnpm, Python dev tooling, or a source checkout to reach a usable local runtime.
 - The backend registry image now has a compiled/frozen proof target built with PyInstaller at `backend/compiled_backend_entry.py`.
 - The proof target lives in `backend/Dockerfile` as `compiled-runtime` and keeps the source-backed runtime stage intact for dev and legacy Compose paths.
-- The proof image is intentionally backend-only for now; workers and migrator still remain source-backed in the existing Docker path until they are proven separately.
-- The proof image still ships a small set of non-source runtime files needed by startup, including supported-profile YAML and bundled help content.
+- The packaged runtime is now moving to a single compiled dispatcher image at `ghcr.io/resonant-jones/codexify-runtime:<tag>`, with role-specific commands for backend, migrator, and workers.
+- The backend role is compiled and proven; migrator and worker roles are wired to the same dispatcher but still need end-to-end runtime proof before we can call the full stack done.
+- The compiled runtime image ships only runtime-owned resources: supported-profile YAML, bundled help content, Alembic config, and Alembic migration files copied under `/app/runtime`.
+- The final image intentionally omits raw `/app/backend`, `/app/guardian`, and `/app/tests` source trees.
+- Frontend remains bundled by Tauri in packaged desktop mode and is not part of the compiled Python runtime image.
 
 ## Config Resolution Order and Defaults
 

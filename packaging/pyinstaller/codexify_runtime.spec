@@ -7,13 +7,13 @@ from PyInstaller.building.build_main import Analysis, COLLECT, EXE, PYZ
 ROOT = Path.cwd()
 sys.path.insert(0, str(ROOT))
 
-from pyinstaller_shared import backend_hiddenimports, common_datas, repo_root
+from pyinstaller_shared import common_datas, repo_root, runtime_hiddenimports
 
 datas = common_datas(repo_root())
-hiddenimports = backend_hiddenimports()
+hiddenimports = runtime_hiddenimports()
 
 a = Analysis(
-    [str(repo_root() / "backend" / "compiled_backend_entry.py")],
+    [str(repo_root() / "backend" / "compiled_runtime_entry.py")],
     pathex=[str(repo_root())],
     binaries=[],
     datas=datas,
@@ -30,7 +30,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="codexify-backend",
+    name="codexify-runtime",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -50,5 +50,5 @@ COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="codexify-backend",
+    name="codexify-runtime",
 )
