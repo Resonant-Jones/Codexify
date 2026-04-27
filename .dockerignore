@@ -55,6 +55,8 @@ venv
 /data
 /docker
 /docs
+!docs/builtin-help/
+!docs/builtin-help/**
 /frontend
 /models
 /src-tauri
