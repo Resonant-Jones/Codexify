@@ -4,15 +4,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping
+import json
+from typing import Any, Mapping, Sequence
 
+from guardian.command_bus.contracts import CapabilityManualDispatchResult
 from guardian.extensions.tokens import (
     CapabilityEntryProvenanceClass,
     CapabilityRegistryStatus,
+    CapabilityReinjectionResultShape,
+    CapabilityReinjectionSource,
+    CapabilityResultReinjectionOutcome,
     ExtensionInstallBindingScope,
     ExtensionInstallBindingStatus,
     InstallGateDecisionToken,
     normalize_capability_entry_provenance_class,
+    normalize_capability_reinjection_failure_reason,
+    normalize_capability_reinjection_result_shape,
+    normalize_capability_reinjection_source,
+    normalize_capability_result_reinjection_outcome,
     normalize_capability_registry_status,
     normalize_extension_install_binding_scope,
     normalize_extension_install_binding_status,
@@ -36,6 +45,46 @@ def _clean_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
     if not value:
         return {}
     return {str(key): item for key, item in dict(value).items()}
+
+
+def _canonical_json_payload(value: Any) -> Any:
+    return json.loads(json.dumps(value, sort_keys=True, default=str))
+
+
+def _permission_sort_key(
+    permission: ExtensionRequestedPermission,
+) -> tuple[str, str, str, str]:
+    metadata_json = json.dumps(
+        permission.metadata, sort_keys=True, default=str, separators=(",", ":")
+    )
+    return (
+        permission.permission,
+        permission.resource or "",
+        permission.reason or "",
+        metadata_json,
+    )
+
+
+def _normalize_permission_snapshot(
+    permissions: Sequence[
+        ExtensionRequestedPermission | Mapping[str, Any]
+    ] | None,
+) -> tuple[ExtensionRequestedPermission, ...]:
+    if permissions is None:
+        return ()
+    normalized: list[ExtensionRequestedPermission] = []
+    for item in permissions:
+        if isinstance(item, ExtensionRequestedPermission):
+            normalized.append(item)
+            continue
+        if isinstance(item, Mapping):
+            normalized.append(ExtensionRequestedPermission.from_payload(item))
+            continue
+        raise ValueError(
+            "permissions must be extension permission records or mappings"
+        )
+    normalized.sort(key=_permission_sort_key)
+    return tuple(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1306,6 +1355,460 @@ class EffectiveCapabilitySnapshot:
         )
 
 
+def _coerce_manual_dispatch_result(
+    value: CapabilityManualDispatchResult | Mapping[str, Any]
+) -> CapabilityManualDispatchResult:
+    if isinstance(value, CapabilityManualDispatchResult):
+        return value
+    if isinstance(value, Mapping):
+        return CapabilityManualDispatchResult.model_validate(dict(value))
+    raise ValueError(
+        "manual_dispatch_result must be a capability manual dispatch result"
+    )
+
+
+def _coerce_manifest_snapshot(
+    value: ExtensionProposalManifest | Mapping[str, Any] | None,
+) -> ExtensionProposalManifest | None:
+    if value is None:
+        return None
+    if isinstance(value, ExtensionProposalManifest):
+        return value
+    if isinstance(value, Mapping):
+        return ExtensionProposalManifest.from_payload(value)
+    raise ValueError("manifest snapshot must be a manifest payload")
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityResultReinjectionRequest:
+    """Request contract for reinjecting one manual capability dispatch result."""
+
+    account_id: str
+    manual_dispatch_result: CapabilityManualDispatchResult | Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        object.__setattr__(
+            self,
+            "manual_dispatch_result",
+            _coerce_manual_dispatch_result(self.manual_dispatch_result),
+        )
+
+    @property
+    def proposal_id(self) -> str:
+        return self.manual_dispatch_result.proposal_id
+
+    @property
+    def registry_entry_id(self) -> str:
+        return self.manual_dispatch_result.registry_entry_id
+
+    @property
+    def effective_binding_id(self) -> str:
+        return self.manual_dispatch_result.effective_binding_id
+
+    @property
+    def resolved_from_scope_token(self) -> str:
+        return self.manual_dispatch_result.resolved_from_scope_token
+
+    @property
+    def manual_dispatch_id(self) -> str:
+        return self.manual_dispatch_result.manual_dispatch_id
+
+    @property
+    def command_bus_run_id(self) -> str | None:
+        return self.manual_dispatch_result.command_bus_run_id
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "manual_dispatch_result_json": self.manual_dispatch_result.to_payload(),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityResultReinjectionRequest:
+        data = dict(payload or {})
+        manual_dispatch_payload = data.get("manual_dispatch_result_json")
+        if not isinstance(manual_dispatch_payload, Mapping):
+            manual_dispatch_payload = data.get("manual_dispatch_result") or {}
+        return cls(
+            account_id=data.get("account_id") or "",
+            manual_dispatch_result=manual_dispatch_payload,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityReinjectedOutput:
+    """Extension-facing output for one normalized manual capability dispatch."""
+
+    account_id: str
+    proposal_id: str
+    registry_entry_id: str
+    effective_binding_id: str
+    resolved_from_scope_token: str
+    manual_dispatch_id: str
+    command_bus_run_id: str | None
+    manifest_snapshot: ExtensionProposalManifest | Mapping[str, Any] | None = None
+    approved_permissions: tuple[
+        ExtensionRequestedPermission | Mapping[str, Any], ...
+    ] = ()
+    reinjection_source_token: str = (
+        CapabilityReinjectionSource.MANUAL_DISPATCH.value
+    )
+    reinjection_outcome_token: str = (
+        CapabilityResultReinjectionOutcome.UNUSABLE.value
+    )
+    result_shape_token: str = CapabilityReinjectionResultShape.FAILED_CLOSED.value
+    normalized_command_result_payload: dict[str, Any] | None = None
+    normalized_command_failure_payload: dict[str, Any] | None = None
+    reinjection_failure_reason_token: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "registry_entry_id",
+            _clean_optional_text(self.registry_entry_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "effective_binding_id",
+            _clean_optional_text(self.effective_binding_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "resolved_from_scope_token",
+            normalize_extension_install_binding_scope(
+                self.resolved_from_scope_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "manual_dispatch_id",
+            _clean_optional_text(self.manual_dispatch_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "command_bus_run_id",
+            _clean_optional_text(self.command_bus_run_id),
+        )
+        object.__setattr__(
+            self,
+            "manifest_snapshot",
+            _coerce_manifest_snapshot(self.manifest_snapshot),
+        )
+        object.__setattr__(
+            self,
+            "approved_permissions",
+            _normalize_permission_snapshot(self.approved_permissions),
+        )
+        object.__setattr__(
+            self,
+            "reinjection_source_token",
+            normalize_capability_reinjection_source(
+                self.reinjection_source_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reinjection_outcome_token",
+            normalize_capability_result_reinjection_outcome(
+                self.reinjection_outcome_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "result_shape_token",
+            normalize_capability_reinjection_result_shape(
+                self.result_shape_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reinjection_failure_reason_token",
+            (
+                normalize_capability_reinjection_failure_reason(
+                    self.reinjection_failure_reason_token
+                )
+                if self.reinjection_failure_reason_token is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "normalized_command_result_payload",
+            (
+                _canonical_json_payload(
+                    self.normalized_command_result_payload
+                )
+                if self.normalized_command_result_payload is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "normalized_command_failure_payload",
+            (
+                _canonical_json_payload(
+                    self.normalized_command_failure_payload
+                )
+                if self.normalized_command_failure_payload is not None
+                else None
+            ),
+        )
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        if not self.proposal_id:
+            raise ValueError("proposal_id is required")
+        if not self.registry_entry_id:
+            raise ValueError("registry_entry_id is required")
+        if not self.effective_binding_id:
+            raise ValueError("effective_binding_id is required")
+        if not self.manual_dispatch_id:
+            raise ValueError("manual_dispatch_id is required")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "proposal_id": self.proposal_id,
+            "registry_entry_id": self.registry_entry_id,
+            "effective_binding_id": self.effective_binding_id,
+            "resolved_from_scope_token": self.resolved_from_scope_token,
+            "manual_dispatch_id": self.manual_dispatch_id,
+            "command_bus_run_id": self.command_bus_run_id,
+            "manifest_snapshot_json": (
+                self.manifest_snapshot.to_payload()
+                if self.manifest_snapshot is not None
+                else None
+            ),
+            "approved_permissions_json": [
+                permission.to_payload() for permission in self.approved_permissions
+            ],
+            "reinjection_source_token": self.reinjection_source_token,
+            "reinjection_outcome_token": self.reinjection_outcome_token,
+            "result_shape_token": self.result_shape_token,
+            "normalized_command_result_payload": (
+                _canonical_json_payload(
+                    self.normalized_command_result_payload
+                )
+                if self.normalized_command_result_payload is not None
+                else None
+            ),
+            "normalized_command_failure_payload": (
+                _canonical_json_payload(
+                    self.normalized_command_failure_payload
+                )
+                if self.normalized_command_failure_payload is not None
+                else None
+            ),
+            "reinjection_failure_reason_token": self.reinjection_failure_reason_token,
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityReinjectedOutput:
+        data = dict(payload or {})
+        manifest_payload = data.get("manifest_snapshot_json")
+        approved_permissions = tuple(
+            ExtensionRequestedPermission.from_payload(item)
+            for item in data.get("approved_permissions_json") or []
+        )
+        return cls(
+            account_id=data.get("account_id") or "",
+            proposal_id=data.get("proposal_id") or "",
+            registry_entry_id=data.get("registry_entry_id") or "",
+            effective_binding_id=data.get("effective_binding_id") or "",
+            resolved_from_scope_token=data.get("resolved_from_scope_token") or "",
+            manual_dispatch_id=data.get("manual_dispatch_id") or "",
+            command_bus_run_id=data.get("command_bus_run_id"),
+            manifest_snapshot=manifest_payload
+            if isinstance(manifest_payload, Mapping)
+            else None,
+            approved_permissions=approved_permissions,
+            reinjection_source_token=(
+                data.get("reinjection_source_token")
+                or CapabilityReinjectionSource.MANUAL_DISPATCH.value
+            ),
+            reinjection_outcome_token=(
+                data.get("reinjection_outcome_token")
+                or CapabilityResultReinjectionOutcome.UNUSABLE.value
+            ),
+            result_shape_token=(
+                data.get("result_shape_token")
+                or CapabilityReinjectionResultShape.FAILED_CLOSED.value
+            ),
+            normalized_command_result_payload=data.get(
+                "normalized_command_result_payload"
+            ),
+            normalized_command_failure_payload=data.get(
+                "normalized_command_failure_payload"
+            ),
+            reinjection_failure_reason_token=(
+                data.get("reinjection_failure_reason_token")
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityResultReinjectionResult:
+    """Normalized reinjection result for one completed manual command-bus invocation."""
+
+    request: CapabilityResultReinjectionRequest
+    reinjection_outcome_token: str
+    result_shape_token: str
+    reinjection_source_token: str = (
+        CapabilityReinjectionSource.MANUAL_DISPATCH.value
+    )
+    reinjection_failure_reason_token: str | None = None
+    reinjected_output: CapabilityReinjectedOutput | Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "request",
+            self.request
+            if isinstance(self.request, CapabilityResultReinjectionRequest)
+            else CapabilityResultReinjectionRequest.from_payload(self.request),
+        )
+        object.__setattr__(
+            self,
+            "reinjection_source_token",
+            normalize_capability_reinjection_source(
+                self.reinjection_source_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reinjection_outcome_token",
+            normalize_capability_result_reinjection_outcome(
+                self.reinjection_outcome_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "result_shape_token",
+            normalize_capability_reinjection_result_shape(
+                self.result_shape_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reinjection_failure_reason_token",
+            (
+                normalize_capability_reinjection_failure_reason(
+                    self.reinjection_failure_reason_token
+                )
+                if self.reinjection_failure_reason_token is not None
+                else None
+            ),
+        )
+        if self.reinjected_output is None:
+            raise ValueError("reinjected_output is required")
+        object.__setattr__(
+            self,
+            "reinjected_output",
+            self.reinjected_output
+            if isinstance(self.reinjected_output, CapabilityReinjectedOutput)
+            else CapabilityReinjectedOutput.from_payload(self.reinjected_output),
+        )
+
+    @property
+    def account_id(self) -> str:
+        return self.request.account_id
+
+    @property
+    def proposal_id(self) -> str:
+        return self.request.proposal_id
+
+    @property
+    def registry_entry_id(self) -> str:
+        return self.request.registry_entry_id
+
+    @property
+    def effective_binding_id(self) -> str:
+        return self.request.effective_binding_id
+
+    @property
+    def resolved_from_scope_token(self) -> str:
+        return self.request.resolved_from_scope_token
+
+    @property
+    def manual_dispatch_id(self) -> str:
+        return self.request.manual_dispatch_id
+
+    @property
+    def command_bus_run_id(self) -> str | None:
+        return self.request.command_bus_run_id
+
+    @property
+    def manifest_snapshot(self) -> ExtensionProposalManifest | None:
+        return self.reinjected_output.manifest_snapshot
+
+    @property
+    def approved_permissions(self) -> tuple[ExtensionRequestedPermission, ...]:
+        return self.reinjected_output.approved_permissions
+
+    @property
+    def normalized_command_result_payload(self) -> dict[str, Any] | None:
+        return self.reinjected_output.normalized_command_result_payload
+
+    @property
+    def normalized_command_failure_payload(self) -> dict[str, Any] | None:
+        return self.reinjected_output.normalized_command_failure_payload
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "request": self.request.to_payload(),
+            "reinjection_outcome_token": self.reinjection_outcome_token,
+            "result_shape_token": self.result_shape_token,
+            "reinjection_source_token": self.reinjection_source_token,
+            "reinjection_failure_reason_token": self.reinjection_failure_reason_token,
+            "reinjected_output": self.reinjected_output.to_payload(),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityResultReinjectionResult:
+        data = dict(payload or {})
+        request_payload = data.get("request")
+        output_payload = data.get("reinjected_output")
+        return cls(
+            request=CapabilityResultReinjectionRequest.from_payload(
+                request_payload if isinstance(request_payload, Mapping) else {}
+            ),
+            reinjection_outcome_token=(
+                data.get("reinjection_outcome_token")
+                or CapabilityResultReinjectionOutcome.UNUSABLE.value
+            ),
+            result_shape_token=(
+                data.get("result_shape_token")
+                or CapabilityReinjectionResultShape.FAILED_CLOSED.value
+            ),
+            reinjection_source_token=(
+                data.get("reinjection_source_token")
+                or CapabilityReinjectionSource.MANUAL_DISPATCH.value
+            ),
+            reinjection_failure_reason_token=(
+                data.get("reinjection_failure_reason_token")
+            ),
+            reinjected_output=(
+                output_payload if isinstance(output_payload, Mapping) else {}
+            ),
+        )
+
+
 __all__ = [
     "MANIFEST_VERSION",
     "ExtensionRequestedPermission",
@@ -1320,4 +1823,7 @@ __all__ = [
     "ExtensionBindingRecord",
     "EffectiveCapabilityRecord",
     "EffectiveCapabilitySnapshot",
+    "CapabilityResultReinjectionRequest",
+    "CapabilityReinjectedOutput",
+    "CapabilityResultReinjectionResult",
 ]
