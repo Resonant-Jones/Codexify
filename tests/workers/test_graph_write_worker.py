@@ -3,6 +3,11 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock
 
+from guardian.core import graph_write_inspection_store
+from guardian.core.graph_write_inspection_store import (
+    GRAPH_WRITE_INSPECTION_STATUS_CLAIMED,
+    GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
+)
 from guardian.workers import graph_write_worker
 
 
@@ -59,7 +64,7 @@ def _record_by_message(caplog, message: str):
     )
 
 
-def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
+def test_graph_write_worker_stores_inspection_snapshot_for_first_seen_task(
     caplog, monkeypatch
 ):
     caplog.set_level(logging.INFO)
@@ -98,8 +103,19 @@ def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
     assert summary.node_types == ["Document"]
     assert summary.edge_types == ["PART_OF_THREAD"]
 
+    snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(7)
+    assert snapshot is not None
+    assert snapshot["thread_id"] == 7
+    assert snapshot["graph_write_id"] == "gwr_test_identity"
+    assert snapshot["receipt_status"] == GRAPH_WRITE_INSPECTION_STATUS_CLAIMED
+    assert snapshot["node_count"] == 1
+    assert snapshot["edge_count"] == 1
+    assert snapshot["warning_count"] == 0
+    assert snapshot["node_types"] == ["Document"]
+    assert snapshot["edge_types"] == ["PART_OF_THREAD"]
 
-def test_graph_write_worker_skips_duplicate_task_after_receipt_claim(
+
+def test_graph_write_worker_stores_duplicate_skipped_snapshot(
     caplog, monkeypatch
 ):
     caplog.set_level(logging.INFO)
@@ -124,6 +140,7 @@ def test_graph_write_worker_skips_duplicate_task_after_receipt_claim(
         caplog,
         f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_DUPLICATE_LOG}",
     )
+    snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(7)
 
     assert len(summary_records) == 1
     assert duplicate_record.request_id == "req-1"
@@ -132,6 +149,43 @@ def test_graph_write_worker_skips_duplicate_task_after_receipt_claim(
     assert duplicate_record.graph_write_id == "gwr_test_identity"
     assert (
         duplicate_record.idempotency_key == "graph-write:trace-1:fingerprint-1"
+    )
+    assert snapshot is not None
+    assert snapshot["receipt_status"] == (
+        GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED
+    )
+    assert snapshot["thread_id"] == 7
+    assert snapshot["graph_write_id"] == "gwr_test_identity"
+
+
+def test_graph_write_worker_contains_snapshot_store_failure(
+    caplog, monkeypatch
+):
+    caplog.set_level(logging.INFO)
+    redis_client = _FakeReceiptRedis(results=[True])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "store_graph_write_inspection_snapshot",
+        MagicMock(side_effect=RuntimeError("snapshot store failed")),
+    )
+
+    graph_write_worker.process_graph_write_task(_task())
+
+    assert any(
+        record.levelno >= logging.ERROR
+        and graph_write_worker.GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG
+        in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        record.getMessage()
+        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+        for record in caplog.records
     )
 
 

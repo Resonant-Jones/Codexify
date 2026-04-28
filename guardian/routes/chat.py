@@ -64,6 +64,9 @@ from guardian.core.dependencies import (
     get_single_user_id,
 )
 from guardian.core.event_graph import get_event_writer
+from guardian.core.graph_write_inspection_store import (
+    get_latest_graph_write_inspection as _get_latest_graph_write_inspection,
+)
 from guardian.depth import (
     DepthDowngradeReason,
     DepthMode,
@@ -3741,6 +3744,14 @@ def _empty_candidate_trace(thread_id: int) -> dict[str, Any]:
     }
 
 
+def _empty_graph_write_inspection(thread_id: int) -> dict[str, Any]:
+    return {
+        "thread_id": thread_id,
+        "status": "empty",
+        "graph_write_inspection": None,
+    }
+
+
 def _empty_eval_diagnostics(thread_id: int) -> dict[str, Any]:
     return {
         "thread_id": thread_id,
@@ -3780,6 +3791,33 @@ def get_latest_candidate_trace(
     candidate_trace.setdefault("selection_strategy", "")
     candidate_trace.setdefault("created_at", "")
     return candidate_trace
+
+
+@router.get("/{thread_id}/debug/graph-write/latest", tags=["Debug"])
+def get_latest_graph_write_inspection_route(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """[DEV ONLY] Get the latest graph-write inspection snapshot for a thread."""
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    snapshot = _get_latest_graph_write_inspection(thread_id)
+    if not snapshot:
+        return _empty_graph_write_inspection(thread_id)
+
+    return {
+        "thread_id": thread_id,
+        "status": "ok",
+        "graph_write_inspection": snapshot,
+    }
 
 
 @router.get("/debug/evals/{thread_id}/latest", tags=["Debug"])
@@ -4290,6 +4328,20 @@ def api_get_latest_candidate_trace(
 ):
     """Compat alias for GET /chat/{thread_id}/debug/candidate-trace/latest."""
     return get_latest_candidate_trace(
+        thread_id,
+        api_key=api_key,
+        request_user_scope=request_user_scope,
+    )
+
+
+@api_chat_router.get("/{thread_id}/debug/graph-write/latest", tags=["Debug"])
+def api_get_latest_graph_write_inspection_route(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Compat alias for GET /chat/{thread_id}/debug/graph-write/latest."""
+    return get_latest_graph_write_inspection_route(
         thread_id,
         api_key=api_key,
         request_user_scope=request_user_scope,

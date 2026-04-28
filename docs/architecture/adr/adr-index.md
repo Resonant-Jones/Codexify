@@ -51,6 +51,7 @@ Use this note as the local map for all ADRs.
 15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
 16. [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] — user-governed continuity control plane for scope, decay, import treatment, exclusions, inspection, and reset semantics.
 17. [[017-Graph-Write-Idempotency-and-Receipt-Semantics|ADR-017 Graph Write Idempotency and Receipt Semantics]] — deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
+18. [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] — latest-per-thread graph-lane inspection snapshots for operator/debug visibility without promoting graph truth.
 
 ---
 
@@ -217,6 +218,15 @@ Primary companion notes:
   * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
   * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] links to:
+
+  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
+  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
   * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 ---
