@@ -13,6 +13,8 @@ Source anchors:
 - docs/architecture/account-export-restore-contract.md
 - guardian/workers/graph_write_worker.py
 - guardian/tasks/types.py
+- guardian/memory_graph/graph_write_identity.py
+- guardian/queue/graph_write_receipts.py
 - docs/architecture/adr/011-graph-write-task-seam-and-worker-scaffold.md
 
 ## 1. Purpose and Scope
@@ -234,6 +236,20 @@ This worker is log-only and exists to stabilize topology before persistence:
 
 Actual graph persistence and idempotent write semantics remain deferred to a
 later task.
+
+### 5.6 Graph Replay Safety
+
+The current graph-lane implementation path now includes deterministic
+graph-write identity and ephemeral receipt claims before inspection.
+
+This is a provenance-preserving, replay-safe control-plane seam:
+
+- graph-write tasks remain derived artifacts
+- receipt state remains operational and ephemeral
+- no canonical graph truth is claimed here
+
+Real Neo4j writes, durable idempotent persistence, and graph retrieval
+consumption remain deferred to a later task.
 
 ## 6. Invariants
 
