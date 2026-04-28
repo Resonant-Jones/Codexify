@@ -1,10 +1,11 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-04-26
+Last updated: 2026-04-28
 Source anchors:
 - Makefile
 - package.json
 - frontend/src/package.json
 - docker-compose.yml
+- docker-compose.runtime.yml
 - guardian/guardian_api.py
 - guardian/core/
 - guardian/config/
@@ -159,6 +160,20 @@ Source anchors:
 - The wizard/launcher presents the user-facing local provider posture as “Local via Ollama.”
 - The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`, with `LOCAL_BASE_URL=http://host.docker.internal:11434` for the Docker Compose runtime.
 - Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
+
+### Packaged launcher and runtime distribution contract
+
+- The DMG installs `Codexify.app`, which contains the Tauri launcher, setup wizard, bundled frontend, and native command layer.
+- Packaged first-run uses registry-backed Docker images for Codexify services instead of building local runtime images from source on the user’s machine.
+- Source/dev installs may still use the repository Compose path and local build workflow.
+- The launcher/wizard is responsible for creating local config, validating Compose, pulling the registry-backed runtime images, and starting services in the packaged path.
+- Packaged first-run users should not need Rust, pnpm, Python dev tooling, or a source checkout to reach a usable local runtime.
+- The backend registry image now has a compiled/frozen proof target built with PyInstaller at `backend/compiled_backend_entry.py`.
+- The proof target lives in `backend/Dockerfile` as `compiled-runtime` and keeps the source-backed runtime stage intact for dev and legacy Compose paths.
+- The proof image is intentionally backend-only for now; workers and migrator still remain source-backed in the existing Docker path until they are proven separately.
+- The proof image still ships a small set of non-source runtime files needed by startup, including supported-profile YAML and bundled help content.
+- Packaged desktop auth handoff now flows through a Tauri command that returns a sanitized runtime auth/config payload for the local packaged runtime. The frontend consumes the handed-off `GUARDIAN_API_KEY` only in packaged mode, while diagnostics expose only presence and source metadata such as `envPath`, `runtimeRoot`, and `failureKind`.
+- The Guardian auth gate now derives from the same in-memory runtime API key that the desktop API client uses, so packaged desktop mode can satisfy local auth without `VITE_GUARDIAN_API_KEY`; the legacy Vite env key remains a dev-only fallback.
 
 ## Config Resolution Order and Defaults
 

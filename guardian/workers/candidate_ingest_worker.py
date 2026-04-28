@@ -17,6 +17,9 @@ from guardian.core.candidate_normalizer import normalize_candidate_trace
 from guardian.memory_graph.graph_candidate_mapper import (
     map_to_graph_write_candidates,
 )
+from guardian.memory_graph.graph_write_identity import (
+    build_graph_write_identity,
+)
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
     GRAPH_WRITE_QUEUE,
@@ -91,11 +94,22 @@ def _build_graph_write_task(
         )
         return None
 
+    identity = build_graph_write_identity(
+        request_id=normalized_task["request_id"],
+        thread_id=normalized_task["thread_id"],
+        candidate_trace_id=normalized_task["candidate_trace_id"],
+        nodes=nodes,
+        edges=edges,
+        warnings=warnings,
+    )
+
     return {
         "request_id": normalized_task["request_id"],
         "thread_id": normalized_task["thread_id"],
         "candidate_trace_id": normalized_task["candidate_trace_id"],
         "created_at": normalized_task["created_at"],
+        "graph_write_id": identity["graph_write_id"],
+        "idempotency_key": identity["idempotency_key"],
         "nodes": nodes,
         "edges": edges,
         "warnings": warnings,

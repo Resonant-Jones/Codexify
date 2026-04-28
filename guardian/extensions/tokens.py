@@ -71,6 +71,44 @@ class ExtensionInstallBindingStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class CapabilityActivationContextToken(str, Enum):
+    """Canonical activation contexts for read-time capability checks."""
+
+    OWNER_ONLY = "owner_only"
+    OWNER_PROJECT = "owner_project"
+    OWNER_PROFILE = "owner_profile"
+    OWNER_PROJECT_PROFILE = "owner_project_profile"
+
+
+class CapabilityActivationOutcomeToken(str, Enum):
+    """Canonical activation outcomes."""
+
+    ALLOWED = "allowed"
+    DENIED = "denied"
+    CONFLICT = "conflict"
+
+
+class CapabilityActivationDenyReasonToken(str, Enum):
+    """Canonical activation denial reasons."""
+
+    MISSING_IDENTITY = "missing_identity"
+    NO_MATCHING_EXPOSURE = "no_matching_exposure"
+    INSUFFICIENT_PERMISSIONS = "insufficient_permissions"
+
+
+class CapabilityActivationConflictClassToken(str, Enum):
+    """Canonical activation conflict classes."""
+
+    SAME_COMMAND_EXPOSURE = "same_command_exposure"
+    RESOLUTION_AMBIGUITY = "resolution_ambiguity"
+
+
+class CapabilityDispatchSourceToken(str, Enum):
+    """Canonical dispatch source tags for prepared activation envelopes."""
+
+    CAPABILITY_ACTIVATION = "capability_activation"
+
+
 EXTENSION_TARGET_SURFACES: frozenset[str] = frozenset(
     surface.value for surface in ExtensionTargetSurface
 )
@@ -94,6 +132,21 @@ EXTENSION_INSTALL_BINDING_SCOPES: frozenset[str] = frozenset(
 )
 EXTENSION_INSTALL_BINDING_STATUSES: frozenset[str] = frozenset(
     status.value for status in ExtensionInstallBindingStatus
+)
+CAPABILITY_ACTIVATION_CONTEXT_TOKENS: frozenset[str] = frozenset(
+    token.value for token in CapabilityActivationContextToken
+)
+CAPABILITY_ACTIVATION_OUTCOME_TOKENS: frozenset[str] = frozenset(
+    token.value for token in CapabilityActivationOutcomeToken
+)
+CAPABILITY_ACTIVATION_DENY_REASON_TOKENS: frozenset[str] = frozenset(
+    token.value for token in CapabilityActivationDenyReasonToken
+)
+CAPABILITY_ACTIVATION_CONFLICT_CLASS_TOKENS: frozenset[str] = frozenset(
+    token.value for token in CapabilityActivationConflictClassToken
+)
+CAPABILITY_DISPATCH_SOURCE_TOKENS: frozenset[str] = frozenset(
+    token.value for token in CapabilityDispatchSourceToken
 )
 
 
@@ -168,6 +221,50 @@ def normalize_extension_install_binding_status(value: str | None) -> str:
     )
 
 
+def normalize_capability_activation_context_token(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_ACTIVATION_CONTEXT_TOKENS,
+        kind="capability_activation_context",
+    )
+
+
+def normalize_capability_activation_outcome_token(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_ACTIVATION_OUTCOME_TOKENS,
+        kind="capability_activation_outcome",
+    )
+
+
+def normalize_capability_activation_deny_reason_token(
+    value: str | None,
+) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_ACTIVATION_DENY_REASON_TOKENS,
+        kind="capability_activation_deny_reason",
+    )
+
+
+def normalize_capability_activation_conflict_class_token(
+    value: str | None,
+) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_ACTIVATION_CONFLICT_CLASS_TOKENS,
+        kind="capability_activation_conflict_class",
+    )
+
+
+def normalize_capability_dispatch_source_token(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_DISPATCH_SOURCE_TOKENS,
+        kind="capability_dispatch_source",
+    )
+
+
 __all__ = [
     "ExtensionTargetSurface",
     "ExtensionProposalScope",
@@ -177,6 +274,11 @@ __all__ = [
     "CapabilityEntryProvenanceClass",
     "ExtensionInstallBindingScope",
     "ExtensionInstallBindingStatus",
+    "CapabilityActivationContextToken",
+    "CapabilityActivationOutcomeToken",
+    "CapabilityActivationDenyReasonToken",
+    "CapabilityActivationConflictClassToken",
+    "CapabilityDispatchSourceToken",
     "ExtensionTokenError",
     "EXTENSION_TARGET_SURFACES",
     "EXTENSION_PROPOSAL_SCOPES",
@@ -186,6 +288,11 @@ __all__ = [
     "CAPABILITY_ENTRY_PROVENANCE_CLASSES",
     "EXTENSION_INSTALL_BINDING_SCOPES",
     "EXTENSION_INSTALL_BINDING_STATUSES",
+    "CAPABILITY_ACTIVATION_CONTEXT_TOKENS",
+    "CAPABILITY_ACTIVATION_OUTCOME_TOKENS",
+    "CAPABILITY_ACTIVATION_DENY_REASON_TOKENS",
+    "CAPABILITY_ACTIVATION_CONFLICT_CLASS_TOKENS",
+    "CAPABILITY_DISPATCH_SOURCE_TOKENS",
     "normalize_extension_target_surface",
     "normalize_extension_proposal_scope",
     "normalize_extension_proposal_status",
@@ -194,4 +301,9 @@ __all__ = [
     "normalize_capability_entry_provenance_class",
     "normalize_extension_install_binding_scope",
     "normalize_extension_install_binding_status",
+    "normalize_capability_activation_context_token",
+    "normalize_capability_activation_outcome_token",
+    "normalize_capability_activation_deny_reason_token",
+    "normalize_capability_activation_conflict_class_token",
+    "normalize_capability_dispatch_source_token",
 ]
