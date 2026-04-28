@@ -352,6 +352,26 @@ export type ThreadMoveResponse = {
   move?: Record<string, unknown>;
 };
 
+export type ThreadIdResolutionContext = {
+  endpoint: string;
+  method: string;
+  status: number | null;
+  authPresent: boolean;
+};
+
+export type ThreadIdResolutionDiagnostics = ThreadIdResolutionContext & {
+  responseKeys: string[];
+  responseDataKeys: string[];
+  responseThreadKeys: string[];
+  parserBranch: string;
+  parserFailureReason: string;
+};
+
+export type ThreadIdResolution = {
+  threadId: number | null;
+  diagnostics: ThreadIdResolutionDiagnostics;
+};
+
 export type CommandBusActor = {
   kind: "human" | "agent" | "system";
   id: string;
@@ -430,6 +450,115 @@ export async function moveChatThread(
     { toProjectId }
   );
   return response?.data ?? {};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function summarizeObjectKeys(value: unknown, limit = 12): string[] {
+  if (!isPlainObject(value)) return [];
+  const keys = Object.keys(value).filter((key) => key !== "__proto__");
+  return keys.slice(0, limit);
+}
+
+function coerceThreadIdCandidate(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function summarizeThreadIdParserBranches(): string {
+  return [
+    "response.thread_id",
+    "response.threadId",
+    "response.id",
+    "response.thread.id",
+    "response.data.thread_id",
+    "response.data.threadId",
+    "response.data.id",
+    "response.data.thread.id",
+  ].join(" -> ");
+}
+
+export function hasRequestAuthCredential(): boolean {
+  return Boolean(getRuntimeApiKey() || getAuthToken() || resolveDevApiKey());
+}
+
+export function resolveBackendThreadIdFromResponse(
+  responseLike: unknown,
+  context: ThreadIdResolutionContext
+): ThreadIdResolution {
+  const response = isPlainObject(responseLike) ? responseLike : null;
+  const responseData = response && isPlainObject(response.data) ? response.data : null;
+  const responseThread = response && isPlainObject(response.thread)
+    ? response.thread
+    : responseData && isPlainObject(responseData.thread)
+      ? responseData.thread
+      : null;
+
+  const diagnostics: ThreadIdResolutionDiagnostics = {
+    endpoint: context.endpoint,
+    method: context.method,
+    status: Number.isFinite(context.status as number) ? Number(context.status) : null,
+    authPresent: Boolean(context.authPresent),
+    responseKeys: summarizeObjectKeys(response),
+    responseDataKeys: summarizeObjectKeys(responseData),
+    responseThreadKeys: summarizeObjectKeys(responseThread),
+    parserBranch: summarizeThreadIdParserBranches(),
+    parserFailureReason: "thread_id_missing",
+  };
+
+  const candidates: Array<[string, unknown]> = [
+    ["response.thread_id", response?.thread_id],
+    ["response.threadId", response?.threadId],
+    ["response.id", response?.id],
+    ["response.thread.id", responseThread?.id],
+    ["response.data.thread_id", responseData?.thread_id],
+    ["response.data.threadId", responseData?.threadId],
+    ["response.data.id", responseData?.id],
+    ["response.data.thread.id", responseData?.thread?.id],
+  ];
+
+  for (const [branch, rawValue] of candidates) {
+    const threadId = coerceThreadIdCandidate(rawValue);
+    if (threadId != null) {
+      return {
+        threadId,
+        diagnostics: {
+          ...diagnostics,
+          parserBranch: branch,
+          parserFailureReason: "resolved",
+        },
+      };
+    }
+  }
+
+  return {
+    threadId: null,
+    diagnostics,
+  };
+}
+
+export function formatThreadIdResolutionDiagnostics(
+  diagnostics: ThreadIdResolutionDiagnostics
+): string[] {
+  return [
+    `endpoint=${diagnostics.endpoint}`,
+    `method=${diagnostics.method}`,
+    `status=${diagnostics.status ?? "<unknown>"}`,
+    `authPresent=${diagnostics.authPresent ? "true" : "false"}`,
+    `responseKeys=${diagnostics.responseKeys.length > 0 ? diagnostics.responseKeys.join(",") : "<none>"}`,
+    `dataKeys=${diagnostics.responseDataKeys.length > 0 ? diagnostics.responseDataKeys.join(",") : "<none>"}`,
+    `threadKeys=${diagnostics.responseThreadKeys.length > 0 ? diagnostics.responseThreadKeys.join(",") : "<none>"}`,
+    `parserBranch=${diagnostics.parserBranch}`,
+    `parserFailureReason=${diagnostics.parserFailureReason}`,
+  ];
 }
 
 function isAbsoluteUrl(value: string): boolean {

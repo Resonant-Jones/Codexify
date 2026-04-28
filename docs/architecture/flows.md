@@ -20,6 +20,7 @@ Source anchors:
 
 Trigger:
 - Frontend posts `POST /api/chat/{thread_id}/complete` after a user message exists in the thread.
+- When the composer starts a brand-new conversation, the frontend first creates a backend thread, resolves the durable thread id from the response, selects that id, and only then posts the first user message to `POST /api/chat/{thread_id}/messages`.
 
 Sequence:
 1. `guardian/routes/chat.py` validates the thread, turn state, and effective identity depth.

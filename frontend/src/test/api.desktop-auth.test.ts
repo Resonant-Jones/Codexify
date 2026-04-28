@@ -120,6 +120,31 @@ describe("desktop auth headers", () => {
     );
   });
 
+  it("attaches the runtime desktop key to create-thread requests", async () => {
+    setRuntimeApiKey("desktop-key");
+
+    let capturedHeaders: Record<string, string> = {};
+    api.defaults.adapter = async (config) => {
+      capturedHeaders = normalizeHeaders(config.headers);
+      return {
+        data: { thread_id: 123, thread: { id: 123, title: "New Thread" } },
+        status: 201,
+        statusText: "Created",
+        headers: {},
+        config,
+      };
+    };
+
+    await api.post("/chat/threads", {
+      title: "New Thread",
+      user_id: "local",
+    });
+
+    expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
+      "desktop-key"
+    );
+  });
+
   it("fetchProviderState uses the authenticated desktop runtime client", async () => {
     setRuntimeApiKey("desktop-key");
 
