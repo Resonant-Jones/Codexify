@@ -6,12 +6,31 @@ from unittest.mock import MagicMock
 from guardian.workers import graph_write_worker
 
 
+class _FakeReceiptRedis:
+    def __init__(
+        self, results: list[bool | None] | None = None, *, failure=None
+    ):
+        self.results = list(results or [])
+        self.failure = failure
+        self.calls: list[tuple[str, str, int | None, bool]] = []
+
+    def set(self, key, value, ex=None, nx=False):
+        self.calls.append((key, value, ex, nx))
+        if self.failure is not None:
+            raise self.failure
+        if self.results:
+            return self.results.pop(0)
+        return True
+
+
 def _task() -> dict[str, object]:
     return {
         "request_id": "req-1",
         "thread_id": 7,
         "candidate_trace_id": "trace-1",
         "created_at": "2026-01-01T00:00:00Z",
+        "graph_write_id": "gwr_test_identity",
+        "idempotency_key": "graph-write:trace-1:fingerprint-1",
         "nodes": [
             {
                 "node_key": "graph:document:1",
@@ -40,10 +59,29 @@ def _record_by_message(caplog, message: str):
     )
 
 
-def test_graph_write_worker_logs_summary_for_valid_task(caplog):
+def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
+    caplog, monkeypatch
+):
     caplog.set_level(logging.INFO)
+    redis_client = _FakeReceiptRedis(results=[True])
+    get_redis_connection_spy = MagicMock(return_value=redis_client)
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        get_redis_connection_spy,
+    )
 
     graph_write_worker.process_graph_write_task(_task())
+
+    get_redis_connection_spy.assert_called_once()
+    assert len(redis_client.calls) == 1
+    receipt_key, receipt_value, ttl, nx = redis_client.calls[0]
+    assert receipt_key == (
+        "codexify:graph-write:receipt:graph-write:trace-1:fingerprint-1"
+    )
+    assert receipt_value == "claimed"
+    assert ttl == 3600
+    assert nx is True
 
     summary = _record_by_message(
         caplog,
@@ -52,6 +90,8 @@ def test_graph_write_worker_logs_summary_for_valid_task(caplog):
     assert summary.request_id == "req-1"
     assert summary.thread_id == 7
     assert summary.candidate_trace_id == "trace-1"
+    assert summary.graph_write_id == "gwr_test_identity"
+    assert summary.idempotency_key == "graph-write:trace-1:fingerprint-1"
     assert summary.node_count == 1
     assert summary.edge_count == 1
     assert summary.warning_count == 0
@@ -59,56 +99,79 @@ def test_graph_write_worker_logs_summary_for_valid_task(caplog):
     assert summary.edge_types == ["PART_OF_THREAD"]
 
 
-def test_graph_write_worker_logs_warnings_when_present(caplog):
+def test_graph_write_worker_skips_duplicate_task_after_receipt_claim(
+    caplog, monkeypatch
+):
     caplog.set_level(logging.INFO)
+    redis_client = _FakeReceiptRedis(results=[True, False])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
 
     task = _task()
-    task["warnings"] = ["ambiguous_relationship"]
-
+    graph_write_worker.process_graph_write_task(task)
     graph_write_worker.process_graph_write_task(task)
 
-    warning = _record_by_message(
+    summary_records = [
+        record
+        for record in caplog.records
+        if record.getMessage()
+        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+    ]
+    duplicate_record = _record_by_message(
         caplog,
-        f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_WARNING_LOG}",
+        f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_DUPLICATE_LOG}",
     )
-    assert warning.warnings == ["ambiguous_relationship"]
+
+    assert len(summary_records) == 1
+    assert duplicate_record.request_id == "req-1"
+    assert duplicate_record.thread_id == 7
+    assert duplicate_record.candidate_trace_id == "trace-1"
+    assert duplicate_record.graph_write_id == "gwr_test_identity"
+    assert (
+        duplicate_record.idempotency_key == "graph-write:trace-1:fingerprint-1"
+    )
 
 
-def test_graph_write_worker_survives_malformed_task(caplog):
-    caplog.set_level(logging.WARNING)
+def test_graph_write_worker_contains_receipt_claim_failure(caplog, monkeypatch):
+    caplog.set_level(logging.INFO)
+    redis_client = _FakeReceiptRedis(failure=RuntimeError("redis down"))
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
 
-    graph_write_worker.process_graph_write_task(None)
+    graph_write_worker.process_graph_write_task(_task())
 
     assert any(
-        "malformed task ignored" in record.getMessage()
+        record.levelno >= logging.ERROR
+        and graph_write_worker.GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG
+        in record.getMessage()
+        for record in caplog.records
+    )
+    assert not any(
+        record.getMessage()
+        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
         for record in caplog.records
     )
 
 
-def test_graph_write_worker_does_not_persist_or_call_graph_backend(
+def test_graph_write_worker_still_does_not_persist_or_call_graph_backend(
     monkeypatch,
 ):
-    enqueue_spy = MagicMock(
-        side_effect=AssertionError("queue fan-out not expected")
-    )
-    redis_spy = MagicMock(
-        side_effect=AssertionError("redis client not expected")
+    redis_client = _FakeReceiptRedis(results=[True])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
     )
     graph_backend_spy = MagicMock(
         side_effect=AssertionError("graph backend not expected")
     )
 
-    monkeypatch.setattr(
-        graph_write_worker,
-        "enqueue",
-        enqueue_spy,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        graph_write_worker,
-        "get_redis_connection",
-        redis_spy,
-    )
     monkeypatch.setattr(
         graph_write_worker,
         "write_graph_candidates",
@@ -118,6 +181,5 @@ def test_graph_write_worker_does_not_persist_or_call_graph_backend(
 
     graph_write_worker.process_graph_write_task(_task())
 
-    enqueue_spy.assert_not_called()
-    redis_spy.assert_not_called()
+    assert len(redis_client.calls) == 1
     graph_backend_spy.assert_not_called()
