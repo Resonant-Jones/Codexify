@@ -1193,13 +1193,10 @@ export async function fetchPersonalFactRevisions(
 }
 
 export async function fetchProviderState() {
-  const res = await fetch("/api/health/llm");
-
-  if (!res.ok) {
-    throw new Error(`Provider state fetch failed: ${res.status}`);
-  }
-
-  const json = await res.json();
+  // Use the authenticated runtime client so packaged desktop mode keeps the
+  // in-memory desktop API key attached to the provider health probe.
+  const res = await api.get("/health/llm");
+  const json = res?.data ?? {};
 
   console.log("[provider-state:raw]", json);
 

@@ -2490,6 +2490,44 @@ export function GuardianChat({
     releaseTurnLease,
   ]);
 
+  function extractThreadIdFromResponsePayload(payload: unknown): number | null {
+    if (typeof payload === "number" && Number.isFinite(payload)) {
+      return payload;
+    }
+    if (typeof payload === "string") {
+      const parsed = Number(payload.trim());
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+
+    const source = payload as Record<string, unknown>;
+    const thread =
+      source.thread && typeof source.thread === "object"
+        ? (source.thread as Record<string, unknown>)
+        : null;
+    const message =
+      source.message && typeof source.message === "object"
+        ? (source.message as Record<string, unknown>)
+        : null;
+    const rawId =
+      source.thread_id ??
+      source.threadId ??
+      source.created_thread_id ??
+      source.createdThreadId ??
+      thread?.id ??
+      thread?.thread_id ??
+      thread?.threadId ??
+      thread?.id_str ??
+      message?.thread_id ??
+      message?.threadId ??
+      source.id ??
+      source.id_str;
+    const numericId = Number(rawId);
+    return Number.isFinite(numericId) ? numericId : null;
+  }
+
   // Auto-thread creation handler
   const handleThreadCreated = (
     threadId: number,
@@ -2537,10 +2575,8 @@ export function GuardianChat({
         metadata,
       });
       const payload = (resp && resp.data) || {};
-      const newThreadId =
-        payload.id ?? payload.thread?.id ?? payload.thread_id ?? payload.id_str;
-      const numericThreadId = Number(newThreadId);
-      if (!Number.isFinite(numericThreadId)) {
+      const numericThreadId = extractThreadIdFromResponsePayload(payload);
+      if (numericThreadId == null) {
         throw new Error("Thread id missing from create thread response");
       }
 
@@ -2569,9 +2605,8 @@ export function GuardianChat({
       const payload = trimmedTitle ? { title: trimmedTitle } : {};
       const res = await api.post(`/chat/${effectiveThreadId}/branch`, payload);
       const data = res?.data ?? {};
-      const rawId = data?.id ?? data?.thread?.id ?? data?.thread_id ?? data?.id_str;
-      const newThreadId = Number(rawId);
-      if (!Number.isFinite(newThreadId)) {
+      const newThreadId = extractThreadIdFromResponsePayload(data);
+      if (newThreadId == null) {
         throw new Error("Branch response missing thread id");
       }
       const responseTitle = typeof data?.title === "string" && data.title.trim().length > 0 ? data.title : undefined;
@@ -2730,10 +2765,8 @@ export function GuardianChat({
           project_id: workspaceProjectId ?? undefined,
         });
         const th = (resp && resp.data) || {};
-        const newThreadId =
-          th.thread_id ?? th.thread?.id ?? th.message?.thread_id ?? th.id ?? th.id_str;
-        const numericNewId = Number(newThreadId);
-        if (!Number.isFinite(numericNewId)) {
+        const numericNewId = extractThreadIdFromResponsePayload(th);
+        if (numericNewId == null) {
           console.warn("Unexpected create-on-send response:", th);
           throw new Error("Thread id missing from response");
         }

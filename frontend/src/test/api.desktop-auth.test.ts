@@ -4,6 +4,7 @@ import {
   default as api,
   buildAuthenticatedFetchInit,
   clearRuntimeApiKey,
+  fetchProviderState,
   setAuthToken,
   setRuntimeApiKey,
 } from "@/lib/api";
@@ -88,6 +89,30 @@ describe("desktop auth headers", () => {
     expect(capturedHeaders["Authorization"] ?? capturedHeaders["authorization"]).toBe(
       "Bearer bearer-token"
     );
+    expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
+      "desktop-key"
+    );
+  });
+
+  it("fetchProviderState uses the authenticated desktop runtime client", async () => {
+    setRuntimeApiKey("desktop-key");
+
+    let capturedHeaders: Record<string, string> = {};
+    api.defaults.adapter = async (config) => {
+      capturedHeaders = normalizeHeaders(config.headers);
+      return {
+        data: { ok: true, status: "online" },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      };
+    };
+
+    await expect(fetchProviderState()).resolves.toEqual({
+      ok: true,
+      status: "online",
+    });
     expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
       "desktop-key"
     );
