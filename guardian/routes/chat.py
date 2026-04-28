@@ -47,6 +47,9 @@ from guardian.cognition.identity_policy import can_run_deep_identity_modeling
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id
+from guardian.core.candidate_trace_store import (
+    get_latest_candidate_trace as _get_latest_candidate_trace,
+)
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
