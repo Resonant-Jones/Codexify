@@ -981,6 +981,52 @@ def test_retrieval_posture_fallback_synthesis_personal_knowledge(monkeypatch):
     chat._rag_traces.pop(402, None)
 
 
+def test_retrieval_posture_canonical_snapshot_preserves_workspace_mode(
+    monkeypatch,
+):
+    """Canonical snapshots preserve workspace posture without collapsing it."""
+    chat._thread_latest_task[404] = "task-404"
+
+    workspace_posture = {
+        "source_mode": "workspace",
+        "boundary_label": "same_user_only",
+        "retrieval_override_mode": None,
+        "widen_reason": "explicit_workspace",
+        "conversation_only": False,
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "source_mode": "workspace",
+                "widen_reason": "explicit_workspace",
+            },
+            "payload_summary": {
+                "message_count": 2,
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "retrieval_posture": workspace_posture,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(404, api_key="test-key")
+    posture = chat.get_latest_retrieval_posture(404, api_key="test-key")
+
+    assert trace["payload_summary"]["retrieval_posture"] == workspace_posture
+    assert trace["source_mode"] == "workspace"
+    assert trace["widen_reason"] == "explicit_workspace"
+    assert posture["status"] == "ok"
+    assert posture["retrieval_posture"] == workspace_posture
+
+    chat._thread_latest_task.pop(404, None)
+    chat._rag_traces.pop(404, None)
+
+
 def test_retrieval_posture_fallback_returns_empty_when_no_source_mode(
     monkeypatch,
 ):

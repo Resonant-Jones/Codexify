@@ -42,9 +42,11 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_OBSIDIAN_ONLY,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
+    SOURCE_MODE_WORKSPACE,
     normalize_retrieval_override_mode,
     normalize_source_mode,
     resolve_retrieval_plan,
+    source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
@@ -1770,7 +1772,16 @@ def _build_retrieval_provenance(
         "graph": graph_count,
     }
 
-    if obsidian_semantic_count > 0:
+    if normalized_source_mode == SOURCE_MODE_WORKSPACE:
+        local_result_count = (
+            len(semantic_hits) + project_document_count + thread_document_count
+        )
+        retrieval_status = (
+            "workspace_local_success"
+            if local_result_count > 0
+            else "no_workspace_results"
+        )
+    elif obsidian_semantic_count > 0:
         if (
             thread_semantic_count == 0
             and other_semantic_count == 0
@@ -1800,6 +1811,31 @@ def _build_retrieval_provenance(
         ),
         "source_hit_counts": source_hit_counts,
         "retrieval_status": retrieval_status,
+    }
+
+
+def _build_retrieval_posture(
+    *,
+    source_mode: str | None,
+    retrieval_override: dict[str, Any] | None,
+    widen_reason: str | None,
+) -> dict[str, Any] | None:
+    normalized_source_mode = str(source_mode or "").strip().lower()
+    if not normalized_source_mode:
+        return None
+
+    retrieval_override_mode = None
+    if isinstance(retrieval_override, dict):
+        override_mode = retrieval_override.get("mode")
+        if override_mode not in (None, ""):
+            retrieval_override_mode = str(override_mode).strip().lower() or None
+
+    return {
+        "source_mode": normalized_source_mode,
+        "boundary_label": source_mode_boundary_label(normalized_source_mode),
+        "retrieval_override_mode": retrieval_override_mode,
+        "widen_reason": str(widen_reason or "none"),
+        "conversation_only": normalized_source_mode == SOURCE_MODE_CONVERSATION,
     }
 
 
@@ -2760,6 +2796,18 @@ def run_chat_completion_task(
         bundle=bundle if isinstance(bundle, dict) else None,
     )
     payload_summary["retrieval_provenance"] = retrieval_provenance
+    retrieval_posture = _build_retrieval_posture(
+        source_mode=trace_source_mode,
+        retrieval_override=routing_debug_metadata.get("retrieval_override"),
+        widen_reason=(
+            trace.get("widen_reason") if isinstance(trace, dict) else None
+        ),
+    )
+    if retrieval_posture is not None:
+        payload_summary["retrieval_posture"] = retrieval_posture
+        if isinstance(trace, dict):
+            trace = dict(trace)
+            trace["retrieval_posture"] = retrieval_posture
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {
@@ -2857,6 +2905,8 @@ def run_chat_completion_task(
         result["retrieval_query_matches_latest_turn"] = trace.get(
             "retrieval_query_matches_latest_turn"
         )
+        if trace.get("retrieval_posture") is not None:
+            result["retrieval_posture"] = trace.get("retrieval_posture")
     result["payload_summary"] = payload_summary
 
     if not persist_assistant_message:
