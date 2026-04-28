@@ -94,6 +94,32 @@ describe("desktop auth headers", () => {
     );
   });
 
+  it("keeps the runtime desktop key on the health poll path even when a bearer token is stale", async () => {
+    setAuthToken("stale-bearer-token");
+    setRuntimeApiKey("desktop-key");
+
+    let capturedHeaders: Record<string, string> = {};
+    api.defaults.adapter = async (config) => {
+      capturedHeaders = normalizeHeaders(config.headers);
+      return {
+        data: { ok: true, status: "healthy" },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      };
+    };
+
+    await api.get("/health/chat");
+
+    expect(capturedHeaders["Authorization"] ?? capturedHeaders["authorization"]).toBe(
+      "Bearer stale-bearer-token"
+    );
+    expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
+      "desktop-key"
+    );
+  });
+
   it("fetchProviderState uses the authenticated desktop runtime client", async () => {
     setRuntimeApiKey("desktop-key");
 

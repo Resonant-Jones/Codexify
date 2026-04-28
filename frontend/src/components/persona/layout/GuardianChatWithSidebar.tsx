@@ -27,6 +27,9 @@ import {
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
+import type {
+  RuntimeHealthStatus,
+} from "@/hooks/useRuntimeHealth";
 import {
   useSessionActiveDraft,
   useSessionActiveInferenceMode,
@@ -239,6 +242,7 @@ type GuardianChatWithSidebarProps = {
   onWorkspaceClose?: () => void;
   onWorkspaceOpenInThread?: (doc: DocumentLike | null) => void;
   providerRuntimeState?: ProviderRuntimeState | null;
+  runtimeHealth?: RuntimeHealthStatus | null;
 };
 
 export default function GuardianChatWithSidebar({
@@ -255,6 +259,7 @@ export default function GuardianChatWithSidebar({
   onWorkspaceClose,
   onWorkspaceOpenInThread,
   providerRuntimeState = null,
+  runtimeHealth = null,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -1739,6 +1744,7 @@ export default function GuardianChatWithSidebar({
                   onWorkspaceToggle={onWorkspaceToggle}
                   workspaceOpen={workspaceOpen}
                   providerRuntimeState={providerRuntimeState}
+                  runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
                   onSendMessage={handleSendMessage}
