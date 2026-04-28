@@ -21,6 +21,7 @@ from guardian.core.graph_write_inspection_store import (
 from guardian.memory_graph.graph_write_identity import (
     build_graph_write_identity,
 )
+from guardian.memory_graph.noop_graph_backend import get_graph_backend_adapter
 from guardian.queue.graph_write_receipts import claim_graph_write_receipt
 from guardian.queue.redis_queue import GRAPH_WRITE_QUEUE, get_redis_connection
 
@@ -31,6 +32,9 @@ GRAPH_WRITE_WORKER_WARNING_LOG = "graph_write_worker_task_warnings"
 GRAPH_WRITE_WORKER_DUPLICATE_LOG = "graph_write_worker_duplicate_task_skipped"
 GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG = (
     "graph_write_worker_inspection_snapshot_store_failed"
+)
+GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG = (
+    "graph_write_worker_graph_backend_adapter_failed"
 )
 GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG = (
     "graph_write_worker_receipt_claim_failed"
@@ -127,6 +131,31 @@ def _build_graph_write_inspection_snapshot(
         "edge_types": edge_types,
         "created_at": created_at,
     }
+
+
+def _invoke_graph_backend_adapter(
+    task: dict[str, Any],
+    *,
+    request_id: str,
+    thread_id: int | str,
+    candidate_trace_id: str,
+    graph_write_id: str,
+    idempotency_key: str,
+) -> None:
+    adapter = get_graph_backend_adapter()
+    try:
+        adapter.write_graph_task(task)
+    except Exception:
+        logger.exception(
+            f"[graph-write] {GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG}",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+                "graph_write_id": graph_write_id,
+                "idempotency_key": idempotency_key,
+            },
+        )
 
 
 def process_graph_write_task(task: dict) -> None:
@@ -251,6 +280,15 @@ def process_graph_write_task(task: dict) -> None:
             },
         )
 
+    _invoke_graph_backend_adapter(
+        task,
+        request_id=request_id,
+        thread_id=thread_id,
+        candidate_trace_id=candidate_trace_id,
+        graph_write_id=graph_write_id,
+        idempotency_key=idempotency_key,
+    )
+
     logger.info(
         f"[graph-write] {GRAPH_WRITE_WORKER_SUMMARY_LOG}",
         extra={
@@ -312,6 +350,7 @@ __all__ = [
     "GRAPH_WRITE_WORKER_SUMMARY_LOG",
     "GRAPH_WRITE_WORKER_WARNING_LOG",
     "GRAPH_WRITE_WORKER_DUPLICATE_LOG",
+    "GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG",
     "GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG",
     "process_graph_write_task",
     "run_graph_write_worker",

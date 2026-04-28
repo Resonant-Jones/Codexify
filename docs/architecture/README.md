@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-22
+Last updated: 2026-04-28
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -44,6 +44,8 @@ If you are working on graph-write replay safety or receipt semantics for the ins
 
 If you are working on the latest graph-write inspection snapshot surface or its debug route, continue with [`ADR-018: Graph Write Inspection Surface`](./adr/018-graph-write-inspection-surface.md) after ADR-017. That ADR defines the latest-per-thread operator snapshot without promoting graph truth.
 
+If you are working on the backend graph adapter seam or the no-op default implementation, continue with [`ADR-019: Graph Backend Adapter Contract`](./adr/019-graph-backend-adapter-contract.md) after ADR-018. That ADR defines the typed persistence seam without changing the current inspection-only runtime.
+
 ## KB Validity and Diagram Source Sets
 
 Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
@@ -69,6 +71,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Candidate Trace Ingest Worker ADR](./adr/009-candidate-trace-ingest-worker.md): asynchronous candidate-trace ingestion scaffold, log-only and non-blocking.
 - [Graph Write Task Seam ADR](./adr/011-graph-write-task-seam-and-worker-scaffold.md): queue-backed graph-write task handoff and inspection-only worker scaffold for derived graph candidates.
 - [Graph Write Inspection Surface ADR](./adr/018-graph-write-inspection-surface.md): latest-per-thread graph-write inspection snapshots for operator/debug visibility, ephemeral and non-canonical.
+- [Graph Backend Adapter Contract ADR](./adr/019-graph-backend-adapter-contract.md): typed graph backend seam with a default no-op implementation, mounted after inspection.
 - [Post-Completion Eval Spine ADR](./adr/012-post-completion-eval-spine.md): durable post-completion trace snapshot and attempt-scoped verdict layer; inspection-only and non-gating.
 - [Verified Personal Facts Context Injection ADR](./adr/013-verified-personal-facts-context-injection.md): bounded backend injection of verified active personal facts into provider-ready chat context.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
@@ -89,6 +92,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Continuity Governance Surface Contract](./adr/016-continuity-governance-surface-contract.md): user-governed continuity control plane for scope, intensity, decay, import treatment, exclusions, inspectability, and reset semantics.
 - [Graph Write Idempotency and Receipt Semantics](./adr/017-graph-write-idempotency-and-receipt-semantics.md): deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
 - [Graph Write Inspection Surface](./adr/018-graph-write-inspection-surface.md): latest-per-thread graph-write inspection snapshots for operator/debug visibility, ephemeral and non-canonical.
+- [Graph Backend Adapter Contract](./adr/019-graph-backend-adapter-contract.md): typed graph backend seam with a default no-op implementation, mounted after inspection.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.
