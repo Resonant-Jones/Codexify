@@ -49,6 +49,7 @@ Use this note as the local map for all ADRs.
 13. [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] — backend-only verified personal-facts injection seam, bounded and user-scoped.
 14. [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] — canonical contract for Guardian threads, flow drafts, Builder support lanes, and run receipts.
 15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
+16. [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] — user-governed continuity control plane for scope, decay, import treatment, exclusions, inspection, and reset semantics.
 
 ---
 
@@ -193,6 +194,16 @@ Primary companion notes:
   * [[chat-runtime-contract|Chat Runtime Contract]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[system-overview|System Overview]]
+  * [[tech-debt-and-risks|Tech Debt and Risks]]
+  * [[00-current-state]]
+
+* [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] links to:
+
+  * [[015-Continuity-Engine-Working-Set-and-Decay-Contract|Continuity Engine Working Set and Decay Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[persona-studio|Persona Studio Architecture]]
+  * [[system-overview|System Overview]]
+  * [[data-and-storage|Data and Storage]]
   * [[tech-debt-and-risks|Tech Debt and Risks]]
   * [[00-current-state]]
 ---
