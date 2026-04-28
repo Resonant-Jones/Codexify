@@ -187,11 +187,11 @@ vi.mock("@/features/chat/components", () => ({
     activeProviderId?: string | null;
     activeModelId?: string;
     activeInferenceMode?: ComposerInferenceMode;
-    sourceMode?: "project" | "personal_knowledge";
+    sourceMode?: "project" | "workspace";
     onProviderChange?: (providerId: string) => void;
     onModelChange?: (modelId: string) => void;
     onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
-    onSourceModeChange?: (mode: "project" | "personal_knowledge") => void;
+    onSourceModeChange?: (mode: "project" | "workspace") => void;
   }) => (
     <div data-testid="composer-stub">
       <div data-testid="provider-value">{String(activeProviderId ?? "none")}</div>
@@ -212,10 +212,10 @@ vi.mock("@/features/chat/components", () => ({
       </button>
       <button
         type="button"
-        data-testid="set-personal-knowledge"
-        onClick={() => onSourceModeChange?.("personal_knowledge")}
+        data-testid="set-workspace"
+        onClick={() => onSourceModeChange?.("workspace")}
       >
-        Personal knowledge
+        Workspace
       </button>
     </div>
   ),
@@ -566,8 +566,8 @@ describe("GuardianChat thread config selectors", () => {
   });
 
   it("hydrates an existing thread from persisted thread_config instead of ambient defaults", async () => {
-    window.localStorage.setItem("cfy.chat.source.tab:tab-1", "personal_knowledge");
-    window.localStorage.setItem("cfy.chat.source.thread:42", "personal_knowledge");
+    window.localStorage.setItem("cfy.chat.source.tab:tab-1", "workspace");
+    window.localStorage.setItem("cfy.chat.source.thread:42", "workspace");
 
     const persisted = createThreadConfig({
       providerId: "local",
@@ -732,7 +732,7 @@ describe("GuardianChat thread config selectors", () => {
       });
     });
 
-    await user.click(screen.getByTestId("set-personal-knowledge"));
+    await user.click(screen.getByTestId("set-workspace"));
 
     await waitFor(() => {
       expect(apiMock.patch).toHaveBeenCalledWith(
@@ -741,14 +741,14 @@ describe("GuardianChat thread config selectors", () => {
           providerId: "local",
           modelId: "qwen3.5:0.8b",
           inferenceMode: "think",
-          retrievalSource: "personal_knowledge",
+          retrievalSource: "workspace",
         })
       );
       expect(getComposerState()).toEqual({
         provider: "local",
         model: "qwen3.5:0.8b",
         mode: "think",
-        source: "personal_knowledge",
+        source: "workspace",
       });
     });
   });
@@ -783,14 +783,14 @@ describe("GuardianChat thread config selectors", () => {
     });
 
     await user.click(screen.getByTestId("set-think"));
-    await user.click(screen.getByTestId("set-personal-knowledge"));
+    await user.click(screen.getByTestId("set-workspace"));
 
     await waitFor(() => {
       expect(getComposerState()).toEqual({
         provider: "local",
         model: "qwen3.5:14b",
         mode: "think",
-        source: "personal_knowledge",
+        source: "workspace",
       });
     });
     expect(apiMock.patch).not.toHaveBeenCalled();

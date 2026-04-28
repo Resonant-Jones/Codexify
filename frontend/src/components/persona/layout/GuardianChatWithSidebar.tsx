@@ -169,8 +169,9 @@ function normalizeThreadConfig(raw: unknown): ThreadConfig | null {
     modelId,
     inferenceMode,
     retrievalSource:
+      retrievalSource === "workspace" ||
       retrievalSource === "personal_knowledge"
-        ? "personal_knowledge"
+        ? "workspace"
         : "project",
     personaId,
   };
