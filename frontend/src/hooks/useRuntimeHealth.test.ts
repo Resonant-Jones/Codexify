@@ -37,10 +37,10 @@ const flushPromises = async () => {
 };
 
 function mockHealthResponses(overrides: {
-  embedder?: "ok" | "fail" | "missing" | "unreachable";
+  chat?: "ok" | "fail" | "missing" | "unreachable";
   llm?: "ok" | "fail" | "missing" | "unreachable";
 } = {}) {
-  const embedder = overrides.embedder ?? "ok";
+  const chat = overrides.chat ?? "ok";
   const llm = overrides.llm ?? "ok";
 
   apiGet.mockImplementation((path: string) => {
@@ -60,21 +60,40 @@ function mockHealthResponses(overrides: {
       }
       return Promise.resolve({ data: { ok: false, status: "offline" } });
     }
-    if (path === "/api/health/embedder") {
-      if (embedder === "ok") {
-        return Promise.resolve({ data: { status: "ok" } });
+    if (path === "/health/chat") {
+      if (chat === "ok") {
+        return Promise.resolve({
+          data: {
+            ok: true,
+            status: "healthy",
+            completion_service: {
+              ok: true,
+              status_reason: "ok",
+              redis_reachable: true,
+            },
+          },
+        });
       }
-      if (embedder === "missing") {
+      if (chat === "missing") {
         const error = new Error("not found") as Error & {
           response?: { status?: number };
         };
         error.response = { status: 404 };
         return Promise.reject(error);
       }
-      if (embedder === "unreachable") {
-        return Promise.reject(new Error("embedder unreachable"));
+      if (chat === "unreachable") {
+        return Promise.reject(new Error("chat unreachable"));
       }
-      return Promise.resolve({ data: { status: "error" } });
+      return Promise.resolve({
+        data: {
+          ok: false,
+          status: "degraded",
+          completion_service: {
+            ok: false,
+            status_reason: "worker_heartbeat_stale",
+          },
+        },
+      });
     }
     return Promise.reject(new Error("unknown endpoint"));
   });
@@ -108,7 +127,7 @@ describe("useRuntimeHealth", () => {
   });
 
   it("flags backend unreachable", async () => {
-    mockHealthResponses({ llm: "unreachable", embedder: "unreachable" });
+    mockHealthResponses({ llm: "unreachable", chat: "unreachable" });
     const { result } = renderHook(() => useRuntimeHealth());
     await act(async () => {
       await flushPromises();
@@ -135,8 +154,8 @@ describe("useRuntimeHealth", () => {
     });
   });
 
-  it("treats /api/health/embedder 404 as missing endpoint, not backend unreachable", async () => {
-    mockHealthResponses({ embedder: "missing" });
+  it("treats /health/chat 404 as missing endpoint, not backend unreachable", async () => {
+    mockHealthResponses({ chat: "missing" });
     const { result } = renderHook(() => useRuntimeHealth());
     await act(async () => {
       await flushPromises();
@@ -150,7 +169,7 @@ describe("useRuntimeHealth", () => {
   });
 
   it("flags chat unhealthy", async () => {
-    mockHealthResponses({ embedder: "fail" });
+    mockHealthResponses({ chat: "fail" });
     const { result } = renderHook(() => useRuntimeHealth());
     await act(async () => {
       await flushPromises();
@@ -171,9 +190,8 @@ describe("useRuntimeHealth", () => {
 
     const calledPaths = apiGet.mock.calls.map(([path]) => String(path));
     expect(calledPaths).toContain("/api/health/llm");
-    expect(calledPaths).toContain("/api/health/embedder");
+    expect(calledPaths).toContain("/health/chat");
     expect(calledPaths).not.toContain("/health");
-    expect(calledPaths).not.toContain("/health/chat");
     expect(calledPaths).not.toContain("/api/health");
     expect(calledPaths).not.toContain("/api/health/chat");
   });

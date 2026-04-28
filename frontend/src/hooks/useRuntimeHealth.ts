@@ -143,22 +143,21 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
       firstCheckAtRef.current = startedAt;
     }
     try {
-      const [llmResult, embedderResult] =
+      const [llmResult, chatResult] =
         await Promise.allSettled([
           api.get("/api/health/llm"),
-          api.get("/api/health/embedder"),
+          api.get("/health/chat"),
         ]);
       const llmPayload =
         llmResult.status === "fulfilled" ? llmResult.value?.data : null;
-
       const llmHealth = parseHealthResult(llmResult);
-      const embedderHealth = parseHealthResult(embedderResult);
-      const backendReachable = llmHealth.reachable || embedderHealth.reachable;
-      const chatHealthy = embedderHealth.ok;
+      const chatHealth = parseHealthResult(chatResult);
+      const backendReachable = llmHealth.reachable || chatHealth.reachable;
+      const chatHealthy = chatHealth.ok;
       const llmHealthy = llmHealth.ok;
       const llmDetail = extractLlmDetail(llmPayload);
       const healthEndpointMissing =
-        llmHealth.missing || embedderHealth.missing;
+        llmHealth.missing || chatHealth.missing;
       const success =
         backendReachable && chatHealthy === true && llmHealthy === true;
 
