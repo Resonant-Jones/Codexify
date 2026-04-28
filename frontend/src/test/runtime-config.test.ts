@@ -3,9 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   initRuntimeConfig,
   readDesktopStartupRoutingDecision,
+  getDesktopRuntimeAuthConfig,
   resolveApiUrl,
   resolveSseEndpoint,
 } from "@/lib/runtimeConfig";
+import {
+  buildAuthenticatedFetchInit,
+  clearRuntimeApiKey,
+  readRuntimeApiKey,
+} from "@/lib/api";
 
 const invokeMock = vi.fn();
 
@@ -13,6 +19,7 @@ describe("runtime config", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     invokeMock.mockReset();
+    clearRuntimeApiKey();
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       value: {
@@ -57,6 +64,12 @@ describe("runtime config", () => {
       sseUrl: "http://127.0.0.1:9999/api/events",
       sharePublicBaseUrl: "https://share.example",
       authMode: "local",
+      apiKeyPresent: true,
+      apiKey: "packaged-runtime-key",
+      envPath: "/Users/chriscastillo/Codexify/.env",
+      runtimeRoot: "/Users/chriscastillo/Codexify",
+      failureKind: null,
+      runtimeContext: "packaged",
     });
 
     const config = await initRuntimeConfig({ force: true });
@@ -64,10 +77,19 @@ describe("runtime config", () => {
     expect(config.mode).toBe("tauri");
     expect(config.backendBaseUrl).toBe("http://127.0.0.1:9999");
     expect(config.apiBaseUrl).toBe("http://127.0.0.1:9999/api");
+    expect(readRuntimeApiKey()).toBe("packaged-runtime-key");
+    expect(getDesktopRuntimeAuthConfig()?.apiKeyPresent).toBe(true);
+    expect(getDesktopRuntimeAuthConfig()?.envPath).toBe(
+      "/Users/chriscastillo/Codexify/.env"
+    );
     expect(resolveApiUrl("/api/share", config)).toBe(
       "http://127.0.0.1:9999/api/share"
     );
     expect(resolveSseEndpoint(config)).toBe("http://127.0.0.1:9999/api/events");
+    const headers = buildAuthenticatedFetchInit().headers as Record<string, string>;
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBe(
+      "packaged-runtime-key"
+    );
   });
 
   it("prioritizes persisted desktop connection overrides", async () => {
@@ -117,6 +139,33 @@ describe("runtime config", () => {
     expect(decision?.setupReadiness?.recommendedAction).toBe(
       "Open Docker Desktop, then retry."
     );
+  });
+
+  it("captures packaged auth diagnostics without exposing the secret", async () => {
+    (window as any).__TAURI_IPC__ = {};
+    (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
+    invokeMock.mockResolvedValue({
+      mode: "tauri",
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiBaseUrl: "http://127.0.0.1:8888/api",
+      sseUrl: "http://127.0.0.1:8888/api/events",
+      sharePublicBaseUrl: "http://127.0.0.1:5173",
+      authMode: "local",
+      apiKeyPresent: false,
+      apiKey: null,
+      envPath: "/Users/chriscastillo/Codexify/.env",
+      runtimeRoot: "/Users/chriscastillo/Codexify",
+      failureKind: "config_incomplete",
+      runtimeContext: "packaged",
+    });
+
+    await initRuntimeConfig({ force: true });
+
+    const snapshot = getDesktopRuntimeAuthConfig();
+
+    expect(snapshot?.apiKeyPresent).toBe(false);
+    expect(snapshot?.failureKind).toBe("config_incomplete");
+    expect(JSON.stringify(snapshot)).not.toContain("packaged-runtime-key");
   });
 
   it("refreshes launcher setup readiness when the first handoff is incomplete", async () => {

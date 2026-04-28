@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-04-26
+Last updated: 2026-04-28
 Source anchors:
 - Makefile
 - package.json
@@ -172,6 +172,7 @@ Source anchors:
 - The proof target lives in `backend/Dockerfile` as `compiled-runtime` and keeps the source-backed runtime stage intact for dev and legacy Compose paths.
 - The proof image is intentionally backend-only for now; workers and migrator still remain source-backed in the existing Docker path until they are proven separately.
 - The proof image still ships a small set of non-source runtime files needed by startup, including supported-profile YAML and bundled help content.
+- Packaged desktop auth handoff now flows through a Tauri command that returns a sanitized runtime auth/config payload for the local packaged runtime. The frontend consumes the handed-off `GUARDIAN_API_KEY` only in packaged mode, while diagnostics expose only presence and source metadata such as `envPath`, `runtimeRoot`, and `failureKind`.
 
 ## Config Resolution Order and Defaults
 
