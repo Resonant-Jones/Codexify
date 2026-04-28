@@ -8,6 +8,8 @@ Source anchors:
 - guardian/workers/graph_write_worker.py
 - guardian/tasks/types.py
 - guardian/queue/redis_queue.py
+- guardian/queue/graph_write_receipts.py
+- guardian/memory_graph/graph_write_identity.py
 - docs/architecture/candidate-trace-surface.md
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/adr/009-candidate-trace-ingest-worker.md
@@ -100,6 +102,24 @@ Graph-write tasks remain deterministic derived artifacts and are not:
 - written to Neo4j in this phase
 
 Future graph persistence remains explicitly deferred.
+
+## Graph Identity and Receipt Semantics
+
+Graph-write tasks now carry deterministic graph-lane identity derived from the
+candidate trace boundary plus the canonicalized graph payload.
+
+Before the graph-write worker inspects a task, it claims an ephemeral receipt
+for the task's idempotency key. That receipt is Redis-backed operational dedupe
+only:
+
+- it is not exported
+- it is not restored
+- it is not persisted as canonical state
+- it is not used by retrieval
+- it is not written to Neo4j in this phase
+
+The receipt claim only makes the inspection-only lane replay-safe. It does not
+turn graph tasks into graph truth.
 
 ## Non-Canonical Constraint
 

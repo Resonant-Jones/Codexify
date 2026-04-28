@@ -5,12 +5,17 @@ import ReactDOM from "react-dom/client";
 
 import App from "./App";
 import { configureGC } from "./dcw-services/gc";
-import { refreshApiBaseUrl, setRuntimeApiKey } from "./lib/api";
+import {
+  refreshApiBaseUrl,
+  readRuntimeApiKey,
+  setRuntimeApiKey,
+} from "./lib/api";
 import { resolveAuthStateOnBoot } from "./lib/authState";
 import { GuardianAPI } from "./lib/guardianApi";
 import {
   getRuntimeConfigSync,
   initRuntimeConfig,
+  getDesktopRuntimeAuthConfig,
   invokeTauriCommand,
   isTauriRuntime,
 } from "./lib/runtimeConfig";
@@ -46,6 +51,7 @@ function readDevApiKey(): string {
 
 async function hydrateDesktopApiKey(): Promise<void> {
   if (!isTauriRuntime()) return;
+  if (readRuntimeApiKey()) return;
   try {
     const value = await invokeTauriCommand<string | null>("desktop_get_api_key");
     setRuntimeApiKey(typeof value === "string" ? value : null);
@@ -71,15 +77,21 @@ function renderApp(): void {
 async function bootstrap(): Promise<void> {
   try {
     const runtimeConfig = await initRuntimeConfig();
+    const runtimeAuthConfig = getDesktopRuntimeAuthConfig();
     refreshApiBaseUrl();
 
     const devApiKey = readDevApiKey();
+    const runtimeApiKey = readRuntimeApiKey();
     configureGC({
       base: runtimeConfig.apiBaseUrl,
-      token: devApiKey || undefined,
+      token: runtimeApiKey || devApiKey || undefined,
     });
 
     await hydrateDesktopApiKey();
+    configureGC({
+      base: runtimeConfig.apiBaseUrl,
+      token: readRuntimeApiKey() || devApiKey || undefined,
+    });
     resolveAuthStateOnBoot();
 
     (window as any).__GC_ENV__ = {
@@ -88,8 +100,11 @@ async function bootstrap(): Promise<void> {
       base: runtimeConfig.apiBaseUrl,
       backendBase: runtimeConfig.backendBaseUrl,
       sse: runtimeConfig.sseUrl,
-      keyPresent: !!devApiKey,
-      guardianDevKeyPresent: !!(import.meta.env as any).VITE_GUARDIAN_DEV_API_KEY,
+      keyPresent: !!(readRuntimeApiKey() || devApiKey),
+      apiKeyPresent: !!runtimeAuthConfig?.apiKeyPresent,
+      envPath: runtimeAuthConfig?.envPath ?? null,
+      runtimeRoot: runtimeAuthConfig?.runtimeRoot ?? null,
+      failureKind: runtimeAuthConfig?.failureKind ?? null,
     };
     console.info("[gc] env snapshot", {
       mode: (window as any).__GC_ENV__?.mode,
@@ -97,7 +112,10 @@ async function bootstrap(): Promise<void> {
       base: (window as any).__GC_ENV__?.base,
       backendBase: (window as any).__GC_ENV__?.backendBase,
       keyPresent: (window as any).__GC_ENV__?.keyPresent,
-      guardianDevKeyPresent: (window as any).__GC_ENV__?.guardianDevKeyPresent,
+      apiKeyPresent: (window as any).__GC_ENV__?.apiKeyPresent,
+      envPath: (window as any).__GC_ENV__?.envPath,
+      runtimeRoot: (window as any).__GC_ENV__?.runtimeRoot,
+      failureKind: (window as any).__GC_ENV__?.failureKind,
     });
 
     if (!devApiKey && import.meta.env.DEV) {
@@ -120,7 +138,7 @@ async function bootstrap(): Promise<void> {
 const initialRuntimeConfig = getRuntimeConfigSync();
 configureGC({
   base: initialRuntimeConfig.apiBaseUrl,
-  token: readDevApiKey() || undefined,
+  token: readRuntimeApiKey() || readDevApiKey() || undefined,
 });
 resolveAuthStateOnBoot();
 renderApp();

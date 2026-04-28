@@ -9,7 +9,7 @@ const BUNDLE_RESOURCE_PATHS: &[&str] = &[
     ".env.template",
     "backend",
     "docker",
-    "docker-compose.yml",
+    "docker-compose.runtime.yml",
     "guardian",
     "plugins",
     "pytest.ini",

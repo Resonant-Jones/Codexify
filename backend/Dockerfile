@@ -186,3 +186,45 @@ FROM runtime AS tts-runtime
 
 # Copy the site-packages tree with pinned TTS dependency graph.
 COPY --from=builder-tts /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages
+
+# === Compiled backend proof stage: build a frozen artifact for the API entrypoint ===
+FROM builder AS compiled-builder
+
+WORKDIR /src
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends binutils && \
+    rm -rf /var/lib/apt/lists/*
+COPY guardian /src/guardian
+COPY backend /src/backend
+COPY config /src/config
+COPY docs/builtin-help /src/docs/builtin-help
+COPY packaging/pyinstaller /src/packaging/pyinstaller
+
+RUN mkdir -p /src/guardian/contracts && \
+    cp /src/guardian/contracts.py /src/guardian/contracts/__init__.py
+
+RUN python -m pip install pyinstaller
+RUN pyinstaller /src/packaging/pyinstaller/codexify_backend.spec --noconfirm --clean --distpath /src/build/dist --workpath /src/build/work
+
+# === Compiled backend runtime proof image ===
+FROM dhi.io/python:3.11.14-debian13-dev AS compiled-runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app \
+    PORT=8888 \
+    HOME=/home/codexify \
+    CODEXIFY_APP_ROOT=/app
+
+WORKDIR /app
+
+RUN mkdir -p /home/codexify
+
+COPY --from=compiled-builder /src/build/dist/codexify-backend /app/runtime
+COPY config /app/config
+COPY docs/builtin-help /app/docs/builtin-help
+
+EXPOSE 8888
+
+ENTRYPOINT ["/app/runtime/codexify-backend"]
