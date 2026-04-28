@@ -106,6 +106,21 @@ The inspection snapshot is not:
 The debug route reads the latest snapshot for a thread, or an explicit empty
 state when no snapshot exists.
 
+## Graph Backend Adapter Contract
+
+The graph-write worker now also mounts a bounded graph backend adapter after
+receipt claim and inspection snapshot emission.
+
+This adapter seam is deliberately inert in the current phase:
+
+- the default backend implementation is no-op
+- adapter output is derived, not canonical
+- adapter results do not alter receipt semantics
+- adapter results do not feed retrieval, export, or canonical graph state
+
+The adapter contract exists so later graph persistence can attach to a stable
+typed seam without changing the current inspection-only behavior.
+
 ## Graph-Write Task Hand-Off
 
 Candidate ingest now hands non-empty graph candidates to a dedicated

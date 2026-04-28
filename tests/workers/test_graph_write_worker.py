@@ -8,6 +8,10 @@ from guardian.core.graph_write_inspection_store import (
     GRAPH_WRITE_INSPECTION_STATUS_CLAIMED,
     GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
 )
+from guardian.memory_graph.graph_backend import (
+    GRAPH_BACKEND_RESULT_STATUS_NOOP,
+    GraphBackendWriteResult,
+)
 from guardian.workers import graph_write_worker
 
 
@@ -75,6 +79,21 @@ def test_graph_write_worker_stores_inspection_snapshot_for_first_seen_task(
         "get_redis_connection",
         get_redis_connection_spy,
     )
+    graph_backend_adapter = MagicMock(
+        write_graph_task=MagicMock(
+            return_value=GraphBackendWriteResult(
+                status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+                graph_write_id="gwr_test_identity",
+                node_count=1,
+                edge_count=1,
+            )
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_graph_backend_adapter",
+        MagicMock(return_value=graph_backend_adapter),
+    )
 
     graph_write_worker.process_graph_write_task(_task())
 
@@ -102,6 +121,7 @@ def test_graph_write_worker_stores_inspection_snapshot_for_first_seen_task(
     assert summary.warning_count == 0
     assert summary.node_types == ["Document"]
     assert summary.edge_types == ["PART_OF_THREAD"]
+    graph_backend_adapter.write_graph_task.assert_called_once()
 
     snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(7)
     assert snapshot is not None
@@ -120,10 +140,25 @@ def test_graph_write_worker_stores_duplicate_skipped_snapshot(
 ):
     caplog.set_level(logging.INFO)
     redis_client = _FakeReceiptRedis(results=[True, False])
+    graph_backend_adapter = MagicMock(
+        write_graph_task=MagicMock(
+            return_value=GraphBackendWriteResult(
+                status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+                graph_write_id="gwr_test_identity",
+                node_count=1,
+                edge_count=1,
+            )
+        )
+    )
     monkeypatch.setattr(
         graph_write_worker,
         "get_redis_connection",
         MagicMock(return_value=redis_client),
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_graph_backend_adapter",
+        MagicMock(return_value=graph_backend_adapter),
     )
 
     task = _task()
@@ -150,6 +185,7 @@ def test_graph_write_worker_stores_duplicate_skipped_snapshot(
     assert (
         duplicate_record.idempotency_key == "graph-write:trace-1:fingerprint-1"
     )
+    assert graph_backend_adapter.write_graph_task.call_count == 1
     assert snapshot is not None
     assert snapshot["receipt_status"] == (
         GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED
@@ -223,17 +259,20 @@ def test_graph_write_worker_still_does_not_persist_or_call_graph_backend(
         MagicMock(return_value=redis_client),
     )
     graph_backend_spy = MagicMock(
-        side_effect=AssertionError("graph backend not expected")
+        return_value=GraphBackendWriteResult(
+            status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+            graph_write_id="gwr_test_identity",
+            node_count=1,
+            edge_count=1,
+        )
     )
-
     monkeypatch.setattr(
         graph_write_worker,
-        "write_graph_candidates",
+        "get_graph_backend_adapter",
         graph_backend_spy,
-        raising=False,
     )
 
     graph_write_worker.process_graph_write_task(_task())
 
     assert len(redis_client.calls) == 1
-    graph_backend_spy.assert_not_called()
+    graph_backend_spy.assert_called_once()
