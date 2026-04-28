@@ -202,22 +202,19 @@ function applyAuthHeaders(
   const forceApiKey = options.forceApiKey ?? false;
   const token = getAuthToken();
   const runtimeApiKey = getRuntimeApiKey();
-  const devApiKey = resolveDevApiKey();
-  const apiKey = runtimeApiKey || devApiKey;
   const hasAuthorization = hasHeader(headers, "Authorization");
   const hasApiKey = hasHeader(headers, "X-API-Key");
 
+  if (runtimeApiKey && !hasApiKey) {
+    headers["X-API-Key"] = runtimeApiKey;
+  } else {
+    const devApiKey = resolveDevApiKey();
+    if ((forceApiKey || !token) && devApiKey && !hasApiKey) {
+      headers["X-API-Key"] = devApiKey;
+    }
+  }
+
   if (!forceApiKey && token && !hasAuthorization) {
-    headers.Authorization = `Bearer ${token}`;
-    return;
-  }
-
-  if (apiKey && !hasApiKey) {
-    headers["X-API-Key"] = apiKey;
-    return;
-  }
-
-  if (token && !hasAuthorization) {
     headers.Authorization = `Bearer ${token}`;
   }
 }
@@ -889,19 +886,16 @@ api.interceptors.request.use((config) => {
 
   const token = getAuthToken();
   const runtimeApiKey = getRuntimeApiKey();
+  if (runtimeApiKey && !existingApiKey) {
+    setHeader("X-API-Key", runtimeApiKey);
+  } else if (!token) {
+    const devApiKey = resolveDevApiKey();
+    if (devApiKey && !existingAuthorization && !existingApiKey) {
+      setHeader("X-API-Key", devApiKey);
+    }
+  }
   if (token && !existingAuthorization) {
     setHeader("Authorization", `Bearer ${token}`);
-  } else if (!token) {
-    if (runtimeApiKey && !existingAuthorization && !existingApiKey) {
-      setHeader("X-API-Key", runtimeApiKey);
-    } else {
-      const devApiKey = resolveDevApiKey();
-      if (devApiKey && !existingAuthorization && !existingApiKey) {
-        setHeader("X-API-Key", devApiKey);
-      }
-    }
-  } else if (runtimeApiKey && !existingApiKey) {
-    setHeader("X-API-Key", runtimeApiKey);
   }
   config.headers = headers;
 
@@ -1199,13 +1193,10 @@ export async function fetchPersonalFactRevisions(
 }
 
 export async function fetchProviderState() {
-  const res = await fetch("/api/health/llm");
-
-  if (!res.ok) {
-    throw new Error(`Provider state fetch failed: ${res.status}`);
-  }
-
-  const json = await res.json();
+  // Use the authenticated runtime client so packaged desktop mode keeps the
+  // in-memory desktop API key attached to the provider health probe.
+  const res = await api.get("/health/llm");
+  const json = res?.data ?? {};
 
   console.log("[provider-state:raw]", json);
 

@@ -659,6 +659,50 @@ describe("GuardianChat inference rail", () => {
     ).toBe(false);
   });
 
+  it("accepts camelCase create-on-send thread ids without dropping the new thread", async () => {
+    renderChat("draft-thread", {
+      userName: "Resonant Jones",
+    });
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/chat/messages") {
+        expect(body).toEqual(
+          expect.objectContaining({
+            thread_id: null,
+            role: "user",
+            user_id: "local",
+          })
+        );
+        return {
+          data: {
+            created_thread: true,
+            createdThreadId: 123,
+            thread: {
+              id: 123,
+              title: "New Thread",
+            },
+          },
+        };
+      }
+      if (url === "/chat/123/complete") {
+        return { data: { task_id: "task-123" } };
+      }
+      return { data: {} };
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/123/complete",
+        expect.anything()
+      );
+    });
+    expect(screen.queryByText("Thread id missing from response")).not.toBeInTheDocument();
+  });
+
   it("switches profiles through the command bus invoke surface instead of the legacy tools shim", async () => {
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("local_mode");
     renderChat("1");
