@@ -215,7 +215,7 @@ export type ComposerSendOptions = {
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
-type SourceMode = "project" | "personal_knowledge";
+type SourceMode = "project" | "workspace";
 
 type DraftAttachment = {
   id: string;
