@@ -16,12 +16,37 @@ type RuntimeHealthMock = {
   failureKind: RuntimeHealthFailureKindToken | "unknown" | null;
   llmDetail: string | null;
   lastSuccessAt: number | null;
+  lastFailedAt: number | null;
   backendReachable: boolean | null;
   chatHealthy: boolean | null;
   llmHealthy: boolean | null;
   liveEventsStatus: LiveEventConnectionState;
   lastCheckedAt: number | null;
   stale: boolean;
+  diagnostics: {
+    resolvedApiBaseUrl: string | null;
+    apiKeyPresent: boolean;
+    authSource: string;
+    chat: {
+      endpoint: string;
+      httpStatus: number | null;
+      transportErrorClass: string | null;
+      parsedStatus: string | null;
+      parsedOk: boolean | null;
+    };
+    llm: {
+      endpoint: string;
+      httpStatus: number | null;
+      transportErrorClass: string | null;
+      parsedStatus: string | null;
+      parsedOk: boolean | null;
+    };
+    failureKind: RuntimeHealthFailureKindToken | "unknown" | null;
+    lastSuccessAt: number | null;
+    lastFailedAt: number | null;
+    lastCheckedAt: number | null;
+    currentComputedStateSource: string;
+  };
 };
 
 const runtimeHealthState: RuntimeHealthMock = {
@@ -29,12 +54,37 @@ const runtimeHealthState: RuntimeHealthMock = {
   failureKind: null,
   llmDetail: null,
   lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
+  lastFailedAt: null,
   backendReachable: true,
   chatHealthy: true,
   llmHealthy: true,
   liveEventsStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
+  diagnostics: {
+    resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+    apiKeyPresent: true,
+    authSource: "runtime-desktop",
+    chat: {
+      endpoint: "/health/chat",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "healthy",
+      parsedOk: true,
+    },
+    llm: {
+      endpoint: "/api/health/llm",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "online",
+      parsedOk: true,
+    },
+    failureKind: null,
+    lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
+    lastFailedAt: null,
+    lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
+    currentComputedStateSource: "live-poll",
+  },
 };
 const routeCapabilityState = {
   ready: true,
@@ -43,6 +93,37 @@ const routeCapabilityState = {
 
 vi.mock("@/hooks/useRuntimeHealth", () => ({
   default: () => runtimeHealthState,
+  formatRuntimeHealthDiagnostics: (diagnostics: typeof runtimeHealthState.diagnostics) =>
+    [
+      `resolved api base url=${diagnostics.resolvedApiBaseUrl ?? "<unresolved>"}`,
+      `apiKeyPresent=${diagnostics.apiKeyPresent ? "true" : "false"}`,
+      `authSource=${diagnostics.authSource}`,
+      `chat endpoint called=${diagnostics.chat.endpoint}`,
+      `chat HTTP status=${diagnostics.chat.httpStatus ?? "<none>"}`,
+      `parsed chat health status=${diagnostics.chat.parsedStatus ?? "<none>"}`,
+      `parsed chat health ok=${
+        diagnostics.chat.parsedOk == null
+          ? "<unknown>"
+          : diagnostics.chat.parsedOk
+            ? "true"
+            : "false"
+      }`,
+      `llm endpoint called=${diagnostics.llm.endpoint}`,
+      `llm HTTP status=${diagnostics.llm.httpStatus ?? "<none>"}`,
+      `parsed llm health status=${diagnostics.llm.parsedStatus ?? "<none>"}`,
+      `parsed llm health ok=${
+        diagnostics.llm.parsedOk == null
+          ? "<unknown>"
+          : diagnostics.llm.parsedOk
+            ? "true"
+            : "false"
+      }`,
+      `failureKind=${diagnostics.failureKind ?? "none"}`,
+      `last successful health poll=${diagnostics.lastSuccessAt ?? "<none>"}`,
+      `last failed health poll=${diagnostics.lastFailedAt ?? "<none>"}`,
+      `current health poll=${diagnostics.lastCheckedAt ?? "<none>"}`,
+      `current computed state source=${diagnostics.currentComputedStateSource}`,
+    ],
 }));
 
 vi.mock("@/lib/runtimeRouteCapabilities", () => ({
@@ -191,13 +272,49 @@ vi.mock("@/theme", () => ({
 
 describe("AppShell runtime health banner", () => {
   beforeEach(() => {
+    Object.defineProperty(window, "localStorage", {
+      value: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(() => null),
+        length: 0,
+      },
+      configurable: true,
+    });
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
     runtimeHealthState.failureKind = null;
     runtimeHealthState.llmDetail = null;
     runtimeHealthState.backendReachable = true;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T12:00:00Z");
+    runtimeHealthState.lastFailedAt = null;
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
+    runtimeHealthState.diagnostics = {
+      resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      apiKeyPresent: true,
+      authSource: "runtime-desktop",
+      chat: {
+        endpoint: "/health/chat",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "healthy",
+        parsedOk: true,
+      },
+      llm: {
+        endpoint: "/api/health/llm",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "online",
+        parsedOk: true,
+      },
+      failureKind: null,
+      lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
+      lastFailedAt: null,
+      lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
+      currentComputedStateSource: "live-poll",
+    };
     if (!window.matchMedia) {
       window.matchMedia = ((query: string) => ({
         matches: false,
@@ -223,10 +340,35 @@ describe("AppShell runtime health banner", () => {
       RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE;
     runtimeHealthState.backendReachable = false;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
+    runtimeHealthState.lastFailedAt = Date.parse("2026-03-20T11:54:30Z");
+    runtimeHealthState.diagnostics = {
+      resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      apiKeyPresent: true,
+      authSource: "runtime-desktop",
+      chat: {
+        endpoint: "/health/chat",
+        httpStatus: 503,
+        transportErrorClass: null,
+        parsedStatus: "degraded",
+        parsedOk: false,
+      },
+      llm: {
+        endpoint: "/api/health/llm",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "online",
+        parsedOk: true,
+      },
+      failureKind: RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE,
+      lastSuccessAt: Date.parse("2026-03-20T11:55:00Z"),
+      lastFailedAt: Date.parse("2026-03-20T11:54:30Z"),
+      lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
+      currentComputedStateSource: "live-poll",
+    };
 
     render(<AppShell />);
 
-    expect(screen.getByText(/Runtime offline/i)).toBeInTheDocument();
+    expect(screen.getByText(/Provider offline/i)).toBeInTheDocument();
     expect(
       screen.getByText(/failure:\s*backend_unreachable/i)
     ).toBeInTheDocument();
@@ -238,6 +380,8 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.failureKind =
       RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
+    runtimeHealthState.diagnostics.failureKind =
+      RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
 
     render(<AppShell />);
 
@@ -251,15 +395,68 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.llmDetail =
       "MiniMax live discovery unavailable using documented model list";
     runtimeHealthState.lastSuccessAt = Date.parse("2026-03-20T11:55:00Z");
+    runtimeHealthState.diagnostics.failureKind =
+      RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
+    runtimeHealthState.diagnostics.llm = {
+      endpoint: "/api/health/llm",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "offline",
+      parsedOk: false,
+    };
 
     render(<AppShell />);
 
-    expect(screen.getByText(/Response delayed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Provider degraded/i)).toBeInTheDocument();
     expect(
       screen.getByText(/failure:\s*llm_unhealthy/i)
     ).toBeInTheDocument();
     expect(
       screen.getByText(/MiniMax live discovery unavailable/i)
     ).toBeInTheDocument();
+  });
+
+  it("renders sanitized technical details when runtime health is degraded", () => {
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealthState.failureKind =
+      RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY;
+    runtimeHealthState.lastFailedAt = Date.parse("2026-03-20T11:54:30Z");
+    runtimeHealthState.diagnostics = {
+      resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      apiKeyPresent: true,
+      authSource: "runtime-desktop",
+      chat: {
+        endpoint: "/health/chat",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "healthy",
+        parsedOk: true,
+      },
+      llm: {
+        endpoint: "/api/health/llm",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "online",
+        parsedOk: true,
+      },
+      failureKind: RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY,
+      lastSuccessAt: Date.parse("2026-03-20T11:55:00Z"),
+      lastFailedAt: Date.parse("2026-03-20T11:54:30Z"),
+      lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
+      currentComputedStateSource: "live-poll",
+    };
+
+    render(<AppShell />);
+
+    expect(screen.getByText(/Technical details/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/resolved api base url=http:\/\/127\.0\.0\.1:8888\/api/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/apiKeyPresent=true/i)).toBeInTheDocument();
+    expect(screen.getByText(/authSource=runtime-desktop/i)).toBeInTheDocument();
+    expect(screen.getByText(/chat endpoint called=\/health\/chat/i)).toBeInTheDocument();
+    expect(screen.getByText(/llm endpoint called=\/api\/health\/llm/i)).toBeInTheDocument();
+    expect(screen.getByText(/failureKind=chat_unhealthy/i)).toBeInTheDocument();
+    expect(screen.queryByText("desktop-secret-key")).toBeNull();
   });
 });

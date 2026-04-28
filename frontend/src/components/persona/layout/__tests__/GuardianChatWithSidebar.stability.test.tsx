@@ -46,6 +46,35 @@ const runtimeAuthState = vi.hoisted(() => ({
         failureKind: string | null;
       },
 }));
+const runtimeHealthState = vi.hoisted(() => ({
+  status: "healthy" as const,
+  diagnostics: null as
+    | null
+    | {
+        resolvedApiBaseUrl: string | null;
+        apiKeyPresent: boolean;
+        authSource: string;
+        chat: {
+          endpoint: string;
+          httpStatus: number | null;
+          transportErrorClass: string | null;
+          parsedStatus: string | null;
+          parsedOk: boolean | null;
+        };
+        llm: {
+          endpoint: string;
+          httpStatus: number | null;
+          transportErrorClass: string | null;
+          parsedStatus: string | null;
+          parsedOk: boolean | null;
+        };
+        failureKind: string | null;
+        lastSuccessAt: number | null;
+        lastFailedAt: number | null;
+        lastCheckedAt: number | null;
+        currentComputedStateSource: string;
+      },
+}));
 const routeCapabilityStates = vi.hoisted(
   () =>
     ({
@@ -62,6 +91,20 @@ vi.mock("@/features/chat/GuardianChat", () => ({
         <div data-testid="active-thread-id">{String(props?.activeThread?.id ?? "none")}</div>
         <div data-testid="active-thread-title">{String(props?.activeThread?.title ?? "")}</div>
         <div data-testid="active-thread-messages">{String(props?.activeThread?.messages?.length ?? 0)}</div>
+        {props?.runtimeHealth?.diagnostics ? (
+          <div data-testid="runtime-health-diagnostics">
+            {[
+              `resolvedApiBaseUrl=${String(props.runtimeHealth.diagnostics.resolvedApiBaseUrl ?? "")}`,
+              `apiKeyPresent=${props.runtimeHealth.diagnostics.apiKeyPresent ? "true" : "false"}`,
+              `authSource=${String(props.runtimeHealth.diagnostics.authSource ?? "")}`,
+              `chatEndpoint=${String(props.runtimeHealth.diagnostics.chat.endpoint ?? "")}`,
+              `chatStatus=${String(props.runtimeHealth.diagnostics.chat.parsedStatus ?? "")}`,
+              `llmEndpoint=${String(props.runtimeHealth.diagnostics.llm.endpoint ?? "")}`,
+              `llmStatus=${String(props.runtimeHealth.diagnostics.llm.parsedStatus ?? "")}`,
+              `failureKind=${String(props.runtimeHealth.diagnostics.failureKind ?? "")}`,
+            ].join(" | ")}
+          </div>
+        ) : null}
       </div>
     );
   },
@@ -100,6 +143,39 @@ vi.mock("@/hooks/useLiveEvents", () => ({
   useLiveEvents: () => ({
     subscribe: () => () => {},
   }),
+}));
+
+vi.mock("@/hooks/useRuntimeHealth", () => ({
+  __esModule: true,
+  default: () => runtimeHealthState,
+  formatRuntimeHealthDiagnostics: (diagnostics: any) => [
+    `resolved api base url=${diagnostics.resolvedApiBaseUrl ?? "<unresolved>"}`,
+    `apiKeyPresent=${diagnostics.apiKeyPresent ? "true" : "false"}`,
+    `authSource=${diagnostics.authSource}`,
+    `chat endpoint called=${diagnostics.chat.endpoint}`,
+    `parsed chat health status=${diagnostics.chat.parsedStatus ?? "<none>"}`,
+    `parsed chat health ok=${
+      diagnostics.chat.parsedOk == null
+        ? "<unknown>"
+        : diagnostics.chat.parsedOk
+          ? "true"
+          : "false"
+    }`,
+    `llm endpoint called=${diagnostics.llm.endpoint}`,
+    `parsed llm health status=${diagnostics.llm.parsedStatus ?? "<none>"}`,
+    `parsed llm health ok=${
+      diagnostics.llm.parsedOk == null
+        ? "<unknown>"
+        : diagnostics.llm.parsedOk
+          ? "true"
+          : "false"
+    }`,
+    `failureKind=${diagnostics.failureKind ?? "none"}`,
+    `last successful health poll=${diagnostics.lastSuccessAt ?? "<none>"}`,
+    `last failed health poll=${diagnostics.lastFailedAt ?? "<none>"}`,
+    `current health poll=${diagnostics.lastCheckedAt ?? "<none>"}`,
+    `current computed state source=${diagnostics.currentComputedStateSource}`,
+  ],
 }));
 
 vi.mock("@/hooks/useWallpaperUrl", () => ({
@@ -380,7 +456,13 @@ describe("GuardianChatWithSidebar stability contract", () => {
       },
     });
 
-    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    render(
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        runtimeHealth={runtimeHealthState as any}
+      />
+    );
 
     await screen.findByTestId("thread-1");
 
@@ -410,7 +492,13 @@ describe("GuardianChatWithSidebar stability contract", () => {
     });
 
     const user = userEvent.setup();
-    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    render(
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        runtimeHealth={runtimeHealthState as any}
+      />
+    );
 
     await screen.findByTestId("thread-1");
     await user.click(screen.getByTestId("thread-2"));
@@ -443,7 +531,13 @@ describe("GuardianChatWithSidebar stability contract", () => {
     });
 
     const user = userEvent.setup();
-    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    render(
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        runtimeHealth={runtimeHealthState as any}
+      />
+    );
 
     await screen.findByTestId("thread-2");
     await user.click(screen.getByTestId("thread-2"));
@@ -467,7 +561,13 @@ describe("GuardianChatWithSidebar stability contract", () => {
     });
 
     const user = userEvent.setup();
-    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+    render(
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        runtimeHealth={runtimeHealthState as any}
+      />
+    );
 
     await screen.findByTestId("thread-1");
     await user.click(screen.getByTestId("sidebar-set-project-2"));
@@ -925,6 +1025,8 @@ describe("GuardianChatWithSidebar auth banner", () => {
     authState.token = "test-token";
     runtimeAuthState.isTauri = false;
     runtimeAuthState.desktopAuthConfig = null;
+    runtimeHealthState.status = "healthy";
+    runtimeHealthState.diagnostics = null;
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       value: {
@@ -992,5 +1094,69 @@ describe("GuardianChatWithSidebar auth banner", () => {
     expect(screen.getByText("failureKind=config_incomplete")).toBeInTheDocument();
     expect(screen.queryByText("desktop-secret-key")).toBeNull();
     expect(screen.queryByText("Sign in or provide a dev key in local development.")).toBeNull();
+  });
+
+  it("forwards sanitized runtime-health diagnostics to the provider banner path", () => {
+    runtimeHealthState.status = "degraded";
+    runtimeHealthState.diagnostics = {
+      resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      apiKeyPresent: true,
+      authSource: "runtime-desktop",
+      chat: {
+        endpoint: "/health/chat",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "healthy",
+        parsedOk: true,
+      },
+      llm: {
+        endpoint: "/api/health/llm",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "online",
+        parsedOk: true,
+      },
+      failureKind: "chat_unhealthy",
+      lastSuccessAt: Date.parse("2026-03-20T12:00:00.000Z"),
+      lastFailedAt: Date.parse("2026-03-20T11:59:00.000Z"),
+      lastCheckedAt: Date.parse("2026-03-20T12:00:00.000Z"),
+      currentComputedStateSource: "live-poll",
+    };
+    runtimeAuthState.isTauri = true;
+    runtimeAuthState.desktopAuthConfig = {
+      apiKeyPresent: true,
+      apiKey: "desktop-secret-key",
+      envPath: "/Users/chriscastillo/Codexify/.env",
+      runtimeRoot: "/Users/chriscastillo/Codexify",
+      failureKind: null,
+    };
+
+    render(
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        runtimeHealth={runtimeHealthState as any}
+      />
+    );
+
+    expect(screen.getByTestId("runtime-health-diagnostics")).toHaveTextContent(
+      "resolvedApiBaseUrl=http://127.0.0.1:8888/api"
+    );
+    expect(screen.getByTestId("runtime-health-diagnostics")).toHaveTextContent(
+      "apiKeyPresent=true"
+    );
+    expect(screen.getByTestId("runtime-health-diagnostics")).toHaveTextContent(
+      "authSource=runtime-desktop"
+    );
+    expect(screen.getByTestId("runtime-health-diagnostics")).toHaveTextContent(
+      "chatEndpoint=/health/chat"
+    );
+    expect(screen.getByTestId("runtime-health-diagnostics")).toHaveTextContent(
+      "llmEndpoint=/api/health/llm"
+    );
+    expect(screen.getByTestId("runtime-health-diagnostics")).toHaveTextContent(
+      "failureKind=chat_unhealthy"
+    );
+    expect(screen.queryByText("desktop-secret-key")).toBeNull();
   });
 });
