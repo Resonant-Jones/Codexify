@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@/features/chat/components/Composer";
 
-type SourceMode = "project" | "personal_knowledge";
+type SourceMode = "project" | "workspace";
 
 const SOURCE_OPTIONS = [
   {
@@ -14,10 +14,10 @@ const SOURCE_OPTIONS = [
       "Current thread first, then this project if more context is needed.",
   },
   {
-    value: "personal_knowledge",
-    label: "Personal Knowledge",
+    value: "workspace",
+    label: "Workspace",
     description:
-      "Current thread first, then your broader knowledge across projects.",
+      "Current thread first, then your broader local workspace knowledge.",
   },
 ];
 
@@ -68,7 +68,7 @@ describe("Composer source selector", () => {
     ).toHaveTextContent("Project");
   });
 
-  it("shows only Project and Personal Knowledge with the exact descriptions", async () => {
+  it("shows only Project and Workspace with the exact descriptions", async () => {
     render(
       <Composer
         onSend={vi.fn()}
@@ -87,7 +87,7 @@ describe("Composer source selector", () => {
     const options = await screen.findAllByRole("menuitem");
     expect(options).toHaveLength(2);
     expect(options[0]).toHaveTextContent("Project");
-    expect(options[1]).toHaveTextContent("Personal Knowledge");
+    expect(options[1]).toHaveTextContent("Workspace");
     expect(
       screen.getByText(
         "Current thread first, then this project if more context is needed."
@@ -95,7 +95,7 @@ describe("Composer source selector", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Current thread first, then your broader knowledge across projects."
+        "Current thread first, then your broader local workspace knowledge."
       )
     ).toBeInTheDocument();
   });
@@ -228,12 +228,12 @@ describe("Composer source selector", () => {
       screen.getByRole("button", { name: "Select retrieval source" })
     );
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Personal Knowledge/i })
+      await screen.findByRole("menuitem", { name: /Workspace/i })
     );
 
     expect(
       screen.getByRole("button", { name: "Select retrieval source" })
-    ).toHaveTextContent("Personal Knowledge");
+    ).toHaveTextContent("Workspace");
 
     fireEvent.change(screen.getByTestId("composer-textarea"), {
       target: { value: "Test retrieval source" },
@@ -247,7 +247,7 @@ describe("Composer source selector", () => {
     });
     expect(
       screen.getByRole("button", { name: "Select retrieval source" })
-    ).toHaveTextContent("Personal Knowledge");
+    ).toHaveTextContent("Workspace");
   });
 
   it("shows lineage copy and no project/thread toggle in the composer", () => {
