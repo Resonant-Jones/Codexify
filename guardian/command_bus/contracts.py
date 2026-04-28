@@ -54,6 +54,7 @@ class InvokeRequest(BaseModel):
     actor: ActorSpec
     arguments: InvokeArguments = Field(default_factory=InvokeArguments)
     idempotency_key: str | None = Field(default=None, max_length=255)
+    provenance_json: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="forbid")
 
