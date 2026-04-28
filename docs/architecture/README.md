@@ -38,6 +38,8 @@ If you are working on Guardian-thread binding, FlowDraft identity, Builder view 
 
 If you are working on continuity governance, working-set decay, or import-aware continuity framing, start with [`ADR-015: Continuity Engine Working Set and Decay Contract`](./adr/015-continuity-engine-working-set-and-decay-contract.md) after the identity and retrieval contracts. That ADR defines the user-governed continuity layer above the current thread-first chat runtime.
 
+If you are working on the continuity control plane itself, including scope, intensity, decay, import treatment, exclusions, inspection, and reset semantics, continue with [`ADR-016: Continuity Governance Surface Contract`](./adr/016-continuity-governance-surface-contract.md) after ADR-015. That ADR defines the user-governed surface that configures continuity behavior without collapsing it into persona ownership or deep identity consent.
+
 ## KB Validity and Diagram Source Sets
 
 Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
@@ -79,6 +81,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
+- [Continuity Governance Surface Contract](./adr/016-continuity-governance-surface-contract.md): user-governed continuity control plane for scope, intensity, decay, import treatment, exclusions, inspectability, and reset semantics.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.
