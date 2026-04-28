@@ -24,6 +24,7 @@ import {
   createBootstrapSupportNoticeFromDockerOpenResult,
   createBootstrapSupportNoticeFromLogResult,
   createBootstrapSupportNoticeFromRestartResult,
+  createDownloadingLocalImagesState,
   createComposeRecoveryStepResult,
   createFailedRuntimeBootstrapState,
   createPreparingLocalConfigState,
@@ -41,6 +42,7 @@ import {
   restartRuntimeServices,
   runComposeUp,
   runRuntimeBootstrapPreflight,
+  runPullRuntimeImages,
   runSetupCli,
   setWelcomeScreenDismissed,
   shouldRunRuntimeBootstrap,
@@ -157,6 +159,7 @@ type StartupOrchestrationOptions = {
   startAt: Exclude<BootstrapStartBoundary, "preflight">;
   initialDetail?: string;
   initialStepResults?: Partial<Record<BootstrapStep, BootstrapStepResult>>;
+  allowImagePull?: boolean;
 };
 
 function resolveBootstrapRecoveryStage(
@@ -422,7 +425,7 @@ function DesktopStartupRecoveryGate({
   setupReadiness: LauncherSetupReadiness | null;
   onOpenBootstrapPath: () => void;
 }) {
-  const stateLabel = setupReadiness?.state?.replace(/_/g, " ") ?? "setup unknown";
+  const stateLabel = setupReadiness?.state?.replace(/[_-]/g, " ") ?? "setup unknown";
   const explanation =
     setupReadiness?.explanation ??
     "Codexify could not read or refresh a launcher setup readiness result yet.";
@@ -1005,7 +1008,8 @@ export default function App() {
   const runBootstrapFlow = React.useCallback(
     async (
       boundary: BootstrapStartBoundary,
-      stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
+      stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {},
+      allowImagePull = false
     ) => {
       if (!bootstrapEnabled) {
         setBootstrapPhase("unlocked");
@@ -1045,6 +1049,80 @@ export default function App() {
       );
 
       if (!preflight.ready) {
+        const shouldPullRegistryImages =
+          allowImagePull &&
+          preflight.packaged === true &&
+          (preflight.failureKind === "runtime-images-missing" ||
+            preflight.failureKind === "runtime-image-pull-failed");
+
+        if (shouldPullRegistryImages) {
+          setBootstrapState(
+            createDownloadingLocalImagesState(preflight, preflightDetail, stepResults)
+          );
+
+          const pullResult = await runPullRuntimeImages();
+          if (runId !== bootstrapRunRef.current) return;
+
+          stepResults = {
+            ...stepResults,
+            "pull-images": pullResult,
+          };
+          const pullDetail = appendDiagnostics(
+            formatBootstrapStepResult(pullResult),
+            "Registry image pull"
+          );
+          diagnosticsRef.current = pullDetail;
+
+          if (!pullResult.ok) {
+            const pullFailureKind =
+              pullResult.failureKind ?? "runtime-image-pull-failed";
+            setBootstrapState(
+              createFailedRuntimeBootstrapState({
+                title:
+                  pullFailureKind === "runtime-compose-file-missing"
+                    ? "Packaged runtime Compose file is missing"
+                  : "Runtime image pull failed",
+                message:
+                  pullFailureKind === "runtime-compose-file-missing"
+                    ? "The packaged desktop app is missing the registry-backed Compose file it needs to pull images and start local services."
+                    : "Docker is ready, but Codexify could not download its local runtime images. Check network access or registry credentials, then retry.",
+                detail: pullDetail,
+                failureKind: pullFailureKind,
+                preflight,
+                stepResults,
+              })
+            );
+            return;
+          }
+
+          const refreshedPreflight = await runRuntimeBootstrapPreflight();
+          if (runId !== bootstrapRunRef.current) return;
+
+          latestPreflightRef.current = refreshedPreflight.ready ? refreshedPreflight : null;
+          const refreshedPreflightDetail = appendDiagnostics(
+            refreshedPreflight.detail,
+            "Docker preflight after image pull"
+          );
+          diagnosticsRef.current = refreshedPreflightDetail;
+
+          if (!refreshedPreflight.ready) {
+            const failureState = mapRuntimePreflightFailureToState({
+              ...refreshedPreflight,
+              detail: refreshedPreflightDetail,
+            });
+            diagnosticsRef.current = failureState.detail;
+            setBootstrapState(failureState);
+            return;
+          }
+
+          await runStartupOrchestration(refreshedPreflight, {
+            startAt: boundary === "preflight" ? "setup" : boundary,
+            initialDetail: refreshedPreflightDetail,
+            initialStepResults: stepResults,
+          });
+          return;
+        }
+
         const failureState = mapRuntimePreflightFailureToState({
           ...preflight,
           detail: preflightDetail,
@@ -1133,7 +1211,14 @@ export default function App() {
 
   const handleRetryBootstrap = React.useCallback(() => {
     const plan = buildRetryPlan(bootstrapState);
-    void runBootstrapFlow(plan.boundary, plan.stepResults);
+    const failureKind =
+      bootstrapState.failureKind ??
+      bootstrapState.preflight?.failureKind ??
+      bootstrapState.stepResults["pull-images"]?.failureKind;
+    const allowImagePull =
+      failureKind === "runtime-images-missing" ||
+      failureKind === "runtime-image-pull-failed";
+    void runBootstrapFlow(plan.boundary, plan.stepResults, allowImagePull);
   }, [bootstrapState, buildRetryPlan, runBootstrapFlow]);
 
   const handleWelcomeEnter = React.useCallback(() => {

@@ -13,6 +13,22 @@ test.describe("desktop media contract", () => {
       (window as any).__CFY_TAURI_CORE__ = {
         invoke: async (command: string, payload?: Record<string, unknown>) => {
           invokeCalls.push({ command, payload: payload ?? null });
+          if (command === "desktop_get_runtime_auth_config") {
+            return {
+              mode: "tauri",
+              backendBaseUrl: "http://backend.test",
+              apiBaseUrl: "http://backend.test/api",
+              sseUrl: "http://backend.test/api/events",
+              sharePublicBaseUrl: "http://share.test",
+              authMode: "local",
+              apiKeyPresent: true,
+              apiKey: "desktop-test-key",
+              envPath: "/Users/chriscastillo/Codexify/.env",
+              runtimeRoot: "/Users/chriscastillo/Codexify",
+              failureKind: null,
+              runtimeContext: "packaged",
+            };
+          }
           if (command === "desktop_get_runtime_config") {
             return {
               mode: "tauri",
@@ -65,9 +81,6 @@ test.describe("desktop media contract", () => {
               llmReady: true,
               checks: [],
             };
-          }
-          if (command === "desktop_get_api_key") {
-            return null;
           }
           return null;
         },

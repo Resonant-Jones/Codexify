@@ -531,6 +531,21 @@ def enqueue(task: Any, queue_name: str) -> None:
         raise
 
 
+def set_if_absent_with_ttl(
+    client: Any, key: str, value: str, ttl_seconds: int
+) -> bool:
+    """Set a Redis key if absent using EX + NX semantics."""
+
+    return bool(
+        client.set(
+            key,
+            value,
+            ex=int(ttl_seconds),
+            nx=True,
+        )
+    )
+
+
 class _QueueRedisFacade:
     """Blocking-safe Redis facade for queue consumers."""
 

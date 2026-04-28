@@ -1,0 +1,7 @@
+name: codexify
+
+services:
+  backend:
+    image: codexify-runtime-compiled:local
+    entrypoint: ["/app/runtime/codexify-backend"]
+    command: []
