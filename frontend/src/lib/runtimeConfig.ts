@@ -61,6 +61,8 @@ const DESKTOP_SHARE_STORAGE_KEY = "cfy.desktop.sharePublicBaseUrl";
 let runtimeConfigCache: RuntimeConfig | null = null;
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
 let desktopRuntimeAuthConfigCache: DesktopRuntimeAuthConfig | null = null;
+let runtimeConfigVersion = 0;
+const runtimeConfigListeners = new Set<() => void>();
 
 type TauriCoreApi = {
   invoke: <T = unknown>(
@@ -77,6 +79,13 @@ export class NativeBridgeUnavailableError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NativeBridgeUnavailableError";
+  }
+}
+
+function emitRuntimeConfigChange(): void {
+  runtimeConfigVersion += 1;
+  for (const listener of runtimeConfigListeners) {
+    listener();
   }
 }
 
@@ -520,6 +529,17 @@ export function getDesktopRuntimeAuthConfig(): DesktopRuntimeAuthConfig | null {
   return desktopRuntimeAuthConfigCache;
 }
 
+export function getRuntimeConfigVersion(): number {
+  return runtimeConfigVersion;
+}
+
+export function subscribeRuntimeConfigState(listener: () => void): () => void {
+  runtimeConfigListeners.add(listener);
+  return () => {
+    runtimeConfigListeners.delete(listener);
+  };
+}
+
 function buildRuntimeConfig(
   mode: RuntimeMode,
   tauriConfig: TauriRuntimeConfig | null,
@@ -589,6 +609,7 @@ export async function initRuntimeConfig(options: { force?: boolean } = {}): Prom
     ]);
     const config = buildRuntimeConfig(mode, tauriConfig, launcherStartup);
     runtimeConfigCache = config;
+    emitRuntimeConfigChange();
     runtimeConfigPromise = null;
     return config;
   })();

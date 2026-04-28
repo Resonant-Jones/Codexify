@@ -41,6 +41,23 @@ type RuntimeHealthMock = {
       parsedStatus: string | null;
       parsedOk: boolean | null;
     };
+    liveEvents: {
+      endpoint: string | null;
+      connectionState: LiveEventConnectionState;
+      lastEventAt: number | null;
+      lastPingAt: number | null;
+      statusUpdatedAt: number | null;
+      lastHttpStatus: number | null;
+      transportErrorClass: string | null;
+      authSource: string;
+      apiKeyPresent: boolean;
+      reconnectAttempts: number;
+      retryMs: number;
+      subscribers: number;
+      readyState: 0 | 1 | 2;
+      lastErrorAt: number | null;
+      lastEventId: string | null;
+    };
     failureKind: RuntimeHealthFailureKindToken | "unknown" | null;
     lastSuccessAt: number | null;
     lastFailedAt: number | null;
@@ -79,6 +96,23 @@ const runtimeHealthState: RuntimeHealthMock = {
       parsedStatus: "online",
       parsedOk: true,
     },
+    liveEvents: {
+      endpoint: "http://127.0.0.1:8888/api/events",
+      connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+      lastEventAt: Date.parse("2026-03-20T11:59:58Z"),
+      lastPingAt: Date.parse("2026-03-20T11:59:58Z"),
+      statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+      lastHttpStatus: 200,
+      transportErrorClass: null,
+      authSource: "runtime-desktop",
+      apiKeyPresent: true,
+      reconnectAttempts: 0,
+      retryMs: 1000,
+      subscribers: 1,
+      readyState: 1,
+      lastErrorAt: null,
+      lastEventId: "evt-1",
+    },
     failureKind: null,
     lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
     lastFailedAt: null,
@@ -115,9 +149,19 @@ vi.mock("@/hooks/useRuntimeHealth", () => ({
         diagnostics.llm.parsedOk == null
           ? "<unknown>"
           : diagnostics.llm.parsedOk
-            ? "true"
-            : "false"
+          ? "true"
+          : "false"
       }`,
+      `live events endpoint called=${diagnostics.liveEvents.endpoint ?? "<unresolved>"}`,
+      `live events connection state=${diagnostics.liveEvents.connectionState}`,
+      `live events last event=${diagnostics.liveEvents.lastEventAt ?? "<none>"}`,
+      `live events last ping=${diagnostics.liveEvents.lastPingAt ?? "<none>"}`,
+      `live events HTTP status=${diagnostics.liveEvents.lastHttpStatus ?? "<none>"}`,
+      `live events transport error class=${diagnostics.liveEvents.transportErrorClass ?? "<none>"}`,
+      `live events authSource=${diagnostics.liveEvents.authSource}`,
+      `live events apiKeyPresent=${diagnostics.liveEvents.apiKeyPresent ? "true" : "false"}`,
+      `live events reconnect attempts=${diagnostics.liveEvents.reconnectAttempts}`,
+      `live events status updated=${diagnostics.liveEvents.statusUpdatedAt ?? "<none>"}`,
       `failureKind=${diagnostics.failureKind ?? "none"}`,
       `last successful health poll=${diagnostics.lastSuccessAt ?? "<none>"}`,
       `last failed health poll=${diagnostics.lastFailedAt ?? "<none>"}`,
@@ -309,6 +353,23 @@ describe("AppShell runtime health banner", () => {
         parsedStatus: "online",
         parsedOk: true,
       },
+      liveEvents: {
+        endpoint: "http://127.0.0.1:8888/api/events",
+        connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+        lastEventAt: Date.parse("2026-03-20T11:59:58Z"),
+        lastPingAt: Date.parse("2026-03-20T11:59:58Z"),
+        statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+        lastHttpStatus: 200,
+        transportErrorClass: null,
+        authSource: "runtime-desktop",
+        apiKeyPresent: true,
+        reconnectAttempts: 0,
+        retryMs: 1000,
+        subscribers: 1,
+        readyState: 1,
+        lastErrorAt: null,
+        lastEventId: "evt-1",
+      },
       failureKind: null,
       lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
       lastFailedAt: null,
@@ -359,6 +420,23 @@ describe("AppShell runtime health banner", () => {
         parsedStatus: "online",
         parsedOk: true,
       },
+      liveEvents: {
+        endpoint: "http://127.0.0.1:8888/api/events",
+        connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+        lastEventAt: Date.parse("2026-03-20T11:59:58Z"),
+        lastPingAt: Date.parse("2026-03-20T11:59:58Z"),
+        statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+        lastHttpStatus: 200,
+        transportErrorClass: null,
+        authSource: "runtime-desktop",
+        apiKeyPresent: true,
+        reconnectAttempts: 0,
+        retryMs: 1000,
+        subscribers: 1,
+        readyState: 1,
+        lastErrorAt: null,
+        lastEventId: "evt-1",
+      },
       failureKind: RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE,
       lastSuccessAt: Date.parse("2026-03-20T11:55:00Z"),
       lastFailedAt: Date.parse("2026-03-20T11:54:30Z"),
@@ -404,6 +482,23 @@ describe("AppShell runtime health banner", () => {
       parsedStatus: "offline",
       parsedOk: false,
     };
+    runtimeHealthState.diagnostics.liveEvents = {
+      endpoint: "http://127.0.0.1:8888/api/events",
+      connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+      lastEventAt: Date.parse("2026-03-20T11:59:58Z"),
+      lastPingAt: Date.parse("2026-03-20T11:59:58Z"),
+      statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+      lastHttpStatus: 200,
+      transportErrorClass: null,
+      authSource: "runtime-desktop",
+      apiKeyPresent: true,
+      reconnectAttempts: 0,
+      retryMs: 1000,
+      subscribers: 1,
+      readyState: 1,
+      lastErrorAt: null,
+      lastEventId: "evt-1",
+    };
 
     render(<AppShell />);
 
@@ -413,6 +508,37 @@ describe("AppShell runtime health banner", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/MiniMax live discovery unavailable/i)
+    ).toBeInTheDocument();
+  });
+
+  it("renders a live updates warning without calling the provider degraded when chat and llm are healthy", () => {
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.HEALTHY;
+    runtimeHealthState.failureKind = null;
+    runtimeHealthState.diagnostics.failureKind = null;
+    runtimeHealthState.diagnostics.liveEvents = {
+      endpoint: "http://127.0.0.1:8888/api/events",
+      connectionState: LIVE_EVENT_CONNECTION_STATES.DISCONNECTED,
+      lastEventAt: Date.parse("2026-03-20T11:45:00Z"),
+      lastPingAt: Date.parse("2026-03-20T11:45:00Z"),
+      statusUpdatedAt: Date.parse("2026-03-20T11:45:00Z"),
+      lastHttpStatus: 200,
+      transportErrorClass: null,
+      authSource: "runtime-desktop",
+      apiKeyPresent: true,
+      reconnectAttempts: 3,
+      retryMs: 5000,
+      subscribers: 1,
+      readyState: 2,
+      lastErrorAt: Date.parse("2026-03-20T11:46:00Z"),
+      lastEventId: "evt-2",
+    };
+
+    render(<AppShell />);
+
+    expect(screen.getByText(/Live updates disconnected/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Provider degraded/i)).toBeNull();
+    expect(
+      screen.getByText(/live events connection state=disconnected/i)
     ).toBeInTheDocument();
   });
 
@@ -439,6 +565,23 @@ describe("AppShell runtime health banner", () => {
         parsedStatus: "online",
         parsedOk: true,
       },
+      liveEvents: {
+        endpoint: "http://127.0.0.1:8888/api/events",
+        connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+        lastEventAt: Date.parse("2026-03-20T11:59:58Z"),
+        lastPingAt: Date.parse("2026-03-20T11:59:58Z"),
+        statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+        lastHttpStatus: 200,
+        transportErrorClass: null,
+        authSource: "runtime-desktop",
+        apiKeyPresent: true,
+        reconnectAttempts: 0,
+        retryMs: 1000,
+        subscribers: 1,
+        readyState: 1,
+        lastErrorAt: null,
+        lastEventId: "evt-1",
+      },
       failureKind: RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY,
       lastSuccessAt: Date.parse("2026-03-20T11:55:00Z"),
       lastFailedAt: Date.parse("2026-03-20T11:54:30Z"),
@@ -452,8 +595,10 @@ describe("AppShell runtime health banner", () => {
     expect(
       screen.getByText(/resolved api base url=http:\/\/127\.0\.0\.1:8888\/api/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/apiKeyPresent=true/i)).toBeInTheDocument();
-    expect(screen.getByText(/authSource=runtime-desktop/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^apiKeyPresent=true$/i)[0]).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/^authSource=runtime-desktop$/i)[0]
+    ).toBeInTheDocument();
     expect(screen.getByText(/chat endpoint called=\/health\/chat/i)).toBeInTheDocument();
     expect(screen.getByText(/llm endpoint called=\/api\/health\/llm/i)).toBeInTheDocument();
     expect(screen.getByText(/failureKind=chat_unhealthy/i)).toBeInTheDocument();

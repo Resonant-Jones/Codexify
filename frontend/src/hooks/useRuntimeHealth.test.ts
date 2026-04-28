@@ -12,7 +12,45 @@ type LiveEventsStatus = {
   connected: boolean;
   connectionStatus: LiveEventConnectionState;
   statusUpdatedAt: number | null;
+  diagnostics: {
+    endpoint: string | null;
+    connectionState: LiveEventConnectionState;
+    lastEventAt: number | null;
+    lastPingAt: number | null;
+    statusUpdatedAt: number | null;
+    lastHttpStatus: number | null;
+    transportErrorClass: string | null;
+    authSource: string;
+    apiKeyPresent: boolean;
+    reconnectAttempts: number;
+    retryMs: number;
+    subscribers: number;
+    readyState: 0 | 1 | 2;
+    lastErrorAt: number | null;
+    lastEventId: string | null;
+  };
 };
+
+function makeLiveEventsDiagnostics(overrides: Partial<LiveEventsStatus["diagnostics"]> = {}): LiveEventsStatus["diagnostics"] {
+  return {
+    endpoint: "http://127.0.0.1:8888/api/events",
+    connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+    lastEventAt: Date.parse("2026-03-20T11:59:58.000Z"),
+    lastPingAt: Date.parse("2026-03-20T11:59:58.000Z"),
+    statusUpdatedAt: Date.parse("2026-03-20T12:00:00.000Z"),
+    lastHttpStatus: 200,
+    transportErrorClass: null,
+    authSource: "runtime-desktop",
+    apiKeyPresent: true,
+    reconnectAttempts: 0,
+    retryMs: 1000,
+    subscribers: 1,
+    readyState: 1,
+    lastErrorAt: null,
+    lastEventId: "evt-1",
+    ...overrides,
+  };
+}
 
 const apiGet = vi.fn();
 const runtimeState = vi.hoisted(() => ({
@@ -43,6 +81,7 @@ let liveEventsStatus: LiveEventsStatus = {
   connected: true,
   connectionStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
   statusUpdatedAt: Date.now(),
+  diagnostics: makeLiveEventsDiagnostics(),
 };
 
 vi.mock("@/lib/api", () => ({
@@ -161,6 +200,7 @@ describe("useRuntimeHealth", () => {
       connected: true,
       connectionStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
       statusUpdatedAt: Date.now(),
+      diagnostics: makeLiveEventsDiagnostics(),
     };
   });
 
@@ -384,22 +424,37 @@ describe("useRuntimeHealth", () => {
     expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
   });
 
-  it("flags live events disconnected after the threshold", async () => {
+  it("exposes live events disconnect diagnostics without degrading provider health", async () => {
     mockHealthResponses();
     liveEventsStatus = {
       connected: false,
       connectionStatus: LIVE_EVENT_CONNECTION_STATES.DISCONNECTED,
       statusUpdatedAt: Date.now() - 46_000,
+      diagnostics: makeLiveEventsDiagnostics({
+        connectionState: LIVE_EVENT_CONNECTION_STATES.DISCONNECTED,
+        statusUpdatedAt: Date.now() - 46_000,
+        lastHttpStatus: 200,
+        lastErrorAt: Date.now() - 46_000,
+        reconnectAttempts: 3,
+        retryMs: 5000,
+      }),
     };
     const { result } = renderHook(() => useRuntimeHealth());
     await act(async () => {
       await flushPromises();
     });
     await waitFor(() => {
-      expect(result.current.failureKind).toBe(
-        RUNTIME_HEALTH_FAILURE_KINDS.LIVE_EVENTS_DISCONNECTED
+      expect(result.current.failureKind).toBeNull();
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.HEALTHY);
+      expect(result.current.diagnostics.liveEvents.connectionState).toBe(
+        LIVE_EVENT_CONNECTION_STATES.DISCONNECTED
       );
-      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
+      expect(result.current.diagnostics.liveEvents.lastHttpStatus).toBe(200);
+      expect(result.current.diagnostics.liveEvents.transportErrorClass).toBeNull();
+      expect(result.current.diagnostics.liveEvents.apiKeyPresent).toBe(true);
+      expect(result.current.diagnostics.liveEvents.statusUpdatedAt).toBe(
+        Date.now() - 46_000
+      );
     });
   });
 

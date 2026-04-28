@@ -2,6 +2,11 @@ import { renderHook, waitFor, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import {
+  clearRuntimeApiKey,
+  setAuthToken,
+  setRuntimeApiKey,
+} from "@/lib/api";
+import {
   __resetAuthStateForTests,
   __setAuthStateForTests,
 } from "@/lib/authState";
@@ -44,11 +49,42 @@ vi.mock("@/lib/guardianEventSource", () => {
   return { GuardianEventSource: MockGuardianEventSource };
 });
 
+vi.mock("@/lib/runtimeConfig", () => ({
+  getDesktopRuntimeAuthConfig: () => ({
+    mode: "tauri",
+    backendBaseUrl: "http://127.0.0.1:8888",
+    apiBaseUrl: "http://127.0.0.1:8888/api",
+    sseUrl: "http://127.0.0.1:8888/api/events",
+    sharePublicBaseUrl: "http://127.0.0.1:5173",
+    authMode: "local",
+    apiKeyPresent: true,
+    apiKey: "desktop-key",
+    envPath: "/Users/username/Codexify/.env",
+    runtimeRoot: "/Users/username/Codexify",
+    failureKind: null,
+    runtimeContext: "packaged",
+  }),
+  getRuntimeConfigSync: () => ({
+    mode: "tauri",
+    backendBaseUrl: "http://127.0.0.1:8888",
+    apiBaseUrl: "http://127.0.0.1:8888/api",
+    sseUrl: "http://127.0.0.1:8888/api/events",
+    sharePublicBaseUrl: "http://127.0.0.1:5173",
+    authMode: "local",
+  }),
+  getRuntimeConfigVersion: () => 0,
+  subscribeRuntimeConfigState: () => () => {},
+  isTauriRuntime: () => true,
+  resolveSseEndpoint: () => "http://127.0.0.1:8888/api/events",
+}));
+
 describe("useLiveEvents auth gating", () => {
   beforeEach(() => {
     createdSources.length = 0;
     __resetAuthStateForTests();
     __resetLiveEventsHubForTests();
+    clearRuntimeApiKey();
+    setAuthToken(null);
     vi.spyOn(console, "debug").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
   });
@@ -84,5 +120,37 @@ describe("useLiveEvents auth gating", () => {
     await waitFor(() => {
       expect(source.close).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("attaches the packaged runtime API key without letting a stale bearer shadow it", async () => {
+    __setAuthStateForTests({
+      status: "authenticated",
+      ready: true,
+      token: "stale-bearer-token",
+    });
+    setAuthToken("stale-bearer-token");
+    setRuntimeApiKey("desktop-key");
+
+    const { result } = renderHook(() => useLiveEvents({ passive: true }));
+
+    await waitFor(() => {
+      expect(createdSources).toHaveLength(1);
+    });
+
+    const source = createdSources[0];
+    const headers = source.options.headers as Record<string, string>;
+
+    expect(result.current.diagnostics.authSource).toBe("runtime-desktop");
+    expect(result.current.diagnostics.apiKeyPresent).toBe(true);
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBe("desktop-key");
+    expect(headers["Authorization"] ?? headers["authorization"]).toBe(
+      "Bearer stale-bearer-token"
+    );
+    expect(JSON.stringify(result.current.diagnostics)).not.toContain(
+      "desktop-key"
+    );
+    expect(JSON.stringify(result.current.diagnostics)).not.toContain(
+      "stale-bearer-token"
+    );
   });
 });

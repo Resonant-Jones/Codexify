@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import api, {
-  getAuthToken,
-  getDevApiKey,
-  readRuntimeApiKey,
-} from "@/lib/api";
+import api, { getAuthToken, getDevApiKey, readRuntimeApiKey } from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import {
   getDesktopRuntimeAuthConfig,
   getRuntimeConfigSync,
   isTauriRuntime,
 } from "@/lib/runtimeConfig";
+import {
+  resolveRuntimeAuthSource,
+  type RuntimeAuthSource,
+} from "@/lib/runtimeAuth";
 import {
   LIVE_EVENT_CONNECTION_STATES,
   LiveEventConnectionState,
@@ -18,6 +18,7 @@ import {
   RuntimeHealthFailureKindToken,
   RuntimeHealthStatusToken,
 } from "@/contracts/runtimeTokens";
+import type { LiveEventsDiagnostics } from "@/hooks/useLiveEvents";
 
 const POLL_INTERVAL_MS = 15000;
 const STALE_THRESHOLD_MS = 45000;
@@ -52,6 +53,7 @@ export type RuntimeHealthDiagnostics = {
   authSource: RuntimeHealthAuthSource;
   chat: RuntimeHealthEndpointObservation;
   llm: RuntimeHealthEndpointObservation;
+  liveEvents: LiveEventsDiagnostics;
   failureKind: RuntimeFailureKind | null;
   lastSuccessAt: number | null;
   lastFailedAt: number | null;
@@ -236,23 +238,13 @@ function resolveRuntimeHealthAuthSource(): RuntimeHealthAuthSource {
   );
   const devKeyPresent = Boolean(getDevApiKey().trim());
   const bearerPresent = Boolean(getAuthToken());
-
-  if (isTauriRuntime() && runtimeDesktopKeyPresent) {
-    return "runtime-desktop";
-  }
-  if (!isTauriRuntime() && devKeyPresent) {
-    return "vite-dev";
-  }
-  if (bearerPresent) {
-    return "bearer-only";
-  }
-  if (isTauriRuntime()) {
-    return desktopAuthConfig ? "none" : "unknown";
-  }
-  if (devKeyPresent) {
-    return "vite-dev";
-  }
-  return "none";
+  return resolveRuntimeAuthSource({
+    isTauriRuntime: isTauriRuntime(),
+    runtimeDesktopKeyPresent,
+    devKeyPresent,
+    bearerPresent,
+    desktopAuthConfigKnown: Boolean(desktopAuthConfig),
+  });
 }
 
 function formatTimestamp(value: number | null): string {
@@ -290,6 +282,17 @@ export function formatRuntimeHealthDiagnostics(
           ? "true"
           : "false"
     }`,
+    `live events endpoint called=${diagnostics.liveEvents.endpoint ?? "<unresolved>"}`,
+    `live events connection state=${diagnostics.liveEvents.connectionState}`,
+    `live events last event=${formatTimestamp(diagnostics.liveEvents.lastEventAt)}`,
+    `live events last ping=${formatTimestamp(diagnostics.liveEvents.lastPingAt)}`,
+    diagnostics.liveEvents.lastHttpStatus != null
+      ? `live events HTTP status=${diagnostics.liveEvents.lastHttpStatus}`
+      : `live events transport error class=${diagnostics.liveEvents.transportErrorClass ?? "<none>"}`,
+    `live events authSource=${diagnostics.liveEvents.authSource}`,
+    `live events apiKeyPresent=${diagnostics.liveEvents.apiKeyPresent ? "true" : "false"}`,
+    `live events reconnect attempts=${diagnostics.liveEvents.reconnectAttempts}`,
+    `live events status updated=${formatTimestamp(diagnostics.liveEvents.statusUpdatedAt)}`,
     `failureKind=${diagnostics.failureKind ?? "none"}`,
     `last successful health poll=${formatTimestamp(diagnostics.lastSuccessAt)}`,
     `last failed health poll=${formatTimestamp(diagnostics.lastFailedAt)}`,
@@ -339,6 +342,7 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
   const connectionStatus =
     liveEvents.connectionStatus ?? LIVE_EVENT_CONNECTION_STATES.DISCONNECTED;
   const statusUpdatedAt = liveEvents.statusUpdatedAt ?? null;
+  const liveEventsDiagnostics = liveEvents.diagnostics;
   const [snapshot, setSnapshot] = useState<HealthSnapshot>(INITIAL_SNAPSHOT);
   const inFlightRef = useRef(false);
   const firstCheckAtRef = useRef<number | null>(null);
@@ -400,11 +404,6 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
       : firstCheckAt != null
         ? now - firstCheckAt > STALE_THRESHOLD_MS
         : false;
-  const liveEventsDisconnected =
-    connectionStatus === LIVE_EVENT_CONNECTION_STATES.DISCONNECTED &&
-    typeof statusUpdatedAt === "number" &&
-    now - statusUpdatedAt > STALE_THRESHOLD_MS;
-
   let failureKind: RuntimeFailureKind | null = null;
   if (hasChecked && snapshot.backendReachable === false) {
     failureKind = RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE;
@@ -414,8 +413,6 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
     failureKind = RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY;
   } else if (hasChecked && snapshot.llm.derivedHealthy === false) {
     failureKind = RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
-  } else if (liveEventsDisconnected) {
-    failureKind = RUNTIME_HEALTH_FAILURE_KINDS.LIVE_EVENTS_DISCONNECTED;
   } else if (stale) {
     failureKind = RUNTIME_HEALTH_FAILURE_KINDS.STALE;
   }
@@ -430,8 +427,8 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
   const runtimeDesktopKeyPresent = Boolean(
     desktopRuntimeAuthConfig?.apiKeyPresent || readRuntimeApiKey()
   );
+  const apiKeyPresent = Boolean(runtimeDesktopKeyPresent || getDevApiKey().trim());
   const authSource = resolveRuntimeHealthAuthSource();
-  const apiKeyPresent = runtimeDesktopKeyPresent;
   const diagnostics: RuntimeHealthDiagnostics = {
     resolvedApiBaseUrl,
     apiKeyPresent,
@@ -449,6 +446,23 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
       transportErrorClass: snapshot.llm.transportErrorClass,
       parsedStatus: snapshot.llm.parsedStatus,
       parsedOk: snapshot.llm.parsedOk,
+    },
+    liveEvents: {
+      endpoint: liveEventsDiagnostics.endpoint,
+      connectionState: liveEventsDiagnostics.connectionState,
+      lastEventAt: liveEventsDiagnostics.lastEventAt,
+      lastPingAt: liveEventsDiagnostics.lastPingAt,
+      statusUpdatedAt,
+      lastHttpStatus: liveEventsDiagnostics.lastHttpStatus,
+      transportErrorClass: liveEventsDiagnostics.transportErrorClass,
+      authSource: liveEventsDiagnostics.authSource,
+      apiKeyPresent: liveEventsDiagnostics.apiKeyPresent,
+      reconnectAttempts: liveEventsDiagnostics.reconnectAttempts,
+      retryMs: liveEventsDiagnostics.retryMs,
+      subscribers: liveEventsDiagnostics.subscribers,
+      readyState: liveEventsDiagnostics.readyState,
+      lastErrorAt: liveEventsDiagnostics.lastErrorAt,
+      lastEventId: liveEventsDiagnostics.lastEventId,
     },
     failureKind,
     lastSuccessAt,
