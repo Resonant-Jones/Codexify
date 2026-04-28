@@ -50,7 +50,9 @@ import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
-import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import useRuntimeHealth, {
+  formatRuntimeHealthDiagnostics,
+} from "@/hooks/useRuntimeHealth";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   describeProviderState,
@@ -2432,6 +2434,10 @@ export default function AppShell({
     runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       ? runtimeHealth.llmDetail
       : null;
+  const runtimeDiagnosticLines =
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED
+      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+      : [];
 
   const providerRuntimeState: ProviderRuntimeState =
     runtimeHealth.backendReachable === false
@@ -2864,6 +2870,18 @@ export default function AppShell({
                 {runtimePresentation.detail}
               </div>
             )}
+            {runtimeDiagnosticLines.length > 0 ? (
+              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+                <summary className="cursor-pointer select-none opacity-80">
+                  Technical details
+                </summary>
+                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                  {runtimeDiagnosticLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
       )}
@@ -3209,6 +3227,7 @@ export default function AppShell({
                         onWorkspaceToggle={toggleWorkspaceDrawer}
                         workspaceOpen={workspaceDrawerOpen}
                         providerRuntimeState={providerRuntimeState}
+                        runtimeHealth={runtimeHealth}
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                       />

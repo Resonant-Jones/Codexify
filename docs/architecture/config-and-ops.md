@@ -238,6 +238,8 @@ Unverified:
 - command bus run stream:
   - `GET /api/guardian/commands/runs/{run_id}/events`
 
+Packaged desktop runtime banners now expose sanitized health-poll diagnostics when degraded. Operators can read the banner's resolved API base URL, auth source, endpoint paths, HTTP status or transport error class, parsed status, parsed `ok` value, and poll timestamps without exposing raw credentials. Use those fields together with terminal probes when the packaged UI appears stale or disagrees with `/health/chat` and `/api/health/llm`.
+
 Primary anchors:
 - `guardian/routes/health.py`
 - `guardian/guardian_api.py`

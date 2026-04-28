@@ -15,6 +15,30 @@ type LiveEventsStatus = {
 };
 
 const apiGet = vi.fn();
+const runtimeState = vi.hoisted(() => ({
+  isTauri: true,
+  apiBaseUrl: "http://127.0.0.1:8888/api",
+  desktopAuthConfig: {
+    apiKeyPresent: true,
+    apiKey: "packaged-runtime-key",
+    envPath: "/Users/username/Codexify/.env",
+    runtimeRoot: "/Users/username/Codexify",
+    failureKind: null,
+    runtimeContext: "packaged",
+  } as
+    | null
+    | {
+        apiKeyPresent: boolean;
+        apiKey: string | null;
+        envPath: string | null;
+        runtimeRoot: string | null;
+        failureKind: string | null;
+        runtimeContext: string | null;
+      },
+  runtimeApiKey: "packaged-runtime-key" as string | null,
+  authToken: null as string | null,
+  devApiKey: "" as string,
+}));
 let liveEventsStatus: LiveEventsStatus = {
   connected: true,
   connectionStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
@@ -25,6 +49,22 @@ vi.mock("@/lib/api", () => ({
   default: {
     get: (...args: unknown[]) => apiGet(...args),
   },
+  getAuthToken: () => runtimeState.authToken,
+  getDevApiKey: () => runtimeState.devApiKey,
+  readRuntimeApiKey: () => runtimeState.runtimeApiKey,
+}));
+
+vi.mock("@/lib/runtimeConfig", () => ({
+  getDesktopRuntimeAuthConfig: () => runtimeState.desktopAuthConfig,
+  getRuntimeConfigSync: () => ({
+    mode: runtimeState.isTauri ? "tauri" : "web",
+    backendBaseUrl: "http://127.0.0.1:8888",
+    apiBaseUrl: runtimeState.apiBaseUrl,
+    sseUrl: "http://127.0.0.1:8888/api/events",
+    sharePublicBaseUrl: "http://127.0.0.1:5173",
+    authMode: "local",
+  }),
+  isTauriRuntime: () => runtimeState.isTauri,
 }));
 
 vi.mock("@/hooks/useLiveEvents", () => ({
@@ -104,6 +144,19 @@ describe("useRuntimeHealth", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-20T12:00:00.000Z"));
     apiGet.mockReset();
+    runtimeState.isTauri = true;
+    runtimeState.apiBaseUrl = "http://127.0.0.1:8888/api";
+    runtimeState.desktopAuthConfig = {
+      apiKeyPresent: true,
+      apiKey: "packaged-runtime-key",
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: null,
+      runtimeContext: "packaged",
+    };
+    runtimeState.runtimeApiKey = "packaged-runtime-key";
+    runtimeState.authToken = null;
+    runtimeState.devApiKey = "";
     liveEventsStatus = {
       connected: true,
       connectionStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
@@ -123,6 +176,29 @@ describe("useRuntimeHealth", () => {
     });
     await waitFor(() => {
       expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.HEALTHY);
+      expect(result.current.failureKind).toBeNull();
+      expect(result.current.chatHealthy).toBe(true);
+      expect(result.current.llmHealthy).toBe(true);
+      expect(result.current.lastCheckedAt).toBe(Date.parse("2026-03-20T12:00:00.000Z"));
+      expect(result.current.lastSuccessAt).toBe(Date.parse("2026-03-20T12:00:00.000Z"));
+      expect(result.current.lastFailedAt).toBeNull();
+      expect(result.current.diagnostics.resolvedApiBaseUrl).toBe(
+        "http://127.0.0.1:8888/api"
+      );
+      expect(result.current.diagnostics.apiKeyPresent).toBe(true);
+      expect(result.current.diagnostics.authSource).toBe("runtime-desktop");
+      expect(result.current.diagnostics.chat.endpoint).toBe("/health/chat");
+      expect(result.current.diagnostics.chat.httpStatus).toBe(200);
+      expect(result.current.diagnostics.chat.parsedStatus).toBe("healthy");
+      expect(result.current.diagnostics.chat.parsedOk).toBe(true);
+      expect(result.current.diagnostics.llm.endpoint).toBe("/api/health/llm");
+      expect(result.current.diagnostics.llm.httpStatus).toBe(200);
+      expect(result.current.diagnostics.llm.parsedStatus).toBe("online");
+      expect(result.current.diagnostics.llm.parsedOk).toBe(true);
+      expect(result.current.diagnostics.failureKind).toBeNull();
+      expect(result.current.diagnostics.currentComputedStateSource).toBe(
+        "live-poll"
+      );
     });
   });
 
@@ -168,6 +244,46 @@ describe("useRuntimeHealth", () => {
     });
   });
 
+  it("clears chat_unhealthy when /health/chat becomes healthy", async () => {
+    mockHealthResponses({ chat: "fail" });
+    const { result } = renderHook(() => useRuntimeHealth());
+    await act(async () => {
+      await flushPromises();
+    });
+    await waitFor(() => {
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY
+      );
+      expect(result.current.diagnostics.chat.parsedStatus).toBe("degraded");
+      expect(result.current.diagnostics.chat.parsedOk).toBe(false);
+      expect(result.current.diagnostics.currentComputedStateSource).toBe(
+        "live-poll"
+      );
+    });
+
+    expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
+
+    mockHealthResponses({ chat: "ok" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flushPromises();
+    });
+
+    await waitFor(() => {
+      expect(result.current.failureKind).toBeNull();
+      expect(result.current.chatHealthy).toBe(true);
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.HEALTHY);
+      expect(result.current.diagnostics.chat.parsedStatus).toBe("healthy");
+      expect(result.current.diagnostics.chat.parsedOk).toBe(true);
+      expect(result.current.diagnostics.lastSuccessAt).toBe(
+        Date.parse("2026-03-20T12:00:15.000Z")
+      );
+      expect(result.current.diagnostics.lastFailedAt).toBe(
+        Date.parse("2026-03-20T12:00:00.000Z")
+      );
+    });
+  });
+
   it("flags chat unhealthy", async () => {
     mockHealthResponses({ chat: "fail" });
     const { result } = renderHook(() => useRuntimeHealth());
@@ -177,6 +293,47 @@ describe("useRuntimeHealth", () => {
     await waitFor(() => {
       expect(result.current.failureKind).toBe(
         RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY
+      );
+    });
+  });
+
+  it("records endpoint and auth diagnostics for a degraded health poll", async () => {
+    runtimeState.desktopAuthConfig = {
+      apiKeyPresent: true,
+      apiKey: "packaged-runtime-key",
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: null,
+      runtimeContext: "packaged",
+    };
+    runtimeState.runtimeApiKey = "packaged-runtime-key";
+    mockHealthResponses({ llm: "fail", chat: "ok" });
+
+    const { result } = renderHook(() => useRuntimeHealth());
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
+      );
+      expect(result.current.diagnostics.apiKeyPresent).toBe(true);
+      expect(result.current.diagnostics.authSource).toBe("runtime-desktop");
+      expect(result.current.diagnostics.llm.endpoint).toBe("/api/health/llm");
+      expect(result.current.diagnostics.llm.httpStatus).toBe(200);
+      expect(result.current.diagnostics.llm.parsedStatus).toBe("offline");
+      expect(result.current.diagnostics.llm.parsedOk).toBe(false);
+      expect(result.current.diagnostics.chat.endpoint).toBe("/health/chat");
+      expect(result.current.diagnostics.chat.httpStatus).toBe(200);
+      expect(result.current.diagnostics.chat.parsedStatus).toBe("healthy");
+      expect(result.current.diagnostics.chat.parsedOk).toBe(true);
+      expect(result.current.diagnostics.lastCheckedAt).toBe(
+        Date.parse("2026-03-20T12:00:00.000Z")
+      );
+      expect(result.current.diagnostics.currentComputedStateSource).toBe(
+        "live-poll"
       );
     });
   });

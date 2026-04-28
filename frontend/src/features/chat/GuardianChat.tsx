@@ -72,6 +72,10 @@ import {
   useInferenceRequestState,
 } from "@/features/chat/hooks/useInferenceRequestState";
 import {
+  formatRuntimeHealthDiagnostics,
+  type RuntimeHealthStatus,
+} from "@/hooks/useRuntimeHealth";
+import {
   createIdleInferenceRequestState,
   DEFAULT_COMPOSER_INFERENCE_MODE,
   isActiveInferencePhase,
@@ -662,6 +666,7 @@ export function GuardianChat({
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   activeDraft = "",
   providerRuntimeState = null,
+  runtimeHealth = null,
   onSessionTabActivate,
   onSessionTabClose,
   onSessionTabOpen,
@@ -701,6 +706,7 @@ export function GuardianChat({
   activeInferenceMode?: ComposerInferenceMode;
   activeDraft?: string;
   providerRuntimeState?: ProviderRuntimeState | null;
+  runtimeHealth?: RuntimeHealthStatus | null;
   onSessionTabActivate?: (tabId: TabId) => void;
   onSessionTabClose?: (tabId: TabId) => void;
   onSessionTabOpen?: () => void;
@@ -1198,6 +1204,13 @@ export function GuardianChat({
   const llmStatusMessage =
     llmHealth.error
     || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
+  const runtimeHealthDiagnosticLines = useMemo(
+    () =>
+      runtimeHealth?.status === "degraded"
+        ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+        : [],
+    [runtimeHealth]
+  );
   const mobileShellProfile = useMobileShellProfile();
   const mobileGestureState = useMobileGestureState(mobileShellProfile.active);
   const applePlatform = useMemo(() => isApplePlatform(), []);
@@ -3288,6 +3301,18 @@ export function GuardianChat({
           </div>
           {cloudProvidersDisabled ? (
             <div className="mt-1 opacity-80">Cloud providers disabled by config.</div>
+          ) : null}
+          {runtimeHealthDiagnosticLines.length > 0 ? (
+            <details className="mt-2 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+              <summary className="cursor-pointer select-none opacity-80">
+                Technical details
+              </summary>
+              <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                {runtimeHealthDiagnosticLines.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
+            </details>
           ) : null}
         </div>
       )}
