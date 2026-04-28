@@ -101,6 +101,28 @@ pub struct DesktopRuntimeConfig {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DesktopRuntimeAuthConfig {
+    pub mode: String,
+    pub backend_base_url: String,
+    pub api_base_url: String,
+    pub sse_url: String,
+    pub share_public_base_url: String,
+    pub auth_mode: String,
+    pub api_key_present: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LauncherStartupHandoff {
     pub should_run_wizard: bool,
     pub setup_complete: bool,
@@ -3975,6 +3997,76 @@ pub fn desktop_get_runtime_config() -> DesktopRuntimeConfig {
     }
 }
 
+fn desktop_runtime_auth_config(runtime: &BootstrapRuntime) -> DesktopRuntimeAuthConfig {
+    let backend_base_url = desktop_backend_base_url();
+    let api_base_url = resolve_api_base_url(&backend_base_url);
+    let sse_url = combine_url(&api_base_url, "/events");
+    let share_public_base_url = resolve_share_public_base_url(&backend_base_url);
+    let auth_mode = env_first(&["GUARDIAN_AUTH_MODE"], "local");
+    let runtime_root = runtime.runtime_root_display();
+    let env_path = runtime
+        .runtime_root_path()
+        .map(runtime_env_file_path)
+        .map(|path| path.display().to_string());
+
+    let mut api_key_present = false;
+    let mut api_key = None;
+    let mut failure_kind = None;
+
+    if let Some(runtime_root_path) = runtime.runtime_root_path() {
+        let env_path_buf = runtime_env_file_path(runtime_root_path);
+        if !env_path_buf.is_file() {
+            failure_kind = Some("missing_config".to_string());
+        } else {
+            match read_env_file_ordered(&env_path_buf) {
+                Ok((_order, values)) => {
+                    let candidate = values
+                        .get("GUARDIAN_API_KEY")
+                        .map(|value| value.trim().to_string())
+                        .filter(|value| !is_placeholder_config_value(Some(value)));
+                    api_key_present = candidate.is_some();
+                    api_key = candidate;
+                    if !api_key_present {
+                        failure_kind = Some("config_incomplete".to_string());
+                    }
+                }
+                Err(err) => {
+                    failure_kind = Some("config_incomplete".to_string());
+                    log::warn!(
+                        "packaged runtime auth config could not read env file: env_path={} error={}",
+                        env_path_buf.display(),
+                        err
+                    );
+                }
+            }
+        }
+    } else {
+        failure_kind = Some(FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE.to_string());
+    }
+
+    DesktopRuntimeAuthConfig {
+        mode: RUNTIME_CONTEXT_PACKAGED.to_string(),
+        backend_base_url,
+        api_base_url,
+        sse_url,
+        share_public_base_url,
+        auth_mode,
+        api_key_present,
+        api_key,
+        env_path,
+        runtime_root,
+        failure_kind,
+        runtime_context: Some(runtime.runtime_context.clone()),
+    }
+}
+
+#[tauri::command]
+pub fn desktop_get_runtime_auth_config(
+    runtime: tauri::State<'_, BootstrapRuntime>,
+) -> DesktopRuntimeAuthConfig {
+    desktop_runtime_auth_config(&runtime)
+}
+
 #[tauri::command]
 pub fn desktop_get_launcher_startup_handoff(
     runtime: tauri::State<'_, BootstrapRuntime>,
@@ -5584,6 +5676,49 @@ mod tests {
                 .expect("failed to read migrated model data"),
             "legacy-models"
         );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn packaged_runtime_auth_config_reads_env_without_leaking_secret() {
+        let root = unique_temp_dir("codexify-packaged-auth-config");
+        let runtime_home = root.join("Application Support").join("Codexify");
+        let runtime_root = root.join("Codexify");
+        fs::create_dir_all(&runtime_home).expect("failed to create runtime home");
+        fs::create_dir_all(&runtime_root).expect("failed to create runtime root");
+
+        let env_path = runtime_env_file_path(&runtime_root);
+        fs::write(
+            &env_path,
+            [
+                "GUARDIAN_API_KEY=packaged-runtime-secret",
+                "GUARDIAN_AUTH_MODE=local",
+                "CODEXIFY_DESKTOP_BACKEND_URL=http://127.0.0.1:8888",
+                "",
+            ]
+            .join("\n"),
+        )
+        .expect("failed to seed packaged env");
+
+        let runtime = test_runtime(true, runtime_root.clone(), Some(runtime_home));
+        let config = desktop_runtime_auth_config(&runtime);
+        let env_path_display = env_path.display().to_string();
+        let runtime_root_display = runtime_root.display().to_string();
+
+        assert!(config.api_key_present);
+        assert_eq!(
+            config.api_key.as_deref(),
+            Some("packaged-runtime-secret")
+        );
+        assert_eq!(config.env_path.as_deref(), Some(env_path_display.as_str()));
+        assert_eq!(config.runtime_root.as_deref(), Some(runtime_root_display.as_str()));
+        assert_eq!(config.failure_kind, None);
+        let diagnostics = redact_setup_diagnostics(
+            "GUARDIAN_API_KEY=packaged-runtime-secret\nruntimeRoot=/tmp/Codexify",
+        );
+        assert!(!diagnostics.contains("packaged-runtime-secret"));
+        assert!(diagnostics.contains("GUARDIAN_API_KEY=<redacted>"));
 
         fs::remove_dir_all(&root).ok();
     }

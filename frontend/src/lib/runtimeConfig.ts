@@ -14,6 +14,15 @@ export interface RuntimeConfig {
 
 type TauriRuntimeConfig = Partial<RuntimeConfig>;
 
+export type DesktopRuntimeAuthConfig = RuntimeConfig & {
+  apiKeyPresent: boolean;
+  apiKey: string | null;
+  envPath: string | null;
+  runtimeRoot: string | null;
+  failureKind: string | null;
+  runtimeContext: string | null;
+};
+
 export type LauncherStartupHandoff = {
   shouldRunWizard: boolean;
   setupComplete: boolean;
@@ -51,6 +60,7 @@ const DESKTOP_SHARE_STORAGE_KEY = "cfy.desktop.sharePublicBaseUrl";
 
 let runtimeConfigCache: RuntimeConfig | null = null;
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
+let desktopRuntimeAuthConfigCache: DesktopRuntimeAuthConfig | null = null;
 
 type TauriCoreApi = {
   invoke: <T = unknown>(
@@ -242,6 +252,39 @@ function normalizeLauncherStartupHandoff(
   };
 }
 
+function normalizeDesktopRuntimeAuthConfig(
+  payload: unknown
+): DesktopRuntimeAuthConfig | null {
+  if (!payload || typeof payload !== "object") return null;
+  const source = payload as Record<string, unknown>;
+  const backendBaseUrl = normalizeNullableText(source.backendBaseUrl);
+  const apiBaseUrl = normalizeNullableText(source.apiBaseUrl);
+  const sseUrl = normalizeNullableText(source.sseUrl);
+  const sharePublicBaseUrl = normalizeNullableText(source.sharePublicBaseUrl);
+  const authMode = coerceAuthMode(
+    normalizeNullableText(source.authMode) ?? "local"
+  );
+
+  if (!backendBaseUrl || !apiBaseUrl || !sseUrl || !sharePublicBaseUrl) {
+    return null;
+  }
+
+  return {
+    mode: "tauri",
+    backendBaseUrl,
+    apiBaseUrl,
+    sseUrl,
+    sharePublicBaseUrl,
+    authMode,
+    apiKeyPresent: asBoolean(source.apiKeyPresent),
+    apiKey: normalizeNullableText(source.apiKey),
+    envPath: normalizeNullableText(source.envPath),
+    runtimeRoot: normalizeNullableText(source.runtimeRoot),
+    failureKind: normalizeNullableText(source.failureKind),
+    runtimeContext: normalizeNullableText(source.runtimeContext),
+  };
+}
+
 export async function readDesktopLauncherStartupHandoff(): Promise<LauncherStartupHandoff | null> {
   if (!isTauriRuntime()) return null;
   try {
@@ -390,22 +433,91 @@ function defaultSharePublicBaseUrl(mode: RuntimeMode): string {
 }
 
 async function readTauriRuntimeConfig(): Promise<TauriRuntimeConfig | null> {
-  if (!isTauriRuntime()) return null;
+  if (!isTauriRuntime()) {
+    desktopRuntimeAuthConfigCache = null;
+    try {
+      const { clearRuntimeApiKey } = await import("@/lib/runtimeAuth");
+      clearRuntimeApiKey();
+    } catch {
+      // Ignore cache wiring failures; the web runtime can still proceed.
+    }
+    return null;
+  }
   try {
     const core = await loadTauriCore();
-    const payload = await core.invoke<any>("desktop_get_runtime_config");
-    if (!payload || typeof payload !== "object") return null;
+    const payload = await core.invoke<unknown>(
+      "desktop_get_runtime_auth_config"
+    );
+    const authConfig = normalizeDesktopRuntimeAuthConfig(payload);
+    desktopRuntimeAuthConfigCache = authConfig;
+    if (authConfig?.apiKey) {
+      try {
+        const { setRuntimeApiKey } = await import("@/lib/runtimeAuth");
+        setRuntimeApiKey(authConfig.apiKey);
+      } catch {
+        // Ignore auth cache wiring failures; the runtime config itself still resolves.
+      }
+    } else if (authConfig) {
+      try {
+        const { clearRuntimeApiKey } = await import("@/lib/runtimeAuth");
+        clearRuntimeApiKey();
+      } catch {
+        // Ignore cache wiring failures; the runtime config itself still resolves.
+      }
+    }
+    if (authConfig) {
+      return {
+        mode: authConfig.mode,
+        backendBaseUrl: authConfig.backendBaseUrl,
+        apiBaseUrl: authConfig.apiBaseUrl,
+        sseUrl: authConfig.sseUrl,
+        sharePublicBaseUrl: authConfig.sharePublicBaseUrl,
+        authMode: authConfig.authMode,
+      };
+    }
+
+    const legacyPayload = await core.invoke<any>("desktop_get_runtime_config");
+    if (!legacyPayload || typeof legacyPayload !== "object") return null;
+    desktopRuntimeAuthConfigCache = {
+      mode: "tauri",
+      backendBaseUrl: String(legacyPayload.backendBaseUrl ?? "").trim(),
+      apiBaseUrl: String(legacyPayload.apiBaseUrl ?? "").trim(),
+      sseUrl: String(legacyPayload.sseUrl ?? "").trim(),
+      sharePublicBaseUrl: String(legacyPayload.sharePublicBaseUrl ?? "").trim(),
+      authMode:
+        String(legacyPayload.authMode ?? "")
+          .trim()
+          .toLowerCase() === "remote"
+          ? "remote"
+          : "local",
+      apiKeyPresent: false,
+      apiKey: null,
+      envPath: null,
+      runtimeRoot: null,
+      failureKind: null,
+      runtimeContext: "packaged",
+    };
+    try {
+      const { clearRuntimeApiKey } = await import("@/lib/runtimeAuth");
+      clearRuntimeApiKey();
+    } catch {
+      // Ignore cache wiring failures; the runtime config itself still resolves.
+    }
     return {
       mode: "tauri",
-      backendBaseUrl: String(payload.backendBaseUrl ?? "").trim(),
-      apiBaseUrl: String(payload.apiBaseUrl ?? "").trim(),
-      sseUrl: String(payload.sseUrl ?? "").trim(),
-      sharePublicBaseUrl: String(payload.sharePublicBaseUrl ?? "").trim(),
-      authMode: String(payload.authMode ?? "").trim().toLowerCase() === "remote" ? "remote" : "local",
+      backendBaseUrl: desktopRuntimeAuthConfigCache.backendBaseUrl,
+      apiBaseUrl: desktopRuntimeAuthConfigCache.apiBaseUrl,
+      sseUrl: desktopRuntimeAuthConfigCache.sseUrl,
+      sharePublicBaseUrl: desktopRuntimeAuthConfigCache.sharePublicBaseUrl,
+      authMode: desktopRuntimeAuthConfigCache.authMode,
     };
   } catch {
     return null;
   }
+}
+
+export function getDesktopRuntimeAuthConfig(): DesktopRuntimeAuthConfig | null {
+  return desktopRuntimeAuthConfigCache;
 }
 
 function buildRuntimeConfig(
