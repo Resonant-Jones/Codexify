@@ -34,6 +34,18 @@ const authState = vi.hoisted(() => ({
   status: "authenticated" as const,
   token: "test-token",
 }));
+const runtimeAuthState = vi.hoisted(() => ({
+  isTauri: false,
+  desktopAuthConfig: null as
+    | null
+    | {
+        apiKeyPresent: boolean;
+        apiKey: string | null;
+        envPath: string | null;
+        runtimeRoot: string | null;
+        failureKind: string | null;
+      },
+}));
 const routeCapabilityStates = vi.hoisted(
   () =>
     ({
@@ -127,6 +139,11 @@ vi.mock("@/lib/authState", () => ({
   useAuthState: () => authState,
   checkAuthGate: () => true,
   requireAuthReady: () => true,
+}));
+
+vi.mock("@/lib/runtimeConfig", () => ({
+  isTauriRuntime: () => runtimeAuthState.isTauri,
+  getDesktopRuntimeAuthConfig: () => runtimeAuthState.desktopAuthConfig,
 }));
 
 vi.mock("@/lib/runtimeRouteCapabilities", () => ({
@@ -313,7 +330,31 @@ describe("GuardianChatWithSidebar stability contract", () => {
     routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.IMPRINT] = "available";
     routeCapabilityStates[SUPPORTED_PROFILE_ROUTE_LABELS.UI_SESSION] =
       "available";
-    localStorage.clear();
+    const storage = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      value: {
+        getItem: vi.fn((key: string) => storage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          storage.set(key, value);
+        }),
+        removeItem: vi.fn((key: string) => {
+          storage.delete(key);
+        }),
+        clear: vi.fn(() => {
+          storage.clear();
+        }),
+      },
+      configurable: true,
+    });
+    Object.defineProperty(window, "sessionStorage", {
+      value: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+      },
+      configurable: true,
+    });
     window.history.pushState({}, "", "/chat");
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -876,3 +917,80 @@ describe("GuardianChatWithSidebar stability contract", () => {
 
     global.fetch = originalFetch;
   });
+
+describe("GuardianChatWithSidebar auth banner", () => {
+  beforeEach(() => {
+    authState.ready = true;
+    authState.status = "authenticated";
+    authState.token = "test-token";
+    runtimeAuthState.isTauri = false;
+    runtimeAuthState.desktopAuthConfig = null;
+    const storage = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      value: {
+        getItem: vi.fn((key: string) => storage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          storage.set(key, value);
+        }),
+        removeItem: vi.fn((key: string) => {
+          storage.delete(key);
+        }),
+        clear: vi.fn(() => {
+          storage.clear();
+        }),
+      },
+      configurable: true,
+    });
+    Object.defineProperty(window, "sessionStorage", {
+      value: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+      },
+      configurable: true,
+    });
+  });
+
+  it("does not render the auth banner when the runtime auth key is already unified into auth state", () => {
+    authState.ready = true;
+    authState.status = "authenticated";
+    authState.token = undefined;
+    runtimeAuthState.isTauri = true;
+    runtimeAuthState.desktopAuthConfig = {
+      apiKeyPresent: true,
+      apiKey: "desktop-secret-key",
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: null,
+    };
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    expect(screen.queryByText("Authentication required.")).toBeNull();
+  });
+
+  it("renders sanitized desktop diagnostics without exposing the raw key", () => {
+    authState.ready = true;
+    authState.status = "unauthenticated";
+    authState.token = undefined;
+    runtimeAuthState.isTauri = true;
+    runtimeAuthState.desktopAuthConfig = {
+      apiKeyPresent: true,
+      apiKey: "desktop-secret-key",
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: "config_incomplete",
+    };
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    expect(screen.getByText("Authentication required.")).toBeInTheDocument();
+    expect(screen.getByText("apiKeyPresent=true")).toBeInTheDocument();
+    expect(screen.getByText("envPath=/Users/username/Codexify/.env")).toBeInTheDocument();
+    expect(screen.getByText("runtimeRoot=/Users/username/Codexify")).toBeInTheDocument();
+    expect(screen.getByText("failureKind=config_incomplete")).toBeInTheDocument();
+    expect(screen.queryByText("desktop-secret-key")).toBeNull();
+    expect(screen.queryByText("Sign in or provide a dev key in local development.")).toBeNull();
+  });
+});
