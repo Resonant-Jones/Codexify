@@ -21,7 +21,7 @@ export type RuntimePreflight = {
   packaged?: boolean;
 };
 
-export type BootstrapStep = "setup" | "compose-up" | "health-check";
+export type BootstrapStep = "setup" | "pull-images" | "compose-up" | "health-check";
 
 export type BootstrapRecoveryStage =
   | "preflight"
@@ -135,6 +135,7 @@ export type RuntimeBootstrapStatus =
   | "compose-missing"
   | "docker-not-running"
   | "preparing-local-config"
+  | "downloading-local-images"
   | "starting-local-services"
   | "waiting-for-ready"
   | "failed"
@@ -254,7 +255,12 @@ function normalizeEndpointCheck(payload: unknown): HealthEndpointCheck {
 }
 
 function normalizeStep(step: unknown, fallback: BootstrapStep): BootstrapStep {
-  if (step === "setup" || step === "compose-up" || step === "health-check") {
+  if (
+    step === "setup" ||
+    step === "pull-images" ||
+    step === "compose-up" ||
+    step === "health-check"
+  ) {
     return step;
   }
   return fallback;
@@ -829,6 +835,55 @@ export function mapRuntimePreflightFailureToState(
     );
   }
 
+  if (preflight.failureKind === "runtime-compose-file-missing") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged runtime Compose file is missing",
+      "Packaged startup could not find the registry-backed Compose file it needs to start local services. Reinstall or repair Codexify, then retry.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (
+    preflight.failureKind === "runtime-images-missing" ||
+    preflight.failureKind === "runtime-image-pull-failed"
+  ) {
+    return buildRuntimeBootstrapState(
+      "failed",
+      preflight.failureKind === "runtime-image-pull-failed"
+        ? "Runtime image pull failed"
+        : "Codexify needs to download its local runtime images",
+      preflight.failureKind === "runtime-image-pull-failed"
+        ? "Docker is ready, but Codexify could not download its local runtime images. Check network access or registry credentials, then retry."
+        : "Docker is ready, but Codexify runtime images are not available yet. Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "registry-runtime-unavailable") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Registry-backed runtime is unavailable",
+      "Codexify could not use the packaged registry-backed runtime from this context. Open the packaged desktop app, then retry.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
   if (preflight.packaged && preflight.failureKind === "unexpected-execution-error") {
     return buildRuntimeBootstrapState(
       "failed",
@@ -869,6 +924,19 @@ export function createPreparingLocalConfigState(
   );
 }
 
+export function createDownloadingLocalImagesState(
+  preflight: RuntimePreflight,
+  detail?: string,
+  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
+): RuntimeBootstrapState {
+  return buildRuntimeBootstrapState(
+    "downloading-local-images",
+    "Downloading local runtime images",
+    "Codexify is pulling its registry-backed runtime images before it starts the packaged Compose stack.",
+    { detail, preflight, stepResults }
+  );
+}
+
 export function createStartingLocalServicesState(
   preflight: RuntimePreflight,
   detail?: string,
@@ -877,7 +945,7 @@ export function createStartingLocalServicesState(
   return buildRuntimeBootstrapState(
     "starting-local-services",
     "Starting local services",
-    "Codexify is bringing the local Docker Compose stack up from the Docker-compatible packaged runtime root.",
+    "Codexify is bringing the local Docker Compose stack up from the registry-backed packaged runtime root.",
     { detail, preflight, stepResults }
   );
 }
@@ -1085,6 +1153,38 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     };
   }
 
+  if (failureKind === "runtime-compose-file-missing") {
+    return {
+      title: "Packaged runtime Compose file is missing",
+      message:
+        "The packaged desktop app could not find the registry-backed Compose file it needs to start local services. Reinstall or repair Codexify, then retry.",
+    };
+  }
+
+  if (failureKind === "runtime-images-missing") {
+    return {
+      title: "Codexify needs to download its local runtime images",
+      message:
+        "Docker is ready, but Codexify runtime images are not available yet. Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
+    };
+  }
+
+  if (failureKind === "runtime-image-pull-failed") {
+    return {
+      title: "Runtime image pull failed",
+      message:
+        "Docker is ready, but Codexify could not download its local runtime images. Check network access or registry credentials, then retry.",
+    };
+  }
+
+  if (failureKind === "registry-runtime-unavailable") {
+    return {
+      title: "Registry-backed runtime is unavailable",
+      message:
+        "Codexify could not use the packaged registry-backed runtime from this context. Open the packaged desktop app, then retry.",
+    };
+  }
+
   if (failureKind === "runtime-path-unavailable") {
     return {
       title: "Codexify could not inspect the packaged startup path",
@@ -1169,6 +1269,10 @@ export function getBootstrapRecoveryStage(
     return "compose-up";
   }
 
+  if (state.stepResults["pull-images"] && !state.stepResults["pull-images"]?.ok) {
+    return "setup";
+  }
+
   if (state.stepResults.setup && !state.stepResults.setup?.ok) {
     return "setup";
   }
@@ -1202,6 +1306,15 @@ export function getBootstrapRecoveryActions(
   if (
     failureKind === "docker-cli-execution-failed" ||
     failureKind === "docker-cli-found-but-unusable-from-packaged-context"
+  ) {
+    return ["retry"];
+  }
+
+  if (
+    failureKind === "runtime-compose-file-missing" ||
+    failureKind === "runtime-images-missing" ||
+    failureKind === "runtime-image-pull-failed" ||
+    failureKind === "registry-runtime-unavailable"
   ) {
     return ["retry"];
   }
@@ -1719,6 +1832,24 @@ export async function runSetupCli(): Promise<BootstrapStepResult> {
     return {
       ok: false,
       step: "setup",
+      detail:
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error"),
+    };
+  }
+}
+
+export async function runPullRuntimeImages(): Promise<BootstrapStepResult> {
+  try {
+    const payload = await invokeTauriCommand<unknown>(
+      "desktop_pull_registry_runtime_images"
+    );
+    return normalizeStepResult(payload, "pull-images");
+  } catch (error) {
+    return {
+      ok: false,
+      step: "pull-images",
       detail:
         error instanceof Error
           ? error.message

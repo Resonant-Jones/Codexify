@@ -30,6 +30,9 @@ BUILTIN_HELP_DOCUMENT_ID = str(
 
 
 def _repo_root() -> Path:
+    cwd = Path.cwd()
+    if (cwd / BUILTIN_HELP_REL_PATH).exists():
+        return cwd
     return Path(__file__).resolve().parents[2]
 
 
