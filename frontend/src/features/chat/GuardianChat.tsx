@@ -152,7 +152,7 @@ export function flattenChatEventPayload(data: unknown): Record<string, unknown> 
  * - diagnostic: System introspection, sensors, trace-level visibility
  */
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
-type SourceMode = "project" | "workspace";
+type SourceMode = "project" | "personal_knowledge";
 
 type LlmHealthStatus = "unknown" | "online" | "offline" | "misconfigured";
 
@@ -192,8 +192,8 @@ type VoiceCapabilities = {
 };
 
 function normalizeSourceMode(value: unknown): SourceMode {
-  return value === "workspace" || value === "personal_knowledge"
-    ? "workspace"
+  return value === "personal_knowledge"
+    ? "personal_knowledge"
     : DEFAULT_SOURCE_MODE;
 }
 
@@ -358,8 +358,8 @@ function normalizeThreadConfig(raw: unknown): ThreadConfig | null {
     modelId,
     inferenceMode,
     retrievalSource:
-      retrievalSource === "workspace" || retrievalSource === "personal_knowledge"
-        ? "workspace"
+      retrievalSource === "personal_knowledge"
+        ? "personal_knowledge"
         : "project",
     personaId,
   };
@@ -2841,10 +2841,10 @@ export function GuardianChat({
         "Current thread first, then this project if more context is needed.",
     },
     {
-      value: "workspace",
-      label: "Workspace",
+      value: "personal_knowledge",
+      label: "Personal Knowledge",
       description:
-        "Current thread first, then your broader local workspace knowledge.",
+        "Current thread first, then your broader knowledge across projects.",
     },
   ];
 
