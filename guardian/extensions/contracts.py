@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
-from guardian.command_bus.contracts import INVOKE_VERSION
+from guardian.command_bus.contracts import (
+    INVOKE_VERSION,
+    CommandBusInvokeResult,
+    InvokeArguments,
+    InvokeRequest,
+)
 from guardian.extensions.tokens import (
     CapabilityActivationConflictClassToken,
     CapabilityActivationContextToken,
@@ -14,6 +19,10 @@ from guardian.extensions.tokens import (
     CapabilityActivationOutcomeToken,
     CapabilityDispatchSourceToken,
     CapabilityEntryProvenanceClass,
+    CapabilityManualDispatchDenyReasonToken,
+    CapabilityManualDispatchIdempotencyClassToken,
+    CapabilityManualDispatchOutcomeToken,
+    CapabilityManualDispatchSourceToken,
     CapabilityRegistryStatus,
     ExtensionInstallBindingScope,
     ExtensionInstallBindingStatus,
@@ -24,6 +33,10 @@ from guardian.extensions.tokens import (
     normalize_capability_activation_outcome_token,
     normalize_capability_dispatch_source_token,
     normalize_capability_entry_provenance_class,
+    normalize_capability_manual_dispatch_deny_reason_token,
+    normalize_capability_manual_dispatch_idempotency_class_token,
+    normalize_capability_manual_dispatch_outcome_token,
+    normalize_capability_manual_dispatch_source_token,
     normalize_capability_registry_status,
     normalize_extension_install_binding_scope,
     normalize_extension_install_binding_status,
@@ -2121,6 +2134,369 @@ class CapabilityActivationDecision:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class CapabilityManualDispatchRequest:
+    """Request for a bounded manual capability-to-command-bus invocation."""
+
+    account_id: str
+    requested_command_id: str
+    command_arguments: InvokeArguments | Mapping[str, Any] = field(
+        default_factory=InvokeArguments
+    )
+    project_id: int | None = None
+    profile_id: str | None = None
+    requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
+    request_metadata: dict[str, Any] = field(default_factory=dict)
+    dispatch_envelope: CapabilityDispatchEnvelope | None = None
+    invocation_source_token: str = (
+        CapabilityManualDispatchSourceToken.MANUAL_CAPABILITY_DISPATCH.value
+    )
+    idempotency_class_token: str = (
+        CapabilityManualDispatchIdempotencyClassToken.SINGLE_COMMAND_BUS_INVOCATION.value
+    )
+    idempotency_key: str | None = None
+    source_thread_id: int | None = None
+    source_message_id: int | None = None
+    requested_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "requested_command_id",
+            _clean_optional_text(self.requested_command_id) or "",
+        )
+        if isinstance(self.command_arguments, InvokeArguments):
+            command_arguments = self.command_arguments
+        elif isinstance(self.command_arguments, Mapping):
+            command_arguments = InvokeArguments.model_validate(
+                dict(self.command_arguments)
+            )
+        else:
+            command_arguments = InvokeArguments.model_validate(
+                self.command_arguments
+            )
+        object.__setattr__(self, "command_arguments", command_arguments)
+        object.__setattr__(
+            self,
+            "requested_permissions",
+            tuple(self.requested_permissions or ()),
+        )
+        object.__setattr__(
+            self,
+            "request_metadata",
+            _clean_mapping(self.request_metadata),
+        )
+        object.__setattr__(
+            self,
+            "invocation_source_token",
+            normalize_capability_manual_dispatch_source_token(
+                self.invocation_source_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "idempotency_class_token",
+            normalize_capability_manual_dispatch_idempotency_class_token(
+                self.idempotency_class_token
+            ),
+        )
+        object.__setattr__(
+            self, "idempotency_key", _clean_optional_text(self.idempotency_key)
+        )
+        if self.dispatch_envelope is not None and not self.requested_command_id:
+            object.__setattr__(
+                self,
+                "requested_command_id",
+                self.dispatch_envelope.requested_command_id,
+            )
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        if not self.requested_command_id:
+            raise ValueError("requested_command_id is required")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "requested_command_id": self.requested_command_id,
+            "command_arguments_json": self.command_arguments.model_dump(
+                mode="json", exclude_none=False
+            ),
+            "project_id": self.project_id,
+            "profile_id": self.profile_id,
+            "requested_permissions_json": [
+                permission.to_payload()
+                for permission in self.requested_permissions
+            ],
+            "request_metadata_json": dict(self.request_metadata),
+            "dispatch_envelope_json": (
+                self.dispatch_envelope.to_payload()
+                if self.dispatch_envelope is not None
+                else None
+            ),
+            "invocation_source_token": self.invocation_source_token,
+            "idempotency_class_token": self.idempotency_class_token,
+            "idempotency_key": self.idempotency_key,
+            "source_thread_id": self.source_thread_id,
+            "source_message_id": self.source_message_id,
+            "requested_at": self.requested_at,
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any]
+    ) -> CapabilityManualDispatchRequest:
+        data = dict(payload)
+        request_metadata = data.get("request_metadata_json")
+        command_arguments = data.get("command_arguments_json")
+        dispatch_envelope = data.get("dispatch_envelope_json")
+        return cls(
+            account_id=data.get("account_id") or "",
+            requested_command_id=data.get("requested_command_id")
+            or data.get("command_id")
+            or "",
+            command_arguments=InvokeArguments.model_validate(
+                command_arguments or {}
+            ),
+            project_id=data.get("project_id"),
+            profile_id=data.get("profile_id"),
+            requested_permissions=tuple(
+                ExtensionRequestedPermission.from_payload(item)
+                for item in data.get("requested_permissions_json") or []
+            ),
+            request_metadata=_clean_mapping(request_metadata)
+            if isinstance(request_metadata, Mapping)
+            else {},
+            dispatch_envelope=(
+                CapabilityDispatchEnvelope.from_payload(dispatch_envelope)
+                if isinstance(dispatch_envelope, Mapping)
+                else None
+            ),
+            invocation_source_token=data.get("invocation_source_token")
+            or CapabilityManualDispatchSourceToken.MANUAL_CAPABILITY_DISPATCH.value,
+            idempotency_class_token=data.get("idempotency_class_token")
+            or CapabilityManualDispatchIdempotencyClassToken.SINGLE_COMMAND_BUS_INVOCATION.value,
+            idempotency_key=data.get("idempotency_key"),
+            source_thread_id=data.get("source_thread_id"),
+            source_message_id=data.get("source_message_id"),
+            requested_at=data.get("requested_at"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityManualDispatchResult:
+    """Outcome for a bounded manual capability dispatch."""
+
+    request: CapabilityManualDispatchRequest
+    outcome_token: str
+    activation_decision: CapabilityActivationDecision | None = None
+    dispatch_envelope: CapabilityDispatchEnvelope | None = None
+    command_bus_request: InvokeRequest | None = None
+    command_bus_result: CommandBusInvokeResult | None = None
+    command_run_id: str | None = None
+    denial_reason_token: str | None = None
+    evaluated_at: datetime | None = None
+    result_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "outcome_token",
+            normalize_capability_manual_dispatch_outcome_token(
+                self.outcome_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "denial_reason_token",
+            (
+                normalize_capability_manual_dispatch_deny_reason_token(
+                    self.denial_reason_token
+                )
+                if self.denial_reason_token is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "result_metadata",
+            _clean_mapping(self.result_metadata),
+        )
+        command_run_id = _clean_optional_text(self.command_run_id)
+        if not command_run_id and self.command_bus_result is not None:
+            command_run_id = _clean_optional_text(
+                self.command_bus_result.run_id
+            )
+        object.__setattr__(self, "command_run_id", command_run_id)
+        if (
+            self.outcome_token
+            == CapabilityManualDispatchOutcomeToken.DISPATCHED.value
+        ):
+            if self.command_bus_request is None:
+                raise ValueError(
+                    "dispatched manual result requires a command bus request"
+                )
+            if self.command_bus_result is None:
+                raise ValueError(
+                    "dispatched manual result requires a command bus result"
+                )
+            if not self.command_run_id:
+                raise ValueError(
+                    "dispatched manual result requires a command run id"
+                )
+            if self.denial_reason_token is not None:
+                raise ValueError(
+                    "dispatched manual result must not carry a denial reason"
+                )
+        elif (
+            self.outcome_token
+            == CapabilityManualDispatchOutcomeToken.BUS_REJECTED.value
+        ):
+            if self.command_bus_request is None:
+                raise ValueError(
+                    "bus rejected manual result requires a command bus request"
+                )
+            if self.denial_reason_token is None:
+                raise ValueError(
+                    "bus rejected manual result requires a denial reason"
+                )
+        elif self.outcome_token in {
+            CapabilityManualDispatchOutcomeToken.DENIED.value,
+            CapabilityManualDispatchOutcomeToken.CONFLICT.value,
+        }:
+            if self.command_bus_request is not None:
+                raise ValueError(
+                    "denied manual result must not carry a command bus request"
+                )
+            if self.command_bus_result is not None:
+                raise ValueError(
+                    "denied manual result must not carry a command bus result"
+                )
+            if self.command_run_id is not None:
+                raise ValueError(
+                    "denied manual result must not carry a command run id"
+                )
+            if self.denial_reason_token is None:
+                raise ValueError(
+                    "denied manual result requires a denial reason"
+                )
+
+    @property
+    def is_dispatched(self) -> bool:
+        return (
+            self.outcome_token
+            == CapabilityManualDispatchOutcomeToken.DISPATCHED.value
+        )
+
+    @property
+    def is_denied(self) -> bool:
+        return (
+            self.outcome_token
+            == CapabilityManualDispatchOutcomeToken.DENIED.value
+        )
+
+    @property
+    def is_conflict(self) -> bool:
+        return (
+            self.outcome_token
+            == CapabilityManualDispatchOutcomeToken.CONFLICT.value
+        )
+
+    @property
+    def is_bus_rejected(self) -> bool:
+        return (
+            self.outcome_token
+            == CapabilityManualDispatchOutcomeToken.BUS_REJECTED.value
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "request_json": self.request.to_payload(),
+            "outcome_token": self.outcome_token,
+            "activation_decision_json": (
+                self.activation_decision.to_payload()
+                if self.activation_decision is not None
+                else None
+            ),
+            "dispatch_envelope_json": (
+                self.dispatch_envelope.to_payload()
+                if self.dispatch_envelope is not None
+                else None
+            ),
+            "command_bus_request_json": (
+                self.command_bus_request.model_dump(
+                    mode="json", exclude_none=False
+                )
+                if self.command_bus_request is not None
+                else None
+            ),
+            "command_bus_result_json": (
+                self.command_bus_result.model_dump(
+                    mode="json", exclude_none=False
+                )
+                if self.command_bus_result is not None
+                else None
+            ),
+            "command_run_id": self.command_run_id,
+            "denial_reason_token": self.denial_reason_token,
+            "evaluated_at": self.evaluated_at,
+            "result_metadata_json": dict(self.result_metadata),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any]
+    ) -> CapabilityManualDispatchResult:
+        data = dict(payload)
+        request_payload = data.get("request_json")
+        activation_decision_payload = data.get("activation_decision_json")
+        dispatch_envelope_payload = data.get("dispatch_envelope_json")
+        command_bus_request_payload = data.get("command_bus_request_json")
+        command_bus_result_payload = data.get("command_bus_result_json")
+        return cls(
+            request=CapabilityManualDispatchRequest.from_payload(
+                request_payload if isinstance(request_payload, Mapping) else {}
+            ),
+            outcome_token=data.get("outcome_token") or "",
+            activation_decision=(
+                CapabilityActivationDecision.from_payload(
+                    activation_decision_payload
+                )
+                if isinstance(activation_decision_payload, Mapping)
+                else None
+            ),
+            dispatch_envelope=(
+                CapabilityDispatchEnvelope.from_payload(
+                    dispatch_envelope_payload
+                )
+                if isinstance(dispatch_envelope_payload, Mapping)
+                else None
+            ),
+            command_bus_request=(
+                InvokeRequest.model_validate(command_bus_request_payload)
+                if isinstance(command_bus_request_payload, Mapping)
+                else None
+            ),
+            command_bus_result=(
+                CommandBusInvokeResult.model_validate(
+                    command_bus_result_payload
+                )
+                if isinstance(command_bus_result_payload, Mapping)
+                else None
+            ),
+            command_run_id=data.get("command_run_id"),
+            denial_reason_token=data.get("denial_reason_token"),
+            evaluated_at=data.get("evaluated_at"),
+            result_metadata=_clean_mapping(
+                data.get("result_metadata_json")
+                if isinstance(data.get("result_metadata_json"), Mapping)
+                else {}
+            ),
+        )
+
+
 __all__ = [
     "MANIFEST_VERSION",
     "ExtensionRequestedPermission",
@@ -2141,4 +2517,6 @@ __all__ = [
     "CapabilityActivationConflictDetail",
     "CapabilityDispatchEnvelope",
     "CapabilityActivationDecision",
+    "CapabilityManualDispatchRequest",
+    "CapabilityManualDispatchResult",
 ]

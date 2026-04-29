@@ -2,7 +2,7 @@
 
 This note is the companion architecture reference for ADR-010. It explains the governed shape of Codexify's self-extending model without claiming runtime implementation.
 
-Implementation status: extension proposal persistence, manual install-gate decisions, capability registry entries, scoped install binding persistence, backend read-time effective capability resolution, and a pure capability activation / dispatch contract seam exist on the backend; it returns explicit allow/deny outcomes plus command-bus-shaped dispatch envelopes. Sandbox execution, runtime activation, autonomous dispatch, and plugin execution still do not exist. Resolution precedence is profile > project > account.
+Implementation status: extension proposal persistence, manual install-gate decisions, capability registry entries, scoped install binding persistence, backend read-time effective capability resolution, pure capability activation / dispatch seams, and a read-only activation inspection surface now exist on the backend. The manual capability dispatch bridge now performs exactly one command-bus invocation from an allowed dispatch envelope. Sandbox execution, runtime activation, autonomous dispatch, worker orchestration, and general runtime execution still do not exist. Resolution precedence is profile > project > account.
 
 ## Purpose
 
