@@ -50,6 +50,13 @@ export type RuntimeHealthEndpointObservation = {
   transportErrorClass: string | null;
   parsedStatus: string | null;
   parsedOk: boolean | null;
+  detailsStatus?: string | null;
+  detailsOk?: boolean | null;
+  provider?: string | null;
+  model?: string | null;
+  providerRuntimeAvailable?: boolean | null;
+  endpointResolutionState?: string | null;
+  failureReason?: string | null;
 };
 
 export type RuntimeHealthDiagnostics = {
@@ -148,6 +155,30 @@ function isHealthStatusToken(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function isGreenStatusToken(value: string | null): boolean {
+  return Boolean(value && ["ok", "healthy", "online"].includes(value));
+}
+
+function isRedStatusToken(value: string | null): boolean {
+  return Boolean(
+    value &&
+      ["offline", "degraded", "error", "unavailable", "red", "failed"].includes(
+        value
+      )
+  );
+}
+
+function readPayloadValue(payload: unknown, path: string[]): unknown {
+  let current: unknown = payload;
+  for (const key of path) {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
 type HealthResult = {
   reachable: boolean;
   ok: boolean | null;
@@ -179,15 +210,32 @@ function getTransportErrorClass(error: unknown): string | null {
 }
 
 function readParsedStatus(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const candidate = payload as { status?: unknown };
-  return isHealthStatusToken(candidate.status);
+  const topLevel = isHealthStatusToken(readPayloadValue(payload, ["status"]));
+  if (topLevel) return topLevel;
+  return isHealthStatusToken(readPayloadValue(payload, ["details", "status"]));
 }
 
 function readParsedOk(payload: unknown): boolean | null {
-  if (!payload || typeof payload !== "object") return null;
-  const candidate = payload as { ok?: unknown };
-  return typeof candidate.ok === "boolean" ? candidate.ok : null;
+  const topLevel = readPayloadValue(payload, ["ok"]);
+  if (typeof topLevel === "boolean") return topLevel;
+  const nested = readPayloadValue(payload, ["details", "ok"]);
+  return typeof nested === "boolean" ? nested : null;
+}
+
+function readPayloadString(
+  payload: unknown,
+  path: string[]
+): string | null {
+  const value = readPayloadValue(payload, path);
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readPayloadBoolean(
+  payload: unknown,
+  path: string[]
+): boolean | null {
+  const value = readPayloadValue(payload, path);
+  return typeof value === "boolean" ? value : null;
 }
 
 function deriveHealthySignal(payload: unknown, httpStatus: number | null): boolean | null {
@@ -195,7 +243,48 @@ function deriveHealthySignal(payload: unknown, httpStatus: number | null): boole
   if (parsedOk !== null) return parsedOk;
   const parsedStatus = readParsedStatus(payload);
   if (parsedStatus) {
-    return ["ok", "healthy", "online"].includes(parsedStatus);
+    return isGreenStatusToken(parsedStatus);
+  }
+  if (httpStatus == null) return null;
+  return httpStatus >= 200 && httpStatus < 300;
+}
+
+function deriveLlmHealthySignal(
+  payload: unknown,
+  httpStatus: number | null
+): boolean | null {
+  const parsedOk = readParsedOk(payload);
+  const parsedStatus = readParsedStatus(payload);
+  const detailsOk = readPayloadBoolean(payload, ["details", "ok"]);
+  const providerRuntimeAvailable =
+    readPayloadBoolean(payload, ["details", "provider_runtime", "available"]) ??
+    readPayloadBoolean(payload, ["provider_runtime", "available"]);
+  const endpointResolutionState =
+    readPayloadString(payload, ["details", "endpoint_resolution", "state"]) ??
+    readPayloadString(payload, ["endpoint_resolution", "state"]);
+
+  const positiveSignals = [
+    parsedOk === true,
+    isGreenStatusToken(parsedStatus),
+    detailsOk === true,
+    providerRuntimeAvailable === true,
+    endpointResolutionState === "available",
+  ].some(Boolean);
+
+  const negativeSignals = [
+    parsedOk === false,
+    isRedStatusToken(parsedStatus),
+    detailsOk === false,
+    providerRuntimeAvailable === false,
+    endpointResolutionState != null &&
+      endpointResolutionState.toLowerCase() !== "available",
+    ].some(Boolean);
+
+  if (negativeSignals) {
+    return false;
+  }
+  if (positiveSignals) {
+    return true;
   }
   if (httpStatus == null) return null;
   return httpStatus >= 200 && httpStatus < 300;
@@ -210,7 +299,10 @@ function summarizeHealthResult(
 } {
   if (result.status === "fulfilled") {
     const payload = result.value?.data ?? null;
-    const derivedHealthy = deriveHealthySignal(payload, 200);
+    const isLlmEndpoint = endpoint === LLM_HEALTH_ENDPOINT;
+    const derivedHealthy = isLlmEndpoint
+      ? deriveLlmHealthySignal(payload, 200)
+      : deriveHealthySignal(payload, 200);
     return {
       endpoint,
       reachable: true,
@@ -221,6 +313,21 @@ function summarizeHealthResult(
       transportErrorClass: null,
       parsedStatus: readParsedStatus(payload),
       parsedOk: readParsedOk(payload),
+      detailsStatus: readPayloadString(payload, ["details", "status"]),
+      detailsOk: readPayloadBoolean(payload, ["details", "ok"]),
+      provider: isLlmEndpoint ? readPayloadString(payload, ["provider"]) : null,
+      model: isLlmEndpoint ? readPayloadString(payload, ["model"]) : null,
+      providerRuntimeAvailable: isLlmEndpoint
+        ? readPayloadBoolean(payload, ["details", "provider_runtime", "available"]) ??
+          readPayloadBoolean(payload, ["provider_runtime", "available"])
+        : null,
+      endpointResolutionState: isLlmEndpoint
+        ? readPayloadString(payload, ["details", "endpoint_resolution", "state"]) ??
+          readPayloadString(payload, ["endpoint_resolution", "state"])
+        : null,
+      failureReason: isLlmEndpoint
+        ? deriveLlmFailureReason(payload)
+        : null,
       payload,
     };
   }
@@ -231,18 +338,76 @@ function summarizeHealthResult(
     null;
   const missing = status === 404;
   const reachable = status != null;
+  const isLlmEndpoint = endpoint === LLM_HEALTH_ENDPOINT;
   return {
     endpoint,
     reachable,
-    ok: missing ? false : deriveHealthySignal(payload, status),
-    derivedHealthy: missing ? false : deriveHealthySignal(payload, status),
+    ok: missing
+      ? false
+      : isLlmEndpoint
+        ? deriveLlmHealthySignal(payload, status)
+        : deriveHealthySignal(payload, status),
+    derivedHealthy: missing
+      ? false
+      : isLlmEndpoint
+        ? deriveLlmHealthySignal(payload, status)
+        : deriveHealthySignal(payload, status),
     missing,
     httpStatus: status,
     transportErrorClass: status == null ? getTransportErrorClass(result.reason) : null,
     parsedStatus: readParsedStatus(payload),
     parsedOk: readParsedOk(payload),
+    detailsStatus: readPayloadString(payload, ["details", "status"]),
+    detailsOk: readPayloadBoolean(payload, ["details", "ok"]),
+    provider: isLlmEndpoint ? readPayloadString(payload, ["provider"]) : null,
+    model: isLlmEndpoint ? readPayloadString(payload, ["model"]) : null,
+    providerRuntimeAvailable: isLlmEndpoint
+      ? readPayloadBoolean(payload, ["details", "provider_runtime", "available"]) ??
+        readPayloadBoolean(payload, ["provider_runtime", "available"])
+      : null,
+    endpointResolutionState: isLlmEndpoint
+      ? readPayloadString(payload, ["details", "endpoint_resolution", "state"]) ??
+        readPayloadString(payload, ["endpoint_resolution", "state"])
+      : null,
+    failureReason: isLlmEndpoint ? deriveLlmFailureReason(payload) : null,
     payload,
   };
+}
+
+function deriveLlmFailureReason(payload: unknown): string | null {
+  const parsedStatus = readParsedStatus(payload);
+  const parsedOk = readParsedOk(payload);
+  const detailsStatus = readPayloadString(payload, ["details", "status"]);
+  const detailsOk = readPayloadBoolean(payload, ["details", "ok"]);
+  const provider = readPayloadString(payload, ["provider"]);
+  const providerRuntimeAvailable =
+    readPayloadBoolean(payload, ["details", "provider_runtime", "available"]) ??
+    readPayloadBoolean(payload, ["provider_runtime", "available"]);
+  const endpointResolutionState =
+    readPayloadString(payload, ["details", "endpoint_resolution", "state"]) ??
+    readPayloadString(payload, ["endpoint_resolution", "state"]);
+
+  if (provider && provider.trim().toLowerCase() !== "local") {
+    return `provider=${provider}`;
+  }
+  if (parsedOk === false) return "ok=false";
+  if (detailsOk === false) return "details.ok=false";
+  if (providerRuntimeAvailable === false) {
+    return "provider_runtime.available=false";
+  }
+  if (
+    endpointResolutionState &&
+    endpointResolutionState.trim().toLowerCase() !== "available"
+  ) {
+    return `endpoint_resolution.state=${endpointResolutionState}`;
+  }
+  if (isRedStatusToken(detailsStatus)) {
+    return `details.status=${detailsStatus}`;
+  }
+  if (isRedStatusToken(parsedStatus)) {
+    return `status=${parsedStatus}`;
+  }
+  return null;
 }
 
 function resolveRuntimeHealthAuthSource(): RuntimeHealthAuthSource {
@@ -330,6 +495,27 @@ export function formatRuntimeHealthDiagnostics(
           ? "true"
           : "false"
     }`,
+    `parsed llm details status=${diagnostics.llm.detailsStatus ?? "<none>"}`,
+    `parsed llm details ok=${
+      diagnostics.llm.detailsOk == null
+        ? "<unknown>"
+        : diagnostics.llm.detailsOk
+          ? "true"
+          : "false"
+    }`,
+    `parsed llm provider=${diagnostics.llm.provider ?? "<none>"}`,
+    `parsed llm model=${diagnostics.llm.model ?? "<none>"}`,
+    `parsed llm provider runtime available=${
+      diagnostics.llm.providerRuntimeAvailable == null
+        ? "<unknown>"
+        : diagnostics.llm.providerRuntimeAvailable
+          ? "true"
+          : "false"
+    }`,
+    `parsed llm endpoint resolution state=${
+      diagnostics.llm.endpointResolutionState ?? "<none>"
+    }`,
+    `parsed llm failure reason=${diagnostics.llm.failureReason ?? "<none>"}`,
     `live events endpoint called=${diagnostics.liveEvents.endpoint ?? "<unresolved>"}`,
     `live events connection state=${diagnostics.liveEvents.connectionState}`,
     `live events last event=${formatTimestamp(diagnostics.liveEvents.lastEventAt)}`,
@@ -526,6 +712,13 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
       transportErrorClass: snapshot.llm.transportErrorClass,
       parsedStatus: snapshot.llm.parsedStatus,
       parsedOk: snapshot.llm.parsedOk,
+      detailsStatus: snapshot.llm.detailsStatus,
+      detailsOk: snapshot.llm.detailsOk,
+      provider: snapshot.llm.provider,
+      model: snapshot.llm.model,
+      providerRuntimeAvailable: snapshot.llm.providerRuntimeAvailable,
+      endpointResolutionState: snapshot.llm.endpointResolutionState,
+      failureReason: snapshot.llm.failureReason,
     },
     liveEvents: {
       endpoint: liveEventsDiagnostics.endpoint,

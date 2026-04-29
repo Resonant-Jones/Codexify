@@ -1,3 +1,5 @@
+import { invokeTauriCommand } from "@/lib/tauriBridge";
+
 /**
  * Detect if we are running inside a Tauri desktop runtime.
  */
@@ -48,8 +50,7 @@ export const PersonaEngine = {
     memory_tags: string[]
   ): Promise<GenerationResult> {
     if (isTauri()) {
-      const { invoke } = await new Function('return import("@tauri-apps/api/core")')();
-      const out = (await invoke("generate_with_memory", {
+      const out = (await invokeTauriCommand("generate_with_memory", {
         inputPrompt: input_prompt,
         personaId: persona_id,
         memoryTags: memory_tags,
@@ -68,8 +69,7 @@ export const PersonaEngine = {
    */
   async getAllTags(persona_id: string): Promise<TagStats[]> {
     if (isTauri()) {
-      const { invoke } = await new Function('return import("@tauri-apps/api/core")')();
-      const tags = (await invoke("get_all_tags", {
+      const tags = (await invokeTauriCommand("get_all_tags", {
         personaId: persona_id,
       })) as TagStats[];
       return tags;

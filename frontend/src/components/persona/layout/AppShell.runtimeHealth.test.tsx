@@ -44,6 +44,13 @@ type RuntimeHealthMock = {
       transportErrorClass: string | null;
       parsedStatus: string | null;
       parsedOk: boolean | null;
+      detailsStatus?: string | null;
+      detailsOk?: boolean | null;
+      provider?: string | null;
+      model?: string | null;
+      providerRuntimeAvailable?: boolean | null;
+      endpointResolutionState?: string | null;
+      failureReason?: string | null;
     };
     liveEvents: {
       endpoint: string | null;
@@ -99,13 +106,20 @@ const runtimeHealthState: RuntimeHealthMock = {
       parsedStatus: "healthy",
       parsedOk: true,
     },
-    llm: {
-      endpoint: "/api/health/llm",
-      httpStatus: 200,
-      transportErrorClass: null,
-      parsedStatus: "online",
-      parsedOk: true,
-    },
+      llm: {
+        endpoint: "/api/health/llm",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "online",
+        parsedOk: true,
+        detailsStatus: "online",
+        detailsOk: true,
+        provider: "local",
+        model: "library2/ministral-3:8b",
+        providerRuntimeAvailable: true,
+        endpointResolutionState: "available",
+        failureReason: null,
+      },
     liveEvents: {
       endpoint: "http://127.0.0.1:8888/api/events",
       connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
@@ -168,6 +182,27 @@ vi.mock("@/hooks/useRuntimeHealth", () => ({
           ? "true"
           : "false"
       }`,
+      `parsed llm details status=${diagnostics.llm.detailsStatus ?? "<none>"}`,
+      `parsed llm details ok=${
+        diagnostics.llm.detailsOk == null
+          ? "<unknown>"
+          : diagnostics.llm.detailsOk
+          ? "true"
+          : "false"
+      }`,
+      `parsed llm provider=${diagnostics.llm.provider ?? "<none>"}`,
+      `parsed llm model=${diagnostics.llm.model ?? "<none>"}`,
+      `parsed llm provider runtime available=${
+        diagnostics.llm.providerRuntimeAvailable == null
+          ? "<unknown>"
+          : diagnostics.llm.providerRuntimeAvailable
+          ? "true"
+          : "false"
+      }`,
+      `parsed llm endpoint resolution state=${
+        diagnostics.llm.endpointResolutionState ?? "<none>"
+      }`,
+      `parsed llm failure reason=${diagnostics.llm.failureReason ?? "<none>"}`,
       `live events endpoint called=${diagnostics.liveEvents.endpoint ?? "<unresolved>"}`,
       `live events connection state=${diagnostics.liveEvents.connectionState}`,
       `live events last event=${diagnostics.liveEvents.lastEventAt ?? "<none>"}`,
@@ -368,13 +403,20 @@ describe("AppShell runtime health banner", () => {
         parsedStatus: "healthy",
         parsedOk: true,
       },
-      llm: {
-        endpoint: "/api/health/llm",
-        httpStatus: 200,
-        transportErrorClass: null,
-        parsedStatus: "online",
-        parsedOk: true,
-      },
+    llm: {
+      endpoint: "/api/health/llm",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "online",
+      parsedOk: true,
+      detailsStatus: "online",
+      detailsOk: true,
+      provider: "local",
+      model: "library2/ministral-3:8b",
+      providerRuntimeAvailable: true,
+      endpointResolutionState: "available",
+      failureReason: null,
+    },
       liveEvents: {
         endpoint: "http://127.0.0.1:8888/api/events",
         connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
@@ -447,6 +489,13 @@ describe("AppShell runtime health banner", () => {
         transportErrorClass: null,
         parsedStatus: "online",
         parsedOk: true,
+        detailsStatus: "online",
+        detailsOk: true,
+        provider: "local",
+        model: "library2/ministral-3:8b",
+        providerRuntimeAvailable: true,
+        endpointResolutionState: "available",
+        failureReason: null,
       },
       liveEvents: {
         endpoint: "http://127.0.0.1:8888/api/events",
@@ -511,6 +560,13 @@ describe("AppShell runtime health banner", () => {
       transportErrorClass: null,
       parsedStatus: "offline",
       parsedOk: false,
+      detailsStatus: "offline",
+      detailsOk: false,
+      provider: "local",
+      model: "library2/ministral-3:8b",
+      providerRuntimeAvailable: false,
+      endpointResolutionState: "unavailable",
+      failureReason: "provider_runtime.available=false",
     };
     runtimeHealthState.diagnostics.liveEvents = {
       endpoint: "http://127.0.0.1:8888/api/events",
@@ -602,6 +658,13 @@ describe("AppShell runtime health banner", () => {
         transportErrorClass: null,
         parsedStatus: "online",
         parsedOk: true,
+        detailsStatus: "online",
+        detailsOk: true,
+        provider: "local",
+        model: "library2/ministral-3:8b",
+        providerRuntimeAvailable: true,
+        endpointResolutionState: "available",
+        failureReason: null,
       },
       liveEvents: {
         endpoint: "http://127.0.0.1:8888/api/events",
@@ -641,6 +704,17 @@ describe("AppShell runtime health banner", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/chat endpoint called=\/health\/chat/i)).toBeInTheDocument();
     expect(screen.getByText(/llm endpoint called=\/api\/health\/llm/i)).toBeInTheDocument();
+    expect(screen.getByText(/parsed llm details status=online/i)).toBeInTheDocument();
+    expect(screen.getByText(/parsed llm provider=local/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/parsed llm model=library2\/ministral-3:8b/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/parsed llm provider runtime available=true/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/parsed llm endpoint resolution state=available/i)
+    ).toBeInTheDocument();
     expect(screen.getByText(/failureKind=chat_unhealthy/i)).toBeInTheDocument();
     expect(screen.queryByText("desktop-secret-key")).toBeNull();
   });
