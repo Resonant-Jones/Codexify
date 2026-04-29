@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-27
+2026-04-29
 
 ## Interpretation rule
 This file is authoritative for:
@@ -38,7 +38,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
 - Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
-- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. The schema-consistency gap that previously blocked document upload on missing `agent_extension_*` tables has been repaired on the supported local Compose path, but the full end-to-end upload -> embed -> retrieve proof still needs a fresh rerun on the current tip.
+- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, but the full end-to-end upload -> embed -> retrieve proof still needs a fresh rerun on the current tip.
 - The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
@@ -76,14 +76,14 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 
 ## This week's priorities
 1. ~~Resolve Ollama model name mismatch~~ — **Done 2026-04-14:** `LOCAL_CHAT_MODEL` in `.env.example` updated to `gemma4-e4b-hauhau:latest`. Live verification still required.
-2. Repair the live runtime schema consistency gap that blocks document upload and retrieval (`agent_extension_*` tables missing during upload/document fetch).
-3. Repair the bounded tool-loop path that currently fails with `tool_command_execution_failed` and does not preserve the claimed hard-stop / blocked-result behavior.
-4. Update the completion-service seam (`guardian/core/chat_completion_service.py`) to emit `payload_summary["retrieval_posture"]` so the diagnostics route's fast path becomes functional.
+2. Re-run live `upload -> embed -> retrieve` proof on the current tip now that the `agent_extension_*` schema gap is repaired on the supported path.
+3. Bring the live backend back into the supported local-only posture so the running stack matches the beta contract again.
+4. Repair the bounded tool-loop path that currently fails with `tool_command_execution_failed` and does not preserve the claimed hard-stop / blocked-result behavior.
 5. Re-run the supported local Compose beta proof on `main` once the above are resolved; verify chat completion, retrieval-posture populated state, and all health surfaces pass.
 
 ## Release definition right now
 - [ ] Supported-profile flags and mounted routes still match the beta contract.
-- [ ] Fresh live evidence exists on the current `main` tip for clean start, assistant completion, upload -> embed -> retrieve, and health surfaces.
+- [ ] Fresh live evidence exists on the current `main` tip for clean start, assistant completion, retrieval-posture populated state, upload -> embed -> retrieve, and health surfaces.
 - [ ] Backend-seam eval suites (golden tasks, identity boundaries, source-mode matrix) are passing on the current `main` tip — this reduces scope-boundary ambiguity but does not replace the live proof requirement above.
 - [ ] The release promise does not include a UI fact-management surface or any broader personal-facts retrieval doctrine unless the supported profile is updated.
 - [ ] Delegation is either explicitly excluded or implemented with a real executor plus source-thread result return.
