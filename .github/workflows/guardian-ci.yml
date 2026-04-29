@@ -35,6 +35,8 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          # Force git-based diffing so large PRs do not silently truncate the changed-file list.
+          token: ""
           filters: |
             ci:
               - '.github/workflows/**'
