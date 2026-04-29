@@ -125,7 +125,7 @@ const flushPromises = async () => {
 
 function mockHealthResponses(overrides: {
   chat?: "ok" | "fail" | "missing" | "unreachable";
-  llm?: "ok" | "fail" | "missing" | "unreachable";
+  llm?: "ok" | "fail" | "missing" | "unreachable" | "nested-ok" | "nested-fail";
 } = {}) {
   const chat = overrides.chat ?? "ok";
   const llm = overrides.llm ?? "ok";
@@ -134,6 +134,38 @@ function mockHealthResponses(overrides: {
     if (path === "/api/health/llm") {
       if (llm === "ok") {
         return Promise.resolve({ data: { ok: true, status: "online" } });
+      }
+      if (llm === "nested-ok") {
+        return Promise.resolve({
+          data: {
+            status: "ok",
+            ok: true,
+            provider: "local",
+            model: "library2/ministral-3:8b",
+            details: {
+              status: "online",
+              ok: true,
+              provider_runtime: { available: true },
+              endpoint_resolution: { state: "available" },
+            },
+          },
+        });
+      }
+      if (llm === "nested-fail") {
+        return Promise.resolve({
+          data: {
+            status: "ok",
+            ok: true,
+            provider: "local",
+            model: "library2/ministral-3:8b",
+            details: {
+              status: "offline",
+              ok: false,
+              provider_runtime: { available: false },
+              endpoint_resolution: { state: "unavailable" },
+            },
+          },
+        });
       }
       if (llm === "missing") {
         const error = new Error("not found") as Error & {
@@ -250,10 +282,39 @@ describe("useRuntimeHealth", () => {
       expect(result.current.diagnostics.llm.httpStatus).toBe(200);
       expect(result.current.diagnostics.llm.parsedStatus).toBe("online");
       expect(result.current.diagnostics.llm.parsedOk).toBe(true);
+      expect(result.current.diagnostics.llm.detailsStatus).toBeNull();
+      expect(result.current.diagnostics.llm.detailsOk).toBeNull();
+      expect(result.current.diagnostics.llm.providerRuntimeAvailable).toBeNull();
+      expect(result.current.diagnostics.llm.endpointResolutionState).toBeNull();
       expect(result.current.diagnostics.failureKind).toBeNull();
       expect(result.current.diagnostics.currentComputedStateSource).toBe(
         "live-poll"
       );
+    });
+  });
+
+  it("treats the nested model-health payload as healthy when the local path is available", async () => {
+    mockHealthResponses({ llm: "nested-ok" });
+    const { result } = renderHook(() => useRuntimeHealth());
+    await act(async () => {
+      await flushPromises();
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.HEALTHY);
+      expect(result.current.llmHealthy).toBe(true);
+      expect(result.current.diagnostics.llm.parsedStatus).toBe("ok");
+      expect(result.current.diagnostics.llm.parsedOk).toBe(true);
+      expect(result.current.diagnostics.llm.detailsStatus).toBe("online");
+      expect(result.current.diagnostics.llm.detailsOk).toBe(true);
+      expect(result.current.diagnostics.llm.providerRuntimeAvailable).toBe(true);
+      expect(result.current.diagnostics.llm.endpointResolutionState).toBe(
+        "available"
+      );
+      expect(result.current.diagnostics.llm.provider).toBe("local");
+      expect(result.current.diagnostics.llm.model).toBe(
+        "library2/ministral-3:8b"
+      );
+      expect(result.current.diagnostics.failureKind).toBeNull();
     });
   });
 
@@ -419,6 +480,34 @@ describe("useRuntimeHealth", () => {
     await waitFor(() => {
       expect(result.current.failureKind).toBe(
         RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
+      );
+    });
+  });
+
+  it("keeps llm unhealthy when the nested local model path is still unavailable", async () => {
+    mockHealthResponses({ llm: "nested-fail" });
+    const { result } = renderHook(() => useRuntimeHealth());
+    await act(async () => {
+      await flushPromises();
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe(RUNTIME_HEALTH_STATUSES.DEGRADED);
+      expect(result.current.failureKind).toBe(
+        RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
+      );
+      expect(result.current.llmHealthy).toBe(false);
+      expect(result.current.diagnostics.llm.parsedStatus).toBe("ok");
+      expect(result.current.diagnostics.llm.parsedOk).toBe(true);
+      expect(result.current.diagnostics.llm.detailsStatus).toBe("offline");
+      expect(result.current.diagnostics.llm.detailsOk).toBe(false);
+      expect(result.current.diagnostics.llm.providerRuntimeAvailable).toBe(
+        false
+      );
+      expect(result.current.diagnostics.llm.endpointResolutionState).toBe(
+        "unavailable"
+      );
+      expect(result.current.diagnostics.llm.failureReason).toBe(
+        "details.ok=false"
       );
     });
   });
