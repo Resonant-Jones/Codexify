@@ -102,7 +102,7 @@ The configured provider is not the same thing as discovered provider inventory. 
 ### Chat completion path
 
 - Trigger: `POST /api/chat/{thread_id}/complete`
-- For first-send flows, the frontend now creates a backend thread first, resolves the returned durable thread id, and only then posts the first user message to `POST /api/chat/{thread_id}/messages` before queuing completion.
+- For first-send flows, the frontend now creates a backend thread first with `POST /api/chat/threads`, resolves the returned durable thread id, and only then posts the first user message to `POST /api/chat/{thread_id}/messages` before queuing completion.
 - Core sequence:
   - validate thread and depth context
   - acquire Redis turn lock
