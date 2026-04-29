@@ -612,7 +612,7 @@ fn packaged_runtime_image_tag(runtime: &BootstrapRuntime) -> String {
 
 fn packaged_runtime_backend_image(runtime: &BootstrapRuntime) -> String {
     format!(
-        "{}/codexify-backend:{}",
+        "{}/codexify-runtime:{}",
         packaged_runtime_image_registry(runtime),
         packaged_runtime_image_tag(runtime)
     )
