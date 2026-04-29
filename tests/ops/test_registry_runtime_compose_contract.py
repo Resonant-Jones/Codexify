@@ -23,7 +23,20 @@ def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> N
     assert "build:" not in text
     assert "\n      - ./" not in text
     assert "frontend:" not in text
-    assert "image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}" in text
+    assert "image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}" in text
+    assert "/app/backend/scripts/docker/run_migrator.py" not in text
+    assert "/app/backend" not in text
+    assert "/app/guardian" not in text
+    assert "python -m guardian." not in text
+    assert "runpy.run_path" not in text
+    assert "codexify-backend" not in text
+    assert 'command: ["migrator"]' in text
+    assert 'command: ["model-prep"]' in text
+    assert 'command: ["backend"]' in text
+    assert 'command: ["worker-chat"]' in text
+    assert 'command: ["worker-document-embed"]' in text
+    assert 'command: ["worker-chat-embed"]' in text
+    assert 'command: ["worker-warmup"]' in text
 
     for marker in required_services:
         assert marker in text

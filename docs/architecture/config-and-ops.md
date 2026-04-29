@@ -168,9 +168,10 @@ Source anchors:
 - Source/dev installs may still use the repository Compose path and local build workflow.
 - The launcher/wizard is responsible for creating local config, validating Compose, pulling the registry-backed runtime images, and starting services in the packaged path.
 - Packaged first-run users should not need Rust, pnpm, Python dev tooling, or a source checkout to reach a usable local runtime.
-- The backend registry image now has a compiled/frozen proof target built with PyInstaller at `backend/compiled_backend_entry.py`.
+- The backend registry image now has a compiled/frozen dispatcher target built with PyInstaller at `backend/compiled_runtime_entry.py`.
 - The proof target lives in `backend/Dockerfile` as `compiled-runtime` and keeps the source-backed runtime stage intact for dev and legacy Compose paths.
-- The proof image is intentionally backend-only for now; workers and migrator still remain source-backed in the existing Docker path until they are proven separately.
+- Packaged runtime now uses a single compiled dispatcher image, `codexify-runtime`, with role-specific commands such as `backend`, `migrator`, `model-prep`, and the worker roles.
+- The compiled runtime ships runtime-owned Alembic config plus the migration tree under `/app/runtime` so the migrator role can run without raw `/app/backend` or `/app/guardian` source paths.
 - The proof image still ships a small set of non-source runtime files needed by startup, including supported-profile YAML and bundled help content.
 - Packaged desktop auth handoff now flows through a Tauri command that returns a sanitized runtime auth/config payload for the local packaged runtime. The frontend consumes the handed-off `GUARDIAN_API_KEY` only in packaged mode, while diagnostics expose only presence and source metadata such as `envPath`, `runtimeRoot`, and `failureKind`.
 - The Guardian auth gate now derives from the same in-memory runtime API key that the desktop API client uses, so packaged desktop mode can satisfy local auth without `VITE_GUARDIAN_API_KEY`; the legacy Vite env key remains a dev-only fallback.
