@@ -67,6 +67,8 @@ import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 import { logOnce } from "@/lib/logging/logOnce";
+import { useAuthState } from "@/lib/authState";
+import { getRuntimeConfigHydrationState } from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
   isChatSelectableModel,
@@ -720,6 +722,7 @@ export function GuardianChat({
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
 }) {
+  const auth = useAuthState();
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
@@ -2555,6 +2558,21 @@ export function GuardianChat({
       bodyText: string,
       options?: { tabId?: TabId | null }
     ): Promise<number | null> => {
+      const hydrationState = getRuntimeConfigHydrationState();
+      if (hydrationState === "pending") {
+        showToast("Local runtime is still hydrating. Try again in a moment.");
+        return null;
+      }
+      if (hydrationState === "failed") {
+        showToast(
+          "Local runtime handoff failed. Open desktop diagnostics and retry."
+        );
+        return null;
+      }
+      if (!auth.ready) {
+        showToast("Authentication is not ready yet.");
+        return null;
+      }
       if (effectiveThreadId != null) {
         return effectiveThreadId;
       }
@@ -2613,13 +2631,13 @@ export function GuardianChat({
           tabId: originTabId,
         });
         return resolution.threadId;
-      } catch (error) {
-        console.error("[guardian] thread creation failed", error);
-        showToast("Failed to create thread.");
-        return null;
-      }
+    } catch (error) {
+      console.error("[guardian] thread creation failed", error);
+      showToast("Failed to create thread.");
+      return null;
+    }
     },
-    [effectiveThreadId, handleThreadCreated, showToast]
+    [auth.ready, effectiveThreadId, handleThreadCreated, showToast]
   );
 
   const ensureThreadIdForAttachments = useCallback(
@@ -2729,6 +2747,21 @@ export function GuardianChat({
      * title becomes the thread's identity in the distributed awareness network.
      */
     const normalizedUserId = CANONICAL_SINGLE_USER_ID;
+    const hydrationState = getRuntimeConfigHydrationState();
+    if (hydrationState === "pending") {
+      showToast("Local runtime is still hydrating. Try again in a moment.");
+      return;
+    }
+    if (hydrationState === "failed") {
+      showToast(
+        "Local runtime handoff failed. Open desktop diagnostics and retry."
+      );
+      return;
+    }
+    if (!auth.ready) {
+      showToast("Authentication is not ready yet.");
+      return;
+    }
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =

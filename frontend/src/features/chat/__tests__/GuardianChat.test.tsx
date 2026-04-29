@@ -40,6 +40,12 @@ const composerState = vi.hoisted(() => ({
     | null,
 }));
 
+const authState = vi.hoisted(() => ({
+  ready: true,
+  status: "authenticated" as const,
+  token: "test-token",
+}));
+
 type MockGuardianEventSource = EventTarget & {
   url: string;
   options: Record<string, unknown>;
@@ -238,6 +244,10 @@ vi.mock("@/lib/runtimeRouteCapabilities", () => ({
     mounted: [],
     declared: {},
   }),
+}));
+
+vi.mock("@/lib/authState", () => ({
+  useAuthState: () => authState,
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({

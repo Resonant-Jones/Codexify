@@ -25,7 +25,11 @@ type RuntimeHealthMock = {
   stale: boolean;
   diagnostics: {
     resolvedApiBaseUrl: string | null;
+    resolvedApiBaseUrlSource: string;
     apiKeyPresent: boolean;
+    apiKeySource: string;
+    hydrationState: "pending" | "ready" | "failed";
+    nativeCommandStatus: string | null;
     authSource: string;
     chat: {
       endpoint: string;
@@ -51,6 +55,8 @@ type RuntimeHealthMock = {
       transportErrorClass: string | null;
       authSource: string;
       apiKeyPresent: boolean;
+      hydrationState: "pending" | "ready" | "failed";
+      nativeCommandStatus: string | null;
       reconnectAttempts: number;
       retryMs: number;
       subscribers: number;
@@ -80,7 +86,11 @@ const runtimeHealthState: RuntimeHealthMock = {
   stale: false,
   diagnostics: {
     resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+    resolvedApiBaseUrlSource: "runtime-desktop",
     apiKeyPresent: true,
+    apiKeySource: "runtime-desktop",
+    hydrationState: "ready",
+    nativeCommandStatus: "ready",
     authSource: "runtime-desktop",
     chat: {
       endpoint: "/health/chat",
@@ -106,6 +116,8 @@ const runtimeHealthState: RuntimeHealthMock = {
       transportErrorClass: null,
       authSource: "runtime-desktop",
       apiKeyPresent: true,
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
       reconnectAttempts: 0,
       retryMs: 1000,
       subscribers: 1,
@@ -130,7 +142,11 @@ vi.mock("@/hooks/useRuntimeHealth", () => ({
   formatRuntimeHealthDiagnostics: (diagnostics: typeof runtimeHealthState.diagnostics) =>
     [
       `resolved api base url=${diagnostics.resolvedApiBaseUrl ?? "<unresolved>"}`,
+      `resolved api base url source=${diagnostics.resolvedApiBaseUrlSource}`,
       `apiKeyPresent=${diagnostics.apiKeyPresent ? "true" : "false"}`,
+      `api key source=${diagnostics.apiKeySource}`,
+      `hydration state=${diagnostics.hydrationState}`,
+      `native command status=${diagnostics.nativeCommandStatus ?? "<unknown>"}`,
       `authSource=${diagnostics.authSource}`,
       `chat endpoint called=${diagnostics.chat.endpoint}`,
       `chat HTTP status=${diagnostics.chat.httpStatus ?? "<none>"}`,
@@ -160,6 +176,8 @@ vi.mock("@/hooks/useRuntimeHealth", () => ({
       `live events transport error class=${diagnostics.liveEvents.transportErrorClass ?? "<none>"}`,
       `live events authSource=${diagnostics.liveEvents.authSource}`,
       `live events apiKeyPresent=${diagnostics.liveEvents.apiKeyPresent ? "true" : "false"}`,
+      `live events hydration state=${diagnostics.liveEvents.hydrationState}`,
+      `live events native command status=${diagnostics.liveEvents.nativeCommandStatus ?? "<unknown>"}`,
       `live events reconnect attempts=${diagnostics.liveEvents.reconnectAttempts}`,
       `live events status updated=${diagnostics.liveEvents.statusUpdatedAt ?? "<none>"}`,
       `failureKind=${diagnostics.failureKind ?? "none"}`,
@@ -337,7 +355,11 @@ describe("AppShell runtime health banner", () => {
     routeCapabilityState.state = "available";
     runtimeHealthState.diagnostics = {
       resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      resolvedApiBaseUrlSource: "runtime-desktop",
       apiKeyPresent: true,
+      apiKeySource: "runtime-desktop",
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
       authSource: "runtime-desktop",
       chat: {
         endpoint: "/health/chat",
@@ -363,6 +385,8 @@ describe("AppShell runtime health banner", () => {
         transportErrorClass: null,
         authSource: "runtime-desktop",
         apiKeyPresent: true,
+        hydrationState: "ready",
+        nativeCommandStatus: "ready",
         reconnectAttempts: 0,
         retryMs: 1000,
         subscribers: 1,
@@ -404,7 +428,11 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.lastFailedAt = Date.parse("2026-03-20T11:54:30Z");
     runtimeHealthState.diagnostics = {
       resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      resolvedApiBaseUrlSource: "runtime-desktop",
       apiKeyPresent: true,
+      apiKeySource: "runtime-desktop",
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
       authSource: "runtime-desktop",
       chat: {
         endpoint: "/health/chat",
@@ -430,6 +458,8 @@ describe("AppShell runtime health banner", () => {
         transportErrorClass: null,
         authSource: "runtime-desktop",
         apiKeyPresent: true,
+        hydrationState: "ready",
+        nativeCommandStatus: "ready",
         reconnectAttempts: 0,
         retryMs: 1000,
         subscribers: 1,
@@ -492,6 +522,8 @@ describe("AppShell runtime health banner", () => {
       transportErrorClass: null,
       authSource: "runtime-desktop",
       apiKeyPresent: true,
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
       reconnectAttempts: 0,
       retryMs: 1000,
       subscribers: 1,
@@ -525,6 +557,8 @@ describe("AppShell runtime health banner", () => {
       transportErrorClass: null,
       authSource: "runtime-desktop",
       apiKeyPresent: true,
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
       reconnectAttempts: 3,
       retryMs: 5000,
       subscribers: 1,
@@ -549,7 +583,11 @@ describe("AppShell runtime health banner", () => {
     runtimeHealthState.lastFailedAt = Date.parse("2026-03-20T11:54:30Z");
     runtimeHealthState.diagnostics = {
       resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      resolvedApiBaseUrlSource: "runtime-desktop",
       apiKeyPresent: true,
+      apiKeySource: "runtime-desktop",
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
       authSource: "runtime-desktop",
       chat: {
         endpoint: "/health/chat",
@@ -575,6 +613,8 @@ describe("AppShell runtime health banner", () => {
         transportErrorClass: null,
         authSource: "runtime-desktop",
         apiKeyPresent: true,
+        hydrationState: "ready",
+        nativeCommandStatus: "ready",
         reconnectAttempts: 0,
         retryMs: 1000,
         subscribers: 1,
