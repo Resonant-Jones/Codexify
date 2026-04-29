@@ -141,6 +141,5 @@ configureGC({
   token: readRuntimeApiKey() || readDevApiKey() || undefined,
 });
 resolveAuthStateOnBoot();
-renderApp();
-
 void bootstrap();
+renderApp();

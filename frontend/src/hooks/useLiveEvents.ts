@@ -13,8 +13,10 @@ import { buildAuthenticatedFetchInit } from "@/lib/api";
 import type { LiveEvent } from "@/lib/events/types";
 import {
   getDesktopRuntimeAuthConfig,
+  getRuntimeConfigHydrationFailureKind,
   getRuntimeConfigSync,
   getRuntimeConfigVersion,
+  getRuntimeConfigHydrationState,
   isTauriRuntime,
   resolveSseEndpoint,
   subscribeRuntimeConfigState,
@@ -76,6 +78,8 @@ export type LiveEventsDiagnostics = {
   transportErrorClass: string | null;
   authSource: RuntimeAuthSource;
   apiKeyPresent: boolean;
+  hydrationState: "pending" | "ready" | "failed";
+  nativeCommandStatus: string | null;
   reconnectAttempts: number;
   retryMs: number;
   subscribers: number;
@@ -85,6 +89,10 @@ export type LiveEventsDiagnostics = {
 };
 
 function resolveLiveEventsAuthSource(): RuntimeAuthSource {
+  const hydrationState = getRuntimeConfigHydrationState();
+  if (hydrationState === "pending") {
+    return "unknown";
+  }
   const desktopAuthConfig = getDesktopRuntimeAuthConfig();
   const runtimeDesktopKeyPresent = Boolean(
     desktopAuthConfig?.apiKeyPresent || readRuntimeApiKey()
@@ -112,6 +120,11 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     subscribeRuntimeConfigState,
     getRuntimeConfigVersion,
     getRuntimeConfigVersion
+  );
+  const runtimeConfigHydrationState = useSyncExternalStore(
+    subscribeRuntimeConfigState,
+    getRuntimeConfigHydrationState,
+    getRuntimeConfigHydrationState
   );
   const [connected, setConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
@@ -253,6 +266,32 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       return;
     }
 
+    if (runtimeConfigHydrationState === "pending") {
+      if (connectedTimerRef.current) {
+        clearTimeout(connectedTimerRef.current);
+        connectedTimerRef.current = null;
+      }
+      pendingConnectedRef.current = null;
+      connectedRef.current = false;
+      setConnected(false);
+      setConnectionStatus(LIVE_EVENT_CONNECTION_STATES.CONNECTING);
+      setStatusUpdatedAt(Date.now());
+      return;
+    }
+
+    if (runtimeConfigHydrationState === "failed") {
+      if (connectedTimerRef.current) {
+        clearTimeout(connectedTimerRef.current);
+        connectedTimerRef.current = null;
+      }
+      pendingConnectedRef.current = null;
+      connectedRef.current = false;
+      setConnected(false);
+      setConnectionStatus(LIVE_EVENT_CONNECTION_STATES.DISCONNECTED);
+      setStatusUpdatedAt(Date.now());
+      return;
+    }
+
     if (!checkAuthGate(auth, "SSE connect")) {
       if (connectedTimerRef.current) {
         clearTimeout(connectedTimerRef.current);
@@ -325,6 +364,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     auth.token,
     handleHubEvent,
     runtimeAuthVersion,
+    runtimeConfigHydrationState,
     streamUrl,
     updateConnected,
   ]);
@@ -340,6 +380,11 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       transportErrorClass: hubStatus.transportErrorClass,
       authSource: hubStatus.authSource,
       apiKeyPresent: hubStatus.apiKeyPresent,
+      hydrationState: runtimeConfigHydrationState,
+      nativeCommandStatus:
+        runtimeConfigHydrationState === "failed"
+          ? getRuntimeConfigHydrationFailureKind() ?? "failed"
+          : runtimeConfigHydrationState,
       reconnectAttempts: hubStatus.connectAttempt,
       retryMs: hubStatus.retryMs,
       subscribers: hubStatus.subscribers,
@@ -363,6 +408,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       hubStatus.subscribers,
       hubStatus.transportErrorClass,
       statusUpdatedAt,
+      runtimeConfigHydrationState,
       streamUrl,
     ]
   );

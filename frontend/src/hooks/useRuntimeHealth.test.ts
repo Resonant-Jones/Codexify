@@ -22,6 +22,8 @@ type LiveEventsStatus = {
     transportErrorClass: string | null;
     authSource: string;
     apiKeyPresent: boolean;
+    hydrationState: "pending" | "ready" | "failed";
+    nativeCommandStatus: string | null;
     reconnectAttempts: number;
     retryMs: number;
     subscribers: number;
@@ -42,6 +44,8 @@ function makeLiveEventsDiagnostics(overrides: Partial<LiveEventsStatus["diagnost
     transportErrorClass: null,
     authSource: "runtime-desktop",
     apiKeyPresent: true,
+    hydrationState: "ready",
+    nativeCommandStatus: "ready",
     reconnectAttempts: 0,
     retryMs: 1000,
     subscribers: 1,
@@ -56,6 +60,7 @@ const apiGet = vi.fn();
 const runtimeState = vi.hoisted(() => ({
   isTauri: true,
   apiBaseUrl: "http://127.0.0.1:8888/api",
+  hydrationState: "ready" as "pending" | "ready" | "failed",
   desktopAuthConfig: {
     apiKeyPresent: true,
     apiKey: "packaged-runtime-key",
@@ -95,6 +100,8 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/lib/runtimeConfig", () => ({
   getDesktopRuntimeAuthConfig: () => runtimeState.desktopAuthConfig,
+  getRuntimeConfigHydrationState: () => runtimeState.hydrationState,
+  getRuntimeConfigVersion: () => 0,
   getRuntimeConfigSync: () => ({
     mode: runtimeState.isTauri ? "tauri" : "web",
     backendBaseUrl: "http://127.0.0.1:8888",
@@ -104,6 +111,7 @@ vi.mock("@/lib/runtimeConfig", () => ({
     authMode: "local",
   }),
   isTauriRuntime: () => runtimeState.isTauri,
+  subscribeRuntimeConfigState: () => () => {},
 }));
 
 vi.mock("@/hooks/useLiveEvents", () => ({
@@ -185,6 +193,7 @@ describe("useRuntimeHealth", () => {
     apiGet.mockReset();
     runtimeState.isTauri = true;
     runtimeState.apiBaseUrl = "http://127.0.0.1:8888/api";
+    runtimeState.hydrationState = "ready";
     runtimeState.desktopAuthConfig = {
       apiKeyPresent: true,
       apiKey: "packaged-runtime-key",
@@ -225,7 +234,13 @@ describe("useRuntimeHealth", () => {
       expect(result.current.diagnostics.resolvedApiBaseUrl).toBe(
         "http://127.0.0.1:8888/api"
       );
+      expect(result.current.diagnostics.resolvedApiBaseUrlSource).toBe(
+        "runtime-desktop"
+      );
       expect(result.current.diagnostics.apiKeyPresent).toBe(true);
+      expect(result.current.diagnostics.apiKeySource).toBe("runtime-desktop");
+      expect(result.current.diagnostics.hydrationState).toBe("ready");
+      expect(result.current.diagnostics.nativeCommandStatus).toBe("ready");
       expect(result.current.diagnostics.authSource).toBe("runtime-desktop");
       expect(result.current.diagnostics.chat.endpoint).toBe("/health/chat");
       expect(result.current.diagnostics.chat.httpStatus).toBe(200);
@@ -360,6 +375,8 @@ describe("useRuntimeHealth", () => {
         RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       );
       expect(result.current.diagnostics.apiKeyPresent).toBe(true);
+      expect(result.current.diagnostics.apiKeySource).toBe("runtime-desktop");
+      expect(result.current.diagnostics.hydrationState).toBe("ready");
       expect(result.current.diagnostics.authSource).toBe("runtime-desktop");
       expect(result.current.diagnostics.llm.endpoint).toBe("/api/health/llm");
       expect(result.current.diagnostics.llm.httpStatus).toBe(200);
@@ -452,9 +469,39 @@ describe("useRuntimeHealth", () => {
       expect(result.current.diagnostics.liveEvents.lastHttpStatus).toBe(200);
       expect(result.current.diagnostics.liveEvents.transportErrorClass).toBeNull();
       expect(result.current.diagnostics.liveEvents.apiKeyPresent).toBe(true);
+      expect(result.current.diagnostics.liveEvents.hydrationState).toBe("ready");
       expect(result.current.diagnostics.liveEvents.statusUpdatedAt).toBe(
         Date.now() - 46_000
       );
+    });
+  });
+
+  it("waits for desktop runtime hydration before polling health", async () => {
+    runtimeState.hydrationState = "pending";
+    mockHealthResponses();
+    const { result, rerender } = renderHook(() => useRuntimeHealth());
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(apiGet).not.toHaveBeenCalled();
+    expect(result.current.diagnostics.hydrationState).toBe("pending");
+    expect(result.current.diagnostics.nativeCommandStatus).toBe("pending");
+
+    runtimeState.hydrationState = "ready";
+    rerender();
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await waitFor(() => {
+      expect(apiGet).toHaveBeenCalledWith("/api/health/llm");
+      expect(apiGet).toHaveBeenCalledWith("/health/chat");
+      expect(result.current.diagnostics.hydrationState).toBe("ready");
+      expect(result.current.diagnostics.authSource).toBe("runtime-desktop");
+      expect(result.current.diagnostics.apiKeyPresent).toBe(true);
     });
   });
 
