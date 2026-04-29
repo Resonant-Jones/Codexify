@@ -48,11 +48,15 @@ const runtimeAuthState = vi.hoisted(() => ({
 }));
 const runtimeHealthState = vi.hoisted(() => ({
   status: "healthy" as const,
-  diagnostics: null as
+    diagnostics: null as
     | null
     | {
         resolvedApiBaseUrl: string | null;
+        resolvedApiBaseUrlSource: string;
         apiKeyPresent: boolean;
+        apiKeySource: string;
+        hydrationState: "pending" | "ready" | "failed";
+        nativeCommandStatus: string | null;
         authSource: string;
         chat: {
           endpoint: string;
@@ -67,6 +71,25 @@ const runtimeHealthState = vi.hoisted(() => ({
           transportErrorClass: string | null;
           parsedStatus: string | null;
           parsedOk: boolean | null;
+        };
+        liveEvents: {
+          endpoint: string | null;
+          connectionState: string;
+          lastEventAt: number | null;
+          lastPingAt: number | null;
+          statusUpdatedAt: number | null;
+          lastHttpStatus: number | null;
+          transportErrorClass: string | null;
+          authSource: string;
+          apiKeyPresent: boolean;
+          hydrationState: "pending" | "ready" | "failed";
+          nativeCommandStatus: string | null;
+          reconnectAttempts: number;
+          retryMs: number;
+          subscribers: number;
+          readyState: 0 | 1 | 2;
+          lastErrorAt: number | null;
+          lastEventId: string | null;
         };
         failureKind: string | null;
         lastSuccessAt: number | null;
@@ -95,7 +118,11 @@ vi.mock("@/features/chat/GuardianChat", () => ({
           <div data-testid="runtime-health-diagnostics">
             {[
               `resolvedApiBaseUrl=${String(props.runtimeHealth.diagnostics.resolvedApiBaseUrl ?? "")}`,
+              `resolvedApiBaseUrlSource=${String(props.runtimeHealth.diagnostics.resolvedApiBaseUrlSource ?? "")}`,
               `apiKeyPresent=${props.runtimeHealth.diagnostics.apiKeyPresent ? "true" : "false"}`,
+              `apiKeySource=${String(props.runtimeHealth.diagnostics.apiKeySource ?? "")}`,
+              `hydrationState=${String(props.runtimeHealth.diagnostics.hydrationState ?? "")}`,
+              `nativeCommandStatus=${String(props.runtimeHealth.diagnostics.nativeCommandStatus ?? "")}`,
               `authSource=${String(props.runtimeHealth.diagnostics.authSource ?? "")}`,
               `chatEndpoint=${String(props.runtimeHealth.diagnostics.chat.endpoint ?? "")}`,
               `chatStatus=${String(props.runtimeHealth.diagnostics.chat.parsedStatus ?? "")}`,
@@ -150,7 +177,11 @@ vi.mock("@/hooks/useRuntimeHealth", () => ({
   default: () => runtimeHealthState,
   formatRuntimeHealthDiagnostics: (diagnostics: any) => [
     `resolved api base url=${diagnostics.resolvedApiBaseUrl ?? "<unresolved>"}`,
+    `resolved api base url source=${diagnostics.resolvedApiBaseUrlSource ?? "<unknown>"}`,
     `apiKeyPresent=${diagnostics.apiKeyPresent ? "true" : "false"}`,
+    `api key source=${diagnostics.apiKeySource ?? "<unknown>"}`,
+    `hydration state=${diagnostics.hydrationState ?? "<unknown>"}`,
+    `native command status=${diagnostics.nativeCommandStatus ?? "<unknown>"}`,
     `authSource=${diagnostics.authSource}`,
     `chat endpoint called=${diagnostics.chat.endpoint}`,
     `parsed chat health status=${diagnostics.chat.parsedStatus ?? "<none>"}`,
@@ -1100,7 +1131,11 @@ describe("GuardianChatWithSidebar auth banner", () => {
     runtimeHealthState.status = "degraded";
     runtimeHealthState.diagnostics = {
       resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      resolvedApiBaseUrlSource: "runtime-desktop",
       apiKeyPresent: true,
+      apiKeySource: "runtime-desktop",
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
       authSource: "runtime-desktop",
       chat: {
         endpoint: "/health/chat",
@@ -1115,6 +1150,25 @@ describe("GuardianChatWithSidebar auth banner", () => {
         transportErrorClass: null,
         parsedStatus: "online",
         parsedOk: true,
+      },
+      liveEvents: {
+        endpoint: "http://127.0.0.1:8888/api/events",
+        connectionState: "connected",
+        lastEventAt: Date.parse("2026-03-20T11:59:58.000Z"),
+        lastPingAt: Date.parse("2026-03-20T11:59:58.000Z"),
+        statusUpdatedAt: Date.parse("2026-03-20T12:00:00.000Z"),
+        lastHttpStatus: 200,
+        transportErrorClass: null,
+        authSource: "runtime-desktop",
+        apiKeyPresent: true,
+        hydrationState: "ready",
+        nativeCommandStatus: "ready",
+        reconnectAttempts: 0,
+        retryMs: 1000,
+        subscribers: 1,
+        readyState: 1,
+        lastErrorAt: null,
+        lastEventId: "evt-1",
       },
       failureKind: "chat_unhealthy",
       lastSuccessAt: Date.parse("2026-03-20T12:00:00.000Z"),

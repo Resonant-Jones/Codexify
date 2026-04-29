@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -14,6 +14,19 @@ from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.extensions.activation import (
+    activate_capability_for_owner_and_profile,
+    activate_capability_for_owner_and_project,
+    activate_capability_for_owner_only,
+    activate_capability_for_owner_project_profile,
+)
+from guardian.extensions.contracts import (
+    CapabilityActivationContextToken,
+    CapabilityActivationDecision,
+    CapabilityActivationRequest,
+)
+from guardian.extensions.resolver import EffectiveCapabilityResolver
+from guardian.extensions.store import ExtensionProposalStore
 
 router = APIRouter(
     prefix="/api/guardian/commands",
@@ -23,13 +36,17 @@ router = APIRouter(
 
 _db: Any | None = None
 _store = CommandBusStore()
+_extension_store = ExtensionProposalStore()
+_activation_resolver = EffectiveCapabilityResolver(_extension_store)
 
 
 def configure_db(db: Any | None) -> None:
     """Configure DB handle for command bus persistence."""
-    global _db, _store
+    global _db, _store, _extension_store, _activation_resolver
     _db = db
     _store = CommandBusStore(db=db)
+    _extension_store = ExtensionProposalStore(db=db)
+    _activation_resolver = EffectiveCapabilityResolver(_extension_store)
 
 
 @router.get("/manifest")
@@ -59,6 +76,136 @@ async def invoke_command(
         allow_write_execution=True,
         confirmation_granted=False,
     )
+
+
+def _inspect_activation(
+    *,
+    request: CapabilityActivationRequest,
+    resolver: EffectiveCapabilityResolver,
+) -> CapabilityActivationDecision:
+    if (
+        request.activation_context_token
+        == CapabilityActivationContextToken.OWNER_ONLY.value
+    ):
+        return activate_capability_for_owner_only(
+            account_id=request.account_id,
+            requested_command_id=request.requested_command_id,
+            requested_permissions=request.requested_permissions,
+            resolver=resolver,
+            request_metadata=request.request_metadata,
+            source_thread_id=request.source_thread_id,
+            source_message_id=request.source_message_id,
+            requested_at=request.requested_at,
+        )
+    if (
+        request.activation_context_token
+        == CapabilityActivationContextToken.OWNER_PROJECT.value
+    ):
+        return activate_capability_for_owner_and_project(
+            account_id=request.account_id,
+            project_id=request.project_id
+            if request.project_id is not None
+            else 0,
+            requested_command_id=request.requested_command_id,
+            requested_permissions=request.requested_permissions,
+            resolver=resolver,
+            request_metadata=request.request_metadata,
+            source_thread_id=request.source_thread_id,
+            source_message_id=request.source_message_id,
+            requested_at=request.requested_at,
+        )
+    if (
+        request.activation_context_token
+        == CapabilityActivationContextToken.OWNER_PROFILE.value
+    ):
+        return activate_capability_for_owner_and_profile(
+            account_id=request.account_id,
+            profile_id=request.profile_id or "",
+            requested_command_id=request.requested_command_id,
+            requested_permissions=request.requested_permissions,
+            resolver=resolver,
+            request_metadata=request.request_metadata,
+            source_thread_id=request.source_thread_id,
+            source_message_id=request.source_message_id,
+            requested_at=request.requested_at,
+        )
+    return activate_capability_for_owner_project_profile(
+        account_id=request.account_id,
+        project_id=request.project_id if request.project_id is not None else 0,
+        profile_id=request.profile_id or "",
+        requested_command_id=request.requested_command_id,
+        requested_permissions=request.requested_permissions,
+        resolver=resolver,
+        request_metadata=request.request_metadata,
+        source_thread_id=request.source_thread_id,
+        source_message_id=request.source_message_id,
+        requested_at=request.requested_at,
+    )
+
+
+@router.get("/activation/inspect")
+async def inspect_activation(
+    account_id: str = Query(...),
+    requested_command_id: str = Query(...),
+    activation_context_token: str = Query(...),
+    project_id: int | None = Query(default=None),
+    profile_id: str | None = Query(default=None),
+    requested_permissions_json: str | None = Query(default=None),
+    request_metadata_json: str | None = Query(default=None),
+    source_thread_id: int | None = Query(default=None),
+    source_message_id: int | None = Query(default=None),
+    requested_at: str | None = Query(default=None),
+    auth_subject: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "account_id": account_id,
+        "requested_command_id": requested_command_id,
+        "activation_context_token": activation_context_token,
+        "project_id": project_id,
+        "profile_id": profile_id,
+        "source_thread_id": source_thread_id,
+        "source_message_id": source_message_id,
+        "requested_at": requested_at,
+    }
+    if requested_permissions_json is not None:
+        try:
+            payload["requested_permissions_json"] = json.loads(
+                requested_permissions_json
+            )
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="requested_permissions_json must be valid JSON",
+            ) from exc
+    else:
+        payload["requested_permissions_json"] = []
+    if request_metadata_json is not None:
+        try:
+            payload["request_metadata_json"] = json.loads(request_metadata_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="request_metadata_json must be valid JSON",
+            ) from exc
+    else:
+        payload["request_metadata_json"] = {}
+
+    try:
+        request = CapabilityActivationRequest.from_payload(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if request.account_id != auth_subject:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    decision = _inspect_activation(
+        request=request,
+        resolver=_activation_resolver,
+    )
+    payload = decision.to_payload()
+    if payload.get("dispatch_envelope_json") is None:
+        payload.pop("dispatch_envelope_json", None)
+    return payload
 
 
 @router.get("/runs/{run_id}/events")

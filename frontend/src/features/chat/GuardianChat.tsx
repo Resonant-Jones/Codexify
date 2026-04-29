@@ -34,11 +34,16 @@ import {
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
 import api, {
+  buildChatThreadsPath,
   buildChatCompletePath,
   clearInFlightCompletionTurnId,
+  formatThreadIdResolutionDiagnostics,
   getInFlightCompletionTurnId,
+  hasRequestAuthCredential,
   invokeCommandBus,
   moveChatThread,
+  resolveBackendThreadIdFromResponse,
+  type ThreadIdResolutionDiagnostics,
   updateThreadConfig,
   OptionalSurfaceError,
 } from "@/lib/api";
@@ -62,6 +67,8 @@ import type { SessionTab, TabId } from "@/state/session/types";
 import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 import { logOnce } from "@/lib/logging/logOnce";
+import { useAuthState } from "@/lib/authState";
+import { getRuntimeConfigHydrationState } from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
   isChatSelectableModel,
@@ -715,6 +722,7 @@ export function GuardianChat({
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
 }) {
+  const auth = useAuthState();
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
@@ -846,6 +854,7 @@ export function GuardianChat({
     return () => window.removeEventListener("cfy:composer:prefill", onPrefill as EventListener);
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
+  const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
@@ -1682,6 +1691,20 @@ export function GuardianChat({
     effectiveThreadIdRef.current = effectiveThreadId;
   }, [effectiveThreadId]);
 
+  useEffect(() => {
+    if (effectiveThreadId != null && threadCreationIssue) {
+      setThreadCreationIssue(null);
+    }
+  }, [effectiveThreadId, threadCreationIssue]);
+
+  const threadCreationIssueLines = useMemo(
+    () =>
+      threadCreationIssue
+        ? formatThreadIdResolutionDiagnostics(threadCreationIssue)
+        : [],
+    [threadCreationIssue]
+  );
+
   useLayoutEffect(() => {
     sourceScopeKeyRef.current = sourceScopeKey;
     if (persistedThreadConfig) {
@@ -2503,44 +2526,6 @@ export function GuardianChat({
     releaseTurnLease,
   ]);
 
-  function extractThreadIdFromResponsePayload(payload: unknown): number | null {
-    if (typeof payload === "number" && Number.isFinite(payload)) {
-      return payload;
-    }
-    if (typeof payload === "string") {
-      const parsed = Number(payload.trim());
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-    if (!payload || typeof payload !== "object") {
-      return null;
-    }
-
-    const source = payload as Record<string, unknown>;
-    const thread =
-      source.thread && typeof source.thread === "object"
-        ? (source.thread as Record<string, unknown>)
-        : null;
-    const message =
-      source.message && typeof source.message === "object"
-        ? (source.message as Record<string, unknown>)
-        : null;
-    const rawId =
-      source.thread_id ??
-      source.threadId ??
-      source.created_thread_id ??
-      source.createdThreadId ??
-      thread?.id ??
-      thread?.thread_id ??
-      thread?.threadId ??
-      thread?.id_str ??
-      message?.thread_id ??
-      message?.threadId ??
-      source.id ??
-      source.id_str;
-    const numericId = Number(rawId);
-    return Number.isFinite(numericId) ? numericId : null;
-  }
-
   // Auto-thread creation handler
   const handleThreadCreated = (
     threadId: number,
@@ -2568,41 +2553,96 @@ export function GuardianChat({
     }
   };
 
-  const ensureThreadIdForAttachments = useCallback(
-    async (bodyText: string) => {
+  const createThreadFromComposer = useCallback(
+    async (
+      bodyText: string,
+      options?: { tabId?: TabId | null }
+    ): Promise<number | null> => {
+      const hydrationState = getRuntimeConfigHydrationState();
+      if (hydrationState === "pending") {
+        showToast("Local runtime is still hydrating. Try again in a moment.");
+        return null;
+      }
+      if (hydrationState === "failed") {
+        showToast(
+          "Local runtime handoff failed. Open desktop diagnostics and retry."
+        );
+        return null;
+      }
+      if (!auth.ready) {
+        showToast("Authentication is not ready yet.");
+        return null;
+      }
       if (effectiveThreadId != null) {
         return effectiveThreadId;
       }
 
       const normalizedUserId = CANONICAL_SINGLE_USER_ID;
-      const originTabId = activeSessionTabIdRef.current;
+      const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
       const metadata = originTabId
         ? { draft_tab_id: originTabId }
         : undefined;
+      const createThreadEndpoint = buildChatThreadsPath();
 
-      const resp = await api.post("/chat/threads", {
-        title: provisionalTitle,
-        user_id: normalizedUserId,
-        metadata,
-      });
-      const payload = (resp && resp.data) || {};
-      const numericThreadId = extractThreadIdFromResponsePayload(payload);
-      if (numericThreadId == null) {
-        throw new Error("Thread id missing from create thread response");
-      }
+      try {
+        const resp = await api.post(createThreadEndpoint, {
+          title: provisionalTitle,
+          user_id: normalizedUserId,
+          metadata,
+        });
+        const response = resp ?? {};
+        const resolution = resolveBackendThreadIdFromResponse(response, {
+          endpoint: `POST ${createThreadEndpoint}`,
+          method: "POST",
+          status:
+            typeof response?.status === "number" &&
+            Number.isFinite(response.status)
+              ? response.status
+              : null,
+          authPresent: hasRequestAuthCredential(),
+        });
+        if (resolution.threadId == null) {
+          setThreadCreationIssue(resolution.diagnostics);
+          console.warn(
+            "[guardian] thread creation response missing thread id",
+            resolution.diagnostics
+          );
+          showToast("Thread id missing from response");
+          return null;
+        }
 
-      const derivedTitle = payload.thread?.title ?? provisionalTitle;
-      handleThreadCreated(numericThreadId, derivedTitle, {
-        tabId: originTabId,
-      });
-      onThreadPersisted?.(numericThreadId, derivedTitle, {
-        tabId: originTabId,
-      });
-      return numericThreadId;
+        setThreadCreationIssue(null);
+        const payload =
+          response?.data && typeof response.data === "object" && !Array.isArray(response.data)
+            ? (response.data as Record<string, unknown>)
+            : {};
+        const thread =
+          payload.thread && typeof payload.thread === "object"
+            ? (payload.thread as Record<string, unknown>)
+            : null;
+        const derivedTitle =
+          typeof thread?.title === "string" && thread.title.trim().length > 0
+            ? thread.title.trim()
+            : provisionalTitle;
+
+        handleThreadCreated(resolution.threadId, derivedTitle, {
+          tabId: originTabId,
+        });
+        return resolution.threadId;
+    } catch (error) {
+      console.error("[guardian] thread creation failed", error);
+      showToast("Failed to create thread.");
+      return null;
+    }
     },
-    [effectiveThreadId, onThreadPersisted]
+    [auth.ready, effectiveThreadId, handleThreadCreated, showToast]
+  );
+
+  const ensureThreadIdForAttachments = useCallback(
+    async (bodyText: string) => createThreadFromComposer(bodyText),
+    [createThreadFromComposer]
   );
 
   const handleBranchThread = async () => {
@@ -2618,7 +2658,16 @@ export function GuardianChat({
       const payload = trimmedTitle ? { title: trimmedTitle } : {};
       const res = await api.post(`/chat/${effectiveThreadId}/branch`, payload);
       const data = res?.data ?? {};
-      const newThreadId = extractThreadIdFromResponsePayload(data);
+      const resolution = resolveBackendThreadIdFromResponse(data, {
+        endpoint: `POST /chat/${effectiveThreadId}/branch`,
+        method: "POST",
+        status:
+          typeof res?.status === "number" && Number.isFinite(res.status)
+            ? res.status
+            : null,
+        authPresent: hasRequestAuthCredential(),
+      });
+      const newThreadId = resolution.threadId;
       if (newThreadId == null) {
         throw new Error("Branch response missing thread id");
       }
@@ -2698,7 +2747,21 @@ export function GuardianChat({
      * title becomes the thread's identity in the distributed awareness network.
      */
     const normalizedUserId = CANONICAL_SINGLE_USER_ID;
-    const originTabId = activeSessionTabIdRef.current;
+    const hydrationState = getRuntimeConfigHydrationState();
+    if (hydrationState === "pending") {
+      showToast("Local runtime is still hydrating. Try again in a moment.");
+      return;
+    }
+    if (hydrationState === "failed") {
+      showToast(
+        "Local runtime handoff failed. Open desktop diagnostics and retry."
+      );
+      return;
+    }
+    if (!auth.ready) {
+      showToast("Authentication is not ready yet.");
+      return;
+    }
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =
@@ -2763,50 +2826,43 @@ export function GuardianChat({
       activeDocumentTiles
     );
     if (!targetThreadId) {
-      const firstLine = text.trim().split(/\n+/)[0] ?? "";
-      const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
       try {
-        const resp = await api.post("/chat/messages", {
-          thread_id: null,
-          draft_tab_id: originTabId ?? undefined,
+        createdThreadId = await createThreadFromComposer(contentForSend);
+        if (createdThreadId == null) {
+          setPendingTurnLock(false);
+          return;
+        }
+        await activateThread(createdThreadId);
+
+        await api.post(`/chat/${createdThreadId}/messages`, {
           role: "user",
           content: contentForSend,
           user_id: normalizedUserId,
-          title: provisionalTitle,
           project_id: workspaceProjectId ?? undefined,
         });
-        const th = (resp && resp.data) || {};
-        const numericNewId = extractThreadIdFromResponsePayload(th);
-        if (numericNewId == null) {
-          console.warn("Unexpected create-on-send response:", th);
-          throw new Error("Thread id missing from response");
-        }
-        createdThreadId = numericNewId;
-        const derivedTitle = th.thread?.title ?? provisionalTitle;
-        handleThreadCreated(numericNewId, derivedTitle, {
-          tabId: originTabId,
+
+        emitThreadsRefresh("refresh", {
+          reason: "message",
+          id: String(createdThreadId),
         });
-        await activateThread(numericNewId);
-        onThreadPersisted?.(numericNewId, derivedTitle, {
-          tabId: originTabId,
-        });
+        setChatReloadVersion((v) => v + 1);
 
         // Lock the new thread before requesting assistant completion.
-        setTurnLockForThread(numericNewId, true);
+        setTurnLockForThread(createdThreadId, true);
         setPendingTurnLock(false);
 
         // Remove draft only after successful commit.
         if (typeof window !== "undefined") {
-          sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${numericNewId}`);
+          sessionStorage.removeItem(`${DRAFT_KEY_PREFIX}${createdThreadId}`);
         }
 
         // Complete the thread and refresh.
-        startInferenceForThread(numericNewId);
-        const completionOutcome = await completeThread(numericNewId, options);
+        startInferenceForThread(createdThreadId);
+        const completionOutcome = await completeThread(createdThreadId, options);
         if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
-          setTurnLockForThread(numericNewId, false);
+          setTurnLockForThread(createdThreadId, false);
           if (completionOutcome === "failed") {
             throw new Error("Assistant response failed.");
           }
@@ -3316,6 +3372,34 @@ export function GuardianChat({
           ) : null}
         </div>
       )}
+
+      {threadCreationIssue ? (
+        <div
+          data-testid="thread-id-resolution-banner"
+          className={`mt-2 rounded-lg border px-3 py-2 text-xs ${CHAT_LANE_STAGE_GUTTER_CLASS}`}
+          style={{
+            borderColor: "var(--panel-border)",
+            color: "var(--text)",
+            background:
+              "color-mix(in oklab, var(--panel-bg) 88%, #f59e0b 12%)",
+          }}
+        >
+          <div className="font-semibold">Thread id missing from response</div>
+          <div className="mt-1 opacity-90">
+            Guardian could not resolve a durable thread id from the backend response.
+          </div>
+          <details className="mt-2 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+            <summary className="cursor-pointer select-none opacity-80">
+              Technical details
+            </summary>
+            <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+              {threadCreationIssueLines.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          </details>
+        </div>
+      ) : null}
 
       {/* Messages region - Flex 1, scrolls independently */}
       <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">

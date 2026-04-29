@@ -135,6 +135,8 @@ class GraphWriteTask(TypedDict):
     thread_id: str | int
     candidate_trace_id: str
     created_at: str
+    graph_write_id: str
+    idempotency_key: str
     nodes: list[dict[str, Any]]
     edges: list[dict[str, Any]]
     warnings: list[str]

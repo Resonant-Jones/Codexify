@@ -2,6 +2,7 @@ import { combineBaseAndPath } from "@/lib/urlJoin";
 
 export type RuntimeMode = "web" | "tauri";
 export type AuthMode = "local" | "remote";
+export type RuntimeConfigHydrationState = "pending" | "ready" | "failed";
 
 export interface RuntimeConfig {
   mode: RuntimeMode;
@@ -61,6 +62,8 @@ const DESKTOP_SHARE_STORAGE_KEY = "cfy.desktop.sharePublicBaseUrl";
 let runtimeConfigCache: RuntimeConfig | null = null;
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
 let desktopRuntimeAuthConfigCache: DesktopRuntimeAuthConfig | null = null;
+let runtimeConfigHydrationState: RuntimeConfigHydrationState = defaultMode() === "tauri" ? "pending" : "ready";
+let runtimeConfigHydrationFailureKind: string | null = null;
 let runtimeConfigVersion = 0;
 const runtimeConfigListeners = new Set<() => void>();
 
@@ -87,6 +90,14 @@ function emitRuntimeConfigChange(): void {
   for (const listener of runtimeConfigListeners) {
     listener();
   }
+}
+
+function setRuntimeConfigHydrationState(
+  state: RuntimeConfigHydrationState,
+  failureKind: string | null = null
+): void {
+  runtimeConfigHydrationState = state;
+  runtimeConfigHydrationFailureKind = failureKind;
 }
 
 function readRuntimeEnv(name: string, fallback = ""): string {
@@ -383,7 +394,7 @@ function resolveDesktopBackendBaseUrl(
     return normalizeBase(tauriBackend, mode === "tauri" ? "" : defaultBackendBaseUrl(mode));
   }
 
-  return mode === "tauri" ? "" : defaultBackendBaseUrl(mode);
+  return mode === "tauri" ? defaultBackendBaseUrl(mode) : defaultBackendBaseUrl(mode);
 }
 
 function resolveApiBaseUrl(mode: RuntimeMode, backendBaseUrl: string, explicit: string): string {
@@ -391,17 +402,17 @@ function resolveApiBaseUrl(mode: RuntimeMode, backendBaseUrl: string, explicit: 
   if (isAbsoluteUrl(candidate)) {
     return normalizeBase(candidate, combineBaseAndPath(backendBaseUrl, "/api"));
   }
+  if (mode === "tauri") {
+    return normalizeBase(
+      combineBaseAndPath(backendBaseUrl, "/api"),
+      "http://127.0.0.1:8888/api"
+    );
+  }
   if (candidate.startsWith("/")) {
     return normalizeBase(candidate, "/api");
   }
   if (candidate) {
     return normalizeBase(`/${candidate}`, "/api");
-  }
-  if (mode === "tauri" && !backendBaseUrl) {
-    return "/api";
-  }
-  if (mode === "tauri") {
-    return normalizeBase(combineBaseAndPath(backendBaseUrl, "/api"), "http://127.0.0.1:8888/api");
   }
   return "/api";
 }
@@ -529,6 +540,17 @@ export function getDesktopRuntimeAuthConfig(): DesktopRuntimeAuthConfig | null {
   return desktopRuntimeAuthConfigCache;
 }
 
+export function getRuntimeConfigHydrationState(): RuntimeConfigHydrationState {
+  if (runtimeConfigHydrationState === "pending" && !isTauriRuntime()) {
+    return "ready";
+  }
+  return runtimeConfigHydrationState;
+}
+
+export function getRuntimeConfigHydrationFailureKind(): string | null {
+  return runtimeConfigHydrationFailureKind;
+}
+
 export function getRuntimeConfigVersion(): number {
   return runtimeConfigVersion;
 }
@@ -602,16 +624,40 @@ export async function initRuntimeConfig(options: { force?: boolean } = {}): Prom
   }
 
   const mode = defaultMode();
+  if (mode === "tauri") {
+    setRuntimeConfigHydrationState("pending");
+  } else {
+    setRuntimeConfigHydrationState("ready");
+  }
   runtimeConfigPromise = (async () => {
-    const [launcherStartup, tauriConfig] = await Promise.all([
-      readDesktopLauncherStartupHandoff(),
-      readTauriRuntimeConfig(),
-    ]);
-    const config = buildRuntimeConfig(mode, tauriConfig, launcherStartup);
-    runtimeConfigCache = config;
-    emitRuntimeConfigChange();
-    runtimeConfigPromise = null;
-    return config;
+    try {
+      const [launcherStartup, tauriConfig] = await Promise.all([
+        readDesktopLauncherStartupHandoff(),
+        readTauriRuntimeConfig(),
+      ]);
+      const config = buildRuntimeConfig(mode, tauriConfig, launcherStartup);
+      runtimeConfigCache = config;
+      if (mode === "tauri") {
+        setRuntimeConfigHydrationState(
+          tauriConfig ? "ready" : "failed",
+          tauriConfig ? null : (desktopRuntimeAuthConfigCache?.failureKind ?? null)
+        );
+      } else {
+        setRuntimeConfigHydrationState("ready");
+      }
+      emitRuntimeConfigChange();
+      return config;
+    } catch (error) {
+      const failureKind =
+        error instanceof NativeBridgeUnavailableError
+          ? error.code
+          : "runtime-config-hydration-failed";
+      setRuntimeConfigHydrationState("failed", failureKind);
+      emitRuntimeConfigChange();
+      throw error;
+    } finally {
+      runtimeConfigPromise = null;
+    }
   })();
 
   return runtimeConfigPromise;

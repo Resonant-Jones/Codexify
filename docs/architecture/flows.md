@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-04-22
+Last updated: 2026-04-27
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -20,6 +20,7 @@ Source anchors:
 
 Trigger:
 - Frontend posts `POST /api/chat/{thread_id}/complete` after a user message exists in the thread.
+- When the composer starts a brand-new conversation, the frontend first creates a backend thread with `POST /api/chat/threads`, resolves the durable thread id from the response, selects that id, and only then posts the first user message to `POST /api/chat/{thread_id}/messages`.
 
 Sequence:
 1. `guardian/routes/chat.py` validates the thread, turn state, and effective identity depth.
@@ -31,12 +32,13 @@ Sequence:
 4. The route enqueues a `ChatCompletionTask` on `codexify:queue:chat`.
 5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
-7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, and resolves provider/model/profile settings.
+7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
 8. The provider call executes through `guardian/core/ai_router.py`.
    - If the provider returns plain assistant text, the existing completion path continues.
    - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
+   - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and the canonical retrieval posture records that workspace widening occurred.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
 11. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
@@ -130,6 +132,7 @@ Sequence:
    - memory retrieval for `deep` and `diagnostic`
    - graph context when `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`
    - sensor diagnostics and optional federated context when requested
+   - workspace-local retrieval, which keeps the same-user boundary but can widen beyond the thread into the local working set, including Obsidian-backed notes
 4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block, including a bounded verified-personal-facts section when eligible facts exist.
 5. The final LLM input is the system/context block plus conversation messages.
 

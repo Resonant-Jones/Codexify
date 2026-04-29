@@ -7,24 +7,16 @@ Create Date: 2026-04-20 00:00:00.000000
 
 from typing import Sequence, Union
 
-import bcrypt
 import sqlalchemy as sa
 from alembic import op
+
+from guardian.core.user_manager import _bootstrap_password_hash
 
 # revision identifiers, used by Alembic.
 revision: str = "f2b3c4d5e6f9"
 down_revision: Union[str, Sequence[str], None] = "f2b3c4d5e6f8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
-
-DEFAULT_BOOTSTRAP_PASSWORD = "local"
-
-
-def _bootstrap_password_hash() -> str:
-    return bcrypt.hashpw(
-        DEFAULT_BOOTSTRAP_PASSWORD.encode("utf-8"),
-        bcrypt.gensalt(),
-    ).decode("utf-8")
 
 
 def upgrade() -> None:
