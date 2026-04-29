@@ -277,6 +277,10 @@ export function buildLlmCatalogPath(): string {
   return "/llm/catalog";
 }
 
+export function buildChatThreadsPath(): string {
+  return "/api/chat/threads";
+}
+
 export function buildChatCompletePath(threadId: string | number): string {
   return `/chat/${normalizePathSegment(threadId)}/complete`;
 }
@@ -359,12 +363,17 @@ export type ThreadIdResolutionContext = {
   authPresent: boolean;
 };
 
+export type ThreadIdParserFailureReason =
+  | "resolved"
+  | "thread_id_missing"
+  | "wrong_endpoint_or_non_json_response";
+
 export type ThreadIdResolutionDiagnostics = ThreadIdResolutionContext & {
   responseKeys: string[];
   responseDataKeys: string[];
   responseThreadKeys: string[];
   parserBranch: string;
-  parserFailureReason: string;
+  parserFailureReason: ThreadIdParserFailureReason;
 };
 
 export type ThreadIdResolution = {
@@ -486,6 +495,13 @@ function summarizeThreadIdParserBranches(): string {
   ].join(" -> ");
 }
 
+function isAxiosResponseLike(value: unknown): value is Record<string, unknown> {
+  if (!isPlainObject(value)) return false;
+  return ["data", "status", "statusText", "headers", "config", "request"].some(
+    (key) => key in value
+  );
+}
+
 export function hasRequestAuthCredential(): boolean {
   return Boolean(getRuntimeApiKey() || getAuthToken() || resolveDevApiKey());
 }
@@ -495,12 +511,22 @@ export function resolveBackendThreadIdFromResponse(
   context: ThreadIdResolutionContext
 ): ThreadIdResolution {
   const response = isPlainObject(responseLike) ? responseLike : null;
-  const responseData = response && isPlainObject(response.data) ? response.data : null;
+  const responseHasDataProp =
+    Boolean(response) && Object.prototype.hasOwnProperty.call(response, "data");
+  const responseDataValue = responseHasDataProp ? response?.data : undefined;
+  const responseData = isPlainObject(responseDataValue) ? responseDataValue : null;
   const responseThread = response && isPlainObject(response.thread)
     ? response.thread
     : responseData && isPlainObject(responseData.thread)
       ? responseData.thread
       : null;
+  const parserFailureReason: ThreadIdParserFailureReason =
+    response != null &&
+    responseHasDataProp &&
+    !isPlainObject(responseDataValue) &&
+    isAxiosResponseLike(response)
+      ? "wrong_endpoint_or_non_json_response"
+      : "thread_id_missing";
 
   const diagnostics: ThreadIdResolutionDiagnostics = {
     endpoint: context.endpoint,
@@ -511,7 +537,7 @@ export function resolveBackendThreadIdFromResponse(
     responseDataKeys: summarizeObjectKeys(responseData),
     responseThreadKeys: summarizeObjectKeys(responseThread),
     parserBranch: summarizeThreadIdParserBranches(),
-    parserFailureReason: "thread_id_missing",
+    parserFailureReason,
   };
 
   const candidates: Array<[string, unknown]> = [

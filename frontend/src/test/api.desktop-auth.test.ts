@@ -135,7 +135,7 @@ describe("desktop auth headers", () => {
       };
     };
 
-    await api.post("/chat/threads", {
+    await api.post("/api/chat/threads", {
       title: "New Thread",
       user_id: "local",
     });

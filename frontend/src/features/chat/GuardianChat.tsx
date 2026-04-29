@@ -34,6 +34,7 @@ import {
 import ChatView from "@/features/chat/ChatView";
 import useChat from "@/features/chat/useChat";
 import api, {
+  buildChatThreadsPath,
   buildChatCompletePath,
   clearInFlightCompletionTurnId,
   formatThreadIdResolutionDiagnostics,
@@ -2565,16 +2566,17 @@ export function GuardianChat({
       const metadata = originTabId
         ? { draft_tab_id: originTabId }
         : undefined;
+      const createThreadEndpoint = buildChatThreadsPath();
 
       try {
-        const resp = await api.post("/chat/threads", {
+        const resp = await api.post(createThreadEndpoint, {
           title: provisionalTitle,
           user_id: normalizedUserId,
           metadata,
         });
         const response = resp ?? {};
         const resolution = resolveBackendThreadIdFromResponse(response, {
-          endpoint: "POST /chat/threads",
+          endpoint: `POST ${createThreadEndpoint}`,
           method: "POST",
           status:
             typeof response?.status === "number" &&

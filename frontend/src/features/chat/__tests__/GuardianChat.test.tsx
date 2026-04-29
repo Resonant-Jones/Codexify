@@ -648,23 +648,23 @@ describe("GuardianChat inference rail", () => {
   it.each([
     [
       "thread_id",
-      { thread_id: 123, thread: { id: 123, title: "New Thread" } },
+      { thread_id: 2, thread: { id: 2, title: "New Thread" } },
     ],
     [
       "threadId",
-      { threadId: 123, thread: { id: 123, title: "New Thread" } },
+      { threadId: 2, thread: { id: 2, title: "New Thread" } },
     ],
     [
       "id",
-      { id: 123, thread: { id: 123, title: "New Thread" } },
+      { id: 2, thread: { id: 2, title: "New Thread" } },
     ],
     [
       "thread.id",
-      { thread: { id: 123, title: "New Thread" } },
+      { thread: { id: 2, title: "New Thread" } },
     ],
     [
       "Axios wrapper data.thread_id",
-      { thread_id: 123, thread: { id: 123, title: "New Thread" } },
+      { thread_id: 2, thread: { id: 2, title: "New Thread" } },
     ],
   ])(
     "creates and sends a new thread when the response shape supports %s",
@@ -674,7 +674,7 @@ describe("GuardianChat inference rail", () => {
       });
 
       apiMock.post.mockImplementation(async (url: string, body?: any) => {
-        if (url === "/chat/threads") {
+        if (url === "/api/chat/threads") {
           expect(body).toEqual(
             expect.objectContaining({
               title: "hello",
@@ -683,7 +683,7 @@ describe("GuardianChat inference rail", () => {
           );
           return createApiResponse(threadResponse as Record<string, unknown>, 201);
         }
-        if (url === "/chat/123/messages") {
+        if (url === "/chat/2/messages") {
           expect(body).toEqual(
             expect.objectContaining({
               role: "user",
@@ -694,13 +694,13 @@ describe("GuardianChat inference rail", () => {
           return createApiResponse(
             {
               ok: true,
-              thread: { id: 123, title: "New Thread" },
-              message: { id: 456, thread_id: 123 },
+              thread: { id: 2, title: "New Thread" },
+              message: { id: 456, thread_id: 2 },
             },
             200
           );
         }
-        if (url === "/chat/123/complete") {
+        if (url === "/chat/2/complete") {
           return createApiResponse({ task_id: "task-123" }, 200);
         }
         return createApiResponse({}, 200);
@@ -713,19 +713,22 @@ describe("GuardianChat inference rail", () => {
 
       await waitFor(() => {
         expect(apiMock.post).toHaveBeenCalledWith(
-          "/chat/123/complete",
+          "/chat/2/complete",
           expect.anything()
         );
       });
 
       const postUrls = apiMock.post.mock.calls
         .map(([url]) => url as string)
-        .filter((url) => url === "/chat/threads" || url === "/chat/123/messages" || url === "/chat/123/complete");
+        .filter((url) => url === "/api/chat/threads" || url === "/chat/2/messages" || url === "/chat/2/complete");
       expect(postUrls).toEqual([
-        "/chat/threads",
-        "/chat/123/messages",
-        "/chat/123/complete",
+        "/api/chat/threads",
+        "/chat/2/messages",
+        "/chat/2/complete",
       ]);
+      expect(
+        apiMock.post.mock.calls.some(([url]) => url === "/chat/threads")
+      ).toBe(false);
       expect(
         screen.queryByTestId("thread-id-resolution-banner")
       ).not.toBeInTheDocument();
@@ -741,7 +744,7 @@ describe("GuardianChat inference rail", () => {
     });
 
     apiMock.post.mockImplementation(async (url: string, body?: any) => {
-      if (url === "/chat/threads") {
+      if (url === "/api/chat/threads") {
         expect(body).toEqual(
           expect.objectContaining({
             title: "hello",
@@ -776,7 +779,7 @@ describe("GuardianChat inference rail", () => {
     expect(
       screen.getByText("Thread id missing from response")
     ).toBeInTheDocument();
-    expect(screen.getByText("endpoint=POST /chat/threads")).toBeInTheDocument();
+    expect(screen.getByText("endpoint=POST /api/chat/threads")).toBeInTheDocument();
     expect(screen.getByText("method=POST")).toBeInTheDocument();
     expect(screen.getByText("status=200")).toBeInTheDocument();
     expect(screen.getByText("authPresent=true")).toBeInTheDocument();
@@ -799,10 +802,66 @@ describe("GuardianChat inference rail", () => {
       screen.queryByText(/Top secret thread|secret body|desktop-key|sid=abc123/)
     ).not.toBeInTheDocument();
     expect(
-      apiMock.post.mock.calls.some(([url]) => url === "/chat/123/messages")
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/messages")
     ).toBe(false);
     expect(
-      apiMock.post.mock.calls.some(([url]) => url === "/chat/123/complete")
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/complete")
+    ).toBe(false);
+  });
+
+  it("surfaces wrong-endpoint diagnostics for non-object create-thread responses", async () => {
+    renderChat("draft-thread", {
+      userName: "Resonant Jones",
+    });
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/api/chat/threads") {
+        expect(body).toEqual(
+          expect.objectContaining({
+            title: "hello",
+            user_id: "local",
+          })
+        );
+        return {
+          data: "<html>Guardian shell</html>",
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config: {},
+        };
+      }
+      return createApiResponse({}, 200);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-id-resolution-banner")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText("Thread id missing from response")
+    ).toBeInTheDocument();
+    expect(screen.getByText("endpoint=POST /api/chat/threads")).toBeInTheDocument();
+    expect(screen.getByText("status=200")).toBeInTheDocument();
+    expect(screen.getByText("authPresent=true")).toBeInTheDocument();
+    expect(screen.getByText(/responseKeys=/)).toHaveTextContent(
+      "responseKeys=data,status,statusText,headers,config"
+    );
+    expect(screen.getByText(/dataKeys=/)).toHaveTextContent("dataKeys=<none>");
+    expect(screen.getByText(/threadKeys=/)).toHaveTextContent("threadKeys=<none>");
+    expect(screen.getByText("parserFailureReason=wrong_endpoint_or_non_json_response")).toBeInTheDocument();
+    expect(screen.queryByText(/Guardian shell/)).not.toBeInTheDocument();
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/api/chat/threads")
+    ).toBe(true);
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/messages")
+    ).toBe(false);
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/complete")
     ).toBe(false);
   });
 
