@@ -179,21 +179,14 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
   default: ({
     onRequestNewProject,
     gallery,
-    activeProjectId,
-    activeProjectName,
   }: {
     onRequestNewProject: () => void;
     gallery?: Array<{ src: string; prompt: string }>;
-    activeProjectId?: number | string | null;
-    activeProjectName?: string | null;
   }) => (
     <div data-testid="dashboard-view-mock">
       <button type="button" onClick={onRequestNewProject}>
         New Project
       </button>
-      <div data-testid="dashboard-project-kb-context">
-        {activeProjectId ?? "no-project"}:{activeProjectName ?? "no-name"}
-      </div>
       <div data-testid="dashboard-gallery-mock">
         {(gallery ?? []).map((item) => (
           <span key={item.src}>{item.prompt}</span>
@@ -212,7 +205,11 @@ vi.mock("@/components/ErrorBoundary", () => ({
 }));
 
 vi.mock("@/components/documents/DocumentsView", () => ({
-  default: () => (
+  default: ({
+    defaultProjectId,
+  }: {
+    defaultProjectId?: number | string | null;
+  }) => (
     <div data-testid="documents-view-mock">
       <section
         data-testid="documents-layout"
@@ -220,6 +217,9 @@ vi.mock("@/components/documents/DocumentsView", () => ({
         data-workspace-anchor="app-shell-right"
       >
         <div data-testid="documents-center-panel">Documents center</div>
+        <div data-testid="documents-default-project-id">
+          {defaultProjectId ?? "no-project"}
+        </div>
       </section>
     </div>
   ),
@@ -490,7 +490,7 @@ describe("AppShell settings utility trigger", () => {
     expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
   });
 
-  it("routes Project Knowledge Base requests to the dashboard surface", async () => {
+  it("routes Project Knowledge Base requests to the Documents surface", async () => {
     localStorage.setItem("cfy.lastView", "guardian");
     setRouteThread(123);
 
@@ -507,10 +507,10 @@ describe("AppShell settings utility trigger", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("dashboard-view-mock")).toBeInTheDocument();
+      expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("dashboard-project-kb-context")).toHaveTextContent(
-      "42:Launch Project"
+    expect(screen.getByTestId("documents-default-project-id")).toHaveTextContent(
+      "42"
     );
   });
 });

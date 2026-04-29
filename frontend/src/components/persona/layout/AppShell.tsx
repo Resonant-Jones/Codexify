@@ -1164,7 +1164,6 @@ export default function AppShell({
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
   });
-  const [projectKnowledgeBaseProjectName, setProjectKnowledgeBaseProjectName] = useState<string | null>(null);
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
   const [documentScope, setDocumentScope] = useState<DocumentScope>(
@@ -1924,15 +1923,12 @@ export default function AppShell({
     const onOpenProjectKnowledgeBase = (event: Event) => {
       const detail = (event as CustomEvent<{
         projectId?: string | number | null;
-        projectName?: string | null;
       }>).detail;
       const projectId = Number(detail?.projectId);
       if (Number.isFinite(projectId) && projectId > 0) {
         setGeneralProjectId(projectId);
       }
-      const projectName = String(detail?.projectName ?? "").trim();
-      setProjectKnowledgeBaseProjectName(projectName || null);
-      navigateToView("dashboard");
+      navigateToView("documents");
     };
 
     window.addEventListener(
@@ -3321,8 +3317,6 @@ export default function AppShell({
                   <DashboardView
                     extColors={extColors}
                     gallery={gallery}
-                    activeProjectId={generalProjectId}
-                    activeProjectName={projectKnowledgeBaseProjectName}
                     onImagePrompt={openChatWithPrompt}
                     onRequestNewProject={openCreateProjectModal}
                     onRequestNewThread={createThreadFromDashboard}
