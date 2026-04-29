@@ -54,6 +54,40 @@ class CapabilityEntryProvenanceClass(str, Enum):
     PROPOSAL_APPROVAL = "proposal_approval"
 
 
+class CapabilityResultReinjectionOutcome(str, Enum):
+    """Canonical reinjection outcomes for manual capability dispatch."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+    UNUSABLE = "unusable"
+
+
+class CapabilityReinjectionResultShape(str, Enum):
+    """Canonical normalized shapes for reinjected capability results."""
+
+    NORMALIZED_SUCCESS = "normalized_success"
+    NORMALIZED_FAILURE = "normalized_failure"
+    FAILED_CLOSED = "failed_closed"
+
+
+class CapabilityReinjectionFailureReason(str, Enum):
+    """Canonical failure reasons for reinjection normalization."""
+
+    OWNER_MISMATCH = "owner_mismatch"
+    INCONSISTENT_PROVENANCE = "inconsistent_provenance"
+    MISSING_COMMAND_BUS_RUN_LINKAGE = "missing_command_bus_run_linkage"
+    INVALID_COMMAND_BUS_RESULT = "invalid_command_bus_result"
+    MISSING_INLINE_RESULT = "missing_inline_result"
+    MISSING_ERROR = "missing_error"
+    INCONSISTENT_COMMAND_BUS_RESULT = "inconsistent_command_bus_result"
+
+
+class CapabilityReinjectionSource(str, Enum):
+    """Canonical reinjection source tokens."""
+
+    MANUAL_DISPATCH = "manual_dispatch"
+
+
 class ExtensionInstallBindingScope(str, Enum):
     """Canonical scope bindings for install bindings."""
 
@@ -159,6 +193,18 @@ CAPABILITY_REGISTRY_STATUSES: frozenset[str] = frozenset(
 CAPABILITY_ENTRY_PROVENANCE_CLASSES: frozenset[str] = frozenset(
     provenance.value for provenance in CapabilityEntryProvenanceClass
 )
+CAPABILITY_RESULT_REINJECTION_OUTCOMES: frozenset[str] = frozenset(
+    outcome.value for outcome in CapabilityResultReinjectionOutcome
+)
+CAPABILITY_REINJECTION_RESULT_SHAPES: frozenset[str] = frozenset(
+    shape.value for shape in CapabilityReinjectionResultShape
+)
+CAPABILITY_REINJECTION_FAILURE_REASONS: frozenset[str] = frozenset(
+    reason.value for reason in CapabilityReinjectionFailureReason
+)
+CAPABILITY_REINJECTION_SOURCES: frozenset[str] = frozenset(
+    source.value for source in CapabilityReinjectionSource
+)
 EXTENSION_INSTALL_BINDING_SCOPES: frozenset[str] = frozenset(
     scope.value for scope in ExtensionInstallBindingScope
 )
@@ -246,6 +292,38 @@ def normalize_capability_entry_provenance_class(value: str | None) -> str:
         value,
         allowed=CAPABILITY_ENTRY_PROVENANCE_CLASSES,
         kind="capability_entry_provenance_class",
+    )
+
+
+def normalize_capability_result_reinjection_outcome(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_RESULT_REINJECTION_OUTCOMES,
+        kind="capability_result_reinjection_outcome",
+    )
+
+
+def normalize_capability_reinjection_result_shape(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_REINJECTION_RESULT_SHAPES,
+        kind="capability_reinjection_result_shape",
+    )
+
+
+def normalize_capability_reinjection_failure_reason(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_REINJECTION_FAILURE_REASONS,
+        kind="capability_reinjection_failure_reason",
+    )
+
+
+def normalize_capability_reinjection_source(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_REINJECTION_SOURCES,
+        kind="capability_reinjection_source",
     )
 
 
@@ -356,6 +434,10 @@ __all__ = [
     "InstallGateDecisionToken",
     "CapabilityRegistryStatus",
     "CapabilityEntryProvenanceClass",
+    "CapabilityResultReinjectionOutcome",
+    "CapabilityReinjectionResultShape",
+    "CapabilityReinjectionFailureReason",
+    "CapabilityReinjectionSource",
     "ExtensionInstallBindingScope",
     "ExtensionInstallBindingStatus",
     "CapabilityActivationContextToken",
@@ -374,6 +456,10 @@ __all__ = [
     "INSTALL_GATE_DECISION_TOKENS",
     "CAPABILITY_REGISTRY_STATUSES",
     "CAPABILITY_ENTRY_PROVENANCE_CLASSES",
+    "CAPABILITY_RESULT_REINJECTION_OUTCOMES",
+    "CAPABILITY_REINJECTION_RESULT_SHAPES",
+    "CAPABILITY_REINJECTION_FAILURE_REASONS",
+    "CAPABILITY_REINJECTION_SOURCES",
     "EXTENSION_INSTALL_BINDING_SCOPES",
     "EXTENSION_INSTALL_BINDING_STATUSES",
     "CAPABILITY_ACTIVATION_CONTEXT_TOKENS",
@@ -391,6 +477,10 @@ __all__ = [
     "normalize_install_gate_decision_token",
     "normalize_capability_registry_status",
     "normalize_capability_entry_provenance_class",
+    "normalize_capability_result_reinjection_outcome",
+    "normalize_capability_reinjection_result_shape",
+    "normalize_capability_reinjection_failure_reason",
+    "normalize_capability_reinjection_source",
     "normalize_extension_install_binding_scope",
     "normalize_extension_install_binding_status",
     "normalize_capability_activation_context_token",
