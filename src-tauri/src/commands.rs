@@ -253,6 +253,24 @@ pub struct RuntimeReadiness {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub llm_ready: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_details_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_details_ok: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_provider_runtime_available: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_endpoint_resolution_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_failure_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_kind: Option<String>,
@@ -3034,6 +3052,170 @@ fn json_status_matches(value: &Value, expected: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn json_nested_field<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    Some(current)
+}
+
+fn json_nested_bool_field(value: &Value, path: &[&str]) -> Option<bool> {
+    json_nested_field(value, path).and_then(|entry| entry.as_bool())
+}
+
+fn json_nested_string_field(value: &Value, path: &[&str]) -> Option<String> {
+    json_nested_field(value, path)
+        .and_then(|entry| entry.as_str())
+        .and_then(|text| {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+}
+
+fn is_green_llm_status(value: Option<&str>) -> bool {
+    value
+        .map(|status| {
+            matches!(
+                status.to_ascii_lowercase().as_str(),
+                "ok" | "healthy" | "online"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn is_red_llm_status(value: Option<&str>) -> bool {
+    value
+        .map(|status| {
+            matches!(
+                status.to_ascii_lowercase().as_str(),
+                "offline" | "degraded" | "error" | "unavailable" | "red" | "failed"
+            )
+        })
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Clone)]
+struct LlmReadinessSignals {
+    provider: Option<String>,
+    model: Option<String>,
+    status: Option<String>,
+    details_status: Option<String>,
+    details_ok: Option<bool>,
+    provider_runtime_available: Option<bool>,
+    endpoint_resolution_state: Option<String>,
+    ready: Option<bool>,
+    failure_reason: Option<String>,
+}
+
+fn llm_readiness_signals(llm_json: Option<&Value>) -> LlmReadinessSignals {
+    let Some(value) = llm_json else {
+        return LlmReadinessSignals {
+            provider: None,
+            model: None,
+            status: None,
+            details_status: None,
+            details_ok: None,
+            provider_runtime_available: None,
+            endpoint_resolution_state: None,
+            ready: Some(false),
+            failure_reason: Some("llm-health-payload-missing".to_string()),
+        };
+    };
+
+    let provider = json_string_field(value, "provider");
+    let model = json_string_field(value, "model");
+    let status = json_string_field(value, "status");
+    let details = value.get("details");
+    let details_status = details.and_then(|entry| json_string_field(entry, "status"));
+    let details_ok = details.and_then(|entry| json_bool_field(entry, "ok"));
+    let provider_runtime_available = details
+        .and_then(|entry| json_nested_bool_field(entry, &["provider_runtime", "available"]))
+        .or_else(|| json_nested_bool_field(value, &["provider_runtime", "available"]));
+    let endpoint_resolution_state = details
+        .and_then(|entry| json_nested_string_field(entry, &["endpoint_resolution", "state"]))
+        .or_else(|| json_nested_string_field(value, &["endpoint_resolution", "state"]));
+
+    let positive_signal = is_green_llm_status(status.as_deref())
+        || is_green_llm_status(details_status.as_deref())
+        || details_ok == Some(true)
+        || provider_runtime_available == Some(true)
+        || endpoint_resolution_state
+            .as_deref()
+            .map(|state| state.eq_ignore_ascii_case("available"))
+            .unwrap_or(false);
+    let negative_signal = provider
+        .as_deref()
+        .map(|provider| !provider.eq_ignore_ascii_case("local"))
+        .unwrap_or(false)
+        || details_ok == Some(false)
+        || provider_runtime_available == Some(false)
+        || endpoint_resolution_state
+            .as_deref()
+            .map(|state| !state.eq_ignore_ascii_case("available"))
+            .unwrap_or(false)
+        || is_red_llm_status(status.as_deref())
+        || is_red_llm_status(details_status.as_deref());
+
+    let ready = if negative_signal {
+        Some(false)
+    } else if positive_signal {
+        Some(true)
+    } else {
+        Some(false)
+    };
+
+    let failure_reason = if ready == Some(true) {
+        None
+    } else if provider
+        .as_deref()
+        .map(|provider| !provider.eq_ignore_ascii_case("local"))
+        .unwrap_or(false)
+    {
+        provider
+            .as_deref()
+            .map(|provider| format!("provider={provider}"))
+    } else if provider_runtime_available == Some(false) {
+        Some("provider_runtime.available=false".to_string())
+    } else if details_ok == Some(false) {
+        Some("details.ok=false".to_string())
+    } else if endpoint_resolution_state
+        .as_deref()
+        .map(|state| !state.eq_ignore_ascii_case("available"))
+        .unwrap_or(false)
+    {
+        endpoint_resolution_state
+            .as_deref()
+            .map(|state| format!("endpoint_resolution.state={state}"))
+    } else if is_red_llm_status(details_status.as_deref()) {
+        details_status
+            .as_deref()
+            .map(|status| format!("details.status={status}"))
+    } else if is_red_llm_status(status.as_deref()) {
+        status.as_deref().map(|status| format!("status={status}"))
+    } else if provider_runtime_available == Some(true) || details_ok == Some(true) {
+        None
+    } else {
+        Some("llm-health-unavailable".to_string())
+    };
+
+    LlmReadinessSignals {
+        provider,
+        model,
+        status,
+        details_status,
+        details_ok,
+        provider_runtime_available,
+        endpoint_resolution_state,
+        ready,
+        failure_reason,
+    }
+}
+
 fn bool_label(value: bool) -> &'static str {
     if value {
         "true"
@@ -5338,6 +5520,7 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
     let health_json = health_body.as_deref().and_then(parse_json_body);
     let chat_json = chat_body.as_deref().and_then(parse_json_body);
     let llm_json = llm_body.as_deref().and_then(parse_json_body);
+    let llm_signals = llm_readiness_signals(llm_json.as_ref());
 
     let backend_reachable = ping_check.ok;
     let startup_ready = health_check.ok
@@ -5358,23 +5541,20 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
     let chat_status_reason = chat_completion_service
         .and_then(|value| json_string_field(value, "status_reason"))
         .unwrap_or_else(|| "unknown".to_string());
-
-    let llm_provider = llm_json
-        .as_ref()
-        .and_then(|value| json_string_field(value, "provider"));
-    let llm_status = llm_json
-        .as_ref()
-        .and_then(|value| json_string_field(value, "status"))
+    let llm_provider = llm_signals.provider.clone();
+    let llm_status = llm_signals
+        .status
+        .clone()
         .unwrap_or_else(|| "unknown".to_string());
-    let llm_ready = match llm_provider.as_deref() {
-        Some(provider) if provider.eq_ignore_ascii_case("local") => Some(
-            llm_check.ok
-                && llm_json
-                    .as_ref()
-                    .map(|value| json_status_matches(value, "online"))
-                    .unwrap_or(false),
-        ),
-        Some(_) => None,
+    let llm_ready = match llm_signals.ready {
+        Some(ready) if llm_provider
+            .as_deref()
+            .map(|provider| provider.eq_ignore_ascii_case("local"))
+            .unwrap_or(true) =>
+        {
+            Some(ready && llm_check.ok)
+        }
+        Some(ready) => Some(ready && llm_check.ok),
         None => Some(false),
     };
 
@@ -5392,12 +5572,47 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
             format!("redisReady={}", bool_label(redis_ready)),
             format!("chatReady={}", bool_label(chat_ready)),
             format!("chatStatusReason={chat_status_reason}"),
+            "probeContext=host-native".to_string(),
+            format!("llmEndpoint={llm_health_url}"),
             format!(
                 "llmProvider={}",
                 llm_provider.as_deref().unwrap_or("unknown")
             ),
             format!("llmStatus={llm_status}"),
+            format!(
+                "llmDetailsStatus={}",
+                llm_signals
+                    .details_status
+                    .as_deref()
+                    .unwrap_or("unknown")
+            ),
+            format!(
+                "llmDetailsOk={}",
+                option_bool_label(llm_signals.details_ok)
+            ),
+            format!(
+                "llmModel={}",
+                llm_signals.model.as_deref().unwrap_or("unknown")
+            ),
+            format!(
+                "llmProviderRuntimeAvailable={}",
+                option_bool_label(llm_signals.provider_runtime_available)
+            ),
+            format!(
+                "llmEndpointResolutionState={}",
+                llm_signals
+                    .endpoint_resolution_state
+                    .as_deref()
+                    .unwrap_or("unknown")
+            ),
             format!("llmReady={}", option_bool_label(llm_ready)),
+            format!(
+                "llmFailureReason={}",
+                llm_signals
+                    .failure_reason
+                    .as_deref()
+                    .unwrap_or("none")
+            ),
             format!("ready={}", bool_label(ready)),
         ];
 
@@ -5456,6 +5671,15 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
         redis_ready,
         chat_ready,
         llm_ready,
+        probe_context: Some("host-native".to_string()),
+        llm_status: llm_signals.status,
+        llm_details_status: llm_signals.details_status,
+        llm_details_ok: llm_signals.details_ok,
+        llm_provider: llm_signals.provider,
+        llm_model: llm_signals.model,
+        llm_provider_runtime_available: llm_signals.provider_runtime_available,
+        llm_endpoint_resolution_state: llm_signals.endpoint_resolution_state,
+        llm_failure_reason: llm_signals.failure_reason,
         detail,
         failure_kind,
         runtime_context: runtime.map(|resolved| resolved.runtime_context.clone()),
@@ -5489,6 +5713,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use serde_json::json;
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -5798,5 +6023,72 @@ mod tests {
         let err = desktop_media_size_guard(DESKTOP_MEDIA_MAX_BYTES + 1)
             .expect_err("expected oversize payload to be rejected");
         assert_eq!(err.kind, "too_large");
+    }
+
+    #[test]
+    fn llm_readiness_signals_accepts_nested_online_payload() {
+        let payload = json!({
+            "status": "ok",
+            "ok": true,
+            "provider": "local",
+            "model": "library2/ministral-3:8b",
+            "details": {
+                "status": "online",
+                "ok": true,
+                "provider_runtime": {
+                    "available": true
+                },
+                "endpoint_resolution": {
+                    "state": "available"
+                }
+            }
+        });
+
+        let signals = llm_readiness_signals(Some(&payload));
+
+        assert_eq!(signals.provider.as_deref(), Some("local"));
+        assert_eq!(signals.model.as_deref(), Some("library2/ministral-3:8b"));
+        assert_eq!(signals.status.as_deref(), Some("ok"));
+        assert_eq!(signals.details_status.as_deref(), Some("online"));
+        assert_eq!(signals.details_ok, Some(true));
+        assert_eq!(signals.provider_runtime_available, Some(true));
+        assert_eq!(
+            signals.endpoint_resolution_state.as_deref(),
+            Some("available")
+        );
+        assert_eq!(signals.ready, Some(true));
+        assert_eq!(signals.failure_reason, None);
+    }
+
+    #[test]
+    fn llm_readiness_signals_fail_closed_when_local_model_path_is_unavailable() {
+        let payload = json!({
+            "status": "ok",
+            "ok": true,
+            "provider": "local",
+            "model": "library2/ministral-3:8b",
+            "details": {
+                "status": "offline",
+                "ok": false,
+                "provider_runtime": {
+                    "available": false
+                },
+                "endpoint_resolution": {
+                    "state": "unavailable"
+                }
+            }
+        });
+
+        let signals = llm_readiness_signals(Some(&payload));
+
+        assert_eq!(signals.ready, Some(false));
+        assert_eq!(signals.failure_reason.as_deref(), Some("provider_runtime.available=false"));
+        assert_eq!(signals.details_status.as_deref(), Some("offline"));
+        assert_eq!(signals.details_ok, Some(false));
+        assert_eq!(signals.provider_runtime_available, Some(false));
+        assert_eq!(
+            signals.endpoint_resolution_state.as_deref(),
+            Some("unavailable")
+        );
     }
 }
