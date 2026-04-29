@@ -174,6 +174,7 @@ Source anchors:
 - The proof image still ships a small set of non-source runtime files needed by startup, including supported-profile YAML and bundled help content.
 - Packaged desktop auth handoff now flows through a Tauri command that returns a sanitized runtime auth/config payload for the local packaged runtime. The frontend consumes the handed-off `GUARDIAN_API_KEY` only in packaged mode, while diagnostics expose only presence and source metadata such as `envPath`, `runtimeRoot`, and `failureKind`.
 - The Guardian auth gate now derives from the same in-memory runtime API key that the desktop API client uses, so packaged desktop mode can satisfy local auth without `VITE_GUARDIAN_API_KEY`; the legacy Vite env key remains a dev-only fallback.
+- Packaged desktop live updates use the same authenticated SSE request path as the rest of the runtime client. If the event stream disconnects while `/health/chat` and `/api/health/llm` are still green, the shell should surface that as a separate live-update transport warning rather than a provider-health degradation, and the technical details should show the observed endpoint, auth source, HTTP status or transport error class, and polling timestamps without revealing raw credentials.
 
 ## Config Resolution Order and Defaults
 

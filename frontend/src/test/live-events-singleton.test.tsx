@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockSource = {
   addEventListener: ReturnType<typeof vi.fn>;
+  emitOpen: () => void;
   emitError: () => void;
   emitEvent: (type: string, data: unknown, lastEventId?: string) => void;
   close: ReturnType<typeof vi.fn>;
@@ -57,6 +58,13 @@ vi.mock("@/lib/guardianEventSource", () => {
       const event = new Event("error");
       this.onerror?.(event);
       this.emit("error", event);
+    }
+
+    emitOpen(): void {
+      this.readyState = MockGuardianEventSource.OPEN;
+      const event = new Event("open");
+      this.onopen?.(event);
+      this.emit("open", event);
     }
 
     emitEvent(type: string, data: unknown, lastEventId?: string): void {
@@ -213,6 +221,33 @@ describe("live events singleton hub", () => {
         "browser.approval.decided",
       ])
     );
+
+    unmount();
+  });
+
+  it("marks a 200 text/event-stream connection as connected rather than failed", async () => {
+    const { result, unmount } = renderHook(() => useLiveEvents({ passive: true }));
+
+    await waitFor(() => {
+      expect(mockState.createdSources).toHaveLength(1);
+    });
+
+    expect(result.current.connectionStatus).toBe("connecting");
+
+    act(() => {
+      mockState.createdSources[0].emitOpen();
+    });
+
+    await waitFor(() => {
+      expect(result.current.connectionStatus).toBe("connected");
+      expect(result.current.connected).toBe(true);
+    });
+
+    const status = getLiveEventsHubStatus();
+    expect(status.connectionStatus).toBe("connected");
+    expect(status.readyState).toBe(1);
+    expect(status.lastHttpStatus).toBe(200);
+    expect(status.transportErrorClass).toBeNull();
 
     unmount();
   });
