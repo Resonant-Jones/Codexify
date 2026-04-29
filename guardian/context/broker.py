@@ -9,7 +9,9 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_OBSIDIAN_ONLY,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
+    SOURCE_MODE_WORKSPACE,
     WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+    WIDEN_REASON_EXPLICIT_WORKSPACE,
     WIDEN_REASON_INSUFFICIENT_THREAD_HITS,
     WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS,
     WIDEN_REASON_NONE,
@@ -90,6 +92,10 @@ def merge_retrieval_policy(
         policy["source_mode"] = SOURCE_MODE_PERSONAL_KNOWLEDGE
         policy["widening_enabled"] = True
         policy["identity_scope"] = SOURCE_MODE_PERSONAL_KNOWLEDGE
+    elif mode == "workspace":
+        policy["source_mode"] = SOURCE_MODE_WORKSPACE
+        policy["widening_enabled"] = True
+        policy["identity_scope"] = SOURCE_MODE_WORKSPACE
 
     return policy  # type: ignore[return-value]
 
@@ -421,8 +427,12 @@ class ContextBroker:
         )
 
         context: Dict[str, Any] = {}
-        widened = False
-        widen_reason = WIDEN_REASON_NONE
+        widened = normalized_source_mode == SOURCE_MODE_WORKSPACE
+        widen_reason = (
+            WIDEN_REASON_EXPLICIT_WORKSPACE
+            if normalized_source_mode == SOURCE_MODE_WORKSPACE
+            else WIDEN_REASON_NONE
+        )
 
         # Always include recent messages
         try:
@@ -561,14 +571,21 @@ class ContextBroker:
                     semantic_widen_reason,
                 )
                 semantic_obsidian: list[dict[str, Any]] = []
-                if normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE:
+                if normalized_source_mode in (
+                    SOURCE_MODE_PERSONAL_KNOWLEDGE,
+                    SOURCE_MODE_WORKSPACE,
+                ):
                     semantic_obsidian = await self._retrieve_obsidian_documents(
                         query,
                         user_id=resolved_user_id,
                         project_scope=resolved_project_id,
                         k=k_semantic,
                     )
-                    if not semantic_obsidian:
+                    if (
+                        not semantic_obsidian
+                        and normalized_source_mode
+                        == SOURCE_MODE_PERSONAL_KNOWLEDGE
+                    ):
                         _append_retrieval_warning(
                             context,
                             "obsidian_empty_in_personal_knowledge",
@@ -576,7 +593,12 @@ class ContextBroker:
                     widened = True
                     widen_reason = self._merge_widen_reason(
                         widen_reason or WIDEN_REASON_NONE,
-                        WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+                        (
+                            WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
+                            if normalized_source_mode
+                            == SOURCE_MODE_PERSONAL_KNOWLEDGE
+                            else WIDEN_REASON_EXPLICIT_WORKSPACE
+                        ),
                     )
                 elif (
                     not conversation_only and self._obsidian_retrieval_enabled()
@@ -826,6 +848,24 @@ class ContextBroker:
             except Exception as e:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
+
+        if normalized_source_mode == SOURCE_MODE_WORKSPACE:
+            workspace_result_count = 0
+            for key in ("semantic", "obsidian"):
+                value = context.get(key)
+                if isinstance(value, list):
+                    workspace_result_count += len(value)
+            docs_value = context.get("docs")
+            if isinstance(docs_value, dict):
+                for key in ("project", "thread"):
+                    value = docs_value.get(key)
+                    if isinstance(value, list):
+                        workspace_result_count += len(value)
+            context["retrieval_status"] = (
+                "workspace_local_success"
+                if workspace_result_count > 0
+                else "no_workspace_results"
+            )
 
         all_results: list[Any] = []
         for key in (
@@ -1558,6 +1598,8 @@ class ContextBroker:
             return []
         if normalized_source_mode == SOURCE_MODE_CONVERSATION:
             return []
+        if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
+            return []
         if normalized_source_mode == SOURCE_MODE_PROJECT and project_id is None:
             return []
 
@@ -1724,6 +1766,7 @@ class ContextBroker:
             WIDEN_REASON_INSUFFICIENT_THREAD_HITS: 1,
             WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS: 2,
             WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE: 3,
+            WIDEN_REASON_EXPLICIT_WORKSPACE: 4,
         }
         selected = WIDEN_REASON_NONE
         for reason in reasons:

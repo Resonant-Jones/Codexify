@@ -2426,8 +2426,10 @@ export default function AppShell({
     : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
   const runtimeDegraded =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED &&
+    runtimeHealth.diagnostics.hydrationState !== "pending";
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const runtimeHydrationState = runtimeHealth.diagnostics.hydrationState;
   const now = Date.now();
   const runtimeDetail =
     typeof process !== "undefined" &&
@@ -2451,7 +2453,9 @@ export default function AppShell({
       : [];
 
   const providerRuntimeState: ProviderRuntimeState =
-    runtimeHealth.backendReachable === false
+    runtimeHydrationState === "pending"
+      ? PROVIDER_RUNTIME_STATES.ONLINE
+      : runtimeHealth.backendReachable === false
       ? PROVIDER_RUNTIME_STATES.OFFLINE
       : PROVIDER_RUNTIME_STATES.DEGRADED;
 

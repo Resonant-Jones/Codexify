@@ -4,6 +4,7 @@ import {
   initRuntimeConfig,
   readDesktopStartupRoutingDecision,
   getDesktopRuntimeAuthConfig,
+  getRuntimeConfigHydrationState,
   resolveApiUrl,
   resolveSseEndpoint,
 } from "@/lib/runtimeConfig";
@@ -54,14 +55,41 @@ describe("runtime config", () => {
     expect(resolveSseEndpoint(config)).toBe("/api/events");
   });
 
+  it("ignores relative packaged API base overrides in tauri mode", async () => {
+    (window as any).__TAURI_IPC__ = {};
+    (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
+    vi.stubEnv("VITE_API_BASE_URL", "/api");
+    invokeMock.mockResolvedValue({
+      mode: "tauri",
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiBaseUrl: "http://127.0.0.1:8888/api",
+      sseUrl: "http://127.0.0.1:8888/api/events",
+      sharePublicBaseUrl: "http://127.0.0.1:5173",
+      authMode: "local",
+      apiKeyPresent: true,
+      apiKey: "packaged-runtime-key",
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: null,
+      runtimeContext: "packaged",
+    });
+
+    const config = await initRuntimeConfig({ force: true });
+
+    expect(config.apiBaseUrl).toBe("http://127.0.0.1:8888/api");
+    expect(resolveApiUrl("/api/share", config)).toBe(
+      "http://127.0.0.1:8888/api/share"
+    );
+  });
+
   it("hydrates tauri runtime config via desktop command", async () => {
     (window as any).__TAURI_IPC__ = {};
     (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
     invokeMock.mockResolvedValue({
       mode: "tauri",
-      backendBaseUrl: "http://127.0.0.1:9999",
-      apiBaseUrl: "http://127.0.0.1:9999/api",
-      sseUrl: "http://127.0.0.1:9999/api/events",
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiBaseUrl: "http://127.0.0.1:8888/api",
+      sseUrl: "http://127.0.0.1:8888/api/events",
       sharePublicBaseUrl: "https://share.example",
       authMode: "local",
       apiKeyPresent: true,
@@ -75,17 +103,18 @@ describe("runtime config", () => {
     const config = await initRuntimeConfig({ force: true });
 
     expect(config.mode).toBe("tauri");
-    expect(config.backendBaseUrl).toBe("http://127.0.0.1:9999");
-    expect(config.apiBaseUrl).toBe("http://127.0.0.1:9999/api");
+    expect(config.backendBaseUrl).toBe("http://127.0.0.1:8888");
+    expect(config.apiBaseUrl).toBe("http://127.0.0.1:8888/api");
     expect(readRuntimeApiKey()).toBe("packaged-runtime-key");
     expect(getDesktopRuntimeAuthConfig()?.apiKeyPresent).toBe(true);
     expect(getDesktopRuntimeAuthConfig()?.envPath).toBe(
       "/Users/username/Codexify/.env"
     );
+    expect(getRuntimeConfigHydrationState()).toBe("ready");
     expect(resolveApiUrl("/api/share", config)).toBe(
-      "http://127.0.0.1:9999/api/share"
+      "http://127.0.0.1:8888/api/share"
     );
-    expect(resolveSseEndpoint(config)).toBe("http://127.0.0.1:9999/api/events");
+    expect(resolveSseEndpoint(config)).toBe("http://127.0.0.1:8888/api/events");
     const headers = buildAuthenticatedFetchInit().headers as Record<string, string>;
     expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBe(
       "packaged-runtime-key"

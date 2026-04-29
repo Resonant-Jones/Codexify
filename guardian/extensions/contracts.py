@@ -9,7 +9,16 @@ from typing import Any, Mapping, Sequence
 
 from guardian.command_bus.contracts import CapabilityManualDispatchResult
 from guardian.extensions.tokens import (
+    CapabilityActivationConflictClassToken,
+    CapabilityActivationContextToken,
+    CapabilityActivationDenyReasonToken,
+    CapabilityActivationOutcomeToken,
+    CapabilityDispatchSourceToken,
     CapabilityEntryProvenanceClass,
+    CapabilityManualDispatchDenyReasonToken,
+    CapabilityManualDispatchIdempotencyClassToken,
+    CapabilityManualDispatchOutcomeToken,
+    CapabilityManualDispatchSourceToken,
     CapabilityRegistryStatus,
     CapabilityReinjectionResultShape,
     CapabilityReinjectionSource,
@@ -17,6 +26,11 @@ from guardian.extensions.tokens import (
     ExtensionInstallBindingScope,
     ExtensionInstallBindingStatus,
     InstallGateDecisionToken,
+    normalize_capability_activation_conflict_class_token,
+    normalize_capability_activation_context_token,
+    normalize_capability_activation_deny_reason_token,
+    normalize_capability_activation_outcome_token,
+    normalize_capability_dispatch_source_token,
     normalize_capability_entry_provenance_class,
     normalize_capability_reinjection_failure_reason,
     normalize_capability_reinjection_result_shape,
@@ -279,6 +293,48 @@ class ExtensionTestEvidenceMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilityExposedCommand:
+    """Manifest-declared command exposure plus bounded tool aliases."""
+
+    command_id: str
+    tool_aliases: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        command_id = _clean_optional_text(self.command_id)
+        if not command_id:
+            raise ValueError("command_id is required")
+        object.__setattr__(self, "command_id", command_id)
+        object.__setattr__(
+            self, "tool_aliases", _clean_text_sequence(self.tool_aliases)
+        )
+        object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "command_id": self.command_id,
+            "tool_aliases": list(self.tool_aliases),
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityExposedCommand:
+        data = dict(payload or {})
+        metadata = data.get("metadata")
+        return cls(
+            command_id=data.get("command_id") or data.get("tool_id") or "",
+            tool_aliases=tuple(
+                str(item) for item in data.get("tool_aliases") or []
+            ),
+            metadata=_clean_mapping(metadata)
+            if isinstance(metadata, Mapping)
+            else {},
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ExtensionProposalManifest:
     """Manifest draft persisted for a proposed extension."""
 
@@ -286,6 +342,7 @@ class ExtensionProposalManifest:
     scope: str
     requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
     declared_dependencies: tuple[ExtensionDeclaredDependency, ...] = ()
+    exposed_commands: tuple[CapabilityExposedCommand, ...] = ()
     rollback_metadata: ExtensionRollbackMetadata | None = None
     test_evidence_metadata: ExtensionTestEvidenceMetadata | None = None
     source_thread_id: int | None = None
@@ -316,6 +373,11 @@ class ExtensionProposalManifest:
             self,
             "declared_dependencies",
             tuple(self.declared_dependencies or ()),
+        )
+        object.__setattr__(
+            self,
+            "exposed_commands",
+            tuple(self.exposed_commands or ()),
         )
         object.__setattr__(
             self, "profile_id", _clean_optional_text(self.profile_id)
@@ -349,6 +411,9 @@ class ExtensionProposalManifest:
                 dependency.to_payload()
                 for dependency in self.declared_dependencies
             ],
+            "exposed_commands": [
+                command.to_payload() for command in self.exposed_commands
+            ],
             "rollback_metadata": (
                 self.rollback_metadata.to_payload()
                 if self.rollback_metadata is not None
@@ -374,6 +439,10 @@ class ExtensionProposalManifest:
             ExtensionDeclaredDependency.from_payload(item)
             for item in data.get("declared_dependencies") or []
         )
+        exposed_commands = tuple(
+            CapabilityExposedCommand.from_payload(item)
+            for item in data.get("exposed_commands") or []
+        )
         rollback_metadata = ExtensionRollbackMetadata.from_payload(
             data.get("rollback_metadata")
         )
@@ -385,6 +454,7 @@ class ExtensionProposalManifest:
             scope=data.get("scope") or "",
             requested_permissions=requested_permissions,
             declared_dependencies=declared_dependencies,
+            exposed_commands=exposed_commands,
             rollback_metadata=rollback_metadata,
             test_evidence_metadata=test_evidence_metadata,
             source_thread_id=data.get("source_thread_id"),
@@ -1815,6 +1885,7 @@ __all__ = [
     "ExtensionDeclaredDependency",
     "ExtensionRollbackMetadata",
     "ExtensionTestEvidenceMetadata",
+    "CapabilityExposedCommand",
     "ExtensionProposalManifest",
     "ExtensionProposalRecord",
     "InstallGateDecisionRecord",

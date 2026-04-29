@@ -23,6 +23,9 @@ type MockSource = {
 };
 
 const createdSources: MockSource[] = [];
+const runtimeState = vi.hoisted(() => ({
+  hydrationState: "ready" as "pending" | "ready" | "failed",
+}));
 
 vi.mock("@/lib/guardianEventSource", () => {
   class MockGuardianEventSource {
@@ -50,20 +53,25 @@ vi.mock("@/lib/guardianEventSource", () => {
 });
 
 vi.mock("@/lib/runtimeConfig", () => ({
-  getDesktopRuntimeAuthConfig: () => ({
-    mode: "tauri",
-    backendBaseUrl: "http://127.0.0.1:8888",
-    apiBaseUrl: "http://127.0.0.1:8888/api",
-    sseUrl: "http://127.0.0.1:8888/api/events",
-    sharePublicBaseUrl: "http://127.0.0.1:5173",
-    authMode: "local",
-    apiKeyPresent: true,
-    apiKey: "desktop-key",
-    envPath: "/Users/username/Codexify/.env",
-    runtimeRoot: "/Users/username/Codexify",
-    failureKind: null,
-    runtimeContext: "packaged",
-  }),
+  getDesktopRuntimeAuthConfig: () =>
+    runtimeState.hydrationState === "failed"
+      ? null
+      : {
+          mode: "tauri",
+          backendBaseUrl: "http://127.0.0.1:8888",
+          apiBaseUrl: "http://127.0.0.1:8888/api",
+          sseUrl: "http://127.0.0.1:8888/api/events",
+          sharePublicBaseUrl: "http://127.0.0.1:5173",
+          authMode: "local",
+          apiKeyPresent: true,
+          apiKey: "desktop-key",
+          envPath: "/Users/username/Codexify/.env",
+          runtimeRoot: "/Users/username/Codexify",
+          failureKind: null,
+          runtimeContext: "packaged",
+        },
+  getRuntimeConfigHydrationState: () => runtimeState.hydrationState,
+  getRuntimeConfigVersion: () => 0,
   getRuntimeConfigSync: () => ({
     mode: "tauri",
     backendBaseUrl: "http://127.0.0.1:8888",
@@ -72,7 +80,6 @@ vi.mock("@/lib/runtimeConfig", () => ({
     sharePublicBaseUrl: "http://127.0.0.1:5173",
     authMode: "local",
   }),
-  getRuntimeConfigVersion: () => 0,
   subscribeRuntimeConfigState: () => () => {},
   isTauriRuntime: () => true,
   resolveSseEndpoint: () => "http://127.0.0.1:8888/api/events",
@@ -81,6 +88,7 @@ vi.mock("@/lib/runtimeConfig", () => ({
 describe("useLiveEvents auth gating", () => {
   beforeEach(() => {
     createdSources.length = 0;
+    runtimeState.hydrationState = "ready";
     __resetAuthStateForTests();
     __resetLiveEventsHubForTests();
     clearRuntimeApiKey();
@@ -152,5 +160,32 @@ describe("useLiveEvents auth gating", () => {
     expect(JSON.stringify(result.current.diagnostics)).not.toContain(
       "stale-bearer-token"
     );
+  });
+
+  it("waits for runtime hydration before connecting live events", async () => {
+    runtimeState.hydrationState = "pending";
+    __setAuthStateForTests({
+      status: "authenticated",
+      ready: true,
+      token: "token-1",
+    });
+
+    const { result, rerender } = renderHook(() => useLiveEvents({ passive: true }));
+
+    expect(createdSources).toHaveLength(0);
+    expect(result.current.diagnostics.hydrationState).toBe("pending");
+    await waitFor(() => {
+      expect(result.current.connectionStatus).toBe("connecting");
+    });
+
+    runtimeState.hydrationState = "ready";
+    rerender();
+
+    await waitFor(() => {
+      expect(createdSources).toHaveLength(1);
+      expect(result.current.diagnostics.hydrationState).toBe("ready");
+      expect(result.current.diagnostics.authSource).toBe("runtime-desktop");
+      expect(result.current.diagnostics.apiKeyPresent).toBe(true);
+    });
   });
 });

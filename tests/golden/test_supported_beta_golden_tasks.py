@@ -8,6 +8,10 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from guardian.context.retrieval_router_policy import SOURCE_MODE_WORKSPACE
+from guardian.core import chat_completion_service
+from guardian.core.dependencies import RequestUserScope
+from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.routes import chat
 from guardian.services import builtin_help_ingest as help_ingest
 
@@ -299,6 +303,7 @@ def test_golden_completion_acceptance_contract(monkeypatch):
 def test_golden_rag_trace_latest_and_isolation(monkeypatch):
     original_latest_task = dict(chat._thread_latest_task)
     original_rag_traces = dict(chat._rag_traces)
+    original_chatlog_db = chat.chatlog_db
     task_payloads = {
         "task-completed-11": {
             "trace": {
@@ -368,16 +373,45 @@ def test_golden_rag_trace_latest_and_isolation(monkeypatch):
     try:
         chat._thread_latest_task.clear()
         chat._rag_traces.clear()
+        chat.chatlog_db = type(
+            "_ChatlogDB",
+            (),
+            {
+                "get_chat_thread": lambda self, thread_id: {
+                    "id": thread_id,
+                    "user_id": "local",
+                    "project_id": 7,
+                }
+            },
+        )()
 
         chat._thread_latest_task[11] = "task-completed-11"
-        latest = chat.get_latest_rag_trace(11, api_key="test-key")
+        latest = chat.get_latest_rag_trace(
+            11,
+            api_key="test-key",
+            request_user_scope=RequestUserScope(
+                user_id="local",
+                subject_id="local",
+                account_id="local",
+                multi_user_enabled=False,
+            ),
+        )
         assert latest["thread_id"] == 11
         assert latest["documents"][0]["id"] == "doc-11"
         assert latest["retrieval_target"] == "latest_turn"
         assert latest["retrieval_query_matches_latest_turn"] is True
         assert latest["payload_summary"] == {"message_count": 2}
 
-        untouched = chat.get_latest_rag_trace(22, api_key="test-key")
+        untouched = chat.get_latest_rag_trace(
+            22,
+            api_key="test-key",
+            request_user_scope=RequestUserScope(
+                user_id="local",
+                subject_id="local",
+                account_id="local",
+                multi_user_enabled=False,
+            ),
+        )
         assert untouched["thread_id"] == 22
         assert untouched["documents"] == []
         assert untouched["graph"] == []
@@ -387,8 +421,26 @@ def test_golden_rag_trace_latest_and_isolation(monkeypatch):
 
         chat._thread_latest_task[31] = "task-completed-31"
         chat._thread_latest_task[32] = "task-completed-32"
-        thread_31 = chat.get_latest_rag_trace(31, api_key="test-key")
-        thread_32 = chat.get_latest_rag_trace(32, api_key="test-key")
+        thread_31 = chat.get_latest_rag_trace(
+            31,
+            api_key="test-key",
+            request_user_scope=RequestUserScope(
+                user_id="local",
+                subject_id="local",
+                account_id="local",
+                multi_user_enabled=False,
+            ),
+        )
+        thread_32 = chat.get_latest_rag_trace(
+            32,
+            api_key="test-key",
+            request_user_scope=RequestUserScope(
+                user_id="local",
+                subject_id="local",
+                account_id="local",
+                multi_user_enabled=False,
+            ),
+        )
 
         assert thread_31["documents"][0]["id"] == "doc-31"
         assert thread_32["documents"][0]["id"] == "doc-32"
@@ -400,6 +452,7 @@ def test_golden_rag_trace_latest_and_isolation(monkeypatch):
         chat._thread_latest_task.update(original_latest_task)
         chat._rag_traces.clear()
         chat._rag_traces.update(original_rag_traces)
+        chat.chatlog_db = original_chatlog_db
 
 
 def test_golden_supported_retrieval_path(monkeypatch, tmp_path):
@@ -452,3 +505,180 @@ def test_golden_supported_retrieval_path(monkeypatch, tmp_path):
         )
         assert matches[0]["meta"]["source_tag"] == "builtin_help"
         # This proves the supported startup seed is retrievable through the backend route seam.
+
+
+def test_golden_workspace_completion_influences_response_and_trace(monkeypatch):
+    class _ChatlogDB:
+        def __init__(self):
+            self.created_messages = []
+
+        def get_chat_thread(self, thread_id):
+            return {
+                "id": thread_id,
+                "user_id": "local",
+                "project_id": 9,
+            }
+
+        def list_messages(self, thread_id, limit, offset, user_id=None):
+            _ = thread_id, limit, offset, user_id
+            return [
+                {
+                    "id": 1,
+                    "role": "user",
+                    "content": "What do my local notes say?",
+                }
+            ]
+
+        def create_message(self, thread_id, role, content):
+            message_id = len(self.created_messages) + 1
+            self.created_messages.append(
+                {
+                    "thread_id": thread_id,
+                    "role": role,
+                    "content": content,
+                }
+            )
+            return message_id
+
+        def write_audit_log(self, *args, **kwargs):
+            _ = args, kwargs
+            return None
+
+    class _VectorStore:
+        def __init__(self):
+            self.calls = []
+
+        def search(self, query, k, namespace=None, user_id=None):
+            self.calls.append(
+                {
+                    "query": query,
+                    "k": k,
+                    "namespace": namespace,
+                    "user_id": user_id,
+                }
+            )
+            if namespace == OBSIDIAN_NAMESPACE:
+                return [
+                    {
+                        "id": "obs-1",
+                        "text": "workspace note: calibrate the beacon",
+                        "user_id": "local",
+                        "metadata": {
+                            "filename": "beacon.md",
+                            "namespace": OBSIDIAN_NAMESPACE,
+                        },
+                        "score": 0.99,
+                    }
+                ]
+            return []
+
+    chatlog_db = _ChatlogDB()
+    vector_store = _VectorStore()
+    settings = type(
+        "Settings",
+        (),
+        {
+            "LLM_PROVIDER": "groq",
+            "GROQ_API_KEY": "test-key",
+            "GROQ_VISION_MODEL": "",
+            "LOCAL_LLM_MODEL": "mock-model",
+            "DEFAULT_LOCAL_MODEL": "mock-model",
+            "LLM_MODEL": "mock-model",
+        },
+    )()
+
+    monkeypatch.setattr(
+        chat_completion_service, "get_settings", lambda: settings
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "validate_llm_config",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_guardian_system_prompt",
+        lambda **kwargs: ("BASE SYSTEM", {}),
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "chatlog_db",
+        chatlog_db,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "_vector_store",
+        vector_store,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "_memory_store",
+        None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "_sensors",
+        None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "DEFAULT_MODEL",
+        "mock-model",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda messages, **kwargs: (
+            "Workspace note used: calibrate the beacon"
+            if "calibrate the beacon"
+            in "\n".join(
+                str(message.get("content") or "")
+                for message in messages
+                if isinstance(message, dict)
+            )
+            else "Workspace note missing"
+        ),
+    )
+
+    task = chat_completion_service.ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="groq",
+        model="mock-model",
+        origin="api:chat.complete|turn_id=abc|source_mode=workspace",
+    )
+    task.requested_source_mode = SOURCE_MODE_WORKSPACE
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert "calibrate the beacon" in result["assistant_text"]
+    assert result["trace"]["source_mode"] == SOURCE_MODE_WORKSPACE
+    assert result["payload_summary"]["source_mode"] == SOURCE_MODE_WORKSPACE
+    assert result["payload_summary"]["retrieval_posture"] == {
+        "source_mode": SOURCE_MODE_WORKSPACE,
+        "boundary_label": "same_user_only",
+        "retrieval_override_mode": None,
+        "widen_reason": "explicit_workspace",
+        "conversation_only": False,
+    }
+    assert (
+        result["payload_summary"]["retrieval_provenance"]["retrieval_status"]
+        == "workspace_local_success"
+    )
+    assert (
+        result["payload_summary"]["retrieval_provenance"]["source_hit_counts"][
+            "obsidian_semantic"
+        ]
+        == 1
+    )
+    assert any(
+        call["namespace"] == OBSIDIAN_NAMESPACE for call in vector_store.calls
+    )

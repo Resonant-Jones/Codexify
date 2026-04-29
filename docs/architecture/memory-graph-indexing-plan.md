@@ -2,7 +2,7 @@
 
 Purpose: define the canonical indexing blueprint for a Memory Graph layer that unifies relational memory, vector memory, and optional graph enrichment without changing the runtime source of truth.
 
-Last updated: 2026-04-21
+Last updated: 2026-04-28
 
 Source anchors:
 - docs/architecture/data-and-storage.md
@@ -13,7 +13,11 @@ Source anchors:
 - docs/architecture/account-export-restore-contract.md
 - guardian/workers/graph_write_worker.py
 - guardian/tasks/types.py
+- guardian/memory_graph/graph_write_identity.py
+- guardian/queue/graph_write_receipts.py
+- guardian/core/graph_write_inspection_store.py
 - docs/architecture/adr/011-graph-write-task-seam-and-worker-scaffold.md
+- docs/architecture/adr/018-graph-write-inspection-surface.md
 
 ## 1. Purpose and Scope
 
@@ -234,6 +238,49 @@ This worker is log-only and exists to stabilize topology before persistence:
 
 Actual graph persistence and idempotent write semantics remain deferred to a
 later task.
+
+### 5.6 Graph Replay Safety
+
+The current graph-lane implementation path now includes deterministic
+graph-write identity and ephemeral receipt claims before inspection.
+
+This is a provenance-preserving, replay-safe control-plane seam:
+
+- graph-write tasks remain derived artifacts
+- receipt state remains operational and ephemeral
+- no canonical graph truth is claimed here
+
+Real Neo4j writes, durable idempotent persistence, and graph retrieval
+consumption remain deferred to a later task.
+
+### 5.7 Graph-Write Inspection Snapshot Surface
+
+The current implementation path now also includes a latest-per-thread
+graph-write inspection snapshot surface.
+
+This surface is for operator/debug visibility only:
+
+- it summarizes receipt outcome
+- it records thread-scoped graph-shape counts and type sets
+- it remains operational and ephemeral
+- it does not promote graph truth
+
+Durable graph persistence and canonical graph inspection remain deferred.
+
+### 5.8 Graph Backend Adapter Contract
+
+The current implementation path now also includes a bounded graph backend
+adapter contract mounted behind the graph-write worker.
+
+This contract is intentionally inert in the current phase:
+
+- the default implementation is no-op
+- adapter results are derived and non-canonical
+- adapter results do not affect retrieval or export
+- adapter calls do not create graph truth
+
+The adapter gives future persistence code a stable typed seam while the worker
+remains inspection-only today.
 
 ## 6. Invariants
 

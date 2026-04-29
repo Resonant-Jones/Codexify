@@ -3,9 +3,14 @@ import api, { getAuthToken, getDevApiKey, readRuntimeApiKey } from "@/lib/api";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import {
   getDesktopRuntimeAuthConfig,
+  getRuntimeConfigHydrationFailureKind,
+  getRuntimeConfigHydrationState,
+  getRuntimeConfigVersion,
   getRuntimeConfigSync,
   isTauriRuntime,
+  subscribeRuntimeConfigState,
 } from "@/lib/runtimeConfig";
+import { useSyncExternalStore } from "react";
 import {
   resolveRuntimeAuthSource,
   type RuntimeAuthSource,
@@ -49,7 +54,16 @@ export type RuntimeHealthEndpointObservation = {
 
 export type RuntimeHealthDiagnostics = {
   resolvedApiBaseUrl: string | null;
+  resolvedApiBaseUrlSource:
+    | "runtime-desktop"
+    | "vite-dev"
+    | "local-storage-override"
+    | "fallback"
+    | "unknown";
   apiKeyPresent: boolean;
+  apiKeySource: RuntimeHealthAuthSource;
+  hydrationState: "pending" | "ready" | "failed";
+  nativeCommandStatus: string | null;
   authSource: RuntimeHealthAuthSource;
   chat: RuntimeHealthEndpointObservation;
   llm: RuntimeHealthEndpointObservation;
@@ -247,6 +261,36 @@ function resolveRuntimeHealthAuthSource(): RuntimeHealthAuthSource {
   });
 }
 
+function resolveRuntimeBaseUrlSource(
+  hydrationState: "pending" | "ready" | "failed",
+  runtimeConfigMode: "web" | "tauri",
+  desktopAuthConfig: ReturnType<typeof getDesktopRuntimeAuthConfig>
+): RuntimeHealthDiagnostics["resolvedApiBaseUrlSource"] {
+  if (hydrationState === "pending" || hydrationState === "failed") {
+    return "fallback";
+  }
+  if (desktopAuthConfig && runtimeConfigMode === "tauri") {
+    try {
+      if (
+        typeof window !== "undefined" &&
+        window.localStorage.getItem("cfy.desktop.backendBaseUrl")
+      ) {
+        return "local-storage-override";
+      }
+    } catch {
+      // Ignore localStorage access failures and fall back to the native source.
+    }
+    return "runtime-desktop";
+  }
+  if (runtimeConfigMode === "tauri") {
+    return "fallback";
+  }
+  if (getDevApiKey().trim()) {
+    return "vite-dev";
+  }
+  return "unknown";
+}
+
 function formatTimestamp(value: number | null): string {
   return value == null ? "<none>" : new Date(value).toISOString();
 }
@@ -256,7 +300,11 @@ export function formatRuntimeHealthDiagnostics(
 ): string[] {
   return [
     `resolved api base url=${diagnostics.resolvedApiBaseUrl ?? "<unresolved>"}`,
+    `resolved api base url source=${diagnostics.resolvedApiBaseUrlSource}`,
     `apiKeyPresent=${diagnostics.apiKeyPresent ? "true" : "false"}`,
+    `api key source=${diagnostics.apiKeySource}`,
+    `hydration state=${diagnostics.hydrationState}`,
+    `native command status=${diagnostics.nativeCommandStatus ?? "<unknown>"}`,
     `authSource=${diagnostics.authSource}`,
     `chat endpoint called=${diagnostics.chat.endpoint}`,
     diagnostics.chat.httpStatus != null
@@ -343,6 +391,16 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
     liveEvents.connectionStatus ?? LIVE_EVENT_CONNECTION_STATES.DISCONNECTED;
   const statusUpdatedAt = liveEvents.statusUpdatedAt ?? null;
   const liveEventsDiagnostics = liveEvents.diagnostics;
+  const runtimeConfigVersion = useSyncExternalStore(
+    subscribeRuntimeConfigState,
+    getRuntimeConfigVersion,
+    getRuntimeConfigVersion
+  );
+  const runtimeConfigHydrationState = useSyncExternalStore(
+    subscribeRuntimeConfigState,
+    getRuntimeConfigHydrationState,
+    getRuntimeConfigHydrationState
+  );
   const [snapshot, setSnapshot] = useState<HealthSnapshot>(INITIAL_SNAPSHOT);
   const inFlightRef = useRef(false);
   const firstCheckAtRef = useRef<number | null>(null);
@@ -383,15 +441,21 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
     } finally {
       inFlightRef.current = false;
     }
-  }, []);
+  }, [runtimeConfigVersion]);
 
   useEffect(() => {
+    if (runtimeConfigHydrationState === "pending") {
+      return;
+    }
+    if (runtimeConfigHydrationState === "failed") {
+      return;
+    }
     void poll();
     const timer = setInterval(() => {
       void poll();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [poll]);
+  }, [poll, runtimeConfigHydrationState, runtimeConfigVersion]);
 
   const now = Date.now();
   const hasChecked = snapshot.lastCheckedAt != null;
@@ -423,15 +487,31 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
       : "live-poll"
     : "fallback";
   const desktopRuntimeAuthConfig = getDesktopRuntimeAuthConfig();
-  const resolvedApiBaseUrl = getRuntimeConfigSync().apiBaseUrl || null;
+  const runtimeConfig = getRuntimeConfigSync();
+  const resolvedApiBaseUrl = runtimeConfig.apiBaseUrl || null;
+  const hydrationState = runtimeConfigHydrationState;
+  const nativeCommandStatus =
+    hydrationState === "failed"
+      ? getRuntimeConfigHydrationFailureKind() ?? "failed"
+      : hydrationState;
   const runtimeDesktopKeyPresent = Boolean(
     desktopRuntimeAuthConfig?.apiKeyPresent || readRuntimeApiKey()
   );
   const apiKeyPresent = Boolean(runtimeDesktopKeyPresent || getDevApiKey().trim());
   const authSource = resolveRuntimeHealthAuthSource();
+  const resolvedApiBaseUrlSource = resolveRuntimeBaseUrlSource(
+    hydrationState,
+    runtimeConfig.mode,
+    desktopRuntimeAuthConfig
+  );
+  const apiKeySource = authSource;
   const diagnostics: RuntimeHealthDiagnostics = {
     resolvedApiBaseUrl,
+    resolvedApiBaseUrlSource,
     apiKeyPresent,
+    apiKeySource,
+    hydrationState,
+    nativeCommandStatus,
     authSource,
     chat: {
       endpoint: snapshot.chat.endpoint,
@@ -457,6 +537,8 @@ export function useRuntimeHealth(): RuntimeHealthStatus {
       transportErrorClass: liveEventsDiagnostics.transportErrorClass,
       authSource: liveEventsDiagnostics.authSource,
       apiKeyPresent: liveEventsDiagnostics.apiKeyPresent,
+      hydrationState: liveEventsDiagnostics.hydrationState,
+      nativeCommandStatus: liveEventsDiagnostics.nativeCommandStatus,
       reconnectAttempts: liveEventsDiagnostics.reconnectAttempts,
       retryMs: liveEventsDiagnostics.retryMs,
       subscribers: liveEventsDiagnostics.subscribers,

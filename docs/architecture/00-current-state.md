@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-22
+2026-04-27
 
 ## Interpretation rule
 This file is authoritative for:
@@ -19,10 +19,14 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Verified active personal facts now flow through the backend chat context path and into the provider-ready prompt block as a bounded, user-scoped identity-context source; candidate, disputed, and inactive facts are excluded before prompt assembly.
 - A backend-only candidate-trace diagnostic surface was added: `GET /chat/{thread_id}/debug/candidate-trace/latest`. It captures transient pre-answer candidate outputs for the latest completion attempt, remains thread-scoped, and is intentionally excluded from export/restore.
 - A dedicated retrieval-posture diagnostics route was added to the backend: `GET /api/chat/debug/retrieval-posture/{thread_id}/latest`. It reuses the same latest-trace evidence path as the RAG trace route and returns the canonical posture snapshot or an empty state. A fallback synthesis path is included for legacy trace fields (source_mode, widen_reason, retrieval_override).
+- The completion-service seam now emits a canonical `retrieval_posture` snapshot during chat completion, so the retrieval-posture route can read the live snapshot directly instead of depending on fallback synthesis when completion has run.
+- The command-bus route family now includes a read-only activation inspection surface at `GET /api/guardian/commands/activation/inspect`, which returns the existing capability-activation decision and dispatch-envelope shape without invoking command execution.
+- `retrievalSource="workspace"` is now a live backend completion seam for user-bounded local knowledge, including Obsidian-backed notes, without turning retrieval into a global search posture or a separate connector subsystem.
 - A companion frontend surface was added via `useRetrievalPosture` hook and a `RetrievalPostureSection` in `TraceWorkbench.tsx`. It shows source mode, boundary label, retrieval override mode, widen reason, and conversation-only flag as compact badges with distinct loading, empty, and error states.
 - A post-completion eval spine now exists in backend code: assistant completions can persist a durable trace snapshot and attempt-scoped groundedness verdicts in Postgres, with a diagnostics route at `GET /api/chat/debug/evals/{thread_id}/latest`. It is inspection-only and does not gate chat acceptance.
 - The RAG trace payload summary now carries graph-ready diagnostics placeholders (`graph_hit_count`, `graph_enrichment_status`) that report `not_used_yet` on current supported runs; graph remains enrichment-only and is not part of active retrieval here.
 - The retrieval broker now enforces strict `user_id` isolation at the aggregation boundary and requires widening to carry an explicit `widen_reason`; `widen_reason` normalizes to `none` when no widening occurs.
+- The completion worker now emits a canonical retrieval-posture snapshot that can distinguish `conversation`, `project`, `personal_knowledge`, `obsidian_only`, and `workspace` source modes.
 - A retrieval-posture history route was added: `GET /api/chat/{thread_id}/debug/retrieval-posture/history` for richer temporal access.
 - A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
 - The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
@@ -44,6 +48,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
   - Supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam).
   - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
   - Broker/source-mode reconciliation (`effective_source_mode` derived from `source_mode` + `retrieval_override`).
+  - Workspace-local retrieval posture, including live completion evidence for Obsidian-backed notes.
 
 ## Identity and Runtime Mode
 
@@ -66,7 +71,6 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 
 ## Active blockers
 - Live backend posture mismatch: the running backend container reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, while the catalog still exposes cloud inventory such as `groq` as enabled. Supported-path signoff is not satisfied until the live runtime is brought back into the local-only supported profile.
-- Retrieval-posture populated state not yet demonstrated: The completion-service seam has not yet been updated to emit `payload_summary["retrieval_posture"]`. The diagnostics route is live and returns correct empty-state shape, but the fast path (reading canonical snapshot) is a dead letter until that seam is updated. The fallback synthesis path also returns empty because historical task.completed events lack the required legacy trace fields.
 - Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; this run now proves chat acceptance, chat ownership normalization, and migration/schema consistency on the supported Compose stack, but upload -> embed -> retrieve and bounded tool-loop behavior still need fresh live proof.
 - Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
 

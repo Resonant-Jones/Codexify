@@ -110,6 +110,7 @@ async def execute_invoke(
     )
 
     args_dict = payload.arguments.model_dump(mode="json", exclude_none=False)
+    provenance_json = dict(payload.provenance_json or {})
     encoded_size = len(canonical_json(args_dict).encode("utf-8"))
     if encoded_size > MAX_PAYLOAD_BYTES:
         raise HTTPException(
@@ -196,6 +197,7 @@ async def execute_invoke(
         payload={
             "command_id": command.command_id,
             "status": "queued",
+            "provenance_json": provenance_json,
             "policy": {
                 "mode": invoke_policy.mode,
                 "decision": invoke_policy.decision,
@@ -243,6 +245,7 @@ async def execute_invoke(
             event_type="run.blocked",
             payload={
                 "reason": blocked_reason,
+                "provenance_json": provenance_json,
                 "policy": {
                     "mode": invoke_policy.mode,
                     "decision": invoke_policy.decision,
@@ -267,7 +270,11 @@ async def execute_invoke(
     store.append_event(
         run_id=run_id,
         event_type="run.started",
-        payload={"command_id": command.command_id, "status": "running"},
+        payload={
+            "command_id": command.command_id,
+            "status": "running",
+            "provenance_json": provenance_json,
+        },
     )
 
     try:
@@ -304,7 +311,10 @@ async def execute_invoke(
             store.append_event(
                 run_id=run_id,
                 event_type="run.blocked",
-                payload={"reason": error_text},
+                payload={
+                    "reason": error_text,
+                    "provenance_json": provenance_json,
+                },
             )
             blocked_response = {
                 "run_id": run_id,
@@ -323,7 +333,10 @@ async def execute_invoke(
         store.append_event(
             run_id=run_id,
             event_type="run.failed",
-            payload={"error": error_text},
+            payload={
+                "error": error_text,
+                "provenance_json": provenance_json,
+            },
         )
         failed_response = {
             "run_id": run_id,
@@ -344,7 +357,10 @@ async def execute_invoke(
     store.append_event(
         run_id=run_id,
         event_type="run.completed",
-        payload={"status_code": execution_result.get("status_code")},
+        payload={
+            "status_code": execution_result.get("status_code"),
+            "provenance_json": provenance_json,
+        },
     )
     return {
         "run_id": run_id,
