@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from guardian.extensions.tokens import (
+    normalize_extension_install_binding_scope,
+)
 from guardian.protocol_tokens import ToolLoopStopReason, ToolTurnState
 
 MANIFEST_VERSION = "1.0"
@@ -147,3 +150,35 @@ class BoundedToolTurnResult(BaseModel):
     command_error: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="forbid")
+
+
+class CapabilityManualDispatchResult(BaseModel):
+    """Manual command-bus dispatch result with bounded extension lineage."""
+
+    manual_dispatch_id: str = Field(min_length=1, max_length=255)
+    account_id: str = Field(min_length=1, max_length=255)
+    proposal_id: str = Field(min_length=1, max_length=255)
+    registry_entry_id: str = Field(min_length=1, max_length=255)
+    effective_binding_id: str = Field(min_length=1, max_length=255)
+    resolved_from_scope_token: str = Field(min_length=1, max_length=64)
+    command_bus_run_id: str | None = Field(default=None, max_length=255)
+    command_bus_result_json: dict[str, Any] = Field(default_factory=dict)
+    manifest_snapshot_json: dict[str, Any] = Field(default_factory=dict)
+    approved_permissions_json: list[dict[str, Any]] = Field(default_factory=list)
+    dispatch_metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("resolved_from_scope_token")
+    @classmethod
+    def _validate_scope_token(cls, value: str) -> str:
+        return normalize_extension_install_binding_scope(value)
+
+    @classmethod
+    def from_payload(
+        cls, payload: dict[str, Any] | None
+    ) -> "CapabilityManualDispatchResult":
+        return cls.model_validate(dict(payload or {}))
+
+    def to_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")

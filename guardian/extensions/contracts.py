@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import json
 from typing import Any, Mapping, Sequence
 
-from guardian.command_bus.contracts import (
-    INVOKE_VERSION,
-    CommandBusInvokeResult,
-    InvokeArguments,
-    InvokeRequest,
-)
+from guardian.command_bus.contracts import CapabilityManualDispatchResult
 from guardian.extensions.tokens import (
     CapabilityActivationConflictClassToken,
     CapabilityActivationContextToken,
@@ -24,6 +20,9 @@ from guardian.extensions.tokens import (
     CapabilityManualDispatchOutcomeToken,
     CapabilityManualDispatchSourceToken,
     CapabilityRegistryStatus,
+    CapabilityReinjectionResultShape,
+    CapabilityReinjectionSource,
+    CapabilityResultReinjectionOutcome,
     ExtensionInstallBindingScope,
     ExtensionInstallBindingStatus,
     InstallGateDecisionToken,
@@ -33,10 +32,10 @@ from guardian.extensions.tokens import (
     normalize_capability_activation_outcome_token,
     normalize_capability_dispatch_source_token,
     normalize_capability_entry_provenance_class,
-    normalize_capability_manual_dispatch_deny_reason_token,
-    normalize_capability_manual_dispatch_idempotency_class_token,
-    normalize_capability_manual_dispatch_outcome_token,
-    normalize_capability_manual_dispatch_source_token,
+    normalize_capability_reinjection_failure_reason,
+    normalize_capability_reinjection_result_shape,
+    normalize_capability_reinjection_source,
+    normalize_capability_result_reinjection_outcome,
     normalize_capability_registry_status,
     normalize_extension_install_binding_scope,
     normalize_extension_install_binding_status,
@@ -62,18 +61,44 @@ def _clean_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
     return {str(key): item for key, item in dict(value).items()}
 
 
-def _clean_text_sequence(value: Sequence[Any] | None) -> tuple[str, ...]:
-    if not value:
+def _canonical_json_payload(value: Any) -> Any:
+    return json.loads(json.dumps(value, sort_keys=True, default=str))
+
+
+def _permission_sort_key(
+    permission: ExtensionRequestedPermission,
+) -> tuple[str, str, str, str]:
+    metadata_json = json.dumps(
+        permission.metadata, sort_keys=True, default=str, separators=(",", ":")
+    )
+    return (
+        permission.permission,
+        permission.resource or "",
+        permission.reason or "",
+        metadata_json,
+    )
+
+
+def _normalize_permission_snapshot(
+    permissions: Sequence[
+        ExtensionRequestedPermission | Mapping[str, Any]
+    ] | None,
+) -> tuple[ExtensionRequestedPermission, ...]:
+    if permissions is None:
         return ()
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        text = str(item).strip()
-        if not text or text in seen:
+    normalized: list[ExtensionRequestedPermission] = []
+    for item in permissions:
+        if isinstance(item, ExtensionRequestedPermission):
+            normalized.append(item)
             continue
-        seen.add(text)
-        cleaned.append(text)
-    return tuple(cleaned)
+        if isinstance(item, Mapping):
+            normalized.append(ExtensionRequestedPermission.from_payload(item))
+            continue
+        raise ValueError(
+            "permissions must be extension permission records or mappings"
+        )
+    normalized.sort(key=_permission_sort_key)
+    return tuple(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1400,156 +1425,125 @@ class EffectiveCapabilitySnapshot:
         )
 
 
+def _coerce_manual_dispatch_result(
+    value: CapabilityManualDispatchResult | Mapping[str, Any]
+) -> CapabilityManualDispatchResult:
+    if isinstance(value, CapabilityManualDispatchResult):
+        return value
+    if isinstance(value, Mapping):
+        return CapabilityManualDispatchResult.model_validate(dict(value))
+    raise ValueError(
+        "manual_dispatch_result must be a capability manual dispatch result"
+    )
+
+
+def _coerce_manifest_snapshot(
+    value: ExtensionProposalManifest | Mapping[str, Any] | None,
+) -> ExtensionProposalManifest | None:
+    if value is None:
+        return None
+    if isinstance(value, ExtensionProposalManifest):
+        return value
+    if isinstance(value, Mapping):
+        return ExtensionProposalManifest.from_payload(value)
+    raise ValueError("manifest snapshot must be a manifest payload")
+
+
 @dataclass(frozen=True, slots=True)
-class CapabilityActivationRequest:
-    """Read-time request for capability activation."""
+class CapabilityResultReinjectionRequest:
+    """Request contract for reinjecting one manual capability dispatch result."""
 
     account_id: str
-    requested_command_id: str
-    activation_context_token: str
-    project_id: int | None = None
-    profile_id: str | None = None
-    requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
-    request_metadata: dict[str, Any] = field(default_factory=dict)
-    source_thread_id: int | None = None
-    source_message_id: int | None = None
-    requested_at: datetime | None = None
+    manual_dispatch_result: CapabilityManualDispatchResult | Mapping[str, Any]
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "account_id", _clean_optional_text(self.account_id) or ""
         )
-        object.__setattr__(
-            self,
-            "requested_command_id",
-            _clean_optional_text(self.requested_command_id) or "",
-        )
-        object.__setattr__(
-            self,
-            "activation_context_token",
-            normalize_capability_activation_context_token(
-                self.activation_context_token
-            ),
-        )
-        object.__setattr__(
-            self,
-            "project_id",
-            None if self.project_id is None else int(self.project_id),
-        )
-        object.__setattr__(
-            self, "profile_id", _clean_optional_text(self.profile_id)
-        )
-        object.__setattr__(
-            self,
-            "requested_permissions",
-            tuple(self.requested_permissions or ()),
-        )
-        object.__setattr__(
-            self, "request_metadata", _clean_mapping(self.request_metadata)
-        )
         if not self.account_id:
             raise ValueError("account_id is required")
-        if not self.requested_command_id:
-            raise ValueError("requested_command_id is required")
-        if (
-            self.activation_context_token
-            == CapabilityActivationContextToken.OWNER_ONLY.value
-        ):
-            if self.project_id is not None or self.profile_id is not None:
-                raise ValueError(
-                    "owner-only activation must not carry project or profile context"
-                )
-        elif (
-            self.activation_context_token
-            == CapabilityActivationContextToken.OWNER_PROJECT.value
-        ):
-            if self.project_id is None or self.profile_id is not None:
-                raise ValueError(
-                    "owner+project activation requires project context and excludes profile context"
-                )
-        elif (
-            self.activation_context_token
-            == CapabilityActivationContextToken.OWNER_PROFILE.value
-        ):
-            if self.profile_id is None or self.project_id is not None:
-                raise ValueError(
-                    "owner+profile activation requires profile context and excludes project context"
-                )
-        elif (
-            self.activation_context_token
-            == CapabilityActivationContextToken.OWNER_PROJECT_PROFILE.value
-        ):
-            if self.project_id is None or self.profile_id is None:
-                raise ValueError(
-                    "owner+project+profile activation requires both project and profile context"
-                )
+        object.__setattr__(
+            self,
+            "manual_dispatch_result",
+            _coerce_manual_dispatch_result(self.manual_dispatch_result),
+        )
+
+    @property
+    def proposal_id(self) -> str:
+        return self.manual_dispatch_result.proposal_id
+
+    @property
+    def registry_entry_id(self) -> str:
+        return self.manual_dispatch_result.registry_entry_id
+
+    @property
+    def effective_binding_id(self) -> str:
+        return self.manual_dispatch_result.effective_binding_id
+
+    @property
+    def resolved_from_scope_token(self) -> str:
+        return self.manual_dispatch_result.resolved_from_scope_token
+
+    @property
+    def manual_dispatch_id(self) -> str:
+        return self.manual_dispatch_result.manual_dispatch_id
+
+    @property
+    def command_bus_run_id(self) -> str | None:
+        return self.manual_dispatch_result.command_bus_run_id
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "account_id": self.account_id,
-            "requested_command_id": self.requested_command_id,
-            "activation_context_token": self.activation_context_token,
-            "project_id": self.project_id,
-            "profile_id": self.profile_id,
-            "requested_permissions_json": [
-                permission.to_payload()
-                for permission in self.requested_permissions
-            ],
-            "request_metadata_json": dict(self.request_metadata),
-            "source_thread_id": self.source_thread_id,
-            "source_message_id": self.source_message_id,
-            "requested_at": self.requested_at,
+            "manual_dispatch_result_json": self.manual_dispatch_result.to_payload(),
         }
 
     @classmethod
     def from_payload(
-        cls, payload: Mapping[str, Any]
-    ) -> CapabilityActivationRequest:
-        data = dict(payload)
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityResultReinjectionRequest:
+        data = dict(payload or {})
+        manual_dispatch_payload = data.get("manual_dispatch_result_json")
+        if not isinstance(manual_dispatch_payload, Mapping):
+            manual_dispatch_payload = data.get("manual_dispatch_result") or {}
         return cls(
             account_id=data.get("account_id") or "",
-            requested_command_id=data.get("requested_command_id")
-            or data.get("command_id")
-            or "",
-            activation_context_token=data.get("activation_context_token") or "",
-            project_id=data.get("project_id"),
-            profile_id=data.get("profile_id"),
-            requested_permissions=tuple(
-                ExtensionRequestedPermission.from_payload(item)
-                for item in data.get("requested_permissions_json") or []
-            ),
-            request_metadata=_clean_mapping(
-                data.get("request_metadata_json")
-                if isinstance(data.get("request_metadata_json"), Mapping)
-                else {}
-            ),
-            source_thread_id=data.get("source_thread_id"),
-            source_message_id=data.get("source_message_id"),
-            requested_at=data.get("requested_at"),
+            manual_dispatch_result=manual_dispatch_payload,
         )
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilityActivationMatch:
-    """A unique effective capability that matched a requested command."""
+class CapabilityReinjectedOutput:
+    """Extension-facing output for one normalized manual capability dispatch."""
 
     account_id: str
-    registry_entry_id: str
     proposal_id: str
-    binding_id: str
+    registry_entry_id: str
+    effective_binding_id: str
     resolved_from_scope_token: str
-    manifest_snapshot: ExtensionProposalManifest
-    approved_permissions: tuple[ExtensionRequestedPermission, ...] = ()
-    exposed_command: CapabilityExposedCommand | None = None
-    matched_alias: str | None = None
-    source_thread_id: int | None = None
-    source_message_id: int | None = None
-    target_surface_token: str | None = None
-    match_metadata: dict[str, Any] = field(default_factory=dict)
+    manual_dispatch_id: str
+    command_bus_run_id: str | None
+    manifest_snapshot: ExtensionProposalManifest | Mapping[str, Any] | None = None
+    approved_permissions: tuple[
+        ExtensionRequestedPermission | Mapping[str, Any], ...
+    ] = ()
+    reinjection_source_token: str = (
+        CapabilityReinjectionSource.MANUAL_DISPATCH.value
+    )
+    reinjection_outcome_token: str = (
+        CapabilityResultReinjectionOutcome.UNUSABLE.value
+    )
+    result_shape_token: str = CapabilityReinjectionResultShape.FAILED_CLOSED.value
+    normalized_command_result_payload: dict[str, Any] | None = None
+    normalized_command_failure_payload: dict[str, Any] | None = None
+    reinjection_failure_reason_token: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
         )
         object.__setattr__(
             self,
@@ -1557,10 +1551,9 @@ class CapabilityActivationMatch:
             _clean_optional_text(self.registry_entry_id) or "",
         )
         object.__setattr__(
-            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
-        )
-        object.__setattr__(
-            self, "binding_id", _clean_optional_text(self.binding_id) or ""
+            self,
+            "effective_binding_id",
+            _clean_optional_text(self.effective_binding_id) or "",
         )
         object.__setattr__(
             self,
@@ -1571,928 +1564,317 @@ class CapabilityActivationMatch:
         )
         object.__setattr__(
             self,
+            "manual_dispatch_id",
+            _clean_optional_text(self.manual_dispatch_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "command_bus_run_id",
+            _clean_optional_text(self.command_bus_run_id),
+        )
+        object.__setattr__(
+            self,
+            "manifest_snapshot",
+            _coerce_manifest_snapshot(self.manifest_snapshot),
+        )
+        object.__setattr__(
+            self,
             "approved_permissions",
-            tuple(self.approved_permissions or ()),
+            _normalize_permission_snapshot(self.approved_permissions),
         )
         object.__setattr__(
             self,
-            "matched_alias",
-            _clean_optional_text(self.matched_alias),
+            "reinjection_source_token",
+            normalize_capability_reinjection_source(
+                self.reinjection_source_token
+            ),
         )
         object.__setattr__(
             self,
-            "target_surface_token",
-            _clean_optional_text(self.target_surface_token)
-            or self.manifest_snapshot.target_surface,
+            "reinjection_outcome_token",
+            normalize_capability_result_reinjection_outcome(
+                self.reinjection_outcome_token
+            ),
         )
         object.__setattr__(
-            self, "match_metadata", _clean_mapping(self.match_metadata)
+            self,
+            "result_shape_token",
+            normalize_capability_reinjection_result_shape(
+                self.result_shape_token
+            ),
         )
-        if self.exposed_command is None:
-            raise ValueError("exposed_command is required")
+        object.__setattr__(
+            self,
+            "reinjection_failure_reason_token",
+            (
+                normalize_capability_reinjection_failure_reason(
+                    self.reinjection_failure_reason_token
+                )
+                if self.reinjection_failure_reason_token is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "normalized_command_result_payload",
+            (
+                _canonical_json_payload(
+                    self.normalized_command_result_payload
+                )
+                if self.normalized_command_result_payload is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "normalized_command_failure_payload",
+            (
+                _canonical_json_payload(
+                    self.normalized_command_failure_payload
+                )
+                if self.normalized_command_failure_payload is not None
+                else None
+            ),
+        )
         if not self.account_id:
             raise ValueError("account_id is required")
-        if not self.registry_entry_id:
-            raise ValueError("registry_entry_id is required")
         if not self.proposal_id:
             raise ValueError("proposal_id is required")
-        if not self.binding_id:
-            raise ValueError("binding_id is required")
+        if not self.registry_entry_id:
+            raise ValueError("registry_entry_id is required")
+        if not self.effective_binding_id:
+            raise ValueError("effective_binding_id is required")
+        if not self.manual_dispatch_id:
+            raise ValueError("manual_dispatch_id is required")
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "account_id": self.account_id,
-            "registry_entry_id": self.registry_entry_id,
             "proposal_id": self.proposal_id,
-            "binding_id": self.binding_id,
+            "registry_entry_id": self.registry_entry_id,
+            "effective_binding_id": self.effective_binding_id,
             "resolved_from_scope_token": self.resolved_from_scope_token,
-            "manifest_snapshot_json": self.manifest_snapshot.to_payload(),
+            "manual_dispatch_id": self.manual_dispatch_id,
+            "command_bus_run_id": self.command_bus_run_id,
+            "manifest_snapshot_json": (
+                self.manifest_snapshot.to_payload()
+                if self.manifest_snapshot is not None
+                else None
+            ),
             "approved_permissions_json": [
-                permission.to_payload()
-                for permission in self.approved_permissions
+                permission.to_payload() for permission in self.approved_permissions
             ],
-            "exposed_command_json": self.exposed_command.to_payload(),
-            "matched_alias": self.matched_alias,
-            "source_thread_id": self.source_thread_id,
-            "source_message_id": self.source_message_id,
-            "target_surface_token": self.target_surface_token,
-            "match_metadata_json": dict(self.match_metadata),
+            "reinjection_source_token": self.reinjection_source_token,
+            "reinjection_outcome_token": self.reinjection_outcome_token,
+            "result_shape_token": self.result_shape_token,
+            "normalized_command_result_payload": (
+                _canonical_json_payload(
+                    self.normalized_command_result_payload
+                )
+                if self.normalized_command_result_payload is not None
+                else None
+            ),
+            "normalized_command_failure_payload": (
+                _canonical_json_payload(
+                    self.normalized_command_failure_payload
+                )
+                if self.normalized_command_failure_payload is not None
+                else None
+            ),
+            "reinjection_failure_reason_token": self.reinjection_failure_reason_token,
         }
 
     @classmethod
     def from_payload(
-        cls, payload: Mapping[str, Any]
-    ) -> CapabilityActivationMatch:
-        data = dict(payload)
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityReinjectedOutput:
+        data = dict(payload or {})
         manifest_payload = data.get("manifest_snapshot_json")
-        if not isinstance(manifest_payload, Mapping):
-            manifest_payload = {}
-        exposed_payload = data.get("exposed_command_json")
-        if not isinstance(exposed_payload, Mapping):
-            exposed_payload = {}
-        match_metadata = data.get("match_metadata_json")
+        approved_permissions = tuple(
+            ExtensionRequestedPermission.from_payload(item)
+            for item in data.get("approved_permissions_json") or []
+        )
         return cls(
             account_id=data.get("account_id") or "",
-            registry_entry_id=data.get("registry_entry_id") or "",
             proposal_id=data.get("proposal_id") or "",
-            binding_id=data.get("binding_id") or "",
-            resolved_from_scope_token=data.get("resolved_from_scope_token")
-            or "",
-            manifest_snapshot=ExtensionProposalManifest.from_payload(
-                manifest_payload
-            ),
-            approved_permissions=tuple(
-                ExtensionRequestedPermission.from_payload(item)
-                for item in data.get("approved_permissions_json") or []
-            ),
-            exposed_command=CapabilityExposedCommand.from_payload(
-                exposed_payload
-            )
-            if exposed_payload
+            registry_entry_id=data.get("registry_entry_id") or "",
+            effective_binding_id=data.get("effective_binding_id") or "",
+            resolved_from_scope_token=data.get("resolved_from_scope_token") or "",
+            manual_dispatch_id=data.get("manual_dispatch_id") or "",
+            command_bus_run_id=data.get("command_bus_run_id"),
+            manifest_snapshot=manifest_payload
+            if isinstance(manifest_payload, Mapping)
             else None,
-            matched_alias=data.get("matched_alias"),
-            source_thread_id=data.get("source_thread_id"),
-            source_message_id=data.get("source_message_id"),
-            target_surface_token=data.get("target_surface_token"),
-            match_metadata=_clean_mapping(match_metadata)
-            if isinstance(match_metadata, Mapping)
-            else {},
+            approved_permissions=approved_permissions,
+            reinjection_source_token=(
+                data.get("reinjection_source_token")
+                or CapabilityReinjectionSource.MANUAL_DISPATCH.value
+            ),
+            reinjection_outcome_token=(
+                data.get("reinjection_outcome_token")
+                or CapabilityResultReinjectionOutcome.UNUSABLE.value
+            ),
+            result_shape_token=(
+                data.get("result_shape_token")
+                or CapabilityReinjectionResultShape.FAILED_CLOSED.value
+            ),
+            normalized_command_result_payload=data.get(
+                "normalized_command_result_payload"
+            ),
+            normalized_command_failure_payload=data.get(
+                "normalized_command_failure_payload"
+            ),
+            reinjection_failure_reason_token=(
+                data.get("reinjection_failure_reason_token")
+            ),
         )
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilityActivationConflictDetail:
-    """Structured conflict metadata for a denied activation."""
+class CapabilityResultReinjectionResult:
+    """Normalized reinjection result for one completed manual command-bus invocation."""
 
-    conflict_class_token: str
-    requested_command_id: str
-    candidate_matches: tuple[CapabilityActivationMatch, ...] = ()
-    summary: str | None = None
-    conflict_metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "conflict_class_token",
-            normalize_capability_activation_conflict_class_token(
-                self.conflict_class_token
-            ),
-        )
-        object.__setattr__(
-            self,
-            "requested_command_id",
-            _clean_optional_text(self.requested_command_id) or "",
-        )
-        object.__setattr__(
-            self,
-            "candidate_matches",
-            tuple(self.candidate_matches or ()),
-        )
-        object.__setattr__(self, "summary", _clean_optional_text(self.summary))
-        object.__setattr__(
-            self,
-            "conflict_metadata",
-            _clean_mapping(self.conflict_metadata),
-        )
-        if not self.requested_command_id:
-            raise ValueError("requested_command_id is required")
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "conflict_class_token": self.conflict_class_token,
-            "requested_command_id": self.requested_command_id,
-            "candidate_matches_json": [
-                match.to_payload() for match in self.candidate_matches
-            ],
-            "summary": self.summary,
-            "conflict_metadata_json": dict(self.conflict_metadata),
-        }
-
-    @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any]
-    ) -> CapabilityActivationConflictDetail:
-        data = dict(payload)
-        conflict_metadata = data.get("conflict_metadata_json")
-        return cls(
-            conflict_class_token=data.get("conflict_class_token") or "",
-            requested_command_id=data.get("requested_command_id") or "",
-            candidate_matches=tuple(
-                CapabilityActivationMatch.from_payload(item)
-                for item in data.get("candidate_matches_json") or []
-            ),
-            summary=data.get("summary"),
-            conflict_metadata=_clean_mapping(conflict_metadata)
-            if isinstance(conflict_metadata, Mapping)
-            else {},
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityDispatchEnvelope:
-    """Command-bus-shaped envelope prepared for later invocation."""
-
-    owner_account_id: str
-    requested_command_id: str
-    command_id: str
-    activation_context_token: str
-    proposal_id: str
-    registry_entry_id: str
-    binding_id: str
-    resolved_from_scope_token: str
-    manifest_snapshot: ExtensionProposalManifest
-    approved_permissions: tuple[ExtensionRequestedPermission, ...] = ()
-    requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
-    dispatch_source_token: str = (
-        CapabilityDispatchSourceToken.CAPABILITY_ACTIVATION.value
+    request: CapabilityResultReinjectionRequest
+    reinjection_outcome_token: str
+    result_shape_token: str
+    reinjection_source_token: str = (
+        CapabilityReinjectionSource.MANUAL_DISPATCH.value
     )
-    matched_alias: str | None = None
-    actor_kind: str = "human"
-    actor_id: str | None = None
-    actor_session_id: str | None = None
-    delegated_by: str | None = None
-    arguments: dict[str, Any] = field(default_factory=dict)
-    idempotency_key: str | None = None
-    invoke_version: str = INVOKE_VERSION
-    envelope_metadata: dict[str, Any] = field(default_factory=dict)
-    requested_at: datetime | None = None
+    reinjection_failure_reason_token: str | None = None
+    reinjected_output: CapabilityReinjectedOutput | Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
-            "owner_account_id",
-            _clean_optional_text(self.owner_account_id) or "",
+            "request",
+            self.request
+            if isinstance(self.request, CapabilityResultReinjectionRequest)
+            else CapabilityResultReinjectionRequest.from_payload(self.request),
         )
         object.__setattr__(
             self,
-            "requested_command_id",
-            _clean_optional_text(self.requested_command_id) or "",
-        )
-        object.__setattr__(
-            self, "command_id", _clean_optional_text(self.command_id) or ""
-        )
-        object.__setattr__(
-            self,
-            "activation_context_token",
-            normalize_capability_activation_context_token(
-                self.activation_context_token
-            ),
-        )
-        object.__setattr__(
-            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
-        )
-        object.__setattr__(
-            self,
-            "registry_entry_id",
-            _clean_optional_text(self.registry_entry_id) or "",
-        )
-        object.__setattr__(
-            self, "binding_id", _clean_optional_text(self.binding_id) or ""
-        )
-        object.__setattr__(
-            self,
-            "resolved_from_scope_token",
-            normalize_extension_install_binding_scope(
-                self.resolved_from_scope_token
+            "reinjection_source_token",
+            normalize_capability_reinjection_source(
+                self.reinjection_source_token
             ),
         )
         object.__setattr__(
             self,
-            "approved_permissions",
-            tuple(self.approved_permissions or ()),
-        )
-        object.__setattr__(
-            self,
-            "requested_permissions",
-            tuple(self.requested_permissions or ()),
-        )
-        object.__setattr__(
-            self,
-            "dispatch_source_token",
-            normalize_capability_dispatch_source_token(
-                self.dispatch_source_token
+            "reinjection_outcome_token",
+            normalize_capability_result_reinjection_outcome(
+                self.reinjection_outcome_token
             ),
         )
         object.__setattr__(
-            self, "matched_alias", _clean_optional_text(self.matched_alias)
-        )
-        object.__setattr__(
-            self, "actor_kind", _clean_optional_text(self.actor_kind) or "human"
-        )
-        object.__setattr__(
             self,
-            "actor_id",
-            _clean_optional_text(self.actor_id) or self.owner_account_id,
-        )
-        object.__setattr__(
-            self,
-            "actor_session_id",
-            _clean_optional_text(self.actor_session_id),
-        )
-        object.__setattr__(
-            self, "delegated_by", _clean_optional_text(self.delegated_by)
-        )
-        object.__setattr__(self, "arguments", _clean_mapping(self.arguments))
-        object.__setattr__(
-            self,
-            "idempotency_key",
-            _clean_optional_text(self.idempotency_key),
-        )
-        object.__setattr__(
-            self,
-            "invoke_version",
-            _clean_optional_text(self.invoke_version) or INVOKE_VERSION,
-        )
-        object.__setattr__(
-            self,
-            "envelope_metadata",
-            _clean_mapping(self.envelope_metadata),
-        )
-        if not self.owner_account_id:
-            raise ValueError("owner_account_id is required")
-        if not self.requested_command_id:
-            raise ValueError("requested_command_id is required")
-        if not self.command_id:
-            raise ValueError("command_id is required")
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "owner_account_id": self.owner_account_id,
-            "requested_command_id": self.requested_command_id,
-            "command_id": self.command_id,
-            "activation_context_token": self.activation_context_token,
-            "proposal_id": self.proposal_id,
-            "registry_entry_id": self.registry_entry_id,
-            "binding_id": self.binding_id,
-            "resolved_from_scope_token": self.resolved_from_scope_token,
-            "manifest_snapshot_json": self.manifest_snapshot.to_payload(),
-            "approved_permissions_json": [
-                permission.to_payload()
-                for permission in self.approved_permissions
-            ],
-            "requested_permissions_json": [
-                permission.to_payload()
-                for permission in self.requested_permissions
-            ],
-            "dispatch_source_token": self.dispatch_source_token,
-            "matched_alias": self.matched_alias,
-            "actor_kind": self.actor_kind,
-            "actor_id": self.actor_id,
-            "actor_session_id": self.actor_session_id,
-            "delegated_by": self.delegated_by,
-            "arguments_json": dict(self.arguments),
-            "idempotency_key": self.idempotency_key,
-            "invoke_version": self.invoke_version,
-            "envelope_metadata_json": dict(self.envelope_metadata),
-            "requested_at": self.requested_at,
-        }
-
-    @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any]
-    ) -> CapabilityDispatchEnvelope:
-        data = dict(payload)
-        manifest_payload = data.get("manifest_snapshot_json")
-        if not isinstance(manifest_payload, Mapping):
-            manifest_payload = {}
-        envelope_metadata = data.get("envelope_metadata_json")
-        arguments = data.get("arguments_json")
-        return cls(
-            owner_account_id=data.get("owner_account_id") or "",
-            requested_command_id=data.get("requested_command_id") or "",
-            command_id=data.get("command_id") or "",
-            activation_context_token=data.get("activation_context_token") or "",
-            proposal_id=data.get("proposal_id") or "",
-            registry_entry_id=data.get("registry_entry_id") or "",
-            binding_id=data.get("binding_id") or "",
-            resolved_from_scope_token=data.get("resolved_from_scope_token")
-            or "",
-            manifest_snapshot=ExtensionProposalManifest.from_payload(
-                manifest_payload
+            "result_shape_token",
+            normalize_capability_reinjection_result_shape(
+                self.result_shape_token
             ),
-            approved_permissions=tuple(
-                ExtensionRequestedPermission.from_payload(item)
-                for item in data.get("approved_permissions_json") or []
-            ),
-            requested_permissions=tuple(
-                ExtensionRequestedPermission.from_payload(item)
-                for item in data.get("requested_permissions_json") or []
-            ),
-            dispatch_source_token=data.get("dispatch_source_token") or "",
-            matched_alias=data.get("matched_alias"),
-            actor_kind=data.get("actor_kind") or "human",
-            actor_id=data.get("actor_id"),
-            actor_session_id=data.get("actor_session_id"),
-            delegated_by=data.get("delegated_by"),
-            arguments=_clean_mapping(arguments)
-            if isinstance(arguments, Mapping)
-            else {},
-            idempotency_key=data.get("idempotency_key"),
-            invoke_version=data.get("invoke_version") or INVOKE_VERSION,
-            envelope_metadata=_clean_mapping(envelope_metadata)
-            if isinstance(envelope_metadata, Mapping)
-            else {},
-            requested_at=data.get("requested_at"),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityActivationDecision:
-    """Outcome for a read-time activation decision."""
-
-    request: CapabilityActivationRequest
-    outcome_token: str
-    candidate_matches: tuple[CapabilityActivationMatch, ...] = ()
-    conflict_details: tuple[CapabilityActivationConflictDetail, ...] = ()
-    denial_reason_token: str | None = None
-    conflict_class_token: str | None = None
-    dispatch_envelope: CapabilityDispatchEnvelope | None = None
-    evaluated_at: datetime | None = None
-    decision_metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "outcome_token",
-            normalize_capability_activation_outcome_token(self.outcome_token),
         )
         object.__setattr__(
             self,
-            "candidate_matches",
-            tuple(self.candidate_matches or ()),
-        )
-        object.__setattr__(
-            self,
-            "conflict_details",
-            tuple(self.conflict_details or ()),
-        )
-        object.__setattr__(
-            self,
-            "denial_reason_token",
+            "reinjection_failure_reason_token",
             (
-                normalize_capability_activation_deny_reason_token(
-                    self.denial_reason_token
+                normalize_capability_reinjection_failure_reason(
+                    self.reinjection_failure_reason_token
                 )
-                if self.denial_reason_token is not None
+                if self.reinjection_failure_reason_token is not None
                 else None
             ),
         )
+        if self.reinjected_output is None:
+            raise ValueError("reinjected_output is required")
         object.__setattr__(
             self,
-            "conflict_class_token",
-            (
-                normalize_capability_activation_conflict_class_token(
-                    self.conflict_class_token
-                )
-                if self.conflict_class_token is not None
-                else None
-            ),
-        )
-        object.__setattr__(
-            self,
-            "decision_metadata",
-            _clean_mapping(self.decision_metadata),
-        )
-        if self.outcome_token == CapabilityActivationOutcomeToken.ALLOWED.value:
-            if self.dispatch_envelope is None:
-                raise ValueError(
-                    "allowed activation requires a dispatch envelope"
-                )
-            if self.denial_reason_token is not None:
-                raise ValueError(
-                    "allowed activation must not carry a denial reason"
-                )
-            if self.conflict_class_token is not None:
-                raise ValueError(
-                    "allowed activation must not carry conflict metadata"
-                )
-            if self.conflict_details:
-                raise ValueError(
-                    "allowed activation must not carry conflict details"
-                )
-            if len(self.candidate_matches) != 1:
-                raise ValueError(
-                    "allowed activation requires one matched capability"
-                )
-        elif (
-            self.outcome_token == CapabilityActivationOutcomeToken.DENIED.value
-        ):
-            if self.dispatch_envelope is not None:
-                raise ValueError(
-                    "denied activation must not carry a dispatch envelope"
-                )
-            if self.denial_reason_token is None:
-                raise ValueError("denied activation requires a denial reason")
-            if self.conflict_class_token is not None:
-                raise ValueError(
-                    "denied activation must not carry conflict class metadata"
-                )
-            if self.conflict_details:
-                raise ValueError(
-                    "denied activation must not carry conflict details"
-                )
-        elif (
-            self.outcome_token
-            == CapabilityActivationOutcomeToken.CONFLICT.value
-        ):
-            if self.dispatch_envelope is not None:
-                raise ValueError(
-                    "conflict activation must not carry a dispatch envelope"
-                )
-            if self.conflict_class_token is None:
-                raise ValueError(
-                    "conflict activation requires a conflict class"
-                )
-            if not self.conflict_details:
-                raise ValueError(
-                    "conflict activation requires conflict details"
-                )
-            if self.denial_reason_token is not None:
-                raise ValueError(
-                    "conflict activation must not carry a denial reason"
-                )
-
-    @property
-    def is_allowed(self) -> bool:
-        return (
-            self.outcome_token == CapabilityActivationOutcomeToken.ALLOWED.value
+            "reinjected_output",
+            self.reinjected_output
+            if isinstance(self.reinjected_output, CapabilityReinjectedOutput)
+            else CapabilityReinjectedOutput.from_payload(self.reinjected_output),
         )
 
     @property
-    def is_denied(self) -> bool:
-        return (
-            self.outcome_token == CapabilityActivationOutcomeToken.DENIED.value
-        )
+    def account_id(self) -> str:
+        return self.request.account_id
 
     @property
-    def is_conflict(self) -> bool:
-        return (
-            self.outcome_token
-            == CapabilityActivationOutcomeToken.CONFLICT.value
-        )
+    def proposal_id(self) -> str:
+        return self.request.proposal_id
 
     @property
-    def selected_match(self) -> CapabilityActivationMatch | None:
-        return self.candidate_matches[0] if self.candidate_matches else None
+    def registry_entry_id(self) -> str:
+        return self.request.registry_entry_id
+
+    @property
+    def effective_binding_id(self) -> str:
+        return self.request.effective_binding_id
+
+    @property
+    def resolved_from_scope_token(self) -> str:
+        return self.request.resolved_from_scope_token
+
+    @property
+    def manual_dispatch_id(self) -> str:
+        return self.request.manual_dispatch_id
+
+    @property
+    def command_bus_run_id(self) -> str | None:
+        return self.request.command_bus_run_id
+
+    @property
+    def manifest_snapshot(self) -> ExtensionProposalManifest | None:
+        return self.reinjected_output.manifest_snapshot
+
+    @property
+    def approved_permissions(self) -> tuple[ExtensionRequestedPermission, ...]:
+        return self.reinjected_output.approved_permissions
+
+    @property
+    def normalized_command_result_payload(self) -> dict[str, Any] | None:
+        return self.reinjected_output.normalized_command_result_payload
+
+    @property
+    def normalized_command_failure_payload(self) -> dict[str, Any] | None:
+        return self.reinjected_output.normalized_command_failure_payload
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "request_json": self.request.to_payload(),
-            "outcome_token": self.outcome_token,
-            "candidate_matches_json": [
-                match.to_payload() for match in self.candidate_matches
-            ],
-            "conflict_details_json": [
-                detail.to_payload() for detail in self.conflict_details
-            ],
-            "denial_reason_token": self.denial_reason_token,
-            "conflict_class_token": self.conflict_class_token,
-            "dispatch_envelope_json": (
-                self.dispatch_envelope.to_payload()
-                if self.dispatch_envelope is not None
-                else None
-            ),
-            "evaluated_at": self.evaluated_at,
-            "decision_metadata_json": dict(self.decision_metadata),
+            "request": self.request.to_payload(),
+            "reinjection_outcome_token": self.reinjection_outcome_token,
+            "result_shape_token": self.result_shape_token,
+            "reinjection_source_token": self.reinjection_source_token,
+            "reinjection_failure_reason_token": self.reinjection_failure_reason_token,
+            "reinjected_output": self.reinjected_output.to_payload(),
         }
 
     @classmethod
     def from_payload(
-        cls, payload: Mapping[str, Any]
-    ) -> CapabilityActivationDecision:
-        data = dict(payload)
-        request_payload = data.get("request_json")
-        if not isinstance(request_payload, Mapping):
-            request_payload = {}
-        envelope_payload = data.get("dispatch_envelope_json")
-        if not isinstance(envelope_payload, Mapping):
-            envelope_payload = None
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityResultReinjectionResult:
+        data = dict(payload or {})
+        request_payload = data.get("request")
+        output_payload = data.get("reinjected_output")
         return cls(
-            request=CapabilityActivationRequest.from_payload(request_payload),
-            outcome_token=data.get("outcome_token") or "",
-            candidate_matches=tuple(
-                CapabilityActivationMatch.from_payload(item)
-                for item in data.get("candidate_matches_json") or []
-            ),
-            conflict_details=tuple(
-                CapabilityActivationConflictDetail.from_payload(item)
-                for item in data.get("conflict_details_json") or []
-            ),
-            denial_reason_token=data.get("denial_reason_token"),
-            conflict_class_token=data.get("conflict_class_token"),
-            dispatch_envelope=(
-                CapabilityDispatchEnvelope.from_payload(envelope_payload)
-                if envelope_payload is not None
-                else None
-            ),
-            evaluated_at=data.get("evaluated_at"),
-            decision_metadata=_clean_mapping(
-                data.get("decision_metadata_json")
-                if isinstance(data.get("decision_metadata_json"), Mapping)
-                else {}
-            ),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityManualDispatchRequest:
-    """Request for a bounded manual capability-to-command-bus invocation."""
-
-    account_id: str
-    requested_command_id: str
-    command_arguments: InvokeArguments | Mapping[str, Any] = field(
-        default_factory=InvokeArguments
-    )
-    project_id: int | None = None
-    profile_id: str | None = None
-    requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
-    request_metadata: dict[str, Any] = field(default_factory=dict)
-    dispatch_envelope: CapabilityDispatchEnvelope | None = None
-    invocation_source_token: str = (
-        CapabilityManualDispatchSourceToken.MANUAL_CAPABILITY_DISPATCH.value
-    )
-    idempotency_class_token: str = (
-        CapabilityManualDispatchIdempotencyClassToken.SINGLE_COMMAND_BUS_INVOCATION.value
-    )
-    idempotency_key: str | None = None
-    source_thread_id: int | None = None
-    source_message_id: int | None = None
-    requested_at: datetime | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "account_id", _clean_optional_text(self.account_id) or ""
-        )
-        object.__setattr__(
-            self,
-            "requested_command_id",
-            _clean_optional_text(self.requested_command_id) or "",
-        )
-        if isinstance(self.command_arguments, InvokeArguments):
-            command_arguments = self.command_arguments
-        elif isinstance(self.command_arguments, Mapping):
-            command_arguments = InvokeArguments.model_validate(
-                dict(self.command_arguments)
-            )
-        else:
-            command_arguments = InvokeArguments.model_validate(
-                self.command_arguments
-            )
-        object.__setattr__(self, "command_arguments", command_arguments)
-        object.__setattr__(
-            self,
-            "requested_permissions",
-            tuple(self.requested_permissions or ()),
-        )
-        object.__setattr__(
-            self,
-            "request_metadata",
-            _clean_mapping(self.request_metadata),
-        )
-        object.__setattr__(
-            self,
-            "invocation_source_token",
-            normalize_capability_manual_dispatch_source_token(
-                self.invocation_source_token
-            ),
-        )
-        object.__setattr__(
-            self,
-            "idempotency_class_token",
-            normalize_capability_manual_dispatch_idempotency_class_token(
-                self.idempotency_class_token
-            ),
-        )
-        object.__setattr__(
-            self, "idempotency_key", _clean_optional_text(self.idempotency_key)
-        )
-        if self.dispatch_envelope is not None and not self.requested_command_id:
-            object.__setattr__(
-                self,
-                "requested_command_id",
-                self.dispatch_envelope.requested_command_id,
-            )
-        if not self.account_id:
-            raise ValueError("account_id is required")
-        if not self.requested_command_id:
-            raise ValueError("requested_command_id is required")
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "account_id": self.account_id,
-            "requested_command_id": self.requested_command_id,
-            "command_arguments_json": self.command_arguments.model_dump(
-                mode="json", exclude_none=False
-            ),
-            "project_id": self.project_id,
-            "profile_id": self.profile_id,
-            "requested_permissions_json": [
-                permission.to_payload()
-                for permission in self.requested_permissions
-            ],
-            "request_metadata_json": dict(self.request_metadata),
-            "dispatch_envelope_json": (
-                self.dispatch_envelope.to_payload()
-                if self.dispatch_envelope is not None
-                else None
-            ),
-            "invocation_source_token": self.invocation_source_token,
-            "idempotency_class_token": self.idempotency_class_token,
-            "idempotency_key": self.idempotency_key,
-            "source_thread_id": self.source_thread_id,
-            "source_message_id": self.source_message_id,
-            "requested_at": self.requested_at,
-        }
-
-    @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any]
-    ) -> CapabilityManualDispatchRequest:
-        data = dict(payload)
-        request_metadata = data.get("request_metadata_json")
-        command_arguments = data.get("command_arguments_json")
-        dispatch_envelope = data.get("dispatch_envelope_json")
-        return cls(
-            account_id=data.get("account_id") or "",
-            requested_command_id=data.get("requested_command_id")
-            or data.get("command_id")
-            or "",
-            command_arguments=InvokeArguments.model_validate(
-                command_arguments or {}
-            ),
-            project_id=data.get("project_id"),
-            profile_id=data.get("profile_id"),
-            requested_permissions=tuple(
-                ExtensionRequestedPermission.from_payload(item)
-                for item in data.get("requested_permissions_json") or []
-            ),
-            request_metadata=_clean_mapping(request_metadata)
-            if isinstance(request_metadata, Mapping)
-            else {},
-            dispatch_envelope=(
-                CapabilityDispatchEnvelope.from_payload(dispatch_envelope)
-                if isinstance(dispatch_envelope, Mapping)
-                else None
-            ),
-            invocation_source_token=data.get("invocation_source_token")
-            or CapabilityManualDispatchSourceToken.MANUAL_CAPABILITY_DISPATCH.value,
-            idempotency_class_token=data.get("idempotency_class_token")
-            or CapabilityManualDispatchIdempotencyClassToken.SINGLE_COMMAND_BUS_INVOCATION.value,
-            idempotency_key=data.get("idempotency_key"),
-            source_thread_id=data.get("source_thread_id"),
-            source_message_id=data.get("source_message_id"),
-            requested_at=data.get("requested_at"),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityManualDispatchResult:
-    """Outcome for a bounded manual capability dispatch."""
-
-    request: CapabilityManualDispatchRequest
-    outcome_token: str
-    activation_decision: CapabilityActivationDecision | None = None
-    dispatch_envelope: CapabilityDispatchEnvelope | None = None
-    command_bus_request: InvokeRequest | None = None
-    command_bus_result: CommandBusInvokeResult | None = None
-    command_run_id: str | None = None
-    denial_reason_token: str | None = None
-    evaluated_at: datetime | None = None
-    result_metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "outcome_token",
-            normalize_capability_manual_dispatch_outcome_token(
-                self.outcome_token
-            ),
-        )
-        object.__setattr__(
-            self,
-            "denial_reason_token",
-            (
-                normalize_capability_manual_dispatch_deny_reason_token(
-                    self.denial_reason_token
-                )
-                if self.denial_reason_token is not None
-                else None
-            ),
-        )
-        object.__setattr__(
-            self,
-            "result_metadata",
-            _clean_mapping(self.result_metadata),
-        )
-        command_run_id = _clean_optional_text(self.command_run_id)
-        if not command_run_id and self.command_bus_result is not None:
-            command_run_id = _clean_optional_text(
-                self.command_bus_result.run_id
-            )
-        object.__setattr__(self, "command_run_id", command_run_id)
-        if (
-            self.outcome_token
-            == CapabilityManualDispatchOutcomeToken.DISPATCHED.value
-        ):
-            if self.command_bus_request is None:
-                raise ValueError(
-                    "dispatched manual result requires a command bus request"
-                )
-            if self.command_bus_result is None:
-                raise ValueError(
-                    "dispatched manual result requires a command bus result"
-                )
-            if not self.command_run_id:
-                raise ValueError(
-                    "dispatched manual result requires a command run id"
-                )
-            if self.denial_reason_token is not None:
-                raise ValueError(
-                    "dispatched manual result must not carry a denial reason"
-                )
-        elif (
-            self.outcome_token
-            == CapabilityManualDispatchOutcomeToken.BUS_REJECTED.value
-        ):
-            if self.command_bus_request is None:
-                raise ValueError(
-                    "bus rejected manual result requires a command bus request"
-                )
-            if self.denial_reason_token is None:
-                raise ValueError(
-                    "bus rejected manual result requires a denial reason"
-                )
-        elif self.outcome_token in {
-            CapabilityManualDispatchOutcomeToken.DENIED.value,
-            CapabilityManualDispatchOutcomeToken.CONFLICT.value,
-        }:
-            if self.command_bus_request is not None:
-                raise ValueError(
-                    "denied manual result must not carry a command bus request"
-                )
-            if self.command_bus_result is not None:
-                raise ValueError(
-                    "denied manual result must not carry a command bus result"
-                )
-            if self.command_run_id is not None:
-                raise ValueError(
-                    "denied manual result must not carry a command run id"
-                )
-            if self.denial_reason_token is None:
-                raise ValueError(
-                    "denied manual result requires a denial reason"
-                )
-
-    @property
-    def is_dispatched(self) -> bool:
-        return (
-            self.outcome_token
-            == CapabilityManualDispatchOutcomeToken.DISPATCHED.value
-        )
-
-    @property
-    def is_denied(self) -> bool:
-        return (
-            self.outcome_token
-            == CapabilityManualDispatchOutcomeToken.DENIED.value
-        )
-
-    @property
-    def is_conflict(self) -> bool:
-        return (
-            self.outcome_token
-            == CapabilityManualDispatchOutcomeToken.CONFLICT.value
-        )
-
-    @property
-    def is_bus_rejected(self) -> bool:
-        return (
-            self.outcome_token
-            == CapabilityManualDispatchOutcomeToken.BUS_REJECTED.value
-        )
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "request_json": self.request.to_payload(),
-            "outcome_token": self.outcome_token,
-            "activation_decision_json": (
-                self.activation_decision.to_payload()
-                if self.activation_decision is not None
-                else None
-            ),
-            "dispatch_envelope_json": (
-                self.dispatch_envelope.to_payload()
-                if self.dispatch_envelope is not None
-                else None
-            ),
-            "command_bus_request_json": (
-                self.command_bus_request.model_dump(
-                    mode="json", exclude_none=False
-                )
-                if self.command_bus_request is not None
-                else None
-            ),
-            "command_bus_result_json": (
-                self.command_bus_result.model_dump(
-                    mode="json", exclude_none=False
-                )
-                if self.command_bus_result is not None
-                else None
-            ),
-            "command_run_id": self.command_run_id,
-            "denial_reason_token": self.denial_reason_token,
-            "evaluated_at": self.evaluated_at,
-            "result_metadata_json": dict(self.result_metadata),
-        }
-
-    @classmethod
-    def from_payload(
-        cls, payload: Mapping[str, Any]
-    ) -> CapabilityManualDispatchResult:
-        data = dict(payload)
-        request_payload = data.get("request_json")
-        activation_decision_payload = data.get("activation_decision_json")
-        dispatch_envelope_payload = data.get("dispatch_envelope_json")
-        command_bus_request_payload = data.get("command_bus_request_json")
-        command_bus_result_payload = data.get("command_bus_result_json")
-        return cls(
-            request=CapabilityManualDispatchRequest.from_payload(
+            request=CapabilityResultReinjectionRequest.from_payload(
                 request_payload if isinstance(request_payload, Mapping) else {}
             ),
-            outcome_token=data.get("outcome_token") or "",
-            activation_decision=(
-                CapabilityActivationDecision.from_payload(
-                    activation_decision_payload
-                )
-                if isinstance(activation_decision_payload, Mapping)
-                else None
+            reinjection_outcome_token=(
+                data.get("reinjection_outcome_token")
+                or CapabilityResultReinjectionOutcome.UNUSABLE.value
             ),
-            dispatch_envelope=(
-                CapabilityDispatchEnvelope.from_payload(
-                    dispatch_envelope_payload
-                )
-                if isinstance(dispatch_envelope_payload, Mapping)
-                else None
+            result_shape_token=(
+                data.get("result_shape_token")
+                or CapabilityReinjectionResultShape.FAILED_CLOSED.value
             ),
-            command_bus_request=(
-                InvokeRequest.model_validate(command_bus_request_payload)
-                if isinstance(command_bus_request_payload, Mapping)
-                else None
+            reinjection_source_token=(
+                data.get("reinjection_source_token")
+                or CapabilityReinjectionSource.MANUAL_DISPATCH.value
             ),
-            command_bus_result=(
-                CommandBusInvokeResult.model_validate(
-                    command_bus_result_payload
-                )
-                if isinstance(command_bus_result_payload, Mapping)
-                else None
+            reinjection_failure_reason_token=(
+                data.get("reinjection_failure_reason_token")
             ),
-            command_run_id=data.get("command_run_id"),
-            denial_reason_token=data.get("denial_reason_token"),
-            evaluated_at=data.get("evaluated_at"),
-            result_metadata=_clean_mapping(
-                data.get("result_metadata_json")
-                if isinstance(data.get("result_metadata_json"), Mapping)
-                else {}
+            reinjected_output=(
+                output_payload if isinstance(output_payload, Mapping) else {}
             ),
         )
 
@@ -2512,11 +1894,7 @@ __all__ = [
     "ExtensionBindingRecord",
     "EffectiveCapabilityRecord",
     "EffectiveCapabilitySnapshot",
-    "CapabilityActivationRequest",
-    "CapabilityActivationMatch",
-    "CapabilityActivationConflictDetail",
-    "CapabilityDispatchEnvelope",
-    "CapabilityActivationDecision",
-    "CapabilityManualDispatchRequest",
-    "CapabilityManualDispatchResult",
+    "CapabilityResultReinjectionRequest",
+    "CapabilityReinjectedOutput",
+    "CapabilityResultReinjectionResult",
 ]
