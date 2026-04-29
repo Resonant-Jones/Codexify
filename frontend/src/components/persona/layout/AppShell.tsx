@@ -56,6 +56,7 @@ import useRuntimeHealth, {
 import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   describeProviderState,
+  LIVE_EVENT_CONNECTION_STATES,
   PROVIDER_RUNTIME_STATES,
   RUNTIME_HEALTH_FAILURE_KINDS,
   RUNTIME_HEALTH_STATUSES,
@@ -2425,8 +2426,11 @@ export default function AppShell({
     : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
   const runtimeDegraded =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED &&
+    runtimeHealth.diagnostics.hydrationState !== "pending";
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const runtimeHydrationState = runtimeHealth.diagnostics.hydrationState;
+  const now = Date.now();
   const runtimeDetail =
     typeof process !== "undefined" &&
     process.env &&
@@ -2438,9 +2442,20 @@ export default function AppShell({
     runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED
       ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
       : [];
+  const liveUpdatesDisconnected =
+    runtimeHealth.diagnostics.liveEvents.connectionState ===
+      LIVE_EVENT_CONNECTION_STATES.DISCONNECTED &&
+    typeof runtimeHealth.diagnostics.liveEvents.statusUpdatedAt === "number" &&
+    now - runtimeHealth.diagnostics.liveEvents.statusUpdatedAt > 45_000;
+  const liveUpdateDiagnosticLines =
+    !runtimeDegraded && liveUpdatesDisconnected
+      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+      : [];
 
   const providerRuntimeState: ProviderRuntimeState =
-    runtimeHealth.backendReachable === false
+    runtimeHydrationState === "pending"
+      ? PROVIDER_RUNTIME_STATES.ONLINE
+      : runtimeHealth.backendReachable === false
       ? PROVIDER_RUNTIME_STATES.OFFLINE
       : PROVIDER_RUNTIME_STATES.DEGRADED;
 
@@ -2885,6 +2900,43 @@ export default function AppShell({
           </div>
         </div>
       )}
+      {liveUpdatesDisconnected && !runtimeDegraded ? (
+        <div className="relative z-10 w-full mt-3">
+          <div
+            className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold tracking-wide">
+                Live updates disconnected
+              </span>
+              <span className="opacity-80">
+                state: {runtimeHealth.diagnostics.liveEvents.connectionState}
+              </span>
+            </div>
+            <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
+              Guardian is healthy, but the live event stream has not stayed connected.
+            </div>
+            {liveUpdateDiagnosticLines.length > 0 ? (
+              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+                <summary className="cursor-pointer select-none opacity-80">
+                  Technical details
+                </summary>
+                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                  {liveUpdateDiagnosticLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
