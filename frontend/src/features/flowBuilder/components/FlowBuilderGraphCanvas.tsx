@@ -1,39 +1,85 @@
-type FlowBuilderStage = {
-  id: string;
-  label: string;
-  description: string;
-  chip: string;
-};
+import { ChevronDown, ChevronUp, Move } from "lucide-react";
+
+import {
+  type FlowDraftNode,
+  type FlowDraftSelection,
+  type FlowDraftValidationSummary,
+} from "../model/flowDraft";
 
 type FlowBuilderGraphCanvasProps = {
+  currentSelection: FlowDraftSelection;
+  graphVisibleNodes: FlowDraftNode[];
   modeLabel: string;
-  selectedStage: FlowBuilderStage;
-  selectedStageIndex: number;
-  stages: FlowBuilderStage[];
+  onMoveNode: (nodeId: string, direction: "up" | "down") => void;
+  onSelectNode: (nodeId: string) => void;
+  validationSummary: FlowDraftValidationSummary;
 };
 
-type FlowNode = {
-  label: string;
-  note: string;
-  active?: boolean;
-  compact?: boolean;
-  x: string;
-  y: string;
+type GraphPosition = {
+  left: string;
+  top: string;
+  x: number;
+  y: number;
 };
 
-function NodeCard({ node }: { node: FlowNode }) {
+const GRAPH_POSITIONS: GraphPosition[] = [
+  { left: "50%", top: "18%", x: 500, y: 130 },
+  { left: "27%", top: "34%", x: 270, y: 250 },
+  { left: "73%", top: "34%", x: 730, y: 250 },
+  { left: "34%", top: "56%", x: 340, y: 400 },
+  { left: "50%", top: "62%", x: 500, y: 450 },
+  { left: "66%", top: "56%", x: 660, y: 400 },
+  { left: "50%", top: "80%", x: 500, y: 570 },
+];
+
+function getNodeFieldPreview(node: FlowDraftNode): string {
+  const entries = Object.entries(node.fields);
+  if (entries.length === 0) {
+    return node.summary;
+  }
+
+  return entries
+    .slice(0, 2)
+    .map(([field, value]) => `${field}: ${value}`)
+    .join(" · ");
+}
+
+function NodeCard({
+  node,
+  active,
+  position,
+  onMoveNode,
+  onSelectNode,
+}: {
+  active: boolean;
+  node: FlowDraftNode;
+  onMoveNode: (nodeId: string, direction: "up" | "down") => void;
+  onSelectNode: (nodeId: string) => void;
+  position: GraphPosition;
+}) {
   return (
     <div
+      data-testid={`flow-builder-graph-node-${node.id}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={active}
+      onClick={() => onSelectNode(node.id)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelectNode(node.id);
+        }
+      }}
       className={[
-        "absolute -translate-x-1/2 -translate-y-1/2 rounded-[var(--tile-radius,19px)] border px-4 py-3 text-left backdrop-blur-sm",
-        node.active ? "shadow-[0_24px_42px_rgba(0,0,0,0.3)]" : "shadow-[0_10px_24px_rgba(0,0,0,0.16)]",
-        node.compact ? "min-w-[180px]" : "min-w-[240px]",
+        "absolute -translate-x-1/2 -translate-y-1/2 rounded-[var(--tile-radius,19px)] border px-4 py-3 text-left backdrop-blur-sm transition",
+        active ? "shadow-[0_24px_42px_rgba(0,0,0,0.3)]" : "shadow-[0_10px_24px_rgba(0,0,0,0.16)]",
+        node.kind === "validation" ? "min-w-[210px]" : "min-w-[240px]",
       ].join(" ")}
       style={{
-        left: node.x,
-        top: node.y,
-        borderColor: node.active ? "var(--accent)" : "var(--panel-border)",
-        background: node.active
+        left: position.left,
+        top: position.top,
+        borderColor: active ? "var(--accent)" : "var(--panel-border)",
+        background: active
           ? "color-mix(in oklab, var(--accent) 15%, var(--panel-bg))"
           : "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
       }}
@@ -42,69 +88,71 @@ function NodeCard({ node }: { node: FlowNode }) {
         <span
           className="h-2.5 w-2.5 rounded-full"
           style={{
-            backgroundColor: node.active ? "var(--accent-strong)" : "var(--accent-weak)",
-            boxShadow: node.active ? "0 0 0 6px color-mix(in oklab, var(--accent) 12%, transparent)" : "none",
+            backgroundColor: active ? "var(--accent-strong)" : "var(--accent-weak)",
+            boxShadow: active ? "0 0 0 6px color-mix(in oklab, var(--accent) 12%, transparent)" : "none",
           }}
         />
         <div className="text-[11px] uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
-          {node.active ? "Seeded state" : "Derived node"}
+          {node.kind}
         </div>
       </div>
       <div className="mt-2 text-sm font-semibold tracking-[-0.02em]">{node.label}</div>
       <div className="mt-2 text-sm leading-6" style={{ color: "var(--muted)" }}>
-        {node.note}
+        {node.summary}
       </div>
+      <div className="mt-2 text-xs leading-5" style={{ color: "var(--muted)" }}>
+        {getNodeFieldPreview(node)}
+      </div>
+
+      {active ? (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            data-testid={`flow-builder-node-move-up-${node.id}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMoveNode(node.id, "up");
+            }}
+            className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] transition hover:-translate-y-[1px]"
+            style={{
+              borderColor: "var(--panel-border)",
+              background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+            }}
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+            Up
+          </button>
+          <button
+            type="button"
+            data-testid={`flow-builder-node-move-down-${node.id}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMoveNode(node.id, "down");
+            }}
+            className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] transition hover:-translate-y-[1px]"
+            style={{
+              borderColor: "var(--panel-border)",
+              background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+            }}
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+            Down
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export default function FlowBuilderGraphCanvas({
+  currentSelection,
+  graphVisibleNodes,
   modeLabel,
-  selectedStage,
-  selectedStageIndex,
-  stages,
+  onMoveNode,
+  onSelectNode,
+  validationSummary,
 }: FlowBuilderGraphCanvasProps) {
-  const previousStage = stages[Math.max(0, selectedStageIndex - 1)] ?? selectedStage;
-  const nextStage = stages[Math.min(stages.length - 1, selectedStageIndex + 1)] ?? selectedStage;
-  const reviewStage = stages[stages.length - 1] ?? selectedStage;
-
-  const nodes: FlowNode[] = [
-    {
-      label: selectedStage.label,
-      note: selectedStage.description,
-      active: true,
-      x: "50%",
-      y: "24%",
-    },
-    {
-      label: previousStage.label,
-      note: "The upstream choice that feeds the current seed.",
-      compact: true,
-      x: "28%",
-      y: "43%",
-    },
-    {
-      label: nextStage.label,
-      note: "The next visible step in the draft chain.",
-      compact: true,
-      x: "72%",
-      y: "43%",
-    },
-    {
-      label: "Validation Gate",
-      note: "Keep the unresolved edges visible before anything is treated as final.",
-      compact: true,
-      x: "38%",
-      y: "68%",
-    },
-    {
-      label: reviewStage.label,
-      note: "This remains a draft surface for inspection and review.",
-      compact: true,
-      x: "62%",
-      y: "68%",
-    },
-  ];
+  const positions = graphVisibleNodes.map((_, index) => GRAPH_POSITIONS[index] ?? GRAPH_POSITIONS[GRAPH_POSITIONS.length - 1]);
 
   return (
     <section
@@ -150,14 +198,24 @@ export default function FlowBuilderGraphCanvas({
           >
             {modeLabel}
           </span>
+          <span
+            className="rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.2em]"
+            style={{
+              borderColor: "var(--chip-border)",
+              background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+              color: "var(--muted)",
+            }}
+          >
+            Validation {validationSummary.label}
+          </span>
         </div>
         <div className="mt-2 max-w-2xl space-y-2">
           <h2 className="text-lg font-semibold tracking-[-0.02em] sm:text-xl">
-            Seeded from {selectedStage.label}
+            Seeded from {currentSelection.stage.label}
           </h2>
           <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
             The graph is a drafting surface, not an execution surface. It keeps the current stage,
-            its neighbors, and the review boundary legible in one view.
+            its neighboring structure, and the review boundary legible in one view.
           </p>
         </div>
       </div>
@@ -170,28 +228,32 @@ export default function FlowBuilderGraphCanvas({
           preserveAspectRatio="none"
         >
           <g stroke="color-mix(in oklab, var(--accent-weak) 45%, transparent)" strokeWidth="2">
-            <path d="M500 164 L500 278" />
-            <path d="M500 278 L278 314" />
-            <path d="M500 278 L722 314" />
-            <path d="M278 314 L386 486" />
-            <path d="M722 314 L614 486" />
-            <path d="M500 278 L500 540" strokeDasharray="8 10" />
+            {graphVisibleNodes.slice(0, -1).map((node, index) => {
+              const from = positions[index];
+              const to = positions[index + 1] ?? positions[index];
+              return <line key={`${node.id}-edge`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
+            })}
           </g>
           <g fill="color-mix(in oklab, var(--accent) 70%, transparent)">
-            <circle cx="500" cy="164" r="7" />
-            <circle cx="500" cy="278" r="7" />
-            <circle cx="278" cy="314" r="6" />
-            <circle cx="722" cy="314" r="6" />
-            <circle cx="386" cy="486" r="6" />
-            <circle cx="614" cy="486" r="6" />
+            {positions.map((position, index) => (
+              <circle key={`${index}-${position.x}-${position.y}`} cx={position.x} cy={position.y} r="6" />
+            ))}
           </g>
         </svg>
 
-        {nodes.map((node, index) => (
-          <NodeCard key={`${node.label}-${index}`} node={node} />
+        {graphVisibleNodes.map((node, index) => (
+          <NodeCard
+            key={node.id}
+            active={node.id === currentSelection.nodeId}
+            node={node}
+            onMoveNode={onMoveNode}
+            onSelectNode={onSelectNode}
+            position={positions[index] ?? GRAPH_POSITIONS[GRAPH_POSITIONS.length - 1]}
+          />
         ))}
 
         <div
+          data-testid="flow-builder-draft-order"
           className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--tile-radius,19px)] border px-4 py-3 backdrop-blur-sm"
           style={{
             borderColor: "var(--panel-border)",
@@ -199,17 +261,39 @@ export default function FlowBuilderGraphCanvas({
           }}
         >
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
-              Current seed
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
+              <Move className="h-3.5 w-3.5" />
+              Draft order
             </div>
-            <div className="mt-1 text-sm font-medium">{selectedStage.label}</div>
+            <div className="mt-2 flex flex-wrap gap-2 text-sm">
+              {graphVisibleNodes.map((node, index) => (
+                <span
+                  key={node.id}
+                  data-testid={`flow-builder-draft-order-item-${node.id}`}
+                  className="rounded-full border px-2.5 py-1"
+                  style={{
+                    borderColor: node.id === currentSelection.nodeId ? "var(--accent)" : "var(--panel-border)",
+                    background:
+                      node.id === currentSelection.nodeId
+                        ? "color-mix(in oklab, var(--accent) 14%, var(--panel-bg))"
+                        : "color-mix(in oklab, var(--chip-bg) 86%, transparent)",
+                  }}
+                >
+                  {index + 1}. {node.label}
+                </span>
+              ))}
+            </div>
           </div>
+
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
             <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
-              Stage {selectedStageIndex + 1}
+              {currentSelection.stage.label}
             </span>
             <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
               Draft only
+            </span>
+            <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
+              {validationSummary.label}
             </span>
           </div>
         </div>
