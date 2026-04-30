@@ -13,7 +13,7 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while current beta distribution now includes both the macOS desktop shell and the standalone webUI Docker bundle over that same backend. Recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
+Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while current beta distribution includes both the macOS desktop shell and the standalone webUI Docker bundle over that same backend. The webUI package is GHCR-hosted and access-controlled for this beta release, so anonymous clean-shell pullability is not guaranteed. Recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
 
 Fresh private beta release evidence is recorded in [`docs/beta/2026-04-30-local-beta-release-evidence.md`](../beta/2026-04-30-local-beta-release-evidence.md).
 
@@ -39,7 +39,7 @@ Fresh private beta release evidence is recorded in [`docs/beta/2026-04-30-local-
 - Local Docker Compose remains the supported install path.
 - The supported beta distribution surface is now split into:
   - macOS desktop DMG for testers who want the Tauri shell on macOS.
-  - Universal webUI Docker bundle for non-macOS testers or anyone who wants browser-only access.
+  - WebUI Docker bundle for non-macOS testers or anyone who wants browser-only access, with GHCR authentication required when package access is not public for the tester identity.
 - Both paths use the same local backend runtime and the same local-only provider policy.
 - Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
@@ -67,6 +67,7 @@ Fresh private beta release evidence is recorded in [`docs/beta/2026-04-30-local-
 - exportability is now a first-class invariant.
 
 ## Not yet true / do not assume
+- Do not assume `ghcr.io/resonant-jones/codexify-webui:local-beta` is anonymously pullable from a clean shell; current evidence shows the runtime image is publicly pullable, while the webUI image requires GHCR access for this tester identity.
 - Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.
 - Do not assume the bounded tool-augmented completion proof closes the broader release gate by itself; it proves the tool-loop slice only, not the full release evidence pack.
 - Do not assume the Obsidian ingest→retrieve seam proof constitutes a full connector sync or live runtime validation; it uses an in-memory fixture at the backend route level.
