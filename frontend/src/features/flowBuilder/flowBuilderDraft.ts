@@ -1,10 +1,18 @@
-import type { FlowBuilderMode } from "./flowBuilderRoute";
+import {
+  FLOW_DRAFT_INITIAL_RUNTIME_SUPPORT,
+  FLOW_DRAFT_INITIAL_STATUS,
+  FLOW_DRAFT_INITIAL_TITLE,
+  type FlowDraftContent,
+  type FlowDraftRuntimeSupport,
+  type FlowDraftLifecycleStatus,
+  createSpecFirstFlowDraft,
+} from "./model/flowDraft";
 
 export type FlowBuilderExpertiseDraft = {
-  sourceMode: Extract<FlowBuilderMode, "expertise">;
+  sourceMode: "expertise";
   title: string;
-  status: "draft-only";
-  runtimeSupport: "none";
+  status: FlowDraftLifecycleStatus;
+  runtimeSupport: FlowDraftRuntimeSupport;
   objective: string;
   assumptions: string;
   unknowns: string;
@@ -12,18 +20,17 @@ export type FlowBuilderExpertiseDraft = {
 };
 
 export function createFlowBuilderExpertiseDraft(): FlowBuilderExpertiseDraft {
+  const draft = createSpecFirstFlowDraft();
   return {
     sourceMode: "expertise",
-    title: "Draft specification",
-    status: "draft-only",
-    runtimeSupport: "none",
-    objective:
-      "Describe the desired outcome, domain vocabulary, and scope before any runnable path is considered.",
-    assumptions:
-      "List what is being inferred from expertise versus what still needs confirmation.",
-    unknowns:
-      "Record missing steps, unresolved dependencies, and any boundary that needs review.",
-    validationQuestions:
-      "Write the questions that must be answered before this draft can be considered stable.",
+    title: FLOW_DRAFT_INITIAL_TITLE,
+    status: FLOW_DRAFT_INITIAL_STATUS,
+    runtimeSupport: FLOW_DRAFT_INITIAL_RUNTIME_SUPPORT,
+    objective: draft.content.objective,
+    assumptions: draft.content.assumptions,
+    unknowns: draft.content.unknowns,
+    validationQuestions: draft.content.validationQuestions,
   };
 }
+
+export type { FlowDraftContent };

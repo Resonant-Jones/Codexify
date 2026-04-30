@@ -53,6 +53,7 @@ Use this note as the local map for all ADRs.
 17. [[017-Graph-Write-Idempotency-and-Receipt-Semantics|ADR-017 Graph Write Idempotency and Receipt Semantics]] — deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
 18. [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] — latest-per-thread graph-lane inspection snapshots for operator/debug visibility without promoting graph truth.
 19. [[019-Graph-Backend-Adapter-Contract|ADR-019 Graph Backend Adapter Contract]] — typed graph backend seam with a default no-op implementation mounted after inspection.
+20. [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]] — Guardian-owned contract for coding-agent execution attempts, future Pi SDK adapters, and result ingestion before user-visible output.
 
 ---
 
@@ -238,6 +239,15 @@ Primary companion notes:
   * [[018-Graph-Write-Inspection-Surface|Graph Write Inspection Surface]]
   * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
   * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
+
+* [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]] links to:
+
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
+  * [[flows|Critical Flows]]
+  * [[data-and-storage|Data and Storage]]
+  * [[modules-and-ownership|Modules and Ownership]]
   * [[modules-and-ownership|Modules and Ownership]]
   * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
   * [[00-current-state]]

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
-import json
 from typing import Any, Mapping, Sequence
 
 from guardian.command_bus.contracts import (
@@ -37,6 +37,7 @@ from guardian.extensions.tokens import (
     normalize_capability_activation_outcome_token,
     normalize_capability_dispatch_source_token,
     normalize_capability_entry_provenance_class,
+    normalize_capability_registry_status,
     normalize_capability_reinjection_failure_reason,
     normalize_capability_reinjection_result_shape,
     normalize_capability_reinjection_source,
@@ -160,9 +161,8 @@ def _permission_sort_key(
 
 
 def _normalize_permission_snapshot(
-    permissions: Sequence[
-        ExtensionRequestedPermission | Mapping[str, Any]
-    ] | None,
+    permissions: Sequence[ExtensionRequestedPermission | Mapping[str, Any]]
+    | None,
 ) -> tuple[ExtensionRequestedPermission, ...]:
     if permissions is None:
         return ()
@@ -2820,7 +2820,9 @@ class CapabilityReinjectedOutput:
     resolved_from_scope_token: str
     manual_dispatch_id: str
     command_bus_run_id: str | None
-    manifest_snapshot: ExtensionProposalManifest | Mapping[str, Any] | None = None
+    manifest_snapshot: ExtensionProposalManifest | Mapping[
+        str, Any
+    ] | None = None
     approved_permissions: tuple[
         ExtensionRequestedPermission | Mapping[str, Any], ...
     ] = ()
@@ -2830,7 +2832,9 @@ class CapabilityReinjectedOutput:
     reinjection_outcome_token: str = (
         CapabilityResultReinjectionOutcome.UNUSABLE.value
     )
-    result_shape_token: str = CapabilityReinjectionResultShape.FAILED_CLOSED.value
+    result_shape_token: str = (
+        CapabilityReinjectionResultShape.FAILED_CLOSED.value
+    )
     normalized_command_result_payload: dict[str, Any] | None = None
     normalized_command_failure_payload: dict[str, Any] | None = None
     reinjection_failure_reason_token: str | None = None
@@ -2915,9 +2919,7 @@ class CapabilityReinjectedOutput:
             self,
             "normalized_command_result_payload",
             (
-                _canonical_json_payload(
-                    self.normalized_command_result_payload
-                )
+                _canonical_json_payload(self.normalized_command_result_payload)
                 if self.normalized_command_result_payload is not None
                 else None
             ),
@@ -2926,9 +2928,7 @@ class CapabilityReinjectedOutput:
             self,
             "normalized_command_failure_payload",
             (
-                _canonical_json_payload(
-                    self.normalized_command_failure_payload
-                )
+                _canonical_json_payload(self.normalized_command_failure_payload)
                 if self.normalized_command_failure_payload is not None
                 else None
             ),
@@ -2959,22 +2959,19 @@ class CapabilityReinjectedOutput:
                 else None
             ),
             "approved_permissions_json": [
-                permission.to_payload() for permission in self.approved_permissions
+                permission.to_payload()
+                for permission in self.approved_permissions
             ],
             "reinjection_source_token": self.reinjection_source_token,
             "reinjection_outcome_token": self.reinjection_outcome_token,
             "result_shape_token": self.result_shape_token,
             "normalized_command_result_payload": (
-                _canonical_json_payload(
-                    self.normalized_command_result_payload
-                )
+                _canonical_json_payload(self.normalized_command_result_payload)
                 if self.normalized_command_result_payload is not None
                 else None
             ),
             "normalized_command_failure_payload": (
-                _canonical_json_payload(
-                    self.normalized_command_failure_payload
-                )
+                _canonical_json_payload(self.normalized_command_failure_payload)
                 if self.normalized_command_failure_payload is not None
                 else None
             ),
@@ -2996,7 +2993,8 @@ class CapabilityReinjectedOutput:
             proposal_id=data.get("proposal_id") or "",
             registry_entry_id=data.get("registry_entry_id") or "",
             effective_binding_id=data.get("effective_binding_id") or "",
-            resolved_from_scope_token=data.get("resolved_from_scope_token") or "",
+            resolved_from_scope_token=data.get("resolved_from_scope_token")
+            or "",
             manual_dispatch_id=data.get("manual_dispatch_id") or "",
             command_bus_run_id=data.get("command_bus_run_id"),
             manifest_snapshot=manifest_payload
@@ -3038,7 +3036,9 @@ class CapabilityResultReinjectionResult:
         CapabilityReinjectionSource.MANUAL_DISPATCH.value
     )
     reinjection_failure_reason_token: str | None = None
-    reinjected_output: CapabilityReinjectedOutput | Mapping[str, Any] | None = None
+    reinjected_output: CapabilityReinjectedOutput | Mapping[
+        str, Any
+    ] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -3087,7 +3087,9 @@ class CapabilityResultReinjectionResult:
             "reinjected_output",
             self.reinjected_output
             if isinstance(self.reinjected_output, CapabilityReinjectedOutput)
-            else CapabilityReinjectedOutput.from_payload(self.reinjected_output),
+            else CapabilityReinjectedOutput.from_payload(
+                self.reinjected_output
+            ),
         )
 
     @property
