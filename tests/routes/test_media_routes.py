@@ -482,6 +482,58 @@ class TestUploadDedupeAndResolve:
     @patch("guardian.routes.media._create_media_asset")
     @patch("guardian.routes.media._find_uploaded_image_for_asset")
     @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_image_without_user_id_uses_request_account_identity(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded,
+        mock_create_asset,
+        mock_get_db,
+        mock_storage,
+        client,
+    ):
+        identity = SimpleNamespace(
+            storage_prefix="images/",
+            system_name="20260325-c001d00d--runtime-proof.png",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(id="asset-local-user")
+        mock_storage.upload_file.return_value = (
+            "/media/images/runtime-proof.png"
+        )
+
+        mock_db, mock_session = _mock_db_with_context(
+            thread=SimpleNamespace(id=9, project_id=42),
+            project=SimpleNamespace(id=42),
+            projects=[{"id": 42, "name": "General"}],
+        )
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/image",
+            data={"thread_id": 9},
+            files={"file": ("runtime-proof.png", b"12345678", "image/png")},
+        )
+
+        assert response.status_code == 200
+        local_user_id = os.environ.get("CODEXIFY_SINGLE_USER_ID", "local")
+        assert mock_create_asset.call_args.kwargs["user_id"] == local_user_id
+        uploaded_row = mock_session.add.call_args_list[-1][0][0]
+        assert uploaded_row.user_id == local_user_id
+        assert uploaded_row.project_id == 42
+        assert uploaded_row.thread_id == 9
+        mock_ensure_alias.assert_called_once()
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_image_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
     def test_upload_image_sanitizes_integrity_error_response(
         self,
         mock_compute_identity,
@@ -604,6 +656,163 @@ class TestUploadDedupeAndResolve:
         assert link_kwargs["thread_id"] == 2
         assert link_kwargs["document_id"] == response.json()["id"]
         assert link_kwargs["relation"] == "attached"
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media.enqueue_document_embed")
+    @patch("guardian.routes.media._ensure_thread_document_link")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_legacy_file_route_alias_enqueues_embedding_with_asset_metadata(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_create_asset,
+        mock_get_db,
+        mock_ensure_thread_document_link,
+        mock_enqueue_embed,
+        mock_storage,
+        client,
+    ):
+        """Legacy packaged composer route remains backed by the same upload contract."""
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260213-deadbeef--project-plan.txt",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded_doc.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(
+            id="asset-doc-legacy",
+            deterministic_id="20260213-deadbeef",
+            system_name="20260213-deadbeef--project-plan.txt",
+            normalized_slug="project-plan",
+            media_kind="document",
+            provenance="uploaded",
+            source_tag="uploaded",
+            content_hash="deadbeefcafebabe",
+        )
+        mock_storage.upload_file.return_value = (
+            "/media/documents/20260213-deadbeef--project-plan.txt"
+        )
+
+        mock_db, _mock_session = _mock_db_with_session()
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/file",
+            data={"project_id": 1, "thread_id": 2, "user_id": "u-1"},
+            files={"file": ("project-plan.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"]
+        assert payload["filename"] == "project-plan.txt"
+        assert payload["src_url"].startswith(
+            "/media/documents/20260213-deadbeef--project-plan.txt"
+        )
+        assert payload["embedding_status"] == "pending"
+        mock_enqueue_embed.assert_called_once()
+        _, enqueue_kwargs = mock_enqueue_embed.call_args
+        metadata = enqueue_kwargs["metadata"]
+        assert metadata["filename"] == "project-plan.txt"
+        assert metadata["mime_type"] == "text/plain"
+        assert metadata["user_id"] == "u-1"
+        assert metadata["project_id"] == 1
+        assert metadata["thread_id"] == 2
+        assert metadata["asset_id"] == "asset-doc-legacy"
+        assert metadata["deterministic_id"] == "20260213-deadbeef"
+        assert metadata["system_name"] == "20260213-deadbeef--project-plan.txt"
+        assert metadata["normalized_slug"] == "project-plan"
+        assert metadata["media_kind"] == "document"
+        assert metadata["provenance"] == "uploaded"
+        assert metadata["source_tag"] == "uploaded"
+        assert metadata["content_hash"] == "deadbeefcafebabe"
+        _, link_kwargs = mock_ensure_thread_document_link.call_args
+        assert link_kwargs["thread_id"] == 2
+        assert link_kwargs["document_id"] == payload["id"]
+        assert link_kwargs["relation"] == "attached"
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media.enqueue_document_embed")
+    @patch("guardian.routes.media._ensure_project_document_link")
+    @patch("guardian.routes.media._ensure_thread_document_link")
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media._create_media_asset")
+    @patch("guardian.routes.media._find_uploaded_document_for_asset")
+    @patch("guardian.routes.media._compute_identity_with_existing_asset")
+    @patch("guardian.routes.media.ensure_asset_alias")
+    def test_upload_document_legacy_file_route_uses_request_account_identity(
+        self,
+        mock_ensure_alias,
+        mock_compute_identity,
+        mock_find_uploaded_doc,
+        mock_create_asset,
+        mock_get_db,
+        mock_ensure_thread_document_link,
+        mock_ensure_project_document_link,
+        mock_enqueue_embed,
+        mock_storage,
+        client,
+    ):
+        """Composer-style legacy upload keeps thread/project linkage without a user_id field."""
+        identity = SimpleNamespace(
+            storage_prefix="documents/",
+            system_name="20260213-deadbeef--project-plan.txt",
+        )
+        mock_compute_identity.side_effect = [
+            (identity, None),
+            (identity, None),
+        ]
+        mock_find_uploaded_doc.return_value = None
+        mock_create_asset.return_value = SimpleNamespace(
+            id="asset-doc-local",
+            deterministic_id="20260213-deadbeef",
+            system_name="20260213-deadbeef--project-plan.txt",
+            normalized_slug="project-plan",
+            media_kind="document",
+            provenance="uploaded",
+            source_tag="uploaded",
+            content_hash="deadbeefcafebabe",
+        )
+        mock_storage.upload_file.return_value = (
+            "/media/documents/20260213-deadbeef--project-plan.txt"
+        )
+
+        mock_db, mock_session = _mock_db_with_session()
+        mock_get_db.return_value = mock_db
+
+        response = client.post(
+            "/api/media/upload/file",
+            data={"project_id": 1, "thread_id": 2},
+            files={"file": ("project-plan.txt", b"hello world", "text/plain")},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["project_id"] == 1
+        assert payload["thread_id"] == 2
+        assert payload["embedding_status"] == "pending"
+        local_user_id = os.environ.get("CODEXIFY_SINGLE_USER_ID", "local")
+        assert mock_create_asset.call_args.kwargs["user_id"] == local_user_id
+        uploaded_doc = mock_session.add.call_args_list[-1][0][0]
+        assert uploaded_doc.user_id == local_user_id
+        assert uploaded_doc.project_id == 1
+        assert uploaded_doc.thread_id == 2
+        mock_enqueue_embed.assert_called_once()
+        _, enqueue_kwargs = mock_enqueue_embed.call_args
+        assert enqueue_kwargs["metadata"]["user_id"] == local_user_id
+        _, thread_kwargs = mock_ensure_thread_document_link.call_args
+        assert thread_kwargs["thread_id"] == 2
+        _, project_kwargs = mock_ensure_project_document_link.call_args
+        assert project_kwargs["project_id"] == 1
+        mock_ensure_alias.assert_called_once()
 
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media._ensure_project_document_link")
