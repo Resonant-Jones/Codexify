@@ -6,6 +6,7 @@ import {
   getDesktopRuntimeAuthConfig,
   getRuntimeConfigHydrationState,
   resolveApiUrl,
+  resolveBackendUrl,
   resolveSseEndpoint,
 } from "@/lib/runtimeConfig";
 import {
@@ -51,6 +52,20 @@ describe("runtime config", () => {
 
     expect(config.mode).toBe("web");
     expect(config.apiBaseUrl).toBe("/api");
+    expect(resolveApiUrl("/api/share", config)).toBe("/api/share");
+    expect(resolveSseEndpoint(config)).toBe("/api/events");
+  });
+
+  it("uses the browser origin as the backend base in the webUI compose bundle", async () => {
+    vi.stubEnv("VITE_WEBUI_COMPOSE_BUNDLE", "1");
+
+    const config = await initRuntimeConfig({ force: true });
+
+    expect(config.mode).toBe("web");
+    expect(config.backendBaseUrl).toBe(window.location.origin);
+    expect(resolveBackendUrl("/health", config)).toBe(
+      `${window.location.origin}/health`
+    );
     expect(resolveApiUrl("/api/share", config)).toBe("/api/share");
     expect(resolveSseEndpoint(config)).toBe("/api/events");
   });

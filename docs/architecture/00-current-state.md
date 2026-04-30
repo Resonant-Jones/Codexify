@@ -13,7 +13,7 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
+Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while current beta distribution now includes both the macOS desktop shell and the standalone webUI Docker bundle over that same backend. Recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
 
 ## What changed recently
 - Verified active personal facts now flow through the backend chat context path and into the provider-ready prompt block as a bounded, user-scoped identity-context source; candidate, disputed, and inactive facts are excluded before prompt assembly.
@@ -35,6 +35,10 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
+- The supported beta distribution surface is now split into:
+  - macOS desktop DMG for testers who want the Tauri shell on macOS.
+  - Universal webUI Docker bundle for non-macOS testers or anyone who wants browser-only access.
+- Both paths use the same local backend runtime and the same local-only provider policy.
 - Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
 - Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.

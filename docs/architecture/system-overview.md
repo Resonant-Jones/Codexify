@@ -21,7 +21,7 @@ Source anchors:
 
 | Component | Responsibility | Key anchors |
 |---|---|---|
-| React frontend | Manual route-to-view mapping, chat/doc/gallery/settings UX, local session state, live event consumption | `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx` |
+| React frontend | Manual route-to-view mapping, chat/doc/gallery/settings UX, local session state, live event consumption; hosts the browser UI in the standalone webUI bundle and the Tauri shell on macOS | `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx` |
 | Frontend API/runtime layer | Resolves backend base URL, injects auth/API-key headers, manages SSE connections | `frontend/src/lib/runtimeConfig.ts`, `frontend/src/lib/api.ts`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/lib/guardianEventSource.ts` |
 | FastAPI app | Startup orchestration, middleware, router inclusion, `/api/events`, `/api/tasks/*/events`, metrics, media mount | `guardian/guardian_api.py`, `guardian/server/run.py` |
 | Auth and exposure boundary | Chooses local vs remote auth mode, derives current user, enforces API key/session rules, shapes CORS/public exposure | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
@@ -40,7 +40,7 @@ Source anchors:
 
 ### Default local topology
 
-- `frontend` serves the Vite UI and proxies browser traffic to `backend`.
+- `frontend` serves the Vite UI in dev, the macOS Tauri client shell on desktop, and the standalone webUI bundle on port 3000; the webUI bundle serves static assets and proxies browser traffic to `backend`.
 - `backend` runs `uvicorn guardian.guardian_api:app` on port `8888`.
 - `db` provides Postgres and is the primary system of record.
 - `redis` backs chat/document/cron queues, cancellation, heartbeats, and task event transport.

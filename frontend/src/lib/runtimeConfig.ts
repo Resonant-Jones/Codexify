@@ -327,6 +327,10 @@ function defaultMode(): RuntimeMode {
   return isTauriRuntime() ? "tauri" : "web";
 }
 
+function isWebUiComposeBundle(): boolean {
+  return readRuntimeEnv("VITE_WEBUI_COMPOSE_BUNDLE") === "1";
+}
+
 function defaultBackendBaseUrl(mode: RuntimeMode): string {
   const envBackend = readRuntimeEnv("VITE_GUARDIAN_API_BASE") || readRuntimeEnv("GUARDIAN_API_BASE");
   if (isAbsoluteUrl(envBackend)) {
@@ -334,6 +338,10 @@ function defaultBackendBaseUrl(mode: RuntimeMode): string {
   }
   if (mode === "tauri") {
     return "http://127.0.0.1:8888";
+  }
+  if (isWebUiComposeBundle() && typeof window !== "undefined" && window.location?.origin) {
+    // The standalone webUI bundle is same-origin behind nginx, so browser requests stay on the bundle host.
+    return normalizeBase(window.location.origin, "");
   }
   return envBackend || "";
 }
