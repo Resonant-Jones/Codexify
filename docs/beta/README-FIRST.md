@@ -65,7 +65,7 @@ In particular, do not edit:
 
 ## WebUI Docker Bundle
 
-This is the universal non-macOS beta path.
+This is the browser-first beta path.
 
 Use it when you want the browser UI without the Tauri shell.
 
@@ -74,6 +74,12 @@ You will need:
 - Docker Desktop installed and running
 - Ollama installed and running if you are testing the local model path
 - The required local model available in Ollama if you stay on the default local path
+
+GHCR access note:
+
+- The webUI bundle is published through GHCR.
+- Before install, confirm you can authenticate to `ghcr.io` with a GitHub account that has access to the `codexify-webui` package, or with a GitHub personal access token that includes `read:packages`.
+- If `docker pull ghcr.io/resonant-jones/codexify-webui:local-beta` returns `unauthorized` or `403 Forbidden`, you need GHCR access before the Docker bundle will install cleanly.
 
 Start the bundle with:
 
@@ -93,6 +99,12 @@ Quick smoke test:
 6. Confirm that the thread is still there.
 
 WebUI runtime config lives in the repository root `.env` file used by Docker Compose. Do not edit the macOS app bundle for this path.
+
+If you cannot pull the webUI image from GHCR, use the local rebuild fallback from this repo:
+
+- `bash scripts/verification/check_webui_runtime_bundle.sh`
+
+That script validates the local build and Compose startup path, but it is not registry pull proof.
 
 ## What We Want From You
 

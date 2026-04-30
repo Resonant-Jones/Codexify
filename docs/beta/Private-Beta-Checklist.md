@@ -23,6 +23,8 @@ Use this before sharing either private beta bundle.
 
 - [ ] Confirm the repo is clean.
 - [ ] Confirm the current commit hash.
+- [ ] Confirm GHCR access before install.
+- [ ] Confirm the tester's GitHub account can access the `codexify-webui` package, or that their GHCR token includes `read:packages`, if the webUI image is private.
 - [ ] Build the webUI Docker bundle.
 - [ ] Confirm `docker compose -f docker-compose.webui-runtime.yml up -d` starts the stack.
 - [ ] Confirm `http://localhost:3000` responds with HTML.
@@ -31,6 +33,7 @@ Use this before sharing either private beta bundle.
 - [ ] Confirm document and image uploads work through the browser bundle.
 - [ ] Confirm the repo root `.env` file is the editable config source for the Docker bundle.
 - [ ] Confirm no real API keys are present in the docs.
+- [ ] If GHCR pull fails, switch to the local rebuild fallback and record that the registry path is access-controlled.
 - [ ] Upload the docs in `docs/beta/` beside the bundle instructions.
 - [ ] Send testers the webUI track instructions.
 - [ ] Ask testers for screenshots of failures.
