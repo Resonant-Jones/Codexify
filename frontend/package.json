@@ -37,6 +37,7 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@google/gemini-cli": "^0.1.11",
+    "@tailwindcss/postcss": "^4.1.14",
     "@tailwindcss/cli": "^4.1.14",
     "@tailwindcss/vite": "^4.1.12",
     "@tauri-apps/cli": "^2.8.1",
@@ -60,6 +61,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@heroicons/react": "2.2.0",
     "@radix-ui/react-visually-hidden": "^1.2.3",
     "@tauri-apps/api": "^2.7.0",
     "axios": "^1.12.2",
