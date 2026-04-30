@@ -2,6 +2,10 @@
 
 Use this before sharing either private beta bundle.
 
+## Release Evidence
+
+The current handoff evidence is recorded in [2026-04-30 local beta release evidence](./2026-04-30-local-beta-release-evidence.md).
+
 ## macOS Desktop Path
 
 - [ ] Confirm the repo is clean.
