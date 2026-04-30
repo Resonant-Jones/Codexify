@@ -1006,7 +1006,7 @@ async def upload_image(
         effective_user_id = _resolve_effective_user_id(
             user_id,
             request_user_scope,
-            default_when_blank="default",
+            default_when_blank=_request_account_id(request_user_scope),
         )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-image"
@@ -1382,6 +1382,12 @@ async def delete_image(
 @router.post(
     "/upload/document", response_model=DocumentUploadResponse, tags=["media"]
 )
+@router.post(
+    "/upload/file",
+    response_model=DocumentUploadResponse,
+    tags=["media"],
+    deprecated=True,
+)
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
@@ -1423,7 +1429,7 @@ async def upload_document(
         effective_user_id = _resolve_effective_user_id(
             user_id,
             request_user_scope,
-            default_when_blank="default",
+            default_when_blank=_request_account_id(request_user_scope),
         )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-document"
