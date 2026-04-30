@@ -1,17 +1,12 @@
 import { MessageSquareMore, X } from "lucide-react";
 
-type FlowBuilderStage = {
-  id: string;
-  label: string;
-  description: string;
-  chip: string;
-};
+import type { FlowDraftSupportContextSummary, FlowDraftValidationSummary } from "../model/flowDraft";
 
 type FlowBuilderChatDockProps = {
-  modeLabel: string;
   onToggleOpen: () => void;
   open: boolean;
-  selectedStage: FlowBuilderStage;
+  supportChatContext: FlowDraftSupportContextSummary;
+  validationSummary: FlowDraftValidationSummary;
 };
 
 const ASSISTANT_NOTES = [
@@ -21,10 +16,10 @@ const ASSISTANT_NOTES = [
 ];
 
 export default function FlowBuilderChatDock({
-  modeLabel,
   onToggleOpen,
   open,
-  selectedStage,
+  supportChatContext,
+  validationSummary,
 }: FlowBuilderChatDockProps) {
   if (!open) {
     return (
@@ -60,8 +55,9 @@ export default function FlowBuilderChatDock({
             Open
           </span>
         </button>
-        <div className="px-4 py-4 text-sm leading-6" style={{ color: "var(--muted)" }}>
-          The builder stays dominant. The dock returns when you need review notes beside the graph.
+        <div className="space-y-2 px-4 py-4 text-sm leading-6" style={{ color: "var(--muted)" }}>
+          <div>{supportChatContext.dockStateLabel} support lane.</div>
+          <div>{validationSummary.label}</div>
         </div>
       </aside>
     );
@@ -87,7 +83,7 @@ export default function FlowBuilderChatDock({
             </div>
           </div>
           <p className="mt-2 text-sm leading-6" style={{ color: "var(--muted)" }}>
-            Embedded Guardian review space for {modeLabel.toLowerCase()} drafting.
+            Embedded Guardian review space for {supportChatContext.modeLabel.toLowerCase()} drafting.
           </p>
         </div>
         <button
@@ -121,6 +117,7 @@ export default function FlowBuilderChatDock({
         ))}
 
         <div
+          data-testid="flow-builder-support-context"
           className="rounded-[var(--tile-radius,19px)] border px-4 py-3"
           style={{
             borderColor: "var(--panel-border)",
@@ -128,11 +125,13 @@ export default function FlowBuilderChatDock({
           }}
         >
           <div className="text-[11px] uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
-            Selected stage
+            Shared draft context
           </div>
-          <div className="mt-2 text-sm font-medium">{selectedStage.label}</div>
-          <div className="mt-2 text-sm leading-6" style={{ color: "var(--muted)" }}>
-            {selectedStage.description}
+          <div className="mt-2 text-sm font-medium">{supportChatContext.draftTitle}</div>
+          <div className="mt-2 space-y-1 text-sm leading-6" style={{ color: "var(--muted)" }}>
+            <div>Stage: {supportChatContext.selectedStageLabel}</div>
+            <div>Node: {supportChatContext.selectedNodeLabel}</div>
+            <div>Validation: {validationSummary.label}</div>
           </div>
         </div>
       </div>
@@ -146,7 +145,7 @@ export default function FlowBuilderChatDock({
             color: "var(--muted)",
           }}
         >
-          Sidecar notes only. No backend chat integration is wired here.
+          {supportChatContext.provenanceLabel}. Validation {validationSummary.label}. Sidecar notes only. No backend chat integration is wired here.
         </div>
       </div>
     </aside>
