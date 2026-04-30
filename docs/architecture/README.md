@@ -32,6 +32,8 @@ Start here first when you need current-state interpretation rather than structur
 
 If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
+If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
+
 If you are working on Flow Builder, delegation/specification workflows, tacit-knowledge extraction, or workflow authoring semantics, start with [`ADR-006: Flow Builder Elicitation Lane`](./adr/006-flow-builder-elicitation-lane.md) first. That ADR defines the upstream `interview -> extract -> normalize -> validate -> compile -> execute` lane and the boundary between elicitation and runnable execution.
 
 If you are working on Guardian-thread binding, FlowDraft identity, Builder view semantics, or run receipts, start with [`ADR-014: Flow Builder Thread, Draft, and Receipts Contract`](./adr/014-flow-builder-thread-draft-and-receipts-contract.md) after ADR-006. That ADR defines the canonical relationship between conversation state, authored flow state, alternate Builder views, and run evidence.
@@ -87,6 +89,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
 - [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, machine-readable failure codes, and bounded tool-loop meanings.
 - [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md): canonical architecture note for bounded generated extensions, plugin forge flow, and sovereignty boundaries.
+- [ADR-020 Guardian Mediated Coding Agent Execution Contract](./adr/020-guardian-mediated-coding-agent-execution-contract.md): contract-only seam for Guardian-mediated coding-agent requests and results, including future Pi SDK adapters.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
