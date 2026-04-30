@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import FlowBuilderPage from "../FlowBuilderPage";
+import { getFlowDraftStageNodeId } from "../model/flowDraft";
 
 describe("FlowBuilderPage layout", () => {
   beforeEach(() => {
@@ -14,7 +15,7 @@ describe("FlowBuilderPage layout", () => {
     cleanup();
   });
 
-  it("renders the three-zone layout and keeps the spec-first copy truthful", async () => {
+  it("renders the graph-first layout and keeps the spec-first copy truthful", async () => {
     render(<FlowBuilderPage />);
 
     await waitFor(() => {
@@ -35,7 +36,7 @@ describe("FlowBuilderPage layout", () => {
     expect(screen.getByTestId("flow-builder-route")).toHaveTextContent("/flow-builder?mode=process");
   });
 
-  it("renders the expected staged parameter list and updates selection", async () => {
+  it("keeps the parameter rail, graph, and support dock aligned on the same shared selection", async () => {
     const user = userEvent.setup();
 
     render(<FlowBuilderPage />);
@@ -45,68 +46,85 @@ describe("FlowBuilderPage layout", () => {
     });
 
     const parameterRail = screen.getByTestId("flow-builder-parameter-rail");
-    const stages = [
-      "select-source",
-      "define-constraints",
-      "set-outcomes",
-      "add-steps",
-      "insert-conditions",
-      "validation-gates",
-      "review-validate",
-    ];
-
-    stages.forEach((stage) => {
-      expect(within(parameterRail).getByTestId(`flow-builder-stage-${stage}`)).toBeVisible();
-    });
-
-    expect(within(parameterRail).getByTestId("flow-builder-stage-select-source")).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
+    const graphCanvas = screen.getByTestId("flow-builder-graph-canvas");
+    const chatDock = screen.getByTestId("flow-builder-chat-dock");
 
     await user.click(within(parameterRail).getByTestId("flow-builder-stage-define-constraints"));
 
     await waitFor(() => {
+      expect(within(parameterRail).getByTestId("flow-builder-stage-define-constraints")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      );
+    });
+
+    expect(graphCanvas).toHaveTextContent(/Seeded from Define Constraints/i);
+    expect(within(chatDock).getByTestId("flow-builder-support-context")).toHaveTextContent(
+      /Stage: Define Constraints/i
+    );
+    expect(within(chatDock).getByTestId("flow-builder-support-context")).toHaveTextContent(
+      /Validation: 1 warning/i
+    );
+
+    await user.click(
+      within(graphCanvas).getByTestId(
+        `flow-builder-graph-node-${getFlowDraftStageNodeId("set-outcomes")}`
+      )
+    );
+
+    await waitFor(() => {
       expect(
-        within(parameterRail).getByTestId("flow-builder-stage-define-constraints")
+        within(parameterRail).getByTestId("flow-builder-stage-set-outcomes")
       ).toHaveAttribute("aria-pressed", "true");
     });
-    expect(within(parameterRail).getByTestId("flow-builder-stage-select-source")).toHaveAttribute(
-      "aria-pressed",
-      "false"
-    );
-    expect(screen.getByTestId("flow-builder-graph-canvas")).toHaveTextContent(
-      /Seeded from Define Constraints/i
+
+    expect(within(chatDock).getByTestId("flow-builder-support-context")).toHaveTextContent(
+      /Node: Set Outcomes/i
     );
   });
 
-  it("dismisses and reopens the assistant dock without disturbing the builder layout", async () => {
+  it("updates the canonical draft order when a graph node is reordered", async () => {
     const user = userEvent.setup();
 
     render(<FlowBuilderPage />);
 
-    const dock = screen.getByTestId("flow-builder-chat-dock");
-    expect(dock).toBeVisible();
-    expect(within(dock).getByText(/Embedded Guardian review space/i)).toBeVisible();
-
-    await user.click(screen.getByTestId("flow-builder-assistant-toggle"));
-
     await waitFor(() => {
-      expect(screen.getByTestId("flow-builder-chat-dock")).toHaveTextContent(
-        /Assistant dock hidden/i
-      );
+      expect(window.location.search).toBe("?mode=process");
     });
 
-    await user.click(screen.getByTestId("flow-builder-assistant-toggle"));
+    const graphCanvas = screen.getByTestId("flow-builder-graph-canvas");
+    const orderStrip = within(graphCanvas).getByTestId("flow-builder-draft-order");
+
+    expect(orderStrip).toHaveTextContent(
+      /1\. Select Source.*2\. Define Constraints.*3\. Set Outcomes/s
+    );
+
+    await user.click(
+      within(graphCanvas).getByTestId(
+        `flow-builder-graph-node-${getFlowDraftStageNodeId("set-outcomes")}`
+      )
+    );
+    await waitFor(() => {
+      expect(
+        within(graphCanvas).getByTestId(
+          `flow-builder-node-move-down-${getFlowDraftStageNodeId("set-outcomes")}`
+        )
+      ).toBeVisible();
+    });
+    await user.click(
+      within(graphCanvas).getByTestId(
+        `flow-builder-node-move-down-${getFlowDraftStageNodeId("set-outcomes")}`
+      )
+    );
 
     await waitFor(() => {
-      expect(screen.getByTestId("flow-builder-chat-dock")).toHaveTextContent(
-        /Embedded Guardian review space/i
+      expect(orderStrip).toHaveTextContent(
+        /1\. Select Source.*2\. Define Constraints.*3\. Add Steps.*4\. Set Outcomes/s
       );
     });
   });
 
-  it("keeps the expertise lane honest and editable without implying execution support", async () => {
+  it("dismisses and reopens the support dock without losing the shared draft state", async () => {
     const user = userEvent.setup();
 
     window.history.pushState({}, "", "/flow-builder?mode=expertise");
@@ -119,20 +137,39 @@ describe("FlowBuilderPage layout", () => {
       );
     });
 
-    const draftArtifact = screen.getByTestId("flow-builder-draft-spec");
-    expect(draftArtifact).toBeVisible();
-    expect(within(draftArtifact).getByText(/^draft specification artifact$/i)).toBeVisible();
-    expect(within(draftArtifact).getByText(/^non-runtime$/i)).toBeVisible();
-    expect(within(draftArtifact).getByText(/^draft only$/i)).toBeVisible();
-    expect(
-      within(draftArtifact).getByText(/without claiming compile or execution support/i)
-    ).toBeVisible();
+    const dock = screen.getByTestId("flow-builder-chat-dock");
+    expect(dock).toBeVisible();
+    expect(within(dock).getByTestId("flow-builder-support-context")).toHaveTextContent(
+      /Draft specification/i
+    );
 
     const objective = screen.getByTestId("flow-builder-draft-objective");
     await user.clear(objective);
-    await user.type(objective, "Capture the first-pass workflow outcome.");
+    await user.type(objective, "Capture the canonical draft across dock toggles.");
 
-    expect(objective).toHaveValue("Capture the first-pass workflow outcome.");
+    await user.click(screen.getByTestId("flow-builder-assistant-toggle"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("flow-builder-chat-dock")).toHaveTextContent(/Assistant dock hidden/i);
+    });
+
+    await user.click(screen.getByTestId("flow-builder-assistant-toggle"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("flow-builder-chat-dock")).toHaveTextContent(
+        /Embedded Guardian review space/i
+      );
+    });
+
+    expect(screen.getByTestId("flow-builder-draft-objective")).toHaveValue(
+      "Capture the canonical draft across dock toggles."
+    );
+    const draftSpec = screen.getByTestId("flow-builder-draft-spec");
+    expect(within(draftSpec).getByText(/non-runtime/i)).toBeVisible();
+    expect(within(draftSpec).getByText(/draft only/i)).toBeVisible();
+    expect(
+      within(draftSpec).getByText(/without claiming compile or execution support/i)
+    ).toBeVisible();
   });
 
   it("canonicalizes the route and keeps the selected mode in sync with history", async () => {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import Textarea from "@/components/ui/textarea";
 
@@ -6,74 +6,27 @@ import FlowBuilderChatDock from "./components/FlowBuilderChatDock";
 import FlowBuilderGraphCanvas from "./components/FlowBuilderGraphCanvas";
 import FlowBuilderParameterRail from "./components/FlowBuilderParameterRail";
 import {
+  getCurrentNodeSelection,
+  getGraphVisibleNodes,
+  getOrderedStageProgress,
+  getSupportChatContextSummary,
+  getValidationSummary,
+  useFlowDraftState,
+} from "./hooks/useFlowDraftState";
+import {
   DEFAULT_FLOW_BUILDER_MODE,
   getFlowBuilderPath,
   hasFlowBuilderModeQuery,
   parseFlowBuilderMode,
   type FlowBuilderMode,
 } from "./flowBuilderRoute";
-import {
-  createFlowBuilderExpertiseDraft,
-  type FlowBuilderExpertiseDraft,
-} from "./flowBuilderDraft";
+import type { FlowDraftContent, FlowDraftStageId } from "./model/flowDraft";
 
 const FLOW_BUILDER_LAST_MODE_STORAGE_KEY = "cfy.flowBuilder.mode";
 
 type FlowBuilderPageProps = {
   onReturnToGuardian?: () => void;
 };
-
-type FlowBuilderStage = {
-  id: string;
-  label: string;
-  description: string;
-  chip: string;
-};
-
-const FLOW_BUILDER_STAGES: FlowBuilderStage[] = [
-  {
-    id: "select-source",
-    label: "Select Source",
-    description: "Choose the input seam that should anchor the first draft.",
-    chip: "01",
-  },
-  {
-    id: "define-constraints",
-    label: "Define Constraints",
-    description: "Set the bounds, limits, and non-negotiables that shape the draft.",
-    chip: "02",
-  },
-  {
-    id: "set-outcomes",
-    label: "Set Outcomes",
-    description: "Name the intended result before the flow starts to harden.",
-    chip: "03",
-  },
-  {
-    id: "add-steps",
-    label: "Add Steps",
-    description: "Lay out the explicit steps that make the plan inspectable.",
-    chip: "04",
-  },
-  {
-    id: "insert-conditions",
-    label: "Insert Conditions",
-    description: "Mark the branch points where the draft needs a choice or guardrail.",
-    chip: "05",
-  },
-  {
-    id: "validation-gates",
-    label: "Validation Gates",
-    description: "Keep the checks visible so unresolved edges stay honest.",
-    chip: "06",
-  },
-  {
-    id: "review-validate",
-    label: "Review & Validate",
-    description: "Shape the handoff into a readable artifact for review.",
-    chip: "07",
-  },
-];
 
 function isFlowBuilderPathname(pathname: string): boolean {
   return pathname.startsWith("/flow-builder");
@@ -175,14 +128,7 @@ export default function FlowBuilderPage({
   onReturnToGuardian,
 }: FlowBuilderPageProps = {}) {
   const initialMode = resolveInitialFlowBuilderMode();
-  const [mode, setModeState] = useState<FlowBuilderMode>(initialMode);
-  const [selectedStageId, setSelectedStageId] = useState<FlowBuilderStage["id"]>(
-    initialMode === "expertise" ? "define-constraints" : "select-source"
-  );
-  const [assistantDockOpen, setAssistantDockOpen] = useState(true);
-  const [expertiseDraft, setExpertiseDraft] = useState<FlowBuilderExpertiseDraft | null>(
-    () => (initialMode === "expertise" ? createFlowBuilderExpertiseDraft() : null)
-  );
+  const { actions, draft, view } = useFlowDraftState(initialMode);
 
   const handleReturnToGuardian = useCallback(() => {
     if (onReturnToGuardian) {
@@ -211,11 +157,7 @@ export default function FlowBuilderPage({
           ? DEFAULT_FLOW_BUILDER_MODE
           : readPersistedFlowBuilderMode() ?? DEFAULT_FLOW_BUILDER_MODE);
 
-      setModeState((current) => (current === nextMode ? current : nextMode));
-      persistFlowBuilderMode(nextMode);
-      if (nextMode === "expertise") {
-        setExpertiseDraft((current) => current ?? createFlowBuilderExpertiseDraft());
-      }
+      actions.setMode(nextMode);
       canonicalizeFlowBuilderLocation(nextMode);
     };
 
@@ -225,40 +167,43 @@ export default function FlowBuilderPage({
     return () => {
       window.removeEventListener("popstate", syncFromLocation);
     };
-  }, []);
+  }, [actions]);
 
   useEffect(() => {
-    persistFlowBuilderMode(mode);
-  }, [mode]);
+    persistFlowBuilderMode(view.mode);
+    canonicalizeFlowBuilderLocation(view.mode);
+  }, [view.mode]);
 
   const currentRoute = useMemo(() => {
     if (typeof window === "undefined") {
-      return getFlowBuilderPath(mode);
+      return getFlowBuilderPath(view.mode);
     }
 
     if (isFlowBuilderPathname(window.location.pathname)) {
-      return getFlowBuilderPath(mode);
+      return getFlowBuilderPath(view.mode);
     }
 
     return `${window.location.pathname}${window.location.search}`;
-  }, [mode]);
+  }, [view.mode]);
 
-  const selectedStageIndex = useMemo(() => {
-    const index = FLOW_BUILDER_STAGES.findIndex((stage) => stage.id === selectedStageId);
-    return index === -1 ? 0 : index;
-  }, [selectedStageId]);
-
-  const selectedStage = FLOW_BUILDER_STAGES[selectedStageIndex] ?? FLOW_BUILDER_STAGES[0];
+  const currentSelection = useMemo(
+    () => getCurrentNodeSelection(draft, view),
+    [draft, view]
+  );
+  const stageProgress = useMemo(() => getOrderedStageProgress(draft, view), [draft, view]);
+  const graphVisibleNodes = useMemo(() => getGraphVisibleNodes(draft), [draft]);
+  const validationSummary = useMemo(() => getValidationSummary(draft), [draft]);
+  const supportChatContext = useMemo(
+    () => getSupportChatContextSummary(draft, view),
+    [draft, view]
+  );
 
   const handleSelectMode = useCallback(
     (nextMode: FlowBuilderMode) => {
-      setModeState(nextMode);
-      persistFlowBuilderMode(nextMode);
-      if (nextMode === "expertise") {
-        setExpertiseDraft((current) => current ?? createFlowBuilderExpertiseDraft());
-      }
+      actions.setMode(nextMode);
 
       if (typeof window === "undefined") return;
+      if (!isFlowBuilderPathname(window.location.pathname)) return;
 
       const nextPath = getFlowBuilderPath(nextMode);
       const currentPath = `${window.location.pathname}${window.location.search}`;
@@ -266,13 +211,45 @@ export default function FlowBuilderPage({
         window.history.pushState({}, "", nextPath);
       }
     },
-    []
+    [actions]
+  );
+
+  const handleSelectStage = useCallback(
+    (stageId: FlowDraftStageId) => {
+      actions.selectStage(stageId);
+    },
+    [actions]
+  );
+
+  const handleSelectNode = useCallback(
+    (nodeId: string) => {
+      actions.selectNode(nodeId);
+    },
+    [actions]
+  );
+
+  const handleMoveNode = useCallback(
+    (nodeId: string, direction: "up" | "down") => {
+      actions.moveNode(nodeId, direction);
+    },
+    [actions]
+  );
+
+  const handleToggleSupportDock = useCallback(() => {
+    actions.toggleSupportChatDock();
+  }, [actions]);
+
+  const handleDraftFieldChange = useCallback(
+    (field: keyof FlowDraftContent, value: string) => {
+      actions.updateDraftFields({ [field]: value } as Partial<FlowDraftContent>);
+    },
+    [actions]
   );
 
   return (
     <div
       data-testid="flow-builder-page"
-      data-flow-builder-mode={mode}
+      data-flow-builder-mode={view.mode}
       className="flex h-full min-h-0 w-full flex-col gap-5 overflow-auto p-[var(--card-pad)]"
     >
       <div
@@ -321,14 +298,14 @@ export default function FlowBuilderPage({
 
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <ModeButton
-              active={mode === "process"}
+              active={view.mode === "process"}
               description="Start from the steps you already know."
               label="Process"
               onClick={() => handleSelectMode("process")}
               testId="flow-builder-mode-process"
             />
             <ModeButton
-              active={mode === "expertise"}
+              active={view.mode === "expertise"}
               description="Start from the outcome and constraints."
               label="Expertise"
               onClick={() => handleSelectMode("expertise")}
@@ -348,27 +325,30 @@ export default function FlowBuilderPage({
 
         <div className="grid flex-1 gap-4 p-4 sm:p-6 xl:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(280px,340px)]">
           <FlowBuilderParameterRail
-            stages={FLOW_BUILDER_STAGES}
-            selectedStageId={selectedStage.id}
-            onSelectStage={setSelectedStageId}
+            currentSelection={currentSelection}
+            onSelectStage={handleSelectStage}
+            stageProgress={stageProgress}
+            validationSummary={validationSummary}
           />
 
           <FlowBuilderGraphCanvas
-            modeLabel={mode === "expertise" ? "Expertise" : "Process"}
-            selectedStage={selectedStage}
-            selectedStageIndex={selectedStageIndex}
-            stages={FLOW_BUILDER_STAGES}
+            currentSelection={currentSelection}
+            graphVisibleNodes={graphVisibleNodes}
+            modeLabel={view.mode === "expertise" ? "Expertise" : "Process"}
+            onMoveNode={handleMoveNode}
+            onSelectNode={handleSelectNode}
+            validationSummary={validationSummary}
           />
 
           <FlowBuilderChatDock
-            modeLabel={mode === "expertise" ? "Expertise" : "Process"}
-            onToggleOpen={() => setAssistantDockOpen((current) => !current)}
-            open={assistantDockOpen}
-            selectedStage={selectedStage}
+            onToggleOpen={handleToggleSupportDock}
+            open={view.supportChatOpen}
+            supportChatContext={supportChatContext}
+            validationSummary={validationSummary}
           />
         </div>
 
-        {mode === "expertise" && expertiseDraft ? (
+        {view.mode === "expertise" ? (
           <section
             data-testid="flow-builder-draft-spec"
             className="border-t border-[var(--panel-border)] p-4 sm:p-6"
@@ -405,7 +385,7 @@ export default function FlowBuilderPage({
 
             <div className="mt-3 max-w-2xl space-y-2">
               <h2 className="text-lg font-semibold tracking-[-0.02em]">
-                {expertiseDraft.title}
+                {draft.meta.title}
               </h2>
               <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
                 This stub keeps the expertise lane honest: it makes the specification visible and
@@ -424,13 +404,13 @@ export default function FlowBuilderPage({
                 <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
                   Runtime
                 </div>
-                <div className="mt-2 text-sm font-medium">{expertiseDraft.runtimeSupport}</div>
+                <div className="mt-2 text-sm font-medium">{draft.meta.runtimeSupport}</div>
               </div>
               <div className="rounded-[16px] border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
                 <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
                   Status
                 </div>
-                <div className="mt-2 text-sm font-medium">{expertiseDraft.status}</div>
+                <div className="mt-2 text-sm font-medium">{draft.meta.status}</div>
               </div>
             </div>
 
@@ -442,12 +422,8 @@ export default function FlowBuilderPage({
                 <Textarea
                   data-testid="flow-builder-draft-objective"
                   className="mt-2 min-h-28"
-                  value={expertiseDraft.objective}
-                  onChange={(event) =>
-                    setExpertiseDraft((current) =>
-                      current ? { ...current, objective: event.target.value } : current
-                    )
-                  }
+                  value={draft.content.objective}
+                  onChange={(event) => handleDraftFieldChange("objective", event.target.value)}
                 />
               </label>
 
@@ -458,12 +434,8 @@ export default function FlowBuilderPage({
                 <Textarea
                   data-testid="flow-builder-draft-assumptions"
                   className="mt-2 min-h-28"
-                  value={expertiseDraft.assumptions}
-                  onChange={(event) =>
-                    setExpertiseDraft((current) =>
-                      current ? { ...current, assumptions: event.target.value } : current
-                    )
-                  }
+                  value={draft.content.assumptions}
+                  onChange={(event) => handleDraftFieldChange("assumptions", event.target.value)}
                 />
               </label>
 
@@ -474,12 +446,8 @@ export default function FlowBuilderPage({
                 <Textarea
                   data-testid="flow-builder-draft-unknowns"
                   className="mt-2 min-h-28"
-                  value={expertiseDraft.unknowns}
-                  onChange={(event) =>
-                    setExpertiseDraft((current) =>
-                      current ? { ...current, unknowns: event.target.value } : current
-                    )
-                  }
+                  value={draft.content.unknowns}
+                  onChange={(event) => handleDraftFieldChange("unknowns", event.target.value)}
                 />
               </label>
 
@@ -490,13 +458,9 @@ export default function FlowBuilderPage({
                 <Textarea
                   data-testid="flow-builder-draft-validation-questions"
                   className="mt-2 min-h-28"
-                  value={expertiseDraft.validationQuestions}
+                  value={draft.content.validationQuestions}
                   onChange={(event) =>
-                    setExpertiseDraft((current) =>
-                      current
-                        ? { ...current, validationQuestions: event.target.value }
-                        : current
-                    )
+                    handleDraftFieldChange("validationQuestions", event.target.value)
                   }
                 />
               </label>
