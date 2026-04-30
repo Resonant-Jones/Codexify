@@ -4,6 +4,10 @@ This private beta has two supported entry paths.
 
 Both paths use the same local backend runtime.
 
+## Release Evidence
+
+Start with [2026-04-30 local beta release evidence](./2026-04-30-local-beta-release-evidence.md) for the validation commands, digests, and proof notes behind this private beta handoff.
+
 ## Choose Your Path
 
 - macOS desktop app: choose this if you want the Tauri shell on a Mac.
