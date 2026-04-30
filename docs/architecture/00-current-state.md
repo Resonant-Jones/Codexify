@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-29
+2026-04-30
 
 ## Interpretation rule
 This file is authoritative for:
@@ -14,6 +14,8 @@ This file is authoritative for:
 
 ## Current phase
 Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while current beta distribution now includes both the macOS desktop shell and the standalone webUI Docker bundle over that same backend. Recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
+
+Fresh private beta release evidence is recorded in [`docs/beta/2026-04-30-local-beta-release-evidence.md`](../beta/2026-04-30-local-beta-release-evidence.md).
 
 ## What changed recently
 - Verified active personal facts now flow through the backend chat context path and into the provider-ready prompt block as a bounded, user-scoped identity-context source; candidate, disputed, and inactive facts are excluded before prompt assembly.
@@ -42,7 +44,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
 - Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
-- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, but the full end-to-end upload -> embed -> retrieve proof still needs a fresh rerun on the current tip.
+- Document and image upload/fetch proof is now recorded for the live beta handoff. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, but this note does not claim end-to-end embed/retrieve completion.
 - The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
@@ -75,7 +77,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 
 ## Active blockers
 - Live backend posture mismatch: the running backend container reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, while the catalog still exposes cloud inventory such as `groq` as enabled. Supported-path signoff is not satisfied until the live runtime is brought back into the local-only supported profile.
-- Fresh live release evidence on the exact current `main` tip is still required before release signoff for the full beta evidence pack; this run now proves chat acceptance, chat ownership normalization, and migration/schema consistency on the supported Compose stack, but upload -> embed -> retrieve and bounded tool-loop behavior still need fresh live proof.
+- Fresh live release evidence for the webUI path and backend media upload/fetch is now recorded in the dated beta artifact; this run now proves chat acceptance, chat ownership normalization, and migration/schema consistency on the supported Compose stack, but embed/retrieve completion and bounded tool-loop behavior still need separate live proof.
 - Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
 
 ## This week's priorities
