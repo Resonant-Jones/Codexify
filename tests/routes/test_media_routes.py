@@ -18,6 +18,9 @@ from guardian.db.models import UploadedDocument
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("GUARDIAN_API_KEY", "test")
+os.environ["CODEXIFY_BETA_CORE_ONLY"] = "0"
+os.environ.setdefault("CODEXIFY_ENABLE_MEDIA_GENERATION_ROUTES", "1")
+os.environ.setdefault("CODEXIFY_ENABLE_MEDIA_TTS_ROUTES", "1")
 
 
 @pytest.fixture
@@ -479,6 +482,30 @@ class TestUploadDedupeAndResolve:
 
     @patch("guardian.routes.media.storage")
     @patch("guardian.routes.media._get_db")
+    def test_upload_image_without_thread_id_rejects_before_db_write(
+        self,
+        mock_get_db,
+        mock_storage,
+        client,
+    ):
+        response = client.post(
+            "/api/media/upload/image",
+            data={"project_id": 1, "user_id": "u-1"},
+            files={"file": ("upload.png", b"12345678", "image/png")},
+        )
+
+        assert response.status_code == 422
+        payload = response.json()
+        assert payload["detail"]["error"] == "thread_id_required"
+        assert (
+            payload["detail"]["message"]
+            == "thread_id is required for image uploads."
+        )
+        mock_get_db.assert_not_called()
+        mock_storage.upload_file.assert_not_called()
+
+    @patch("guardian.routes.media.storage")
+    @patch("guardian.routes.media._get_db")
     @patch("guardian.routes.media._create_media_asset")
     @patch("guardian.routes.media._find_uploaded_image_for_asset")
     @patch("guardian.routes.media._compute_identity_with_existing_asset")
@@ -562,7 +589,7 @@ class TestUploadDedupeAndResolve:
 
         mock_db, _mock_session = _mock_db_with_context(
             thread=SimpleNamespace(id=9, project_id=1),
-            project=SimpleNamespace(id=1),
+            project={"id": 1, "name": "General"},
             projects=[{"id": 1, "name": "General"}],
         )
         mock_get_db.return_value = mock_db
@@ -1045,7 +1072,7 @@ class TestUploadDedupeAndResolve:
 
         mock_db, mock_session = _mock_db_with_context(
             thread=SimpleNamespace(id=9, project_id=1),
-            project=SimpleNamespace(id=1),
+            project={"id": 1, "name": "General"},
             projects=[{"id": 1, "name": "General"}],
         )
         mock_get_db.return_value = mock_db

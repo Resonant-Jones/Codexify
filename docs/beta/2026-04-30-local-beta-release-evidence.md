@@ -112,23 +112,26 @@ curl -sS -H "X-API-Key: ${API_KEY}" \
 - `GET /health` returned `status: ok`.
 - `GET /health/chat` returned `status: healthy`, `redis: ok`, and a fresh worker heartbeat.
 - `GET /api/health/llm` returned `status: ok` and `status: online`.
-- `curl -I http://localhost:3000` returned `HTTP/1.1 200 OK`.
+- `curl -I http://localhost:3000` was not reachable from this shell namespace during this run.
+- `docker compose exec frontend sh -lc 'wget -S -O - http://127.0.0.1'` returned `HTTP/1.1 200 OK` from the frontend container itself.
 
 ### Upload Proof
 
 - Document upload through `POST /api/media/upload/document` succeeded.
-- The document upload returned id `1e0c1351-922f-4a0b-b577-2d9219185f44`.
-- The document response returned a backend-generated document id, `embedding_status: pending`, and `source_tag: uploaded`.
+- The document upload returned id `09bd4942-7f54-4dcc-9939-1456173ca96a`.
+- The document response returned `project_id: 1`, `thread_id: null`, `embedding_status: pending`, and `source_tag: uploaded`.
 - Document fetch through `GET /api/media/documents/{id}` returned the same backend row, including `content`, `parsed_text`, and matching metadata.
 - Image upload through `POST /api/media/upload/image` succeeded when bound to the existing thread context with `thread_id=1`.
-- The image upload returned id `fe1e6659-f0c1-4938-bda4-cb794ae3e152`.
+- The image upload returned id `88ba3a3f-669f-45c2-934e-c45ffcc7b569`.
 - Image fetch through `GET /api/media/images/{id}` returned `200 OK`, `content-type: image/png`, and byte-for-byte matching content against the uploaded file.
+- Image upload without `thread_id` returned `422` with `error=thread_id_required` and `message=thread_id is required for image uploads.`
+- The rejected missing-thread image upload did not add a new image row; the uploaded-image count stayed unchanged after the rejection path, and no row with filename `missing-thread-20260430.png` appeared in `/api/media/images`.
 - These responses came from backend routes backed by the database and storage layer, not browser-only placeholder state.
 
 ## Known Inconclusive Validation
 
 - Direct `docker pull ghcr.io/resonant-jones/codexify-webui:local-beta` was unauthorized from this shell, so the registry digest `sha256:dd2d65761d592e1a87c9f72260091761fdf52fdc49ed202cd5932f728fa5a1b0` was not re-pulled here.
-- The first image upload attempt without `thread_id` failed with a backend `IntegrityError` on `uploaded_images.thread_id` being null. The successful proof required the existing thread context.
+- The host-side `curl -I http://localhost:3000` command was not reachable from this shell namespace, so the frontend proof was confirmed via the compose bundle script and an internal container-local HTTP request instead.
 - This artifact does not claim cloud hosting, remote multi-user deployment, or a public beta launch.
 
 ## Non-Goals
