@@ -8,20 +8,13 @@ This note records the GHCR pullability state for the local-beta runtime images a
 - Runtime image pull: `docker pull ghcr.io/resonant-jones/codexify-runtime:local-beta`
   - Result: successful anonymous pull
 - WebUI image pull: `docker pull ghcr.io/resonant-jones/codexify-webui:local-beta`
-  - Result: `unauthorized` from a clean shell
-- GHCR login using the current GitHub identity: `gh auth token | docker login ghcr.io -u Resonant-Jones --password-stdin`
-  - Result: login succeeded
-- WebUI image pull after login: `docker pull ghcr.io/resonant-jones/codexify-webui:local-beta`
-  - Result: `403 Forbidden`
-- Package listing probe: `gh api '/users/Resonant-Jones/packages?package_type=container&per_page=100'`
-  - Result: `403` with a `read:packages` scope requirement
+  - Result: successful anonymous pull
 
 ## Interpretation
 
 - `ghcr.io/resonant-jones/codexify-runtime:local-beta` is publicly pullable from a clean shell.
-- `ghcr.io/resonant-jones/codexify-webui:local-beta` is not anonymously pullable.
-- The current GitHub identity used in this workspace does not have sufficient package access to pull the webUI image, even after Docker login to GHCR.
-- The webUI beta bundle must therefore be documented as GHCR-authenticated for this tester identity unless package access is granted later.
+- `ghcr.io/resonant-jones/codexify-webui:local-beta` is publicly pullable from a clean shell.
+- The low-friction webUI beta bundle path is now restored for anonymous pull from the registry.
 
 ## Fallback Validation Path
 

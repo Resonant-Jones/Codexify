@@ -27,8 +27,7 @@ The current handoff evidence is recorded in [2026-04-30 local beta release evide
 
 - [ ] Confirm the repo is clean.
 - [ ] Confirm the current commit hash.
-- [ ] Confirm GHCR access before install.
-- [ ] Confirm the tester's GitHub account can access the `codexify-webui` package, or that their GHCR token includes `read:packages`, if the webUI image is private.
+- [ ] Confirm anonymous pull works for `ghcr.io/resonant-jones/codexify-webui:local-beta`.
 - [ ] Build the webUI Docker bundle.
 - [ ] Confirm `docker compose -f docker-compose.webui-runtime.yml up -d` starts the stack.
 - [ ] Confirm `http://localhost:3000` responds with HTML.
@@ -37,7 +36,8 @@ The current handoff evidence is recorded in [2026-04-30 local beta release evide
 - [ ] Confirm document and image uploads work through the browser bundle.
 - [ ] Confirm the repo root `.env` file is the editable config source for the Docker bundle.
 - [ ] Confirm no real API keys are present in the docs.
-- [ ] If GHCR pull fails, switch to the local rebuild fallback and record that the registry path is access-controlled.
+- [ ] If anonymous GHCR pull fails because of rate limits, stale cache, or a private fork/mirror, try GHCR login and record the cause.
+- [ ] If GHCR still fails, switch to the local rebuild fallback and record that the registry path is not usable from a clean shell.
 - [ ] Upload the docs in `docs/beta/` beside the bundle instructions.
 - [ ] Send testers the webUI track instructions.
 - [ ] Ask testers for screenshots of failures.
