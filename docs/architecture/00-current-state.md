@@ -15,6 +15,8 @@ This file is authoritative for:
 ## Current phase
 Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while current beta distribution includes both the macOS desktop shell and the standalone webUI Docker bundle over that same backend. The webUI package is GHCR-hosted and now anonymously pullable for the published local-beta tag. Recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
 
+A downloadable public-pull handoff bundle lives in `Codexify-Beta/` for testers who want the browser path in a small folder.
+
 Fresh private beta release evidence is recorded in [`docs/beta/2026-04-30-local-beta-release-evidence.md`](../beta/2026-04-30-local-beta-release-evidence.md).
 
 ## What changed recently
