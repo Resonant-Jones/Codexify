@@ -40,6 +40,8 @@ services:
 
   neo4j:
     image: neo4j:5
+    profiles: ["graph"]
+    pull_policy: never
     environment:
       NEO4J_server_default__listen__address: 0.0.0.0
       NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS:-codexify-local-dev}"
@@ -83,6 +85,8 @@ services:
 
   graph-init:
     image: neo4j:5
+    profiles: ["graph"]
+    pull_policy: never
     env_file: .env
     depends_on:
       neo4j:
@@ -231,8 +235,6 @@ services:
       migrator:
         condition: service_completed_successfully
       model-prep:
-        condition: service_completed_successfully
-      graph-init:
         condition: service_completed_successfully
     command: ["backend"]
 

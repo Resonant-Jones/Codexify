@@ -99,6 +99,8 @@ Open:
 
 - `http://localhost:3000`
 
+The default public handoff bundle in `Codexify-Beta/README.md` starts without requiring Neo4j health. Graph context is optional and should only be enabled when you are explicitly validating graph behavior.
+
 Quick smoke test:
 
 1. Open the webUI in your browser.

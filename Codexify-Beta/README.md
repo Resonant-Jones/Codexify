@@ -9,6 +9,7 @@ It uses the same local backend runtime as the macOS desktop path, but it opens i
 It is local Docker only.
 It is not cloud hosting.
 It is not remote multi-user deployment.
+Graph context is optional for the default tester path; the bundle starts cleanly without Neo4j.
 
 ## Prerequisites
 
@@ -41,6 +42,11 @@ It is not remote multi-user deployment.
    http://localhost:3000
    ```
 
+Optional graph context:
+
+- If you intentionally want the optional graph services, start them with `docker compose --profile graph up -d`.
+- Do not enable that profile for the normal tester path unless you are explicitly validating graph behavior.
+
 ## What Is In This Folder
 
 - `docker-compose.yml`
@@ -69,6 +75,7 @@ docker compose down
 - Ports already in use: free up `3000` for the browser UI and `8888` for the backend.
 - Stale local image cache: run `docker compose pull` again before `docker compose up -d`.
 - GHCR auth should not be required for the normal public-pull path.
+- Neo4j is optional for the public handoff bundle; if the graph profile is not enabled, the default startup does not wait for Neo4j health.
 - If you are on a private fork or a mirror, or your Docker cache is stale, authenticate to GHCR and retry the pull.
 
 ## Packaging

@@ -44,6 +44,28 @@ check_backend_health() {
   curl -fsS http://localhost:8888/api/health/llm | jq -e '.status == "ok"' >/dev/null
 }
 
+check_default_compose_contract() {
+  local config_json
+  config_json="$(compose config --format json)"
+
+  printf '%s' "${config_json}" | jq -e '
+    .services.backend.depends_on | keys_unsorted | sort
+    == ["db", "migrator", "model-prep"]
+  ' >/dev/null
+
+  [ "$(grep -c 'profiles: \["graph"\]' "${COMPOSE_FILE}")" -eq 2 ]
+  [ "$(grep -c 'pull_policy: never' "${COMPOSE_FILE}")" -eq 2 ]
+}
+
+check_default_runtime_is_graph_free() {
+  local ps_json
+  ps_json="$(compose ps --format json)"
+
+  printf '%s' "${ps_json}" | jq -e '
+    all(.[]; .Service != "neo4j" and .Service != "graph-init")
+  ' >/dev/null
+}
+
 check_frontend_http() {
   curl -fsSI http://localhost:3000 | grep -q '200 OK'
 }
@@ -66,15 +88,17 @@ printf '%s\n' "${config_output}" | grep -F "${RUNTIME_IMAGE}" >/dev/null
 printf '%s\n' "${config_output}" | grep -F "${WEBUI_IMAGE}" >/dev/null
 printf '%s\n' "${config_output}" | grep -F 'published: "8888"' >/dev/null
 printf '%s\n' "${config_output}" | grep -F 'published: "3000"' >/dev/null
+check_default_compose_contract
 
 echo "[beta-handoff] pulling bundle images through compose..."
-compose pull
+compose pull --policy missing
 
 echo "[beta-handoff] starting bundle..."
 compose up -d
 
 echo "[beta-handoff] compose status:"
 compose ps
+check_default_runtime_is_graph_free
 
 echo "[beta-handoff] waiting for backend and frontend..."
 wait_for "backend health" 60 check_backend_health
