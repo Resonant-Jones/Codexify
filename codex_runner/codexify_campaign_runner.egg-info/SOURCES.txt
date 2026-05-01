@@ -40,6 +40,7 @@ schemas/task_result.schema.json
 templates/activation_prompt.md.tmpl
 tests/test_provider_dispatch.py
 tests/test_runner_entry.py
+tests/test_runner_paths.py
 tests/test_tui_commands.py
 tests/test_tui_palette.py
 tests/test_tui_state.py
