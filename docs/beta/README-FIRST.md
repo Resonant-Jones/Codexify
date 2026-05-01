@@ -73,6 +73,7 @@ This is the browser-first beta path.
 
 Use it when you want the browser UI without the Tauri shell.
 This is the low-friction webUI Docker path.
+For the small-folder handoff bundle, open `Codexify-Beta/README.md`.
 
 You will need:
 
