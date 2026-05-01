@@ -1,15 +1,16 @@
 {
-  "name": "codex_runner",
-  "version": "1.0.0",
-  "description": "Canonical runtime: `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner`",
-  "main": "index.js",
-  "directories": {
-    "test": "tests"
-  },
+  "name": "codex-runner-pi",
+  "version": "0.1.0",
+  "description": "Pi-powered Campaign Runner",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "agent": "node src/agent-wrapper.js",
+    "audit": "node src/agent-wrapper.js audit",
+    "compile": "node src/agent-wrapper.js compile",
+    "task": "node src/agent-wrapper.js task"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "file:/Users/resonant_jones/.nvm/versions/node/v22.17.0/lib/node_modules/@mariozechner/pi-coding-agent",
+    "@mariozechner/pi-ai": "file:/Users/resonant_jones/.nvm/versions/node/v22.17.0/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai"
+  }
 }

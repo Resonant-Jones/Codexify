@@ -99,12 +99,13 @@ describe("SidebarRoot provenance filter wiring", () => {
     expect(screen.queryByRole("toolbar", { name: "Imported source filter" })).not.toBeInTheDocument();
   });
 
-  it("exposes Project Knowledge Base as a project-local entry point", () => {
-    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+  it("shows a dismissible Project Knowledge Base notice once", () => {
     mockSidebarState.currentProjectId = "project-42";
     mockSidebarState.projectList = [{ id: "project-42", name: "Launch Project" }];
 
-    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+    const firstRender = render(
+      <SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />
+    );
 
     fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
 
@@ -112,30 +113,28 @@ describe("SidebarRoot provenance filter wiring", () => {
       screen.getByTestId("project-knowledge-base-entry")
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Open Project Knowledge Base" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Project-local docs, notes, specs, and working references live here\./i)
+      screen.getByText(/Project Documents and the Project Knowledge Base live in the Projects rail on the left\./i)
     ).toBeInTheDocument();
     expect(
       screen.getByText(/System Docs stay in Settings > Data/i)
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Dismiss Project Knowledge Base notice" })
+    ).toBeInTheDocument();
 
-    dispatchEventSpy.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Open Project Knowledge Base" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Project Knowledge Base notice" }));
 
-    expect(dispatchEventSpy).toHaveBeenCalled();
-    expect(dispatchEventSpy.mock.calls.at(-1)?.[0]).toEqual(
-      expect.objectContaining({ type: "cfy:project-kb:open" })
-    );
-    expect((dispatchEventSpy.mock.calls.at(-1)?.[0] as CustomEvent).detail).toEqual(
-      expect.objectContaining({
-        projectId: "project-42",
-        projectName: "Launch Project",
-        source: "sidebar-projects",
-      })
+    expect(screen.queryByTestId("project-knowledge-base-entry")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("cfy.sidebar.projectKnowledgeBaseNoticeDismissed")).toBe(
+      "true"
     );
 
-    dispatchEventSpy.mockRestore();
+    firstRender.unmount();
+
+    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+
+    expect(screen.queryByTestId("project-knowledge-base-entry")).not.toBeInTheDocument();
   });
 });
