@@ -61,7 +61,7 @@ check_default_runtime_is_graph_free() {
   local ps_json
   ps_json="$(compose ps --format json)"
 
-  printf '%s' "${ps_json}" | jq -e '
+  printf '%s' "${ps_json}" | jq -s -e '
     all(.[]; .Service != "neo4j" and .Service != "graph-init")
   ' >/dev/null
 }
