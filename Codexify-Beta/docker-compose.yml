@@ -15,10 +15,14 @@ x-postgres-env: &postgres_env
   GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
   GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
 
+x-host-gateway: &host_gateway
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
 services:
   db:
     image: postgres:15
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     environment:
       <<: *postgres_env
     healthcheck:
@@ -38,7 +42,7 @@ services:
     image: neo4j:5
     environment:
       NEO4J_server_default__listen__address: 0.0.0.0
-      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS}"
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS:-codexify-local-dev}"
     ports: ["7474:7474", "7687:7687"]
     volumes:
       - neo4j_data:/data
@@ -79,7 +83,7 @@ services:
 
   graph-init:
     image: neo4j:5
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     depends_on:
       neo4j:
         condition: service_healthy
@@ -107,12 +111,12 @@ services:
         echo "[graph-init] Done."
 
   migrator:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
     working_dir: /app
     depends_on:
       db:
         condition: service_healthy
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     environment:
       <<: *postgres_env
       LANG: C.UTF-8
@@ -123,18 +127,19 @@ services:
       ALEMBIC_CONFIG: /app/runtime/alembic.ini
       ENABLE_BLIP_MODEL: "false"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
-      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:?GUARDIAN_API_KEY must be set in .env}"
+      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-replace-with-long-random-value}"
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       EMBEDDER_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       EMBEDDING_BACKEND: "local"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
       CODEXIFY_USE_OPENAI: "0"
     restart: "no"
     command: ["migrator"]
 
   model-prep:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
     working_dir: /app
     volumes:
       - codexify_models:/models
@@ -155,15 +160,16 @@ services:
     command: ["model-prep"]
 
   backend:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
     working_dir: /app
+    <<: *host_gateway
     ports: ["8888:8888"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()"]
       interval: 5s
       timeout: 5s
       retries: 30
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     volumes:
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
@@ -185,6 +191,7 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
       STORAGE_BASE_PATH: /app/data/media
       NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
@@ -202,7 +209,7 @@ services:
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       LOCAL_EMBEDDINGS_REQUIRED: "${LOCAL_EMBEDDINGS_REQUIRED:-0}"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -230,8 +237,9 @@ services:
     command: ["backend"]
 
   worker-warmup:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
     working_dir: /app
+    <<: *host_gateway
     depends_on:
       redis:
         condition: service_healthy
@@ -239,7 +247,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     volumes:
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
@@ -258,11 +266,12 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -277,8 +286,9 @@ services:
     command: ["worker-warmup"]
 
   worker-chat:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
     working_dir: /app
+    <<: *host_gateway
     depends_on:
       redis:
         condition: service_healthy
@@ -286,7 +296,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     volumes:
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
@@ -306,11 +316,12 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -326,8 +337,9 @@ services:
     command: ["worker-chat"]
 
   worker-document-embed:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
     working_dir: /app
+    <<: *host_gateway
     depends_on:
       redis:
         condition: service_healthy
@@ -335,7 +347,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     volumes:
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
@@ -352,11 +364,12 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -374,8 +387,9 @@ services:
     command: ["worker-document-embed"]
 
   worker-chat-embed:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
     working_dir: /app
+    <<: *host_gateway
     depends_on:
       redis:
         condition: service_healthy
@@ -383,7 +397,7 @@ services:
         condition: service_healthy
       model-prep:
         condition: service_completed_successfully
-    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    env_file: .env
     volumes:
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
@@ -400,11 +414,12 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -420,6 +435,14 @@ services:
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
     command: ["worker-chat-embed"]
+
+  frontend:
+    image: ghcr.io/resonant-jones/codexify-webui:local-beta
+    ports: ["3000:80"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pg_data:
