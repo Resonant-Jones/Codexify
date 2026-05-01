@@ -16,8 +16,10 @@ The browser handoff bundle lives in `Codexify-Beta/README.md`.
 
 - `docker compose -f Codexify-Beta/docker-compose.yml config` rendered successfully.
 - `docker compose -f Codexify-Beta/docker-compose.yml pull` completed successfully.
-- `docker compose -f Codexify-Beta/docker-compose.yml up -d` started the bundle.
-- `docker compose -f Codexify-Beta/docker-compose.yml ps` showed the backend and frontend up.
+- The first public cold-path attempt failed because `codexify-neo4j-1` became unhealthy and Compose returned `dependency failed to start: container codexify-neo4j-1 is unhealthy`.
+- The corrected handoff bundle moves Neo4j and `graph-init` behind the optional `graph` profile so the default tester path does not wait on optional graph health.
+- `docker compose -f Codexify-Beta/docker-compose.yml up -d` now starts the default bundle without requiring Neo4j health.
+- `docker compose -f Codexify-Beta/docker-compose.yml ps` shows the backend, frontend, db, redis, and required workers up on the default path.
 - `curl -sS http://localhost:8888/health | jq` returned `status: ok`.
 - `curl -sS http://localhost:8888/health/chat | jq` returned `status: healthy`.
 - `curl -sS http://localhost:8888/api/health/llm | jq` returned `status: ok`.
