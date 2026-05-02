@@ -12,6 +12,7 @@ Use it if the browser opens but the app shows authentication or degraded health 
 ## First Launch Authorization
 
 The browser and the backend must use the same `GUARDIAN_API_KEY`.
+For the localhost beta bundle, `VITE_GUARDIAN_API_KEY` should be set to the same value so the browser can authenticate too.
 
 On first launch, the WebUI may show `Authentication required` until the browser picks up the same key that the backend is using.
 
@@ -40,6 +41,7 @@ Update `Codexify-Beta/.env` to include:
 
 ```env
 GUARDIAN_API_KEY=<paste-generated-key-here>
+VITE_GUARDIAN_API_KEY=<paste-generated-key-here>
 LOCAL_API_KEY=local
 ```
 
@@ -109,4 +111,3 @@ curl -sS http://localhost:8888/health/chat
 docker compose down
 docker compose up -d
 ```
-

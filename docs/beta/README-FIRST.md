@@ -8,7 +8,7 @@ Both paths use the same local backend runtime.
 
 Start with [2026-04-30 local beta release evidence](./2026-04-30-local-beta-release-evidence.md) for the validation commands, digests, and proof notes behind this private beta handoff.
 
-The public WebUI zip also includes `Codexify-Beta/AUTHORIZATION.md` for first-launch key setup and recovery.
+The public WebUI zip also includes `Codexify-Beta/AUTHORIZATION.md` for first-launch key setup, browser auth recovery, and health troubleshooting.
 
 ## Choose Your Path
 
