@@ -19,6 +19,7 @@ mkdir -p "${ARCHIVE_DIR}"
 rm -f "${ARCHIVE_PATH}"
 
 mkdir -p "${STAGING_DIR}/${SOURCE_DIR}"
+cp "${SOURCE_DIR}/AUTHORIZATION.md" "${STAGING_DIR}/${SOURCE_DIR}/AUTHORIZATION.md"
 cp "${SOURCE_DIR}/docker-compose.yml" "${STAGING_DIR}/${SOURCE_DIR}/docker-compose.yml"
 cp "${SOURCE_DIR}/.env.example" "${STAGING_DIR}/${SOURCE_DIR}/.env.example"
 cp "${SOURCE_DIR}/README.md" "${STAGING_DIR}/${SOURCE_DIR}/README.md"
