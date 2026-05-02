@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useUploader } from "../hooks/useUploader";
+import { resolveBackendUrl } from "../lib/runtimeConfig";
 
 class MockFileReader {
   result: string | ArrayBuffer | null = null;
@@ -29,7 +30,7 @@ function installFetchMock() {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url === "/api/media/upload/document") {
+      if (url === resolveBackendUrl("/api/media/upload/document")) {
         return {
           ok: true,
           status: 200,
@@ -91,8 +92,8 @@ describe("useUploader auth headers", () => {
     const fetchMock = installFetchMock();
     await uploadDocument();
 
-    const mediaCall = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/media/upload/document"
+    const mediaCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/media/upload/document")
     );
     expect(mediaCall).toBeDefined();
     const init = mediaCall?.[1] as RequestInit | undefined;
@@ -108,8 +109,8 @@ describe("useUploader auth headers", () => {
     const fetchMock = installFetchMock();
     await uploadDocument();
 
-    const mediaCall = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/media/upload/document"
+    const mediaCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/media/upload/document")
     );
     expect(mediaCall).toBeDefined();
     const init = mediaCall?.[1] as RequestInit | undefined;
@@ -125,8 +126,8 @@ describe("useUploader auth headers", () => {
     const fetchMock = installFetchMock();
     await uploadDocument({ projectId: 7, threadId: undefined });
 
-    const mediaCall = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/media/upload/document"
+    const mediaCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/media/upload/document")
     );
     expect(mediaCall).toBeDefined();
   });

@@ -165,6 +165,8 @@ export function useUploader({
     const withAuth = (init: RequestInit): RequestInit =>
       buildAuthenticatedFetchInit(init, { forceApiKey });
     const apiUrl = (path: string): string => resolveApiUrl(path);
+    const mediaUploadUrl = (path: string): string =>
+      resolveBackendUrl(path);
 
     if (disabled) {
       // Respect upstream gating (e.g., turn-in-flight) by ignoring new uploads.
@@ -360,7 +362,7 @@ export function useUploader({
             }
 
             const uploadResp = await fetch(
-              apiUrl("/api/media/upload/image"),
+              mediaUploadUrl("/api/media/upload/image"),
               withAuth({
                 method: "POST",
                 body: formData,
@@ -432,7 +434,7 @@ export function useUploader({
 
             // Try multipart/form-data first (the "standard" upload method).
             let uploadResp = await fetch(
-              apiUrl("/api/media/upload/document"),
+              mediaUploadUrl("/api/media/upload/document"),
               withAuth({
                 method: "POST",
                 body: formData,
@@ -500,7 +502,7 @@ export function useUploader({
 
                 for (const payload of payloads) {
                   const r = await fetch(
-                    apiUrl("/api/media/upload/document"),
+                    mediaUploadUrl("/api/media/upload/document"),
                     withAuth({
                       method: "POST",
                       headers: {
