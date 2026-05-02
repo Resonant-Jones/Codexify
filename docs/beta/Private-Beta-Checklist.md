@@ -32,13 +32,16 @@ The current handoff evidence is recorded in [2026-04-30 local beta release evide
 - [ ] Confirm `docker compose -f docker-compose.webui-runtime.yml up -d` starts the stack.
 - [ ] Confirm `http://localhost:3000` responds with HTML.
 - [ ] Confirm the backend health endpoints pass.
+- [ ] Confirm the database migrations have been run before expecting schema-backed routes to work.
 - [ ] Confirm one local `hello` response through the browser bundle.
+- [ ] Confirm `Codexify-Beta/AUTHORIZATION.md` is included in the public WebUI zip instructions.
 - [ ] Confirm document and image uploads work through the browser bundle.
 - [ ] Confirm the repo root `.env` file is the editable config source for the Docker bundle.
 - [ ] Confirm no real API keys are present in the docs.
 - [ ] If anonymous GHCR pull fails because of rate limits, stale cache, or a private fork/mirror, try GHCR login and record the cause.
 - [ ] If GHCR still fails, switch to the local rebuild fallback and record that the registry path is not usable from a clean shell.
 - [ ] Upload the docs in `docs/beta/` beside the bundle instructions.
+- [ ] Include first-launch auth instructions that tell testers to set the same key in `GUARDIAN_API_KEY` and `VITE_GUARDIAN_API_KEY`.
 - [ ] Send testers the webUI track instructions.
 - [ ] Ask testers for screenshots of failures.
 - [ ] Record tester feedback.

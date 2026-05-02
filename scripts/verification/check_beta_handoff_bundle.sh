@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
 
 COMPOSE_FILE="Codexify-Beta/docker-compose.yml"
+COMPOSE_PROJECT_NAME="codexify-beta"
+ENV_EXAMPLE="Codexify-Beta/.env.example"
+ARCHIVE_PATH="dist/Codexify-Beta-WebUI-local-beta.zip"
 RUNTIME_IMAGE="ghcr.io/resonant-jones/codexify-runtime:local-beta"
 WEBUI_IMAGE="ghcr.io/resonant-jones/codexify-webui:local-beta"
 TEMP_ENV_CREATED=0
@@ -18,7 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 compose() {
-  docker compose -f "${COMPOSE_FILE}" "$@"
+  docker compose -p "${COMPOSE_PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"
 }
 
 wait_for() {
@@ -36,6 +39,40 @@ wait_for() {
 
   echo "[beta-handoff] timed out waiting for ${label}" >&2
   return 1
+}
+
+bootstrap_temp_api_keys() {
+  if [ -z "${GUARDIAN_API_KEY:-}" ]; then
+    GUARDIAN_API_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  fi
+
+  if [ -z "${VITE_GUARDIAN_API_KEY:-}" ]; then
+    VITE_GUARDIAN_API_KEY="${GUARDIAN_API_KEY}"
+  fi
+
+  export GUARDIAN_API_KEY VITE_GUARDIAN_API_KEY
+
+  if [ "${TEMP_ENV_CREATED}" -eq 1 ]; then
+    python3 - "${GUARDIAN_API_KEY}" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path("Codexify-Beta/.env")
+api_key = sys.argv[1]
+lines = path.read_text().splitlines()
+updated = []
+
+for line in lines:
+    if line.startswith("GUARDIAN_API_KEY="):
+        updated.append(f"GUARDIAN_API_KEY={api_key}")
+    elif line.startswith("VITE_GUARDIAN_API_KEY="):
+        updated.append(f"VITE_GUARDIAN_API_KEY={api_key}")
+    else:
+        updated.append(line)
+
+path.write_text("\n".join(updated) + "\n")
+PY
+  fi
 }
 
 check_backend_health() {
@@ -57,6 +94,37 @@ check_default_compose_contract() {
   [ "$(grep -c 'pull_policy: never' "${COMPOSE_FILE}")" -eq 2 ]
 }
 
+check_env_example() {
+  grep -Fx 'GUARDIAN_API_KEY=' "${ENV_EXAMPLE}" >/dev/null
+  grep -Fx 'VITE_GUARDIAN_API_KEY=' "${ENV_EXAMPLE}" >/dev/null
+  grep -Fx 'GUARDIAN_DEV_MODE=true' "${ENV_EXAMPLE}" >/dev/null
+
+  local csp_line
+  csp_line="$(grep -E '^GUARDIAN_CSP_POLICY=' "${ENV_EXAMPLE}" || true)"
+  if [ -n "${csp_line}" ] && printf '%s' "${csp_line}" | grep -q ';'; then
+    case "${csp_line}" in
+      GUARDIAN_CSP_POLICY=\"*\") ;;
+      *)
+        echo "[beta-handoff] GUARDIAN_CSP_POLICY must be quoted when it contains semicolons" >&2
+        return 1
+        ;;
+    esac
+  fi
+}
+
+check_archive_contents() {
+  [ -f "${ARCHIVE_PATH}" ] || return 0
+
+  local archive_listing
+  archive_listing="$(unzip -Z1 "${ARCHIVE_PATH}")"
+
+  printf '%s\n' "${archive_listing}" | grep -Fx 'Codexify-Beta/README.md' >/dev/null
+  printf '%s\n' "${archive_listing}" | grep -Fx 'Codexify-Beta/AUTHORIZATION.md' >/dev/null
+  printf '%s\n' "${archive_listing}" | grep -Fx 'Codexify-Beta/docker-compose.yml' >/dev/null
+  printf '%s\n' "${archive_listing}" | grep -Fx 'Codexify-Beta/.env.example' >/dev/null
+  ! printf '%s\n' "${archive_listing}" | grep -Fx 'Codexify-Beta/.env' >/dev/null
+}
+
 check_default_runtime_is_graph_free() {
   local ps_json
   ps_json="$(compose ps --format json)"
@@ -76,6 +144,11 @@ if [ ! -f Codexify-Beta/.env ]; then
   TEMP_ENV_CREATED=1
 fi
 
+bootstrap_temp_api_keys
+
+echo "[beta-handoff] clearing any prior beta compose state..."
+compose down --remove-orphans || true
+
 docker logout ghcr.io || true
 
 echo "[beta-handoff] verifying anonymous registry pulls..."
@@ -89,6 +162,8 @@ printf '%s\n' "${config_output}" | grep -F "${WEBUI_IMAGE}" >/dev/null
 printf '%s\n' "${config_output}" | grep -F 'published: "8888"' >/dev/null
 printf '%s\n' "${config_output}" | grep -F 'published: "3000"' >/dev/null
 check_default_compose_contract
+check_env_example
+check_archive_contents
 
 echo "[beta-handoff] pulling bundle images through compose..."
 compose pull --policy missing
