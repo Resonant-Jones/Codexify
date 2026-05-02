@@ -22,6 +22,8 @@ Source anchors:
 
 # Codexify Architecture KB
 
+Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
+
 ## What Codexify Is
 
 Codexify is a local-first chat and knowledge workspace built around a FastAPI backend, a React frontend, Postgres-backed state, Redis-backed background work, optional Neo4j graph features, and a growing command bus/tooling layer. The core loop today is thread-based chat: the frontend writes messages, the backend enqueues completion work, workers assemble context from messages plus retrieval layers, and results stream back through task events and durable domain events.
