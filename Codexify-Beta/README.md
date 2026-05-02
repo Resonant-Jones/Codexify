@@ -15,32 +15,28 @@ Graph context is optional for the default tester path; the bundle starts cleanly
 
 - Docker Desktop, or Docker Engine with Compose
 - A local Ollama or compatible host model setup if you want the default local model path
+- Read [AUTHORIZATION.md](./AUTHORIZATION.md) before first launch if you need to set or recover the beta API key.
 
 ## Setup
 
-1. Copy the example env file:
+Normal flow:
 
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env
+# edit .env and replace GUARDIAN_API_KEY
+docker compose pull
+docker compose up -d
+sleep 20
+open http://localhost:3000
+```
 
-2. Pull the published images:
+If you are on Linux or do not have `open`, use your browser normally:
 
-   ```bash
-   docker compose pull
-   ```
+```text
+http://localhost:3000
+```
 
-3. Start the bundle:
-
-   ```bash
-   docker compose up -d
-   ```
-
-4. Open the web UI:
-
-   ```text
-   http://localhost:3000
-   ```
+If the app shows `Authentication required`, follow [AUTHORIZATION.md](./AUTHORIZATION.md).
 
 Optional graph context:
 
@@ -50,6 +46,7 @@ Optional graph context:
 ## What Is In This Folder
 
 - `docker-compose.yml`
+- `AUTHORIZATION.md`
 - `.env.example`
 - `README.md`
 
@@ -76,6 +73,7 @@ docker compose down
 - Stale local image cache: run `docker compose pull` again before `docker compose up -d`.
 - GHCR auth should not be required for the normal public-pull path.
 - Neo4j is optional for the public handoff bundle; if the graph profile is not enabled, the default startup does not wait for Neo4j health.
+- If the browser says `Authentication required` or health looks degraded, check [AUTHORIZATION.md](./AUTHORIZATION.md).
 - If you are on a private fork or a mirror, or your Docker cache is stale, authenticate to GHCR and retry the pull.
 
 ## Packaging
