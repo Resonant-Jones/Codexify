@@ -10,6 +10,7 @@ It is local Docker only.
 It is not cloud hosting.
 It is not remote multi-user deployment.
 Graph context is optional for the default tester path; the bundle starts cleanly without Neo4j.
+The browser-side beta auth key is localhost/dev only and must match the backend key in `.env`.
 
 ## Prerequisites
 
@@ -23,8 +24,9 @@ Normal flow:
 
 ```bash
 cp .env.example .env
-# edit .env and replace GUARDIAN_API_KEY
+# edit .env and replace GUARDIAN_API_KEY and VITE_GUARDIAN_API_KEY with the same local dev key
 docker compose pull
+docker compose run --rm migrator
 docker compose up -d
 sleep 20
 open http://localhost:3000
@@ -37,6 +39,30 @@ http://localhost:3000
 ```
 
 If the app shows `Authentication required`, follow [AUTHORIZATION.md](./AUTHORIZATION.md).
+
+If backend API-key auth works but the browser still shows `apiKeyPresent=false`, make sure `VITE_GUARDIAN_API_KEY` matches `GUARDIAN_API_KEY` in `.env`, then restart the WebUI container.
+
+If `/healthz` shows tables as missing, run the migrator before expecting schema-backed routes to work:
+
+```bash
+docker compose run --rm migrator
+docker compose up -d
+```
+
+For diagnostics, source the env file and check backend auth and schema readiness:
+
+```bash
+set -a; source .env; set +a
+curl -s http://localhost:8888/healthz | jq
+curl -s -H "X-API-Key: $GUARDIAN_API_KEY" http://localhost:8888/threads | jq
+```
+
+Healthy schema should report:
+
+- `projects_table_exists: true`
+- `chat_threads_table_exists: true`
+
+If the authenticated `/threads` request returns `{ "threads": [] }`, backend API-key auth is working.
 
 Optional graph context:
 
@@ -73,7 +99,12 @@ docker compose down
 - Stale local image cache: run `docker compose pull` again before `docker compose up -d`.
 - GHCR auth should not be required for the normal public-pull path.
 - Neo4j is optional for the public handoff bundle; if the graph profile is not enabled, the default startup does not wait for Neo4j health.
-- If the browser says `Authentication required` or health looks degraded, check [AUTHORIZATION.md](./AUTHORIZATION.md).
+- If the browser says `Authentication required`, check [AUTHORIZATION.md](./AUTHORIZATION.md) and confirm the browser key matches the backend key.
+- If `apiKeyPresent=false` appears in Settings, check [AUTHORIZATION.md](./AUTHORIZATION.md) and confirm `VITE_GUARDIAN_API_KEY` matches `GUARDIAN_API_KEY`.
+- If `/healthz` reports missing tables, run the migrator before expecting schema-backed routes to work.
+- If `source .env` emits `command not found: self` or similar, one of the env values is unquoted; quote the whole CSP-like value or replace the file with the corrected `.env.example`.
+- If the UI shows `backend_unreachable`, confirm the backend container is healthy and `http://localhost:8888/healthz` responds before checking the frontend proxy/base URL.
+- If the browser shows `Authentication required` or health looks degraded, check [AUTHORIZATION.md](./AUTHORIZATION.md).
 - If you are on a private fork or a mirror, or your Docker cache is stale, authenticate to GHCR and retry the pull.
 
 ## Packaging
