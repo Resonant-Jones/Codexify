@@ -749,9 +749,6 @@ def _fallback_provider_candidates(
 
 
 def _assistant_message_audio_autogenerate_effective_enabled() -> bool:
-    raw = os.getenv("CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE")
-    if raw is None:
-        return True
     return assistant_message_audio_autogenerate_enabled()
 
 
