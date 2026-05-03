@@ -1310,6 +1310,47 @@ class InferenceProviderRuntime(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class InferenceModelOverride(Base):
+    """User-editable model metadata overrides for provider catalogs."""
+
+    __tablename__ = "inference_model_overrides"
+
+    provider_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("inference_providers.provider_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    model_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    display_label: Mapped[str | None] = mapped_column(Text)
+    picker_label: Mapped[str | None] = mapped_column(Text)
+    supports_chat: Mapped[bool | None] = mapped_column(Boolean)
+    supports_vision: Mapped[bool | None] = mapped_column(Boolean)
+    supports_text_input: Mapped[bool | None] = mapped_column(Boolean)
+    model_kind: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    provider: Mapped[InferenceProvider] = relationship("InferenceProvider")
+
+    __table_args__ = (
+        CheckConstraint(
+            "model_kind IS NULL OR model_kind IN ('chat','vision_chat','utility')",
+            name="ck_inference_model_overrides_model_kind",
+        ),
+        Index("ix_inference_model_overrides_provider_id", "provider_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Event Outbox & Audit
 # =========================

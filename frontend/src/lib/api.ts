@@ -279,6 +279,17 @@ export function buildLlmCatalogPath(): string {
   return "/llm/catalog";
 }
 
+export function buildLlmModelOverridesPath(): string {
+  return "/api/llm/model-overrides";
+}
+
+export function buildLlmModelOverridePath(
+  providerId: string | number,
+  modelId: string | number
+): string {
+  return `${buildLlmModelOverridesPath()}/${normalizePathSegment(providerId)}/${normalizePathSegment(modelId)}`;
+}
+
 export function buildChatThreadsPath(): string {
   return "/api/chat/threads";
 }
