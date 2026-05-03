@@ -40,6 +40,7 @@ CHAT_IMPORT_EMBED_QUEUE_NAME = os.getenv(
 CHAT_IMPORT_EMBED_TASK_TYPE = "chat_import_embed"
 CANDIDATE_INGEST_QUEUE = "codexify:queue:candidate_ingest"
 GRAPH_WRITE_QUEUE = "codexify:queue:graph-write"
+CODING_EXECUTION_QUEUE = "codexify:queue:coding-execution"
 QUEUE_ENQUEUE_ERROR_CODE = ErrorCode.QUEUE_ENQUEUE_FAILED.value
 _CLIENT: Any = None
 _QUEUE_CLIENT: Any = None
@@ -612,6 +613,26 @@ def dequeue_chat_import_embed(
     *, block: bool = True, timeout: int | None = None
 ) -> dict[str, Any] | None:
     return dequeue(CHAT_IMPORT_EMBED_QUEUE_NAME, block=block, timeout=timeout)
+
+
+def enqueue_coding_execution(payload: dict[str, Any]) -> str:
+    """Enqueue a coding execution task for async processing."""
+    task_id = str(uuid.uuid4())
+    record = {
+        "task_id": task_id,
+        "type": "coding_execution",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    enqueue(record, CODING_EXECUTION_QUEUE)
+    return task_id
+
+
+def dequeue_coding_execution(
+    *, block: bool = True, timeout: int | None = None
+) -> dict[str, Any] | None:
+    """Dequeue a coding execution task."""
+    return dequeue(CODING_EXECUTION_QUEUE, block=block, timeout=timeout)
 
 
 def cancel(task_id: str) -> None:
