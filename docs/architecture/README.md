@@ -22,7 +22,7 @@ Source anchors:
 
 # Codexify Architecture KB
 
-Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
+Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
 
 ## What Codexify Is
 
