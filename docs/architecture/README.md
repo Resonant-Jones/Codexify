@@ -63,6 +63,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
+- [Agent Protocol Operations Index](./agent-protocol-operations.md): agent-facing map for task rituals, campaign/task interpretation, architecture-impact workflow, validation expectations, and contingency behavior.
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
