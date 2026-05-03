@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { serializeDocumentContextMessage } from "@/lib/documentContext";
@@ -227,6 +227,31 @@ describe("ChatBubble", () => {
       "min-w-0"
     );
     expect(container.querySelector(".codexifyCodeBlockPre")).toBeInTheDocument();
+  });
+
+  it("keeps the read-aloud control enabled when audio has not been generated yet", () => {
+    const onPlay = vi.fn();
+
+    render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "msg-play-lazy",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: "Read this later",
+          createdAt: Date.now(),
+        }}
+        showPlay
+        playState="unavailable"
+        onPlay={onPlay}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "Generate audio" });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(onPlay).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes TeX-style arrows in assistant prose without breaking markdown", () => {

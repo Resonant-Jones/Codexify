@@ -21,6 +21,7 @@ import type {
   CompletionState,
   StreamingDraft,
 } from "@/features/chat/useChat";
+import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { parseDocumentContextContent } from "@/lib/documentContext";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
@@ -39,6 +40,12 @@ type BubblePlayState =
   | "pending"
   | "unavailable"
   | "disabled";
+
+type LazyAudioState = {
+  status: "pending" | "ready" | "failed";
+  audioUrl: string | null;
+  audioError: string | null;
+};
 
 type ChatSurfaceState =
   | {
@@ -125,6 +132,27 @@ function buildChatSurfaceState(args: {
     title: "No messages yet",
     detail: "This thread is ready. Start the conversation below.",
   };
+}
+
+function getVoiceSpeakErrorMessage(error: unknown): string {
+  const response = error as {
+    response?: { data?: { detail?: unknown } | unknown; status?: number };
+    message?: string;
+  };
+  const detail = response?.response?.data;
+  if (detail && typeof detail === "object") {
+    const candidate = (detail as { detail?: unknown }).detail;
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+    if (candidate != null) {
+      return String(candidate);
+    }
+  }
+  if (typeof response?.message === "string" && response.message.trim()) {
+    return response.message;
+  }
+  return error instanceof Error && error.message ? error.message : "Audio unavailable";
 }
 
 function ChatSurfaceStateCard({ state }: { state: ChatSurfaceState }) {
@@ -225,6 +253,9 @@ export function ChatView({
   const voiceUnavailableMessageIdsRef = useRef<Record<number, true>>({});
   const [voiceRouteMissing, setVoiceRouteMissing] = useState(false);
   const voiceRouteMissingRef = useRef(false);
+  const [lazyAudioStates, setLazyAudioStates] = useState<
+    Record<number, LazyAudioState>
+  >({});
   const lastAutoReadMessageIdRef = useRef<number | null>(null);
   const autoReadPrimedRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -308,6 +339,16 @@ export function ChatView({
     setVoiceUnavailableMessageIds(voiceUnavailableMessageIdsRef.current);
   }, []);
 
+  const clearVoiceUnavailable = useCallback((messageId: number) => {
+    if (!voiceUnavailableMessageIdsRef.current[messageId]) {
+      return;
+    }
+    const next = { ...voiceUnavailableMessageIdsRef.current };
+    delete next[messageId];
+    voiceUnavailableMessageIdsRef.current = next;
+    setVoiceUnavailableMessageIds(next);
+  }, []);
+
   const measureChatViewport = useCallback(() => {
     const el = containerRef.current;
     if (!el) {
@@ -354,6 +395,7 @@ export function ChatView({
     setVoiceUnavailableMessageIds({});
     voiceRouteMissingRef.current = false;
     setVoiceRouteMissing(false);
+    setLazyAudioStates({});
     setHasOverflow(false);
     setShowJumpToLatest(false);
   }, [threadId]);
@@ -494,41 +536,144 @@ export function ChatView({
     [isVoiceUnavailable, markVoiceUnavailable, showToast, voiceReadAloudEnabled]
   );
 
-  const handlePlayClick = useCallback(
+  const resolveMessageAudioState = useCallback(
     (message: ChatMessage) => {
       const messageId = Number(message.id);
+      const override = Number.isFinite(messageId)
+        ? lazyAudioStates[messageId]
+        : undefined;
+      const messageAudioStatus =
+        override?.status ?? (message.audio_status ?? "unavailable");
       const messageAudioUrl =
-        typeof message.audio_url === "string" && message.audio_url.trim()
+        override?.audioUrl ??
+        (typeof message.audio_url === "string" && message.audio_url.trim()
           ? message.audio_url
-          : null;
+          : null);
+      const messageAudioError =
+        override?.audioError ??
+        (typeof message.audio_error === "string" && message.audio_error.trim()
+          ? message.audio_error
+          : null);
+      return {
+        messageId,
+        status: messageAudioStatus,
+        url: messageAudioUrl,
+        error: messageAudioError,
+      };
+    },
+    [lazyAudioStates]
+  );
+
+  const requestAndPlayMessageAudio = useCallback(
+    async (message: ChatMessage) => {
+      const { messageId } = resolveMessageAudioState(message);
+      if (!Number.isFinite(messageId)) {
+        return;
+      }
       if (!voiceReadAloudEnabled || voiceRouteMissingRef.current) {
         showToast("Voice disabled");
         return;
       }
+
+      clearVoiceUnavailable(messageId);
+      setLazyAudioStates((previous) => ({
+        ...previous,
+        [messageId]: {
+          status: "pending",
+          audioUrl: null,
+          audioError: null,
+        },
+      }));
+
+      try {
+        const response = await api.post(`/voice/messages/${messageId}/speak`, {
+          force_regenerate: false,
+        });
+        const audioAsset = (response?.data as {
+          audio_asset?: { stream_url?: unknown; src_url?: unknown };
+        })?.audio_asset;
+        const audioUrl =
+          typeof audioAsset?.stream_url === "string" &&
+          audioAsset.stream_url.trim()
+            ? audioAsset.stream_url.trim()
+            : typeof audioAsset?.src_url === "string" &&
+                audioAsset.src_url.trim()
+              ? audioAsset.src_url.trim()
+              : null;
+        if (!audioUrl) {
+          throw new Error("Audio unavailable");
+        }
+
+        setLazyAudioStates((previous) => ({
+          ...previous,
+          [messageId]: {
+            status: "ready",
+            audioUrl,
+            audioError: null,
+          },
+        }));
+
+        await playMessageAudio(messageId, audioUrl, {
+          manual: true,
+          unavailableMessage: "Audio unavailable",
+        });
+      } catch (error) {
+        const errorMessage = getVoiceSpeakErrorMessage(error);
+        setLazyAudioStates((previous) => ({
+          ...previous,
+          [messageId]: {
+            status: "failed",
+            audioUrl: null,
+            audioError: errorMessage,
+          },
+        }));
+        showToast(errorMessage);
+      }
+    },
+    [
+      clearVoiceUnavailable,
+      playMessageAudio,
+      resolveMessageAudioState,
+      showToast,
+      voiceReadAloudEnabled,
+    ]
+  );
+
+  const handlePlayClick = useCallback(
+    (message: ChatMessage) => {
+      const audioState = resolveMessageAudioState(message);
+      const { messageId, status, url } = audioState;
       if (!Number.isFinite(messageId)) return;
-      if (message.audio_status === "pending") {
-        showToast("Audio is still generating");
+      if (!voiceReadAloudEnabled || voiceRouteMissingRef.current) {
+        showToast("Voice disabled");
         return;
       }
-      if (message.audio_status === "failed") {
-        showToast(message.audio_error || "Audio unavailable");
+      if (status === "pending") {
+        showToast("Audio is still generating");
         return;
       }
       if (
         isVoiceUnavailable(messageId) ||
-        message.audio_status !== "ready" ||
-        !messageAudioUrl
+        status !== "ready" ||
+        !url
       ) {
-        showToast("Audio unavailable");
+        void requestAndPlayMessageAudio(message);
         return;
       }
 
-      void playMessageAudio(messageId, messageAudioUrl, {
+      void playMessageAudio(messageId, url, {
         manual: true,
-        unavailableMessage: message.audio_error || "Audio unavailable",
+        unavailableMessage: audioState.error || "Audio unavailable",
       });
     },
-    [isVoiceUnavailable, playMessageAudio, showToast, voiceReadAloudEnabled]
+    [
+      isVoiceUnavailable,
+      playMessageAudio,
+      requestAndPlayMessageAudio,
+      resolveMessageAudioState,
+      showToast,
+      voiceReadAloudEnabled,
+    ]
   );
 
   useEffect(() => {
@@ -653,13 +798,11 @@ export function ChatView({
         >
           {surfaceState ? <ChatSurfaceStateCard state={surfaceState} /> : null}
           {messages.map((message, index) => {
-            const messageId = Number(message.id);
+            const audioState = resolveMessageAudioState(message);
+            const messageId = audioState.messageId;
             const canPlay = message.role !== "user" && Number.isFinite(messageId);
-            const messageAudioStatus = message.audio_status;
-            const messageAudioUrl =
-              typeof message.audio_url === "string" && message.audio_url.trim()
-                ? message.audio_url
-                : null;
+            const messageAudioStatus = audioState.status;
+            const messageAudioUrl = audioState.url;
             const showPlay =
               canPlay && voiceReadAloudEnabled && !voiceRouteMissing;
             const messageVoiceUnavailable = Boolean(
