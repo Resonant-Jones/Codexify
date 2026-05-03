@@ -50,5 +50,5 @@ export const ENV = {
   ssePath: read("VITE_SSE_PATH", "/api/events"),
   // dev UI key only; real prod auth should be real tokens
   uiKey: read("VITE_GUARDIAN_API_KEY", ""),
-  useProxy: read("VITE_USE_PROXY", "true") === "true",
+  useProxy: read("VITE_USE_PROXY", "false") === "true",
 };

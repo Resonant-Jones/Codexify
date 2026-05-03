@@ -164,6 +164,8 @@ export function useUploader({
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     const withAuth = (init: RequestInit): RequestInit =>
       buildAuthenticatedFetchInit(init, { forceApiKey });
+    const withMediaAuth = (init: RequestInit): RequestInit =>
+      buildAuthenticatedFetchInit(init, { forceApiKey: true });
     const apiUrl = (path: string): string => resolveApiUrl(path);
     const mediaUploadUrl = (path: string): string =>
       resolveBackendUrl(path);
@@ -297,6 +299,41 @@ export function useUploader({
       }
     }
 
+    async function ensureUploadThreadId(
+      currentProjectId: string | undefined,
+      currentThreadId: string | undefined
+    ): Promise<string | undefined> {
+      if (currentThreadId) return currentThreadId;
+      try {
+        const response = await fetch(
+          resolveBackendUrl("/threads"),
+          withMediaAuth({
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              title: "Documents upload",
+              ...(currentProjectId ? { project_id: currentProjectId } : {}),
+            }),
+          })
+        );
+        if (!response.ok) return undefined;
+        const payload = await response.json().catch(() => null);
+        const threadId = payload?.thread_id ?? payload?.id ?? payload?.threadId;
+        return toIdString(threadId) ?? undefined;
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (effectiveThreadId === undefined && effectiveProjectId !== undefined) {
+      effectiveThreadId = await ensureUploadThreadId(
+        effectiveProjectId,
+        effectiveThreadId
+      );
+    }
+
     // Persist inferred context for later uploads (best-effort)
     try {
       if (effectiveProjectId !== undefined) {
@@ -363,7 +400,7 @@ export function useUploader({
 
             const uploadResp = await fetch(
               mediaUploadUrl("/api/media/upload/image"),
-              withAuth({
+              withMediaAuth({
                 method: "POST",
                 body: formData,
               })
@@ -435,7 +472,7 @@ export function useUploader({
             // Try multipart/form-data first (the "standard" upload method).
             let uploadResp = await fetch(
               mediaUploadUrl("/api/media/upload/document"),
-              withAuth({
+              withMediaAuth({
                 method: "POST",
                 body: formData,
               })
@@ -503,7 +540,7 @@ export function useUploader({
                 for (const payload of payloads) {
                   const r = await fetch(
                     mediaUploadUrl("/api/media/upload/document"),
-                    withAuth({
+                    withMediaAuth({
                       method: "POST",
                       headers: {
                         "content-type": "application/json",

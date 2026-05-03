@@ -101,7 +101,7 @@ describe("useUploader auth headers", () => {
     expect(headers["X-API-Key"]).toBe("non-proxy-key");
   });
 
-  it("does not add X-API-Key on document upload in proxy mode", async () => {
+  it("still adds X-API-Key on document upload in proxy mode", async () => {
     vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
     vi.stubEnv("VITE_USE_PROXY", "true");
     vi.stubEnv("VITE_GUARDIAN_API_KEY", "proxy-key");
@@ -115,7 +115,7 @@ describe("useUploader auth headers", () => {
     expect(mediaCall).toBeDefined();
     const init = mediaCall?.[1] as RequestInit | undefined;
     const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(headers["X-API-Key"]).toBeUndefined();
+    expect(headers["X-API-Key"]).toBe("proxy-key");
   });
 
   it("uploads documents without thread context when project_id is present", async () => {

@@ -35,6 +35,13 @@ const runtimeHealthState = {
   liveEventsStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
+  diagnostics: {
+    hydrationState: "hydrated",
+    liveEvents: {
+      connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+      statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+    },
+  },
 };
 const routeCapabilityState = {
   ready: true,
@@ -206,9 +213,11 @@ vi.mock("@/components/ErrorBoundary", () => ({
 
 vi.mock("@/components/documents/DocumentsView", () => ({
   default: ({
-    defaultProjectId,
+    projectId,
+    threadId,
   }: {
-    defaultProjectId?: number | string | null;
+    projectId?: number | string | null;
+    threadId?: number | string | null;
   }) => (
     <div data-testid="documents-view-mock">
       <section
@@ -217,8 +226,11 @@ vi.mock("@/components/documents/DocumentsView", () => ({
         data-workspace-anchor="app-shell-right"
       >
         <div data-testid="documents-center-panel">Documents center</div>
-        <div data-testid="documents-default-project-id">
-          {defaultProjectId ?? "no-project"}
+        <div data-testid="documents-project-id">
+          {projectId ?? "no-project"}
+        </div>
+        <div data-testid="documents-thread-id">
+          {threadId ?? "no-thread"}
         </div>
       </section>
     </div>
@@ -509,9 +521,10 @@ describe("AppShell settings utility trigger", () => {
     await waitFor(() => {
       expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("documents-default-project-id")).toHaveTextContent(
+    expect(screen.getByTestId("documents-project-id")).toHaveTextContent(
       "42"
     );
+    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("123");
   });
 });
 

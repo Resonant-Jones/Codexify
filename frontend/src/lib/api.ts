@@ -76,6 +76,10 @@ function isDevRuntime(): boolean {
   return raw !== "production";
 }
 
+function isProxyRuntime(): boolean {
+  return readRuntimeEnv("VITE_USE_PROXY", "false") === "true";
+}
+
 function resolveDevApiKey(): string {
   if (!isDevRuntime()) return "";
   const explicitDevKey = readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
@@ -209,7 +213,8 @@ function applyAuthHeaders(
     headers["X-API-Key"] = runtimeApiKey;
   } else {
     const devApiKey = resolveDevApiKey();
-    if ((forceApiKey || !token) && devApiKey && !hasApiKey) {
+    const allowDevKey = !isProxyRuntime() || forceApiKey;
+    if ((forceApiKey || !token) && allowDevKey && devApiKey && !hasApiKey) {
       headers["X-API-Key"] = devApiKey;
     }
   }
