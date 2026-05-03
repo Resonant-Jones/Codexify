@@ -70,10 +70,12 @@ services:
 
 ## Documentation Still Needed
 
-1. **Runbook**: How to run and monitor the coding worker
-2. **API Reference**: `POST /api/agents/coding/execute` schema and response
-3. **Queue Monitoring**: How to check backlog, inspect messages, handle stuck tasks
-4. **Troubleshooting Guide**: Common failure modes and remediation
+| Item | Status | Location |
+|------|--------|----------|
+| Runbook | ✅ Complete | `docs/Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md` |
+| API Reference | Inline in runbook | See "Canonical Interface" section |
+| Queue monitoring | ✅ In runbook | See "Monitoring" section |
+| Troubleshooting guide | ✅ In runbook | See "Failure Signatures" section |
 
 ## Architecture Alignment
 
