@@ -14,8 +14,10 @@ const appendMessageMock = vi.fn();
 const shouldRefreshMock = vi.fn().mockReturnValue(false);
 const markRefreshedMock = vi.fn();
 const subscribeMock = vi.fn();
-const apiPostMock = vi.fn();
-const apiGetMock = vi.fn();
+const apiMocks = vi.hoisted(() => ({
+  apiPostMock: vi.fn(),
+  apiGetMock: vi.fn(),
+}));
 const getInFlightCompletionTurnIdMock = vi.fn();
 const clearInFlightCompletionTurnIdMock = vi.fn();
 const pollOptionsHistory: any[] = [];
@@ -72,6 +74,16 @@ vi.mock("@/hooks/useLiveEvents", () => ({
   }),
 }));
 
+vi.mock("@/lib/api", () => ({
+  default: {
+    get: apiMocks.apiGetMock,
+    post: apiMocks.apiPostMock,
+  },
+}));
+
+const apiPostMock = apiMocks.apiPostMock;
+const apiGetMock = apiMocks.apiGetMock;
+
 vi.mock("@/features/chat/hooks/useChatAutoScroll", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   return {
@@ -106,11 +118,11 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
       playState === "pending"
         ? "Generating audio"
         : playState === "unavailable"
-          ? "Audio unavailable"
+          ? "Generate audio"
           : playState === "playing"
             ? "Playing..."
             : "Read Aloud";
-    const disabled = playState === "pending" || playState === "unavailable";
+    const disabled = playState === "pending" || playState === "disabled";
     return (
       <div data-testid={`bubble-${message.id}`}>
         <div>{message.content}</div>
@@ -202,8 +214,47 @@ describe("ChatView loop guards", () => {
     );
 
     expect(screen.getByRole("button", { name: "Generating audio" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Audio unavailable" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Generate audio" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Read Aloud" })).toBeEnabled();
+  });
+
+  it("lazily synthesizes audio when the user clicks play on an ungenerated assistant message", async () => {
+    apiPostMock.mockResolvedValueOnce({
+      data: {
+        audio_asset: {
+          stream_url: "/api/voice/audio/99",
+        },
+        cached: false,
+      },
+    });
+
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[
+          buildMessage(3, "assistant", {
+            audio_status: "unavailable",
+          }),
+        ]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+        voiceReadAloudEnabled
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate audio" }));
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith(
+        "/voice/messages/3/speak",
+        { force_regenerate: false }
+      )
+    );
+    await waitFor(() => expect(audioPlayMock).toHaveBeenCalled());
   });
 
   it("renders a visible loading state before any messages arrive", () => {
