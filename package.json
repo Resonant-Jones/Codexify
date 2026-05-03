@@ -2,11 +2,11 @@
   "name": "guardian-monorepo",
   "private": true,
   "scripts": {
-    "lint": "pnpm --dir frontend/src lint",
-    "build": "pnpm --dir frontend/src build",
-    "test": "pnpm --dir frontend/src exec vitest run",
-    "format": "pnpm --dir frontend/src format",
-    "format:check": "pnpm --dir frontend/src format:check",
+    "lint": "pnpm --dir frontend lint",
+    "build": "pnpm --dir frontend build",
+    "test": "pnpm --dir frontend test",
+    "format": "pnpm --dir frontend format",
+    "format:check": "pnpm --dir frontend format:check",
     "process-logs": "npx tsx scripts/process_logs.ts"
   },
   "devDependencies": {
