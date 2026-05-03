@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ChevronRight,
+  Mic2,
   MoreVertical,
   Zap,
 } from "lucide-react";
@@ -51,6 +52,7 @@ import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
+import { Button } from "@/components/ui/button";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import {
   getMobileChromeMotionStyle,
@@ -198,6 +200,9 @@ type ResolvedProfileState = {
 type VoiceCapabilities = {
   read_aloud_enabled: boolean;
   turn_based_enabled: boolean;
+  provider_default: string | null;
+  voice_default: string;
+  voices: string[];
   supported_input_mime: string[];
   limits: { max_upload_bytes: number; max_duration_s: number } | null;
 };
@@ -393,9 +398,61 @@ type VoiceCapabilitiesStatus = "loading" | "ready" | "error";
 const DEFAULT_VOICE_CAPABILITIES: VoiceCapabilities = {
   read_aloud_enabled: false,
   turn_based_enabled: false,
+  provider_default: null,
+  voice_default: "alloy",
+  voices: [],
   supported_input_mime: ["audio/wav", "audio/x-wav", "audio/webm", "audio/ogg"],
   limits: null,
 };
+
+const VOICE_PLAYBACK_STORAGE_KEY = "cfy.voice.playbackEnabled";
+const VOICE_TURNS_STORAGE_KEY = "cfy.voice.turnEnabled";
+const VOICE_SELECTED_STORAGE_KEY = "cfy.voice.selectedVoice";
+
+function readStoredVoiceFlag(
+  key: string,
+  fallback: boolean
+): boolean {
+  if (typeof window === "undefined") return fallback;
+  const getItem = window.localStorage.getItem;
+  if (typeof getItem !== "function") return fallback;
+  const raw = getItem.call(window.localStorage, key);
+  if (raw == null) return fallback;
+  return raw === "1";
+}
+
+function readStoredVoiceText(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  const getItem = window.localStorage.getItem;
+  if (typeof getItem !== "function") return null;
+  const raw = getItem.call(window.localStorage, key);
+  const value = String(raw ?? "").trim();
+  return value ? value : null;
+}
+
+function writeStoredVoiceFlag(key: string, value: boolean): void {
+  try {
+    const setItem = window.localStorage.setItem;
+    if (typeof setItem !== "function") return;
+    setItem.call(window.localStorage, key, value ? "1" : "0");
+  } catch {}
+}
+
+function writeStoredVoiceText(key: string, value: string | null): void {
+  try {
+    const setItem = window.localStorage.setItem;
+    const removeItem = window.localStorage.removeItem;
+    if (typeof setItem !== "function") return;
+    const normalized = String(value ?? "").trim();
+    if (!normalized) {
+      if (typeof removeItem === "function") {
+        removeItem.call(window.localStorage, key);
+      }
+      return;
+    }
+    setItem.call(window.localStorage, key, normalized);
+  } catch {}
+}
 
 const PROFILE_FALLBACK_OPTIONS: SystemProfileOption[] = [
   { id: "default", name: "Default", mode: "cloud" },
@@ -542,15 +599,30 @@ function normalizeVoiceCapabilities(raw: any): VoiceCapabilities {
   const limitsRaw = raw?.limits;
   const maxUploadBytes = Number(limitsRaw?.max_upload_bytes);
   const maxDurationSeconds = Number(limitsRaw?.max_duration_s);
+  const voicesRaw = Array.isArray(raw?.voices) ? raw.voices : [];
+  const voices = voicesRaw
+    .map((entry: unknown) => String(entry ?? "").trim())
+    .filter(Boolean);
   const supportedInputMime = Array.isArray(raw?.supported_input_mime)
     ? raw.supported_input_mime
         .map((entry: unknown) => String(entry ?? "").trim().toLowerCase())
         .filter(Boolean)
     : DEFAULT_VOICE_CAPABILITIES.supported_input_mime;
+  const defaultVoiceRaw = String(raw?.voice_default ?? "").trim();
+  const voiceDefault =
+    defaultVoiceRaw ||
+    voices[0] ||
+    DEFAULT_VOICE_CAPABILITIES.voice_default;
 
   return {
     read_aloud_enabled: Boolean(raw?.read_aloud_enabled),
     turn_based_enabled: Boolean(raw?.turn_based_enabled),
+    provider_default:
+      typeof raw?.provider_default === "string" && raw.provider_default.trim()
+        ? raw.provider_default.trim()
+        : null,
+    voice_default: voiceDefault,
+    voices,
     supported_input_mime: supportedInputMime.length
       ? supportedInputMime
       : DEFAULT_VOICE_CAPABILITIES.supported_input_mime,
@@ -866,6 +938,15 @@ export function GuardianChat({
   );
   const [voiceCapabilitiesStatus, setVoiceCapabilitiesStatus] =
     useState<VoiceCapabilitiesStatus>("loading");
+  const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+  const voicePanelRef = useRef<HTMLDivElement | null>(null);
+  const [voicePlaybackEnabledPreference, setVoicePlaybackEnabledPreference] =
+    useState<boolean>(() => readStoredVoiceFlag(VOICE_PLAYBACK_STORAGE_KEY, true));
+  const [voiceTurnEnabledPreference, setVoiceTurnEnabledPreference] =
+    useState<boolean>(() => readStoredVoiceFlag(VOICE_TURNS_STORAGE_KEY, true));
+  const [selectedVoice, setSelectedVoice] = useState<string | null>(() =>
+    readStoredVoiceText(VOICE_SELECTED_STORAGE_KEY)
+  );
   const [autoReadEnabled, setAutoReadEnabled] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("cfy.voice.autoRead") === "1";
@@ -933,8 +1014,46 @@ export function GuardianChat({
       );
     };
   }, []);
-  const voiceReadAloudEnabled = voiceCapabilities.read_aloud_enabled;
-  const voiceTurnBasedEnabled = voiceCapabilities.turn_based_enabled;
+  const voiceModeOptions = useMemo(() => {
+    const fallbackVoice = voiceCapabilities.voice_default.trim();
+    const voices = voiceCapabilities.voices
+      .map((voice) => String(voice ?? "").trim())
+      .filter(Boolean);
+    if (voiceCapabilitiesStatus !== "ready") {
+      const currentVoice = selectedVoice?.trim() || fallbackVoice;
+      return currentVoice ? [currentVoice] : [DEFAULT_VOICE_CAPABILITIES.voice_default];
+    }
+    if (!voices.length && fallbackVoice) {
+      return [fallbackVoice];
+    }
+    if (voices.includes(fallbackVoice)) {
+      return voices;
+    }
+    return fallbackVoice ? [fallbackVoice, ...voices] : voices;
+  }, [
+    selectedVoice,
+    voiceCapabilities.voice_default,
+    voiceCapabilities.voices,
+    voiceCapabilitiesStatus,
+  ]);
+  const selectedVoiceValue = (() => {
+    if (voiceCapabilitiesStatus !== "ready") {
+      return selectedVoice || voiceCapabilities.voice_default;
+    }
+    if (selectedVoice && voiceModeOptions.includes(selectedVoice)) {
+      return selectedVoice;
+    }
+    if (voiceModeOptions.includes(voiceCapabilities.voice_default)) {
+      return voiceCapabilities.voice_default;
+    }
+    return voiceModeOptions[0] ?? voiceCapabilities.voice_default;
+  })();
+  const voiceReadAloudSupported = voiceCapabilities.read_aloud_enabled;
+  const voiceTurnBasedSupported = voiceCapabilities.turn_based_enabled;
+  const voiceReadAloudEnabled =
+    voiceReadAloudSupported && voicePlaybackEnabledPreference;
+  const voiceTurnBasedEnabled =
+    voiceTurnBasedSupported && voiceTurnEnabledPreference;
   const voiceCapabilitiesFailed = voiceCapabilitiesStatus === "error";
   const supportedVoiceInputMime = voiceCapabilities.supported_input_mime;
   const voiceUploadAccept = useMemo(
@@ -2141,6 +2260,7 @@ export function GuardianChat({
   }, [activateThread, effectiveThreadId]);
   useEffect(() => {
     setPromptCostPopoverOpen(false);
+    setVoicePanelOpen(false);
   }, [effectiveThreadId]);
 
   useEffect(() => {
@@ -2282,10 +2402,64 @@ export function GuardianChat({
   }, [autoReadEnabled, voiceReadAloudEnabled]);
 
   useEffect(() => {
+    if (voiceCapabilitiesStatus !== "ready") return;
+    if (voiceModeOptions.length === 0) return;
+    if (selectedVoice && voiceModeOptions.includes(selectedVoice)) {
+      return;
+    }
+    const nextVoice = voiceModeOptions.includes(voiceCapabilities.voice_default)
+      ? voiceCapabilities.voice_default
+      : voiceModeOptions[0] ?? voiceCapabilities.voice_default;
+    setSelectedVoice(nextVoice);
+  }, [
+    selectedVoice,
+    voiceCapabilities.voice_default,
+    voiceCapabilitiesStatus,
+    voiceModeOptions,
+  ]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("cfy.voice.autoRead", autoReadEnabled ? "1" : "0");
     } catch {}
   }, [autoReadEnabled]);
+
+  useEffect(() => {
+    writeStoredVoiceFlag(
+      VOICE_PLAYBACK_STORAGE_KEY,
+      voicePlaybackEnabledPreference
+    );
+  }, [voicePlaybackEnabledPreference]);
+
+  useEffect(() => {
+    writeStoredVoiceFlag(VOICE_TURNS_STORAGE_KEY, voiceTurnEnabledPreference);
+  }, [voiceTurnEnabledPreference]);
+
+  useEffect(() => {
+    if (voiceCapabilitiesStatus !== "ready") return;
+    writeStoredVoiceText(VOICE_SELECTED_STORAGE_KEY, selectedVoiceValue);
+  }, [selectedVoiceValue, voiceCapabilitiesStatus]);
+
+  useEffect(() => {
+    if (!voicePanelOpen || typeof document === "undefined") return;
+    const onDocumentPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (voicePanelRef.current?.contains(target)) return;
+      setVoicePanelOpen(false);
+    };
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setVoicePanelOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocumentPointerDown);
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentPointerDown);
+      document.removeEventListener("keydown", onDocumentKeyDown);
+    };
+  }, [voicePanelOpen]);
 
   // Keep local thread title in sync with upstream threads when relevant
   useEffect(() => {
@@ -3045,6 +3219,144 @@ export function GuardianChat({
   const headerActions = (
     <>
       <div
+        ref={voicePanelRef}
+        className="relative"
+        data-testid="voice-settings-popover-anchor"
+      >
+        <button
+          type="button"
+          className="icon-inline relative"
+          aria-label="Voice settings"
+          aria-expanded={voicePanelOpen}
+          aria-controls="voice-settings-popover"
+          onClick={() => setVoicePanelOpen((previous) => !previous)}
+          style={{
+            borderRadius: "var(--radius-micro)",
+            ...mobileHeaderIconTouchTargetStyle,
+          }}
+          data-testid="voice-settings-trigger"
+        >
+          <Mic2 className="h-5 w-5" />
+          {voicePlaybackEnabledPreference || voiceTurnEnabledPreference ? (
+            <span
+              className="absolute right-[0.1rem] top-[0.1rem] h-1.5 w-1.5 rounded-full bg-emerald-400"
+              aria-hidden="true"
+            />
+          ) : null}
+        </button>
+        {voicePanelOpen ? (
+          <div
+            id="voice-settings-popover"
+            role="dialog"
+            aria-label="Voice settings"
+            data-testid="voice-settings-popover"
+            className="absolute right-0 top-[calc(100%+0.4rem)] z-30 w-[19rem] max-w-[calc(100vw-1rem)] rounded-lg border px-3 py-3 shadow-xl"
+            style={{
+              borderColor: "var(--panel-border)",
+              background: "var(--panel-sheet)",
+              color: "var(--text)",
+            }}
+          >
+            <div className="text-[10px] font-medium uppercase tracking-[0.18em] opacity-70">
+              Voice
+            </div>
+            <div className="mt-2 space-y-3">
+              <div>
+                <div className="mb-1 text-xs font-medium">Playback</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={voicePlaybackEnabledPreference ? "default" : "ghost"}
+                    disabled={!voiceReadAloudSupported}
+                    onClick={() => setVoicePlaybackEnabledPreference(true)}
+                    className="justify-center"
+                  >
+                    On
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={!voicePlaybackEnabledPreference ? "default" : "ghost"}
+                    onClick={() => setVoicePlaybackEnabledPreference(false)}
+                    className="justify-center"
+                  >
+                    Off
+                  </Button>
+                </div>
+                {!voiceReadAloudSupported ? (
+                  <div className="mt-1 text-[11px] opacity-65">
+                    Read aloud is unavailable on this runtime.
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <div className="mb-1 text-xs font-medium">Voice turns</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={voiceTurnEnabledPreference ? "default" : "ghost"}
+                    disabled={!voiceTurnBasedSupported}
+                    onClick={() => setVoiceTurnEnabledPreference(true)}
+                    className="justify-center"
+                  >
+                    On
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={!voiceTurnEnabledPreference ? "default" : "ghost"}
+                    onClick={() => setVoiceTurnEnabledPreference(false)}
+                    className="justify-center"
+                  >
+                    Off
+                  </Button>
+                </div>
+                {!voiceTurnBasedSupported ? (
+                  <div className="mt-1 text-[11px] opacity-65">
+                    Voice turns are unavailable on this runtime.
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium" htmlFor="voice-settings-voice">
+                  Voice
+                </label>
+                <select
+                  id="voice-settings-voice"
+                  className="h-9 w-full rounded-md border bg-[var(--panel-bg)]/80 px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
+                  value={selectedVoiceValue}
+                  disabled={!voiceReadAloudSupported && !voiceTurnBasedSupported}
+                  onChange={(event) => setSelectedVoice(event.target.value)}
+                >
+                  {voiceModeOptions.map((voice) => (
+                    <option key={voice} value={voice}>
+                      {voice}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-1 text-[11px] opacity-65">
+                  {voiceCapabilities.provider_default
+                    ? `Provider: ${voiceCapabilities.provider_default}`
+                    : "Using the runtime voice provider."}
+                </div>
+              </div>
+              <label className="flex items-center justify-between gap-3 text-xs">
+                <span className="font-medium">Auto-read new replies</span>
+                <input
+                  type="checkbox"
+                  checked={autoReadEnabled}
+                  disabled={!voiceReadAloudEnabled}
+                  onChange={(event) => setAutoReadEnabled(event.target.checked)}
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <div
         ref={promptCostPopoverRef}
         className="relative"
         data-testid="prompt-cost-popover-anchor"
@@ -3428,6 +3740,9 @@ export function GuardianChat({
               depthMode={depth}
               profileId={resolvedProfile.id}
               voiceReadAloudEnabled={voiceReadAloudEnabled}
+              voiceProvider={voiceCapabilities.provider_default}
+              voiceSelectedVoice={selectedVoiceValue}
+              voiceDefaultVoice={voiceCapabilities.voice_default}
               voiceCapabilitiesFailed={voiceCapabilitiesFailed}
               inferenceState={composerInferenceState}
               streamingDraft={streamingDraft}
@@ -3644,6 +3959,12 @@ export function GuardianChat({
                       form.append("thread_id", String(effectiveThreadId));
                       form.append("audio_file", file);
                       form.append("tts_enabled", "true");
+                      if (voiceCapabilities.provider_default) {
+                        form.append("tts_provider", voiceCapabilities.provider_default);
+                      }
+                      if (selectedVoiceValue) {
+                        form.append("voice", selectedVoiceValue);
+                      }
                       await api.post("/voice/turn", form, {
                         headers: { "Content-Type": "multipart/form-data" },
                         timeout: 180000,

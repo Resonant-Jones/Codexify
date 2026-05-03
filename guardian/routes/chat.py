@@ -937,6 +937,8 @@ def _attach_message_audio_metadata(
         if not asset:
             item["audio_status"] = "unavailable"
             item["audio_url"] = None
+            item["audio_provider"] = None
+            item["audio_voice"] = None
             item["audio_mime_type"] = None
             item["audio_duration_ms"] = None
             continue
@@ -978,6 +980,8 @@ def _attach_message_audio_metadata(
 
         item["audio_status"] = audio_status
         item["audio_url"] = audio_url
+        item["audio_provider"] = asset.get("provider")
+        item["audio_voice"] = asset.get("voice")
         item["audio_mime_type"] = asset.get("mime_type")
         item["audio_duration_ms"] = audio_duration_ms
         logger.debug(
