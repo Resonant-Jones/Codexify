@@ -13,6 +13,7 @@ import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
+import { ModelMetadataEditorSheet } from "@/features/chat/components/ModelMetadataEditorSheet";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
@@ -34,6 +35,7 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
+import type { LlmCatalogModel } from "@/features/chat/hooks/useLlmCatalog";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
@@ -312,8 +314,10 @@ export function Composer({
   providerOpenSignal,
   onProviderChange,
   activeModelId = "default",
+  selectedModelCatalog = null,
   modelOptions = [],
   onModelChange,
+  onCatalogRefresh,
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   inferenceModeOptions = [],
   onInferenceModeChange,
@@ -350,8 +354,10 @@ export function Composer({
   providerOpenSignal?: number;
   onProviderChange?: (providerId: string) => void;
   activeModelId?: string;
+  selectedModelCatalog?: LlmCatalogModel | null;
   modelOptions?: ComposerSelectOption[];
   onModelChange?: (modelId: string) => void;
+  onCatalogRefresh?: () => Promise<void> | void;
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
@@ -432,6 +438,7 @@ export function Composer({
   const [uploading, setUploading] = useState(false);
   const sendInFlightRef = useRef(false);
   const [showImgGen, setShowImgGen] = useState(false);
+  const [showModelEditor, setShowModelEditor] = useState(false);
   const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
 
@@ -984,6 +991,15 @@ export function Composer({
     modelOptions.find((option) => option.value === activeModelId)?.label ??
     modelOptions[0]?.label ??
     "Model";
+  const modelMetadataFooterAction =
+    activeProviderId && selectedModelCatalog
+      ? {
+          label: "Edit selected model",
+          description: "Rename labels or correct vision capability.",
+          disabled: draftControlsDisabled,
+          onClick: () => setShowModelEditor(true),
+        }
+      : undefined;
   const hasImageAttachments = draftAttachments.some((att) => att.kind === "image");
   const hasVisionCapableModel = modelOptions.some((option) => {
     if (option.supportsChat === false || option.modelKind === "utility") {
@@ -1395,6 +1411,7 @@ export function Composer({
                 isPhoneShell={isPhoneShell}
                 selectedValue={activeModelId}
                 disabled={draftControlsDisabled || modelOptions.length === 0}
+                footerAction={modelMetadataFooterAction}
                 onSelect={onModelChange ?? (() => {})}
               />
               <ComposerSelectMenu
@@ -1449,6 +1466,13 @@ export function Composer({
         onOpenChange={setShowImgGen}
         projectId={projectId ?? resolveProjectId()}
         threadId={threadId ?? null}
+      />
+      <ModelMetadataEditorSheet
+        open={showModelEditor}
+        onOpenChange={setShowModelEditor}
+        providerId={activeProviderId}
+        model={selectedModelCatalog}
+        onSaved={onCatalogRefresh}
       />
     </>
   );

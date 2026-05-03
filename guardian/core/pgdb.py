@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from guardian.db.models import (
     EventOutbox,
+    InferenceModelOverride,
     PersonalFact,
     PersonalFactEvidence,
     PersonalFactRevision,
@@ -78,6 +79,24 @@ def _to_json(value):
     return Json(value, dumps=lambda obj: json.dumps(obj, default=_json_default))
 
 
+def _clean_optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    clean = str(value).strip()
+    return clean or None
+
+
+def _clean_optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _clean_optional_model_kind(value: Any) -> str | None:
+    clean = _clean_optional_text(value)
+    if clean in {"chat", "vision_chat", "utility"}:
+        return clean
+    return None
+
+
 class PgDB(ChatDB):
     def __init__(self, dsn: str):
         """Initialize connection to PostgreSQL's consciousness fabric.
@@ -94,6 +113,7 @@ class PgDB(ChatDB):
         )
         self._sync_jobs_ready = False
         self._inference_provider_tables_ready = False
+        self._inference_model_overrides_ready = False
         self._events_outbox_ready = False
         self._connector_tables_ready = False
         # Some deployments may be on an older schema without the optional
@@ -217,13 +237,14 @@ class PgDB(ChatDB):
         self._sync_jobs_ready = True
 
     def _ensure_inference_provider_tables(self, conn) -> None:
-        """Verify provider state schema; DDL lives in Alembic revision 62127ee9a537."""
+        """Verify provider state schema; DDL lives in Alembic revision 7a6b5c4d3e2f."""
         if self._inference_provider_tables_ready:
             return
         with conn.cursor() as cur:
             required_tables = (
                 "inference_providers",
                 "inference_provider_runtime",
+                "inference_model_overrides",
             )
             missing_tables: list[str] = []
             for table in required_tables:
@@ -236,24 +257,52 @@ class PgDB(ChatDB):
             if missing_tables:
                 raise RuntimeError(
                     "Missing inference provider tables "
-                    f"{sorted(missing_tables)}. Apply Alembic revision 62127ee9a537."
+                    f"{sorted(missing_tables)}. Apply Alembic revision 7a6b5c4d3e2f."
                 )
 
             expected_indexes = (
                 "public.ix_inference_providers_enabled",
                 "public.ix_inference_providers_priority",
                 "public.ix_inference_provider_runtime_health_status",
+                "public.ix_inference_model_overrides_provider_id",
             )
             for index in expected_indexes:
                 cur.execute("SELECT to_regclass(%s) AS relname", (index,))
                 result = cur.fetchone() or {}
                 if result.get("relname") is None:
                     logging.warning(
-                        "Index %s missing; expected from Alembic revision 62127ee9a537.",
+                        "Index %s missing; expected from Alembic revision 7a6b5c4d3e2f.",
                         index.split(".")[-1],
                     )
 
         self._inference_provider_tables_ready = True
+
+    def _ensure_inference_model_overrides_table(self, conn) -> None:
+        """Verify model override schema; DDL lives in Alembic revision 7a6b5c4d3e2f."""
+        if self._inference_model_overrides_ready:
+            return
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT to_regclass(%s) AS relname",
+                ("public.inference_model_overrides",),
+            )
+            result = cur.fetchone() or {}
+            if result.get("relname") is None:
+                raise RuntimeError(
+                    "inference_model_overrides table missing. Apply Alembic revision 7a6b5c4d3e2f."
+                )
+
+            cur.execute(
+                "SELECT to_regclass(%s) AS relname",
+                ("public.ix_inference_model_overrides_provider_id",),
+            )
+            result = cur.fetchone() or {}
+            if result.get("relname") is None:
+                logging.warning(
+                    "Index ix_inference_model_overrides_provider_id missing; expected from Alembic revision 7a6b5c4d3e2f."
+                )
+
+        self._inference_model_overrides_ready = True
 
     def _ensure_events_outbox_table(self, conn=None) -> None:
         """Verify events_outbox schema; DDL managed in Alembic revision ac973209add4."""
@@ -896,6 +945,158 @@ class PgDB(ChatDB):
             metadata = {}
         metadata["profile_overrides"] = dict(overrides or {})
         return self.update_thread_metadata(thread_id, metadata)
+
+    def _model_override_to_dict(
+        self, row: InferenceModelOverride
+    ) -> dict[str, Any]:
+        return {
+            "provider_id": row.provider_id,
+            "model_id": row.model_id,
+            "display_label": row.display_label,
+            "picker_label": row.picker_label,
+            "supports_chat": row.supports_chat,
+            "supports_vision": row.supports_vision,
+            "supports_text_input": row.supports_text_input,
+            "model_kind": row.model_kind,
+            "notes": row.notes,
+            "created_at": (
+                row.created_at.isoformat()
+                if getattr(row, "created_at", None) is not None
+                else None
+            ),
+            "updated_at": (
+                row.updated_at.isoformat()
+                if getattr(row, "updated_at", None) is not None
+                else None
+            ),
+        }
+
+    def list_inference_model_overrides(self) -> list[dict[str, Any]]:
+        """Return the current catalog of user-editable model overrides."""
+        with self._sa_session() as session:
+            self._ensure_inference_model_overrides_table(session.connection())
+            rows = (
+                session.query(InferenceModelOverride)
+                .order_by(
+                    InferenceModelOverride.provider_id.asc(),
+                    InferenceModelOverride.model_id.asc(),
+                )
+                .all()
+            )
+            return [self._model_override_to_dict(row) for row in rows]
+
+    def get_inference_model_override(
+        self, provider_id: str, model_id: str
+    ) -> dict[str, Any] | None:
+        provider_key = _clean_optional_text(provider_id)
+        model_key = _clean_optional_text(model_id)
+        if not provider_key or not model_key:
+            return None
+
+        with self._sa_session() as session:
+            self._ensure_inference_model_overrides_table(session.connection())
+            row = session.get(
+                InferenceModelOverride,
+                (provider_key, model_key),
+            )
+            return self._model_override_to_dict(row) if row else None
+
+    def upsert_inference_model_override(
+        self,
+        provider_id: str,
+        model_id: str,
+        overrides: dict[str, Any],
+    ) -> dict[str, Any]:
+        provider_key = _clean_optional_text(provider_id)
+        model_key = _clean_optional_text(model_id)
+        if not provider_key or not model_key:
+            raise ValueError("provider_id and model_id are required")
+
+        with self._sa_session() as session:
+            self._ensure_inference_model_overrides_table(session.connection())
+            row = session.get(
+                InferenceModelOverride,
+                (provider_key, model_key),
+            )
+            if row is None:
+                row = InferenceModelOverride(
+                    provider_id=provider_key,
+                    model_id=model_key,
+                )
+                session.add(row)
+
+            if "display_label" in overrides:
+                row.display_label = _clean_optional_text(
+                    overrides.get("display_label")
+                )
+            if "picker_label" in overrides:
+                row.picker_label = _clean_optional_text(
+                    overrides.get("picker_label")
+                )
+            if "supports_chat" in overrides:
+                row.supports_chat = _clean_optional_bool(
+                    overrides.get("supports_chat")
+                )
+            if "supports_vision" in overrides:
+                row.supports_vision = _clean_optional_bool(
+                    overrides.get("supports_vision")
+                )
+            if "supports_text_input" in overrides:
+                row.supports_text_input = _clean_optional_bool(
+                    overrides.get("supports_text_input")
+                )
+            if "model_kind" in overrides:
+                row.model_kind = _clean_optional_model_kind(
+                    overrides.get("model_kind")
+                )
+            if "notes" in overrides:
+                row.notes = _clean_optional_text(overrides.get("notes"))
+
+            session.flush()
+            payload = self._model_override_to_dict(row)
+
+        try:
+            from guardian.core.model_overrides import (
+                invalidate_model_overrides_cache,
+            )
+
+            invalidate_model_overrides_cache()
+        except Exception:
+            pass
+
+        return payload
+
+    def delete_inference_model_override(
+        self, provider_id: str, model_id: str
+    ) -> bool:
+        provider_key = _clean_optional_text(provider_id)
+        model_key = _clean_optional_text(model_id)
+        if not provider_key or not model_key:
+            return False
+
+        deleted = False
+        with self._sa_session() as session:
+            self._ensure_inference_model_overrides_table(session.connection())
+            row = session.get(
+                InferenceModelOverride,
+                (provider_key, model_key),
+            )
+            if row is None:
+                return False
+            session.delete(row)
+            session.flush()
+            deleted = True
+
+        if deleted:
+            try:
+                from guardian.core.model_overrides import (
+                    invalidate_model_overrides_cache,
+                )
+
+                invalidate_model_overrides_cache()
+            except Exception:
+                pass
+        return deleted
 
     def archive_thread(self, thread_id: int) -> dict[str, Any] | None:
         now = datetime.now(timezone.utc)

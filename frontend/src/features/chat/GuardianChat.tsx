@@ -530,9 +530,9 @@ function getModelMenuLabel(model: {
 }): string {
   return (
     String(
-      model.alias ??
-        model.displayLabel ??
+      model.displayLabel ??
         model.pickerLabel ??
+        model.alias ??
         model.canonicalId
     ).trim() || model.canonicalId
   );
@@ -840,6 +840,7 @@ export function GuardianChat({
     getProviderById,
     getModelById,
     findProviderForModel,
+    refresh: refreshCatalog,
   } = useLlmCatalog();
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
@@ -3860,6 +3861,7 @@ export function GuardianChat({
                   }
                 }}
                 activeModelId={selectedModel?.id ?? activeModelId}
+                selectedModelCatalog={selectedModel}
                 modelOptions={modelOptions}
                 onModelChange={(modelId) => {
                   const nextSnapshot = mergeThreadConfigSnapshot({
@@ -3893,6 +3895,7 @@ export function GuardianChat({
                     void saveThreadConfigSnapshot(nextSnapshot);
                   }
                 }}
+                onCatalogRefresh={refreshCatalog}
                 depthMode={depth}
                 depthOptions={depthOptions}
                 onDepthModeChange={setDepth}
