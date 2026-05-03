@@ -216,46 +216,23 @@ async def execute_coding_task(
         },
     )
 
-    # For synchronous execution (immediate), run the adapter now
-    # For async, we'd enqueue a CodingExecutionTask here
-    from guardian.agents.adapters import ADAPTERS
-    from guardian.agents.adapters.base import AgentExecutionRequest
+    # Enqueue for async processing via CodingWorker
+    from guardian.queue.redis_queue import enqueue_coding_execution
+    from guardian.tasks.types import CodingExecutionTask
 
-    adapter = ADAPTERS.get("pi_codex_runner")
-    if adapter:
-        request = AgentExecutionRequest(
-            prompt=envelope.instructions,
-            cwd=envelope.repo_root,
-            timeout_seconds=envelope.permission_policy.max_runtime_seconds,
-        )
-        result = adapter.execute(request)
-
-        # Store result in run
-        _store.update_run_status(
-            run_id=run["run_id"],
-            status="completed" if result.status == "ok" else "failed",
-        )
-
-        # Emit terminal event
-        terminal_event = "completed" if result.status == "ok" else "failed"
-        _event_publisher.emit(
-            run_id=run["run_id"],
-            event_type=terminal_event,
-            payload={
-                "status": result.status,
-                "summary": result.summary,
-                "artifacts": result.artifacts,
-                "errors": result.errors,
-            },
-        )
-    else:
-        # No adapter - emit error
-        _event_publisher.emit(
-            run_id=run["run_id"],
-            event_type="failed",
-            payload={"error": "pi_codex_runner adapter not configured"},
-        )
-        _store.update_run_status(run_id=run["run_id"], status="failed")
+    task_payload = {
+        "run_id": run["run_id"],
+        "deployment_id": deployment["deployment_id"],
+        "instructions": envelope.instructions,
+        "cwd": envelope.repo_root,
+        "timeout_seconds": envelope.permission_policy.max_runtime_seconds,
+        "coding_task_id": envelope.coding_task_id,
+        "attempt_id": envelope.attempt_id,
+        "thread_id": int(envelope.thread_id) if envelope.thread_id else None,
+        "source_message_id": envelope.source_message_id,
+        "origin": "coding_execute_route",
+    }
+    enqueue_coding_execution(task_payload)
 
     return {
         "ok": True,
