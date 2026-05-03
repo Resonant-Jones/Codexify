@@ -90,9 +90,18 @@ class CodingWorker:
         # Execute
         result = adapter.execute(request)
 
-        # Store result
-        status = "completed" if result.status == "ok" else "failed"
-        self.store.update_run_status(run_id=task.run_id, status=status)
+        # Store result and inject into thread (per ADR-020)
+        self.store.store_coding_result(
+            run_id=task.run_id,
+            coding_task_id=task.coding_task_id,
+            attempt_id=task.attempt_id,
+            thread_id=task.thread_id,
+            source_message_id=task.source_message_id,
+            result_status=result.status,
+            result_summary=result.summary,
+            artifacts=result.artifacts,
+            errors=result.errors,
+        )
 
         # Emit terminal event
         terminal_event = "completed" if result.status == "ok" else "failed"
