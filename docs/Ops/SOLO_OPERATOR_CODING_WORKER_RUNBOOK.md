@@ -1,0 +1,245 @@
+# Codexify Coding Worker Runbook
+
+Purpose: Operating runbook for the Pi-coded-agent delegation pipeline (ADR-020).
+Last updated: 2026-05-03
+Source anchors:
+- `guardian/routes/agent_orchestration.py` - `POST /api/agents/coding/execute`
+- `guardian/agents/adapters/pi_codex_runner.py` - PiCodexRunnerAdapter
+- `guardian/workers/coding_worker.py` - CodingWorker
+- `guardian/queue/redis_queue.py` - `enqueue_coding_execution`, `dequeue_coding_execution`
+- `guardian/tasks/types.py` - `CodingExecutionTask`
+- `guardian/agents/store.py` - `AgentStore.store_coding_result()`
+
+## Architecture Overview
+
+```
+┌─────────────┐     POST /api/agents/coding/execute     ┌──────────────┐
+│   Client    │ ─────────────────────────────────────────▶│   Backend    │
+└─────────────┘                                          └──────┬───────┘
+       │                                                         │
+       │ SSE: task.running, task.completed                      │ enqueue
+       ▼                                                         ▼
+┌─────────────┐                                          ┌──────────────┐
+│   Events    │◀─────────────────────────────────────────│    Redis     │
+└─────────────┘   task.running / task.completed          │   Queue      │
+                                                                 │
+                                                                 │ dequeue
+                                                                 ▼
+                                                         ┌──────────────┐
+                                                         │ CodingWorker │
+                                                         └──────┬───────┘
+                                                                │
+                                                                │ execute
+                                                                ▼
+                                                         ┌──────────────┐
+                                                         │   Pi SDK /   │
+                                                         │ Code Runner  │
+                                                         └──────────────┘
+```
+
+## Canonical Interface
+
+### Execute Coding Task
+
+```bash
+BASE_URL="${BASE_URL:-http://localhost:8888}"
+API_KEY="${GUARDIAN_API_KEY:-}"
+
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  "$BASE_URL/api/agents/coding/execute" \
+  -d '{
+    "coding_task_id": "task-001",
+    "thread_id": "123",
+    "source_message_id": "msg-456",
+    "attempt_id": "attempt-1",
+    "user_id": "local",
+    "project_id": null,
+    "adapter_kind": "pi_sdk",
+    "instructions": "Create a test file at /tmp/hello.txt",
+    "repo_root": "/tmp",
+    "context_summary": null,
+    "permission_policy": {
+      "allow_shell": true,
+      "allow_network": false,
+      "allow_write": true,
+      "allowed_paths": ["/tmp"],
+      "max_runtime_seconds": 300
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "run_id": "run_abc123def456",
+  "deployment_id": "dep_xyz789",
+  "coding_task_id": "task-001"
+}
+```
+
+### Poll Run Events
+
+```bash
+RUN_ID="run_abc123def456"
+
+curl -N -sS \
+  -H "X-API-Key: $API_KEY" \
+  "$BASE_URL/api/agents/runs/$RUN_ID/events"
+```
+
+**Expected event progression:**
+1. `created` - Run created, task enqueued
+2. `task.running` - Worker picked up task
+3. `task.completed` or `task.failed` - Execution finished
+
+## Operational Drill
+
+### 1. Core Health
+
+```bash
+set -a; source .env; set +a
+
+# Check containers
+docker compose ps
+
+# Verify Redis connectivity
+docker exec codexify-redis-1 redis-cli ping
+
+# Check queue is empty
+docker exec codexify-redis-1 redis-cli LLEN codexify:queue:coding-execution
+```
+
+### 2. Submit a Test Task
+
+```bash
+set -a; source .env; set +a
+
+RESP="$(
+  curl -sS -X POST \
+    -H "Content-Type: application/json" \
+    -H "X-API-Key: $GUARDIAN_API_KEY" \
+    http://localhost:8888/api/agents/coding/execute \
+    -d '{
+      "coding_task_id": "health-check-001",
+      "thread_id": null,
+      "source_message_id": null,
+      "attempt_id": "attempt-1",
+      "user_id": "local",
+      "project_id": null,
+      "adapter_kind": "pi_sdk",
+      "instructions": "echo health-check-ok",
+      "repo_root": "/tmp",
+      "context_summary": null,
+      "permission_policy": {
+        "allow_shell": true,
+        "allow_network": false,
+        "allow_write": false,
+        "allowed_paths": [],
+        "max_runtime_seconds": 30
+      }
+    }'
+)"
+
+echo "$RESP" | jq
+RUN_ID="$(echo "$RESP" | jq -r '.run_id')"
+```
+
+### 3. Observe Queue
+
+```bash
+# Check queue depth
+docker exec codexify-redis-1 redis-cli LLEN codexify:queue:coding-execution
+
+# Peek at messages (don't pop)
+docker exec codexify-redis-1 redis-cli LRANGE codexify:queue:coding-execution 0 -1
+```
+
+### 4. Stream Events
+
+```bash
+curl -N -sS \
+  -H "X-API-Key: $GUARDIAN_API_KEY" \
+  "http://localhost:8888/api/agents/runs/$RUN_ID/events"
+```
+
+### 5. Start Worker Manually
+
+```bash
+set -a; source .env; set +a
+
+# In a separate terminal
+python -m guardian.workers.coding_worker
+```
+
+## Docker Compose
+
+Add `worker-coding` to `docker-compose.runtime.yml`:
+
+```yaml
+worker-coding:
+  image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+  working_dir: /app
+  depends_on:
+    redis:
+      condition: service_healthy
+    backend:
+      condition: service_healthy
+  env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+  environment:
+    <<: *postgres_env
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+    PYTHONUTF8: "1"
+    PYTHONIOENCODING: utf-8
+    PYTHONPATH: /app
+    REDIS_URL: redis://redis:6379/0
+    GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+    NEO4J_BOLT_URL: bolt://neo4j:7687
+  restart: unless-stopped
+  command: ["python", "-m", "guardian.workers.coding_worker"]
+```
+
+## Failure Signatures
+
+| Symptom | Likely Cause | Remediation |
+|---------|--------------|-------------|
+| `ADAPTER_NOT_FOUND` in worker logs | Adapter not registered | Check `guardian/agents/adapters/__init__.py` |
+| Redis connection errors | Wrong `REDIS_URL` | Verify `redis://redis:6379/0` in container |
+| Thread injection fails silently | No Postgres / `_has_db()` false | Check `DATABASE_URL` env var |
+| Tasks stuck in queue | Worker not running | Start worker or check logs |
+| Idempotency not working | Old run_id in retry | Each attempt should have unique `attempt_id` |
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `REDIS_URL` | Yes | `redis://redis:6379/0` | Redis connection |
+| `DATABASE_URL` | For thread injection | None | Postgres for result injection |
+| `GUARDIAN_DB_URL` | For thread injection | None | Alternative DB URL |
+| `CODING_WORKER_POLL_INTERVAL_SECONDS` | No | `0.5` | Poll frequency |
+| `CODEXIFY_SINGLE_USER_ID` | For local dev | `local` | User context |
+
+## Monitoring
+
+### Queue Metrics
+
+```bash
+# Queue depth
+docker exec codexify-redis-1 redis-cli LLEN codexify:queue:coding-execution
+
+# Message age (first item)
+docker exec codexify-redis-1 redis-cli LINDEX codexify:queue:coding-execution -1 | jq -r '.created_at'
+```
+
+### Worker Health
+
+```bash
+# Check if worker is running
+docker compose ps worker-coding
+
+# View worker logs
+docker compose logs worker-coding --tail=100 -f
+```
