@@ -174,7 +174,11 @@ Governing ADRs:
 
 - ADR-020: Guardian Mediated Coding Agent Execution Contract
 - ADR-010: Self-Extending Agent Plugin System
-- ADR-006 and ADR-014 if the ADR index confirms they govern Flow Builder or task-authoring semantics
+
+Related ADRs when workflow authoring, Flow Builder, or run-receipt semantics are involved:
+
+- ADR-006: Flow Builder Elicitation Lane
+- ADR-014: Flow Builder Thread, Draft, and Receipts Contract
 
 Reason:
 
@@ -189,10 +193,14 @@ What is true now:
 - [`00-current-state.md`](./00-current-state.md) is the short-horizon operational truth layer.
 - [`README.md`](./README.md) is the KB entrypoint.
 
-What is not yet true:
+What was not true before this document:
 
-- There is not yet a centralized agent-facing protocol operations index.
 - Agents currently must infer ritual locations from scattered docs, campaigns, and task files.
+
+What remains not true:
+
+- This document is not a replacement for governing docs, ADRs, task files, campaign docs, or runtime proof.
+- This document does not make any ritual self-executing; agents must still follow the linked governing sources.
 
 What the task may assume:
 
