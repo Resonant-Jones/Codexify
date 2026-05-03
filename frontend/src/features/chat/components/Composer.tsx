@@ -747,18 +747,12 @@ export function Composer({
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
-    const resolvedProjectId = projectId ?? resolveProjectId();
-    if (resolvedProjectId !== null) {
-      form.append("project_id", String(resolvedProjectId));
-    }
     form.append("thread_id", String(uploadThreadId));
     form.append("file", file);
     form.append("tag", "uploaded");
 
     try {
-      const res = await api.post(endpoint, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const res = await api.post(endpoint, form);
       const data = (res as any)?.data ?? res;
       const src = data?.src_url;
       if (!src) {
@@ -1330,7 +1324,7 @@ export function Composer({
             multiple
             style={{ display: "none" }}
             onChange={(e) => {
-              const files = e.target.files;
+              const files = Array.from(e.currentTarget.files ?? []);
               e.currentTarget.value = "";
               if (files && files.length) stageFiles(files);
             }}

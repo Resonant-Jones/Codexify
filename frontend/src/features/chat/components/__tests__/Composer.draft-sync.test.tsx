@@ -33,7 +33,7 @@ describe("Composer draft sync", () => {
   it("opens the slash palette when the composer starts with /", async () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "/" } });
 
     await waitFor(() => {
@@ -51,7 +51,7 @@ describe("Composer draft sync", () => {
   it("refreshes slash results as more characters are typed and fuzzy matches partial input", async () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "/" } });
 
     await waitFor(() => {
@@ -87,7 +87,7 @@ describe("Composer draft sync", () => {
   it("surfaces semantic hint metadata for a resolved command", async () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "/repo scope planning" } });
 
     await waitFor(() => {
@@ -147,7 +147,7 @@ describe("Composer draft sync", () => {
   it("closes the slash palette when the slash token is removed", async () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "/doc" } });
 
     await waitFor(() => {
@@ -164,7 +164,7 @@ describe("Composer draft sync", () => {
   it("moves through the palette with arrow keys and inserts the selected scaffold on Enter", async () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "/" } });
 
     await waitFor(() => {
@@ -196,7 +196,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "h" } });
     fireEvent.change(textarea, { target: { value: "he" } });
     fireEvent.change(textarea, { target: { value: "hel" } });
@@ -221,7 +221,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     expect(textarea).not.toHaveFocus();
 
     vi.runOnlyPendingTimers();
@@ -244,7 +244,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "draft text" } });
     vi.advanceTimersByTime(100);
     expect(onDraftValueChange).not.toHaveBeenCalled();
@@ -271,7 +271,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "hello world" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
@@ -293,7 +293,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "/doc query text" } });
 
     await waitFor(() => {
@@ -320,7 +320,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "/doc query text" } });
 
     await waitFor(() => {
@@ -358,7 +358,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "hello world" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
@@ -413,30 +413,32 @@ describe("Composer draft sync", () => {
 
     const contentPlane = screen.getByTestId("composer-content-plane");
     const controlsRow = screen.getByTestId("composer-control-row");
-    expect(contentPlane).toHaveClass("justify-end", "gap-2");
+    expect(contentPlane).toHaveClass("justify-end", "gap-[2px]");
     expect(controlsRow).toHaveClass(
-      "grid",
+      "pb-[2px]",
+      "flex",
       "min-w-0",
       "w-full",
       "items-center",
-      "gap-3",
-      "px-[var(--composer-text-pad-x,14px)]"
+      "justify-between",
+      "px-[4px]",
+      "pb-[4px]"
     );
     expect(controlsRow.className).toContain(CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS);
-    expect(controlsRow).toHaveClass("px-[var(--composer-text-pad-x,14px)]");
+    expect(controlsRow).toHaveClass("px-[4px]");
     expect(contentPlane).toHaveClass("px-[var(--composer-pad-x,12px)]");
     expect(controlsRow.parentElement).toBe(contentPlane);
     expect(controlsRow).not.toHaveClass("mt-auto");
     expect(controlsRow.className).not.toMatch(/\bpl-\[/);
     expect(controlsRow.className).not.toMatch(/\bmr-\[/);
     expect(controlsRow.className).not.toContain("pb-[6px]");
-    expect(controlsRow.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(controlsRow.className).not.toContain("grid-cols-");
 
     const controlsStrip = screen.getByTestId("composer-controls-strip");
     expect(controlsStrip).toHaveClass(
       "flex-1",
       "min-w-0",
-      "overflow-x-auto"
+      "flex-wrap"
     );
     expect(controlsStrip.className).not.toContain("w-fit");
     expect(controlsStrip.className).not.toContain("flex-none");
@@ -448,8 +450,8 @@ describe("Composer draft sync", () => {
       "flex",
       "shrink-0",
       "items-center",
-      "justify-center",
-      "justify-self-end"
+      "justify-end",
+      "self-center"
     );
     expect(sendSlot.className).not.toMatch(/\bpr-/);
     expect(controlsStrip.nextElementSibling).toBe(sendSlot);
@@ -466,7 +468,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).not.toContain("bg-[color-mix(in_oklab,var(--panel-bg)_95%,transparent)]");
     expect(composerSource).toContain("justify-end");
     expect(composerSource).toContain(
-      "grid min-w-0 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+      "flex min-w-0 w-full items-center justify-between px-[4px] pb-[4px]"
     );
     expect(textarea.parentElement).toBe(contentPlane);
     expect(composerSource).not.toContain("mt-auto");
@@ -478,8 +480,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).toContain("slashIntent");
     expect(composerSource).not.toContain('description: "Start or switch a conversation thread."');
     expect(composerSource).toContain("resolveSlashCommandIntent");
-    expect(composerSource).toContain("justify-self-end");
-    expect(composerSource).not.toMatch(/\bpr-\[/);
+    expect(composerSource).toContain("justify-end self-center");
   });
 
   it("switches the composer to compact phone spacing and safe-area padding on narrow widths", () => {
@@ -533,7 +534,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "hello attachments" } });
 
     const fileInput = container.querySelector(
@@ -560,11 +561,9 @@ describe("Composer draft sync", () => {
     expect(api.post).toHaveBeenCalledTimes(1);
     expect(api.post).toHaveBeenCalledWith(
       "/api/media/upload/document",
-      expect.any(FormData),
-      {
-        headers: { "Content-Type": "multipart/form-data" },
-      }
+      expect.any(FormData)
     );
+    expect(api.post.mock.calls[0]?.[2]).toBeUndefined();
     expect(onSend.mock.calls[0][0]).toContain("cfy-media:document:doc-1");
     expect(onSend.mock.calls[0][0]).toContain("cfy-media-name:notes.txt");
     expect(onSend.mock.calls[0][0]).toContain("hello attachments");
@@ -573,7 +572,61 @@ describe("Composer draft sync", () => {
     });
   });
 
-  it("omits invalid project_id values when uploading attachments", async () => {
+  it("shows picker-selected files in the composer before send", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        id: "doc-1",
+        src_url: "/media/documents/notes.txt",
+        filename: "notes.txt",
+      },
+    } as any);
+
+    const { container } = render(
+      <Composer onSend={onSend} draftScopeKey="tab-1" draftValue="" />
+    );
+
+    const textarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(textarea, { target: { value: "hello attachments" } });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const file = new File(["hello world"], "notes.txt", {
+      type: "text/plain",
+    });
+
+    let cleared = false;
+    Object.defineProperty(fileInput, "value", {
+      configurable: true,
+      get: () => (cleared ? "" : "picked"),
+      set: (next: string) => {
+        cleared = next === "";
+      },
+    });
+
+    const liveFiles = {
+      0: file,
+      length: 1,
+      item: (index: number) => (index === 0 ? file : null),
+      [Symbol.iterator]: function* () {
+        if (!cleared) {
+          yield file;
+        }
+      },
+    };
+
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      get: () => liveFiles as unknown as FileList,
+    });
+
+    fireEvent.change(fileInput);
+
+    expect(screen.getByLabelText("Remove attachment")).toBeInTheDocument();
+  });
+
+  it("uploads attachments without sending a project_id override", async () => {
     window.localStorage.setItem("cfy.projectId", "0");
     const onSend = vi.fn().mockResolvedValue(undefined);
     vi.mocked(api.post).mockResolvedValue({
@@ -593,7 +646,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "hello attachments" } });
 
     const fileInput = container.querySelector(
@@ -636,7 +689,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Write a message…");
+    const textarea = screen.getByTestId("composer-textarea");
     fireEvent.change(textarea, { target: { value: "hello attachments" } });
 
     const fileInput = container.querySelector(
@@ -674,9 +727,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(
-      "Write a message…"
-    ) as HTMLTextAreaElement;
+    const textarea = screen.getByTestId("composer-textarea") as HTMLTextAreaElement;
     expect(textarea.value).toBe("seed-a");
 
     fireEvent.change(textarea, { target: { value: "edited-a" } });
@@ -694,7 +745,7 @@ describe("Composer draft sync", () => {
 
     expect(onDraftValueChange).toHaveBeenCalledWith("edited-a");
     expect(
-      (screen.getByPlaceholderText("Write a message…") as HTMLTextAreaElement)
+      (screen.getByTestId("composer-textarea") as HTMLTextAreaElement)
         .value
     ).toBe("seed-b");
   });
@@ -721,9 +772,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(
-      "Write a message…"
-    ) as HTMLTextAreaElement;
+    const textarea = screen.getByTestId("composer-textarea") as HTMLTextAreaElement;
     expect(textarea).toBeDisabled();
 
     expect(
@@ -751,9 +800,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(
-      "Write a message…"
-    ) as HTMLTextAreaElement;
+    const textarea = screen.getByTestId("composer-textarea") as HTMLTextAreaElement;
     expect(textarea).not.toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Streaming…" })
@@ -770,9 +817,7 @@ describe("Composer draft sync", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(
-      "Write a message…"
-    ) as HTMLTextAreaElement;
+    const textarea = screen.getByTestId("composer-textarea") as HTMLTextAreaElement;
     expect(textarea).toBeDisabled();
     expect(textarea).toHaveClass("opacity-60", "cursor-not-allowed");
     expect(

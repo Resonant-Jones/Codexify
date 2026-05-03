@@ -80,6 +80,8 @@ function resolveDevApiKey(): string {
   if (!isDevRuntime()) return "";
   const explicitDevKey = readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
   if (explicitDevKey) return explicitDevKey;
+  const useProxy = readRuntimeEnv("VITE_USE_PROXY", "true").trim().toLowerCase() === "true";
+  if (useProxy) return "";
   // Backward-compat: existing local setups may still use VITE_GUARDIAN_API_KEY.
   return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
 }

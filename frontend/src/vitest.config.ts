@@ -13,6 +13,7 @@ export default defineConfig({
       "features/**/*.test.{ts,tsx}",
       "lib/**/*.test.{ts,tsx}",
       "persona/**/*.test.{ts,tsx}",
+      "tests/**/*.{test,spec}.{ts,tsx}",
       "test/**/*.test.{ts,tsx}",
     ],
     exclude: [
