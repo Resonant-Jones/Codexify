@@ -35,6 +35,49 @@ const runtimeHealthState = {
   liveEventsStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
+  diagnostics: {
+    resolvedApiBaseUrl: "http://localhost:8888",
+    resolvedApiBaseUrlSource: "vite-dev",
+    apiKeyPresent: true,
+    apiKeySource: "vite-dev",
+    hydrationState: "ready" as const,
+    nativeCommandStatus: "ready",
+    authSource: "vite-dev",
+    chat: {
+      endpoint: "/health/chat",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "ok",
+      parsedOk: true,
+      detailsStatus: "ok",
+      detailsOk: true,
+      providerRuntimeAvailable: true,
+      endpointResolutionState: "ready",
+      failureReason: null,
+    },
+    llm: {
+      endpoint: "/api/health/llm",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "ok",
+      parsedOk: true,
+      detailsStatus: "ok",
+      detailsOk: true,
+      providerRuntimeAvailable: true,
+      endpointResolutionState: "ready",
+      failureReason: null,
+    },
+    liveEvents: {
+      connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+      statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+      connected: true,
+    },
+    failureKind: null,
+    lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
+    lastFailedAt: null,
+    lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
+    currentComputedStateSource: "live-poll" as const,
+  },
 };
 const routeCapabilityState = {
   ready: true,
@@ -235,7 +278,19 @@ vi.mock("@/components/sidebar/SidebarRoot", () => ({
 }));
 
 vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
-  default: () => <div data-testid="guardian-chat-with-sidebar-mock" />,
+  default: (props: {
+    onProjectChange?: (projectId: string | null, projectName: string | null) => void;
+  }) => (
+    <div data-testid="guardian-chat-with-sidebar-mock">
+      <button
+        type="button"
+        data-testid="guardian-set-project-2"
+        onClick={() => props.onProjectChange?.("2", "Launch Project")}
+      >
+        Set Project 2
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ui/ToastPortal", () => ({
@@ -511,6 +566,26 @@ describe("AppShell settings utility trigger", () => {
     });
     expect(screen.getByTestId("documents-default-project-id")).toHaveTextContent(
       "42"
+    );
+  });
+
+  it("preserves the Guardian project selection when switching to Documents", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("guardian-set-project-2"));
+    await user.click(screen.getByRole("button", { name: "Documents" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("documents-default-project-id")).toHaveTextContent(
+      "2"
     );
   });
 });

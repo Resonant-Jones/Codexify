@@ -1249,6 +1249,16 @@ export default function AppShell({
     },
     [activeRouteThreadId]
   );
+  const handleGuardianProjectChange = useCallback(
+    (projectId: string | null) => {
+      if (projectId == null) return;
+      const normalizedProjectId = Number.parseInt(String(projectId), 10);
+      if (Number.isFinite(normalizedProjectId) && normalizedProjectId > 0) {
+        setGeneralProjectId(normalizedProjectId);
+      }
+    },
+    []
+  );
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
@@ -3278,6 +3288,7 @@ export default function AppShell({
                         runtimeHealth={runtimeHealth}
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
+                        onProjectChange={handleGuardianProjectChange}
                       />
                     </ErrorBoundary>
                   </div>
