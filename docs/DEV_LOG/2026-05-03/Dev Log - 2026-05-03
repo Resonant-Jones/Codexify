@@ -1,0 +1,94 @@
+Dev Log - 2026-05-03
+
+Summary
+
+contract hardening day
+
+Today was about turning the Pi-coded-agent path from a mostly documented integration into a tighter execution contract. The center of gravity was not feature breadth; it was making the coding delegation pipeline more explicit, more bounded, and more observable at the seams where work leaves Guardian and comes back through the system.
+
+The day also carried a documentation and truth-alignment layer. The code path, the queue boundary, the worker shape, and the operational runbook all moved together so the system is easier to reason about without pretending we have live proof we do not yet have.
+
+What I completed
+
+Thread contract hardening
+
+- Added `PiCodexRunnerAdapter` and registered it in the adapter registry so Guardian now has a concrete execution target for Pi-powered Codex Runner work.
+- Wired `/api/agents/coding/execute` through the orchestration layer so coding tasks can enter the adapter path cleanly.
+- Moved coding execution onto the queue/worker boundary with `coding_execution` task types and a dedicated `coding_worker`.
+
+Turn boundary hardening
+
+- Updated the coding execution flow so it now creates a run, enqueues work, and lets the worker handle execution instead of collapsing everything into a synchronous route.
+- Added result ingestion back into Guardian storage so run completion can update status and inject a `coding_result` message into the source thread.
+- Preserved lineage fields such as `source_thread_id`, `source_message_id`, and `run_id` so the return path stays auditable.
+
+Runtime visibility and operational shape
+
+- Added `docs/architecture/agent-protocol-operations.md` as an index for the protocol surface.
+- Refreshed `docs/architecture/00-current-state.md` and `docs/architecture/README.md` to keep the short-horizon architecture truth aligned with the new execution shape.
+- Added `docs/Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md` to document the operator path for health checks, submission, observation, streaming, failure signatures, and environment variables.
+
+Queue and deployment wiring
+
+- Added `worker-coding` to `docker-compose.yml` so the queue consumer exists as a first-class service in the local composition.
+- Added a focused live compose proof task document for the full end-to-end verification path, including enqueue, dequeue, terminal state, event lifecycle, and duplicate prevention checks.
+
+Important outcome
+
+The coding pipeline is no longer just a route that implies work will happen. It now has a real boundary: request in, queue, worker, result back through Guardian, with the thread lineage kept intact.
+
+That matters because the system stopped relying on implicit behavior and started expressing the delegation contract in code, queue topology, and operator docs. It is still not live-validated end-to-end in the evidence from today, but it is structurally much closer to something that can be proven rather than assumed.
+
+Commits
+
+14220ec13 - docker-compose: add worker-coding service  
+49077fa2f - docs: add TASK-2026-05-03-001 live compose proof  
+2e82361ca - docs: update execution log - mark docs complete  
+40af18c08 - docs: add coding worker runbook  
+32932ab30 - docs: add PI_CODER_INTEGRATION execution log as campaign memory crystal  
+d843a2c13 - docs: refresh weekly current-state override  
+9a280aead - TASK-2026-05-01-004: Implement result ingestion and thread injection  
+d7ea1c611 - docs: clarify agent protocol operations index  
+51483bd4b - Add agent protocol operations index  
+1dae1662d - TASK-2026-05-01-003: Connect delegation to queue/worker system  
+ebf89034d - docs: add agent protocol operations index  
+7fdb0c63d - TASK-2026-05-01-002: Wire adapter into agent orchestration routes  
+207c850ab - TASK-2026-05-01-001: Create PiCodexRunnerAdapter
+
+Notes
+
+- Today’s evidence is code/doc-level, not live runtime proof.
+- The live compose verification task was defined, but the commit trail here does not show the proof run itself.
+- The biggest risk remaining is whether the worker-compose path behaves exactly as the docs expect under real execution, especially around idempotency and terminal event emission.
+- The log intentionally separates implemented shape from verified behavior.
+
+Next likely moves
+
+- Run the live compose proof task and verify enqueue/dequeue/result-return end to end.
+- Confirm exactly one `coding_result` message is injected per run under retry conditions.
+- Validate terminal event emission and idempotency against duplicate delivery.
+- Tighten any runbook gaps exposed by the first real compose execution.
+- Update current-state truth again after live proof, if behavior differs from today’s documented shape.
+
+Closing thought
+
+The day was about reducing ambiguity in a path that matters: delegated coding work now has a clearer network shape, clearer ownership, and a clearer return channel. That does not make it finished, but it does make it trustworthy enough to test against reality instead of inference.
+
+Narrative Log - 2026-05-03
+
+It was a contract-hardening day. The main work was not about adding flashy surface area; it was about making the delegated coding path behave like a real system with a real boundary, a real worker, and a real return path.
+
+The first correction was at the execution seam. `PiCodexRunnerAdapter` was added and wired into Guardian so the Pi-powered runner is now a concrete execution target rather than an implied capability. From there, the orchestration route was shifted onto the queue/worker model. That change matters because it replaces hidden synchronous execution with an explicit task lifecycle: route creates the run, the task enters the queue, the worker dequeues it, and Guardian observes the result through the same system that initiated the work.
+
+The second correction was on the way back in. Result ingestion now feeds back into Guardian storage and injects a `coding_result` message into the source thread with lineage preserved. That gives the system a more honest shape. The output is no longer just “the task finished somewhere”; it is tied back to the originating thread, message, and run in a way that can be audited and retraced.
+
+The third layer was operational truth. I added the protocol index, refreshed the current-state docs, and wrote a dedicated runbook for the coding worker. Those changes do not just document the code; they stabilize the meaning of the code. They make the operator path legible: how the queue is named, what service is responsible, how to observe it, and what failure signatures to expect. That is the kind of work that prevents drift before it starts.
+
+The compose change closed the loop on local structure by introducing `worker-coding` as a first-class service. The live proof itself still needs to happen. Today’s evidence says the path is assembled and documented, but not yet fully proven in execution. That distinction matters, and the docs keep it visible.
+
+What changed underneath the surface is simple: the system stopped pretending that delegation is synchronous and started treating it as a distributed boundary with queueing, lineage, and an observable return path. That is a more credible foundation for the next round of validation.
+
+The next move is to exercise the compose stack for real, verify the terminal states and duplicate-prevention behavior, and then reconcile any mismatch between the documented contract and the runtime truth.
+
+
+::inbox-item{title="Codexify coding pipeline contract hardened" summary="Run the live compose proof and verify end-to-end behavior"}
