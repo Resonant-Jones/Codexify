@@ -1,8 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 
 import {
-  createGuardianCronJob,
+  dispatchGuardianIntent,
+  type GuardianIntentRequest,
+} from "@/lib/api";
+import {
   GUARDIAN_CRON_CUSTOM_SCHEDULE,
+  normalizeGuardianCronJob,
   SUPPORTED_GUARDIAN_CRON_PRESETS,
   type CreateGuardianCronJobInput,
   type GuardianCronJob,
@@ -30,6 +34,10 @@ export type GuardianScheduleReview = {
   summary: Array<{ label: string; value: string }>;
 };
 
+export type GuardianScheduleActionOptions = {
+  actorId?: string;
+};
+
 export type UseGuardianScheduleActionResult = {
   cancelReview: () => void;
   confirmCreation: () => Promise<boolean>;
@@ -46,6 +54,36 @@ export type UseGuardianScheduleActionResult = {
   submit: () => Promise<boolean>;
   validationErrors: ValidationErrors;
 };
+
+function normalizeCreatedJob(
+  downstreamResult: unknown
+): GuardianCronJob | null {
+  if (!downstreamResult || typeof downstreamResult !== "object") {
+    return null;
+  }
+
+  const payload = downstreamResult as Record<string, unknown>;
+  const id = Number(payload.id);
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+
+  return normalizeGuardianCronJob({
+    id,
+    name: String(payload.name ?? ""),
+    schedule: String(payload.schedule ?? ""),
+    job_type: String(payload.job_type ?? ""),
+    payload:
+      payload.payload && typeof payload.payload === "object"
+        ? (payload.payload as Record<string, unknown>)
+        : {},
+    is_enabled: Boolean(payload.is_enabled),
+    created_at:
+      typeof payload.created_at === "string" ? payload.created_at : null,
+    updated_at:
+      typeof payload.updated_at === "string" ? payload.updated_at : null,
+  });
+}
 
 function getErrorMessage(error: unknown): string {
   if (
@@ -162,7 +200,10 @@ function buildReview(
   return { input, summary };
 }
 
-export function useGuardianScheduleAction(): UseGuardianScheduleActionResult {
+export function useGuardianScheduleAction(
+  options: GuardianScheduleActionOptions = {}
+): UseGuardianScheduleActionResult {
+  const actorId = options.actorId?.trim() || "local";
   const [form, setForm] = useState<GuardianScheduleFormState>({
     customSchedule: "",
     isEnabled: true,
@@ -235,7 +276,47 @@ export function useGuardianScheduleAction(): UseGuardianScheduleActionResult {
     setError(null);
 
     try {
-      const created = await createGuardianCronJob(review.input);
+      const intent: GuardianIntentRequest = {
+        actor: { kind: "human", id: actorId },
+        source_surface: "chat",
+        intent_kind: "cron.create",
+        target: {
+          name: review.input.name,
+          schedule: review.input.schedule,
+          job_type: review.input.jobType,
+          payload: review.input.payload,
+          is_enabled: review.input.isEnabled,
+        },
+        scope: {
+          metadata: {
+            action: "create_cron_job",
+            source: "chat.schedule.action",
+          },
+        },
+        policy: {
+          approval_required: false,
+          allow_write_execution: true,
+          metadata: {
+            action: "create_cron_job",
+          },
+        },
+        provenance_json: {
+          source: "chat.schedule.action",
+          action: "create_cron_job",
+          input: review.input,
+        },
+        approval_state: "pending",
+      };
+      const result = await dispatchGuardianIntent(intent);
+      if (result.status !== "accepted") {
+        throw new Error(
+          result.rejection_reason || "Failed to create scheduled job."
+        );
+      }
+      const created = normalizeCreatedJob(result.downstream_result_json);
+      if (!created) {
+        throw new Error("Scheduled job creation did not return a durable job.");
+      }
       setCreatedJob(created);
       setReview(null);
       return true;
@@ -245,7 +326,7 @@ export function useGuardianScheduleAction(): UseGuardianScheduleActionResult {
     } finally {
       setIsSubmitting(false);
     }
-  }, [confirmCreation, review]);
+  }, [actorId, confirmCreation, review]);
 
   const isValid = useMemo(
     () => Object.keys(validateForm(form)).length === 0,

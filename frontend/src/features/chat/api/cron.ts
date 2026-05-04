@@ -47,7 +47,7 @@ export type GuardianCronSchedulePreset =
   | (typeof SUPPORTED_GUARDIAN_CRON_PRESETS)[number]
   | typeof GUARDIAN_CRON_CUSTOM_SCHEDULE;
 
-function normalizeGuardianCronJob(
+export function normalizeGuardianCronJob(
   job: GuardianCronJobResponse
 ): GuardianCronJob {
   return {

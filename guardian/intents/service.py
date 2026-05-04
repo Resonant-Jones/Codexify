@@ -8,11 +8,15 @@ from fastapi import HTTPException
 
 from guardian.command_bus.contracts import InvokeRequest
 from guardian.command_bus.invoke import execute_invoke
+from guardian.cron.models import CronJobCreateRequest
 from guardian.intents.contracts import (
+    GuardianCommandBusIntentTarget,
+    GuardianCronCreateIntentTarget,
     GuardianIntentDispatchResult,
     GuardianIntentRequest,
 )
 from guardian.routes import command_bus as command_bus_routes
+from guardian.routes import cron as cron_routes
 
 
 def _build_provenance_json(intent: GuardianIntentRequest) -> dict[str, Any]:
@@ -27,6 +31,11 @@ def _build_provenance_json(intent: GuardianIntentRequest) -> dict[str, Any]:
 
 
 def _build_invoke_request(intent: GuardianIntentRequest) -> InvokeRequest:
+    if not isinstance(intent.target, GuardianCommandBusIntentTarget):
+        raise HTTPException(
+            status_code=422,
+            detail="command_bus intent target is invalid",
+        )
     invoke_idempotency_key = (
         intent.target.idempotency_key or ""
     ).strip() or intent.intent_id
@@ -40,6 +49,24 @@ def _build_invoke_request(intent: GuardianIntentRequest) -> InvokeRequest:
     )
 
 
+def _build_cron_create_request(
+    intent: GuardianIntentRequest,
+) -> CronJobCreateRequest:
+    target = intent.target
+    if not isinstance(target, GuardianCronCreateIntentTarget):
+        raise HTTPException(
+            status_code=422,
+            detail="cron intent target is invalid",
+        )
+    return CronJobCreateRequest(
+        name=str(target.name),
+        schedule=str(target.schedule),
+        job_type=str(target.job_type),
+        payload=dict(target.payload or {}),
+        is_enabled=bool(target.is_enabled),
+    )
+
+
 async def dispatch_guardian_intent(
     *,
     intent: GuardianIntentRequest,
@@ -47,22 +74,44 @@ async def dispatch_guardian_intent(
     inbound_headers: dict[str, str],
     app: Any,
 ) -> GuardianIntentDispatchResult:
-    if intent.intent_kind != "command_bus.invoke":
-        raise HTTPException(
-            status_code=422,
-            detail="unsupported_intent_kind",
-        )
-
     if intent.policy.approval_required and intent.approval_state != "approved":
         return GuardianIntentDispatchResult(
             intent_id=intent.intent_id,
             status="blocked",
-            dispatch_target="command_bus",
+            dispatch_target=(
+                "cron" if intent.intent_kind == "cron.create" else "command_bus"
+            ),
             intent_kind=intent.intent_kind,
             source_surface=intent.source_surface,
             rejection_reason="approval_required",
             execution_state="blocked",
             provenance_json=_build_provenance_json(intent),
+        )
+
+    if intent.intent_kind == "cron.create":
+        cron_request = _build_cron_create_request(intent)
+        result = await cron_routes.create_cron_job(cron_request)
+        receipt_ref = (
+            f"cron_job_{result.get('id')}"
+            if result.get("id") is not None
+            else intent.receipt_ref or ""
+        )
+        return GuardianIntentDispatchResult(
+            intent_id=intent.intent_id,
+            status="accepted",
+            dispatch_target="cron",
+            intent_kind=intent.intent_kind,
+            source_surface=intent.source_surface,
+            receipt_ref=receipt_ref or None,
+            downstream_result_json=dict(result),
+            execution_state="accepted",
+            provenance_json=_build_provenance_json(intent),
+        )
+
+    if intent.intent_kind != "command_bus.invoke":
+        raise HTTPException(
+            status_code=422,
+            detail="unsupported_intent_kind",
         )
 
     invoke_request = _build_invoke_request(intent)
