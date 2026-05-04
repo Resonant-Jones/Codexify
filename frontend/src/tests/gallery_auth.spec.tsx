@@ -5,6 +5,7 @@ import GalleryView from "../components/gallery/GalleryView";
 import { ProjectContext } from "../components/layout/ProjectContext";
 import { useUploader } from "../hooks/useUploader";
 import { setAuthToken } from "../lib/api";
+import { resolveBackendUrl } from "../lib/runtimeConfig";
 
 class MockFileReader {
   result: string | ArrayBuffer | null = null;
@@ -98,7 +99,7 @@ describe("gallery auth", () => {
         json: () => Promise<unknown>;
       }> => {
         const url = typeof input === "string" ? input : input.toString();
-        if (url === "/api/media/upload/image") {
+        if (url === resolveBackendUrl("/api/media/upload/image")) {
           return {
             ok: true,
             status: 200,
@@ -130,8 +131,8 @@ describe("gallery auth", () => {
       await result.current.handleFiles([file]);
     });
 
-    const mediaCall = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/media/upload/image"
+    const mediaCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/media/upload/image")
     );
     expect(mediaCall).toBeDefined();
     const init = mediaCall?.[1] as RequestInit | undefined;

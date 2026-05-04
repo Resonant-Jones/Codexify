@@ -1103,8 +1103,13 @@ export default function AppShell({
     if (typeof window === "undefined") return;
 
     const syncRouteState = () => {
-      setActiveRouteThreadId(readRouteThreadId());
       const routeView = resolveViewFromPathname(window.location.pathname);
+      const routeThreadId = readRouteThreadId();
+      if (routeThreadId != null) {
+        setActiveRouteThreadId(routeThreadId);
+      } else if (routeView !== "documents") {
+        setActiveRouteThreadId(null);
+      }
       if (routeView) {
         setView(routeView);
       }
@@ -1161,8 +1166,9 @@ export default function AppShell({
   const [generalProjectId, setGeneralProjectId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem("cfy.generalProjectId");
+    if (raw == null) return null;
     const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   });
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
@@ -1172,7 +1178,13 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const syncRouteThread = () => {
-      setActiveRouteThreadId(readRouteThreadId());
+      const routeView = resolveViewFromPathname(window.location.pathname);
+      const routeThreadId = readRouteThreadId();
+      if (routeThreadId != null) {
+        setActiveRouteThreadId(routeThreadId);
+      } else if (routeView !== "documents") {
+        setActiveRouteThreadId(null);
+      }
     };
     syncRouteThread();
     window.addEventListener("popstate", syncRouteThread);
@@ -1359,9 +1371,9 @@ export default function AppShell({
           (thread: any) => Number(thread?.id) === activeRouteThreadId
         );
         const projectRaw = hit?.project_id ?? hit?.projectId ?? null;
-        const parsed = Number(projectRaw);
+        const parsed = projectRaw == null ? NaN : Number(projectRaw);
         if (cancelled) return;
-        setActiveThreadProjectId(Number.isFinite(parsed) ? parsed : null);
+        setActiveThreadProjectId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
       } catch (err) {
         if (cancelled) return;
         setActiveThreadProjectId(null);
@@ -3058,7 +3070,7 @@ export default function AppShell({
                             borderColor: "var(--panel-border)",
                           }}
                         >
-                          <SidebarRoot
+                        <SidebarRoot
                             threads={[]}
                             activeId={
                               activeRouteThreadId == null
@@ -3068,9 +3080,9 @@ export default function AppShell({
                             onSelect={(id) => navigateToThread(id)}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              generalProjectId == null
+                              effectiveDocumentsProjectId == null
                                 ? null
-                                : String(generalProjectId)
+                                : String(effectiveDocumentsProjectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
                           />
@@ -3101,7 +3113,8 @@ export default function AppShell({
                         extColors={extColors}
                         onOpenInThread={openDocInThread}
                         onDeleteDocument={deleteDocument}
-                        defaultProjectId={generalProjectId}
+                        projectId={effectiveDocumentsProjectId}
+                        threadId={activeRouteThreadId}
                       />
                     </FrameCard>
                   </div>
@@ -3141,7 +3154,7 @@ export default function AppShell({
                             borderColor: "var(--panel-border)",
                           }}
                         >
-                          <SidebarRoot
+                        <SidebarRoot
                             threads={[]}
                             activeId={
                               activeRouteThreadId == null
@@ -3151,9 +3164,9 @@ export default function AppShell({
                             onSelect={(id) => navigateToThread(id)}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              generalProjectId == null
+                              effectiveDocumentsProjectId == null
                                 ? null
-                                : String(generalProjectId)
+                                : String(effectiveDocumentsProjectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
                           />

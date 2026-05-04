@@ -15,35 +15,23 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-DEFAULT_AUDITS_DIR = Path("artifacts/audits")
-DEFAULT_CAMPAIGN_DIR = Path("docs/work/campaigns")
-DEFAULT_TASKS_DIR = Path("docs/work/tasks")
-DEFAULT_RUNS_DIR = Path("artifacts/campaign-runs")
-LEGACY_AUDITS_DIR = Path("docs/_audits")
-LEGACY_CAMPAIGN_DIR = Path("docs/Campaign")
-LEGACY_TASKS_DIR = Path("docs/tasks")
-LEGACY_RUNS_DIR = Path("docs/_campaign_runs")
+DEFAULT_AUDITS_DIR = Path("docs/_audits")
+DEFAULT_CAMPAIGN_DIR = Path("docs/Campaign")
+DEFAULT_TASKS_DIR = Path("docs/tasks")
+DEFAULT_RUNS_DIR = Path("docs/_campaign_runs")
 STATE_DIR = DEFAULT_RUNS_DIR / "state"
 STATE_PATH = STATE_DIR / "state.json"
 STATE_TRANSITIONS_PATH = STATE_DIR / "state_transitions.jsonl"
-LEGACY_STATE_PATH = LEGACY_RUNS_DIR / "state" / "state.json"
-LEGACY_STATE_TRANSITIONS_PATH = (
-    LEGACY_RUNS_DIR / "state" / "state_transitions.jsonl"
-)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_MEGA_AUDIT_SCHEMA_PATH = (
     SCRIPT_DIR / "schemas" / "mega_audit_output.schema.json"
 )
-DEFAULT_MEGA_AUDIT_PROMPT_PATH = SCRIPT_DIR / "prompts" / "mega_audit.md"
 DEFAULT_CAMPAIGN_SET_SCHEMA_PATH = (
     SCRIPT_DIR / "schemas" / "campaign_set.schema.json"
 )
 DEFAULT_TASK_RESULT_SCHEMA_PATH = (
     SCRIPT_DIR / "schemas" / "task_result.schema.json"
-)
-DEFAULT_COMPILER_PROMPT_PATH = (
-    SCRIPT_DIR / "prompts" / "audit_report_to_campaign_runner.md"
 )
 DEFAULT_COMPILER_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
 DEFAULT_REPO_ROOT_TOKEN = "<REPO_ROOT>"
@@ -468,10 +456,6 @@ def parse_campaign_id(campaign_id: str) -> tuple[str, str, str]:
 def load_state(repo_root: Path) -> dict[str, Any]:
     path = repo_root / STATE_PATH
     if not path.exists():
-        legacy_path = repo_root / LEGACY_STATE_PATH
-        if legacy_path.exists():
-            path = legacy_path
-    if not path.exists():
         return {
             "version": 1,
             "campaigns": {},
@@ -772,15 +756,6 @@ def to_lower_snake(value: str) -> str:
     return re.sub(r"_+", "_", cleaned).strip("_") or "task"
 
 
-def safe_task_id_for_path(task_id: str) -> str:
-    lowered = task_id.lower()
-    safe = re.sub(r"[^a-z0-9_-]+", "-", lowered)
-    safe = re.sub(r"-{2,}", "-", safe).strip("-") or "task"
-    if safe != lowered:
-        safe = f"{safe}-{sha256_text(task_id)[:8]}"
-    return safe
-
-
 def ensure_mapping_block(text: str) -> str:
     if MAPPING_START in text and MAPPING_END in text:
         return text
@@ -840,35 +815,31 @@ def materialize_campaign_artifacts(
 ) -> list[str]:
     touched: list[str] = []
     date_underscore = campaign["campaign_date"].replace("-", "_")
-    year, month, _ = campaign["campaign_date"].split("-")
     slug = campaign["campaign_slug"]
     seq = campaign["campaign_seq"]
 
     campaign_doc_name = (
         f"CAMPAIGN_{date_underscore}_{to_upper_snake(slug)}_{seq}.md"
     )
-    campaign_dir_rel = DEFAULT_CAMPAIGN_DIR / year / month
-    campaign_doc_path = repo_root / campaign_dir_rel / campaign_doc_name
+    campaign_doc_path = repo_root / DEFAULT_CAMPAIGN_DIR / campaign_doc_name
     campaign_doc_content = ensure_mapping_block(campaign["campaign_markdown"])
     if not campaign_doc_path.exists():
         text_write(campaign_doc_path, campaign_doc_content)
-        touched.append(str((campaign_dir_rel / campaign_doc_name).as_posix()))
+        touched.append(
+            str((DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix())
+        )
 
     campaign["materialized"]["campaign_doc_path"] = str(
-        (campaign_dir_rel / campaign_doc_name).as_posix()
+        (DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix()
     )
 
-    task_dir_rel = (
-        DEFAULT_TASKS_DIR / year / month / f"{slug}_{date_underscore}_{seq}"
-    )
+    task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}"
     task_dir_abs = repo_root / task_dir_rel
     task_dir_abs.mkdir(parents=True, exist_ok=True)
 
     for task in sorted(campaign["tasks"].values(), key=lambda item: item["id"]):
-        task_id = str(task["id"])
-        safe_task_id = safe_task_id_for_path(task_id)
         task_file_name = (
-            f"TASK_{safe_task_id}_{to_lower_snake(task['slug'])}.md"
+            f"TASK_{to_lower_snake(task['slug'])}_{date_underscore}.md"
         )
         task_rel = task_dir_rel / task_file_name
         task_abs = repo_root / task_rel
@@ -876,7 +847,7 @@ def materialize_campaign_artifacts(
             content = task["task_artifact_markdown"].rstrip() + "\n"
             text_write(task_abs, content)
             touched.append(str(task_rel.as_posix()))
-        campaign["materialized"]["task_artifact_paths"][task_id] = str(
+        campaign["materialized"]["task_artifact_paths"][task["id"]] = str(
             task_rel.as_posix()
         )
 
@@ -963,97 +934,6 @@ def _schema_required_keys(schema: dict[str, Any]) -> set[str]:
         if isinstance(key, str) and key:
             keys.add(key)
     return keys
-
-
-def _strip_schema_keyword(
-    value: Any, *, keyword: str, removed: dict[str, int]
-) -> Any:
-    if isinstance(value, dict):
-        normalized: dict[str, Any] = {}
-        for key, item in value.items():
-            if key == keyword:
-                removed[keyword] = removed.get(keyword, 0) + 1
-                _strip_schema_keyword(item, keyword=keyword, removed=removed)
-                continue
-            normalized[key] = _strip_schema_keyword(
-                item, keyword=keyword, removed=removed
-            )
-        return normalized
-    if isinstance(value, list):
-        return [
-            _strip_schema_keyword(item, keyword=keyword, removed=removed)
-            for item in value
-        ]
-    return value
-
-
-def codex_compat_schema(
-    schema_payload: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, int]]:
-    """
-    OpenAI response-format schema support rejects some JSON-Schema keywords
-    (notably allOf). We strip unsupported keys for provider-side validation;
-    runner merge validation still enforces deterministic constraints.
-    """
-    removed: dict[str, int] = {}
-    normalized = _strip_schema_keyword(
-        schema_payload, keyword="allOf", removed=removed
-    )
-    if not isinstance(normalized, dict):
-        raise RunnerError("Expected schema payload to remain an object")
-    return normalized, removed
-
-
-def ensure_response_format_schema_compat(
-    schema_payload: dict[str, Any]
-) -> None:
-    """
-    OpenAI response_format requires every object that defines `properties`
-    to list all of those keys in `required`.
-    """
-
-    violations: list[tuple[str, list[str]]] = []
-
-    def walk(value: Any, path: str) -> None:
-        if isinstance(value, dict):
-            properties = value.get("properties")
-            if isinstance(properties, dict):
-                property_keys = sorted(
-                    key for key in properties.keys() if isinstance(key, str)
-                )
-                required = value.get("required")
-                required_keys = (
-                    {key for key in required if isinstance(key, str) and key}
-                    if isinstance(required, list)
-                    else set()
-                )
-                missing = [
-                    key for key in property_keys if key not in required_keys
-                ]
-                if missing:
-                    violations.append((path, missing))
-
-            for key, item in value.items():
-                next_path = f"{path}.{key}" if path != "$" else f"$.{key}"
-                walk(item, next_path)
-            return
-
-        if isinstance(value, list):
-            for idx, item in enumerate(value):
-                walk(item, f"{path}[{idx}]")
-
-    walk(schema_payload, "$")
-
-    if violations:
-        details = "; ".join(
-            f"{path} missing required keys: {', '.join(missing)}"
-            for path, missing in violations
-        )
-        raise RunnerError(
-            "Schema is incompatible with OpenAI response_format: "
-            "every object with properties must include all property keys "
-            f"in required. {details}"
-        )
 
 
 def _parse_json_with_fallback(raw_output: str, provider: str) -> Any:
@@ -1156,26 +1036,6 @@ def run_codex_exec(
     configs: list[str],
     debug: bool,
 ) -> None:
-    schema_payload = json_read(output_schema)
-    schema_for_codex, removed = codex_compat_schema(schema_payload)
-    ensure_response_format_schema_compat(schema_for_codex)
-    effective_schema_path = output_schema
-    tmp_schema_dir: tempfile.TemporaryDirectory[str] | None = None
-    if removed.get("allOf", 0) > 0:
-        tmp_schema_dir = tempfile.TemporaryDirectory(
-            prefix="codex_schema_compat_"
-        )
-        effective_schema_path = (
-            Path(tmp_schema_dir.name)
-            / f"{output_schema.stem}.codex_compat.schema.json"
-        )
-        json_write(effective_schema_path, schema_for_codex)
-        if debug:
-            log(
-                "[debug] codex schema compatibility rewrite: "
-                f"removed allOf={removed['allOf']} from {output_schema}"
-            )
-
     cmd: list[str] = ["codex"]
     if model:
         cmd.extend(["--model", model])
@@ -1186,17 +1046,13 @@ def run_codex_exec(
         [
             "exec",
             "--output-schema",
-            str(effective_schema_path),
+            str(output_schema),
             "-o",
             str(output_path),
             prompt_text,
         ]
     )
-    try:
-        result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
-    finally:
-        if tmp_schema_dir is not None:
-            tmp_schema_dir.cleanup()
+    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
@@ -1985,25 +1841,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=default_repo_root(Path.cwd()),
-        help="Repo root (defaults to git top-level from current directory)",
+        required=True,
+        help="Absolute path to repo root",
     )
-    parser.add_argument(
-        "--audit-prompt-file", type=Path, default=DEFAULT_MEGA_AUDIT_PROMPT_PATH
-    )
-    parser.add_argument(
-        "--audit-schema-file", type=Path, default=DEFAULT_MEGA_AUDIT_SCHEMA_PATH
-    )
-    parser.add_argument(
-        "--compiler-prompt-file",
-        type=Path,
-        default=DEFAULT_COMPILER_PROMPT_PATH,
-    )
-    parser.add_argument(
-        "--campaign-set-schema-file",
-        type=Path,
-        default=DEFAULT_CAMPAIGN_SET_SCHEMA_PATH,
-    )
+    parser.add_argument("--audit-prompt-file", type=Path, required=True)
+    parser.add_argument("--audit-schema-file", type=Path, required=True)
+    parser.add_argument("--compiler-prompt-file", type=Path, required=True)
+    parser.add_argument("--campaign-set-schema-file", type=Path, required=True)
     parser.add_argument(
         "--task-result-schema-file",
         type=Path,
@@ -2061,23 +1905,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--debug", action="store_true")
 
     return parser
-
-
-def default_repo_root(cwd: Path | None = None) -> Path:
-    probe = (cwd or Path.cwd()).expanduser().resolve()
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(probe),
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return probe
-    if result.returncode == 0 and result.stdout.strip():
-        return Path(result.stdout.strip()).expanduser().resolve()
-    return probe
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

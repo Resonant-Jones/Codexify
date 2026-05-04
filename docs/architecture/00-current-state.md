@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-30
+2026-05-03
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,89 +13,45 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-beta hardening on `main`. The supported path is still the local Docker Compose stack with a local-only provider policy, while current beta distribution includes both the macOS desktop shell and the standalone webUI Docker bundle over that same backend. The webUI package is GHCR-hosted and now anonymously pullable for the published local-beta tag. Recent merged work tightened startup ingestion and retrieval sharing. Quarantined surfaces remain outside the beta promise.
+Codexify is in late beta hardening on `main`. The codebase now carries the local Docker Compose path, packaged tester-facing delivery surfaces, and a coding-result return path that routes assistant results back through Guardian into the source thread. Release truth still depends on the live runtime matching the supported local-first posture, not just on docs or build artifacts.
 
-A downloadable public-pull handoff bundle lives in `Codexify-Beta/` for testers who want the browser path in a small folder.
+- Coding worker results now ingest back through Guardian with lineage and idempotency guards.
+- Public webUI beta handoff docs and the GHCR pullability note remain on `main`.
+- The public webUI handoff bundle remains packaged for tester distribution.
+- The desktop shell and runner/TUI work were refined on `main`, but that does not change the release gate by itself.
 
-Fresh private beta release evidence is recorded in [`docs/beta/2026-04-30-local-beta-release-evidence.md`](../beta/2026-04-30-local-beta-release-evidence.md).
-
-## What changed recently
-- Verified active personal facts now flow through the backend chat context path and into the provider-ready prompt block as a bounded, user-scoped identity-context source; candidate, disputed, and inactive facts are excluded before prompt assembly.
-- A backend-only candidate-trace diagnostic surface was added: `GET /chat/{thread_id}/debug/candidate-trace/latest`. It captures transient pre-answer candidate outputs for the latest completion attempt, remains thread-scoped, and is intentionally excluded from export/restore.
-- A dedicated retrieval-posture diagnostics route was added to the backend: `GET /api/chat/debug/retrieval-posture/{thread_id}/latest`. It reuses the same latest-trace evidence path as the RAG trace route and returns the canonical posture snapshot or an empty state. A fallback synthesis path is included for legacy trace fields (source_mode, widen_reason, retrieval_override).
-- The completion-service seam now emits a canonical `retrieval_posture` snapshot during chat completion, so the retrieval-posture route can read the live snapshot directly instead of depending on fallback synthesis when completion has run.
-- The command-bus route family now includes a read-only activation inspection surface at `GET /api/guardian/commands/activation/inspect`, which returns the existing capability-activation decision and dispatch-envelope shape without invoking command execution.
-- `retrievalSource="workspace"` is now a live backend completion seam for user-bounded local knowledge, including Obsidian-backed notes, without turning retrieval into a global search posture or a separate connector subsystem.
-- A companion frontend surface was added via `useRetrievalPosture` hook and a `RetrievalPostureSection` in `TraceWorkbench.tsx`. It shows source mode, boundary label, retrieval override mode, widen reason, and conversation-only flag as compact badges with distinct loading, empty, and error states.
-- A post-completion eval spine now exists in backend code: assistant completions can persist a durable trace snapshot and attempt-scoped groundedness verdicts in Postgres, with a diagnostics route at `GET /api/chat/debug/evals/{thread_id}/latest`. It is inspection-only and does not gate chat acceptance.
-- The RAG trace payload summary now carries graph-ready diagnostics placeholders (`graph_hit_count`, `graph_enrichment_status`) that report `not_used_yet` on current supported runs; graph remains enrichment-only and is not part of active retrieval here.
-- The retrieval broker now enforces strict `user_id` isolation at the aggregation boundary and requires widening to carry an explicit `widen_reason`; `widen_reason` normalizes to `none` when no widening occurs.
-- The completion worker now emits a canonical retrieval-posture snapshot that can distinguish `conversation`, `project`, `personal_knowledge`, `obsidian_only`, and `workspace` source modes.
-- A retrieval-posture history route was added: `GET /api/chat/{thread_id}/debug/retrieval-posture/history` for richer temporal access.
-- A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
-- The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
-- Executable backend-seam evaluation suites continue to provide coverage for: identity-boundary proof (project scope containment, explicit widening, exclusion filters), supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam), and broker/source-mode matrix reconciliation.
-- Fresh live proof was re-run on the exact current `main` tip. Chat completion still works and the chat ownership seam normalizes a browser display label to `local`, and the supported local Compose migrator now reaches the merged extension/eval head cleanly so the expected `agent_extension_*` tables are present again. The live backend container still needs a separate supported-profile recheck, and the bounded tool-loop cases still regress instead of matching the claimed supported-path behavior.
-
-## Current supported reality
 - Local Docker Compose remains the supported install path.
-- The supported beta distribution surface is now split into:
-  - macOS desktop DMG for testers who want the Tauri shell on macOS.
-  - WebUI Docker bundle for non-macOS testers or anyone who wants browser-only access.
-- Both paths use the same local backend runtime and the same local-only provider policy.
-- Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
-- Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
-- Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
-- Document and image upload/fetch proof is now recorded for the live beta handoff. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, but this note does not claim end-to-end embed/retrieve completion.
-- The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
-- Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
-- Built-in system docs/help are seeded at startup and available to retrieval.
-- The import embed worker can drain a live backlog without breaking chat or health surfaces.
-- `/health`, `/health/chat`, `/api/health/llm`, `/api/health/retrieval`, and `/api/llm/catalog?include=all` remain the primary runtime evidence surfaces, but this runtime now shows a supported-profile/catalog mismatch that must be resolved before any release claim.
-- Executable evaluation suites now cover backend seam evidence for:
-  - Supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam).
-  - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
-  - Broker/source-mode reconciliation (`effective_source_mode` derived from `source_mode` + `retrieval_override`).
-  - Workspace-local retrieval posture, including live completion evidence for Obsidian-backed notes.
+- The packaged macOS desktop shell remains part of the beta delivery surface.
+- The public webUI Docker bundle remains available for browser-only tester use.
+- The supported beta story remains local-first and backend-shared across those surfaces.
+- Coding results now return through Guardian before user-visible output.
+- Current release evidence still treats live health, provider posture, and fresh runtime proof as required signoff inputs.
 
-## Identity and Runtime Mode
+- Do not assume any unmerged branch work is shipped.
+- Do not assume the public webUI bundle replaces the local Compose path.
+- Do not assume docs that mention a surface prove it is live on the current `main` tip.
+- Do not assume operator or internal routes are part of the release promise unless this file says so.
+- Do not assume release readiness if the live runtime posture has not been rechecked.
+- Do not assume coding-result ingestion alone means the full release path is validated.
 
-- Codexify now defines `single_user` and `multi_user` runtime modes.
-- `multi_user` mode introduces strict `user_id` enforcement across:
-  - API routes
-  - retrieval
-  - persistence
-- Retrieval now enforces strict user isolation and explicit widening semantics at the broker boundary.
-- exportability is now a first-class invariant.
-
-## Not yet true / do not assume
-- Do not assume the GHCR visibility state for other tags or packages matches the `local-beta` release visibility.
-- Do not assume the supported-path golden tasks or identity-boundary suites replace the need for fresh live release evidence on the exact current `main` tip; these are backend seam tests, not full live Compose runtime proof.
-- Do not assume the bounded tool-augmented completion proof closes the broader release gate by itself; it proves the tool-loop slice only, not the full release evidence pack.
-- Do not assume the Obsidian ingest→retrieve seam proof constitutes a full connector sync or live runtime validation; it uses an in-memory fixture at the backend route level.
-- Do not assume the verified-personal-facts seam implies a UI fact-management surface or broader retrieval mode; this task only adds backend identity-context injection.
-- Do not assume delegation or autonomous coding-agent execution is shipped; the current release promise still excludes that loop.
-- Do not assume internal operator surfaces or quarantined routes represent the supported beta contract.
-- Do not assume older proof docs alone describe the current tip if a newer merge changed runtime wiring.
-
-## Active blockers
-- Live backend posture mismatch: the running backend container reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, while the catalog still exposes cloud inventory such as `groq` as enabled. Supported-path signoff is not satisfied until the live runtime is brought back into the local-only supported profile.
-- Fresh live release evidence for the webUI path and backend media upload/fetch is now recorded in the dated beta artifact; this run now proves chat acceptance, chat ownership normalization, and migration/schema consistency on the supported Compose stack, but embed/retrieve completion and bounded tool-loop behavior still need separate live proof.
-- Release signoff still depends on the supported-profile, provider registry, and health surfaces staying aligned.
+- The live backend posture still needs confirmation against the supported local-only profile before release signoff.
+- Fresh live evidence still needs to cover the supported beta path on the exact current `main` tip.
+- Any runtime mismatch between supported profile, catalog, and health surfaces remains a release hold.
+- The new coding-result ingestion path still needs live verification before it can count as release proof.
 
 ## This week's priorities
-1. ~~Resolve Ollama model name mismatch~~ — **Done 2026-04-14:** `LOCAL_CHAT_MODEL` in `.env.example` updated to `gemma4-e4b-hauhau:latest`. Live verification still required.
-2. Re-run live `upload -> embed -> retrieve` proof on the current tip now that the `agent_extension_*` schema gap is repaired on the supported path.
-3. Bring the live backend back into the supported local-only posture so the running stack matches the beta contract again.
-4. Repair the bounded tool-loop path that currently fails with `tool_command_execution_failed` and does not preserve the claimed hard-stop / blocked-result behavior.
-5. Re-run the supported local Compose beta proof on `main` once the above are resolved; verify chat completion, retrieval-posture populated state, and all health surfaces pass.
+1. Re-run live supported-path proof on the current `main` tip.
+2. Confirm the backend is in the supported local-only posture.
+3. Verify chat completion, retrieval posture, and upload -> embed -> retrieve on the live stack.
+4. Exercise the coding-result return path end to end on the live stack.
+5. Re-check the provider catalog and health surfaces against the supported profile.
 
 ## Release definition right now
-- [ ] Supported-profile flags and mounted routes still match the beta contract.
-- [ ] Fresh live evidence exists on the current `main` tip for clean start, assistant completion, retrieval-posture populated state, upload -> embed -> retrieve, and health surfaces.
-- [ ] Backend-seam eval suites (golden tasks, identity boundaries, source-mode matrix) are passing on the current `main` tip — this reduces scope-boundary ambiguity but does not replace the live proof requirement above.
-- [ ] The release promise does not include a UI fact-management surface or any broader personal-facts retrieval doctrine unless the supported profile is updated.
-- [ ] Delegation is either explicitly excluded or implemented with a real executor plus source-thread result return.
+- [ ] Supported-profile flags match the beta contract on the live runtime.
+- [ ] Fresh live evidence exists on the current `main` tip for the supported path.
+- [ ] Chat, retrieval, and upload/embedding behavior are proven on the live stack.
+- [ ] Coding results return through Guardian into the source thread without duplicate delivery.
+- [ ] Catalog, health, and provider posture agree with the supported profile.
 - [ ] No internal-only or quarantined surface is part of the release claim.
 
 ## How to read the rest of the KB

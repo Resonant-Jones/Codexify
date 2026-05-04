@@ -22,6 +22,8 @@ Source anchors:
 
 # Codexify Architecture KB
 
+Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
+
 ## What Codexify Is
 
 Codexify is a local-first chat and knowledge workspace built around a FastAPI backend, a React frontend, Postgres-backed state, Redis-backed background work, optional Neo4j graph features, and a growing command bus/tooling layer. The core loop today is thread-based chat: the frontend writes messages, the backend enqueues completion work, workers assemble context from messages plus retrieval layers, and results stream back through task events and durable domain events.
@@ -61,6 +63,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
+- [Agent Protocol Operations Index](./agent-protocol-operations.md): agent-facing map for task rituals, campaign/task interpretation, architecture-impact workflow, validation expectations, and contingency behavior.
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
