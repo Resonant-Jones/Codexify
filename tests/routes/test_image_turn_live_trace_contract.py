@@ -165,7 +165,7 @@ def test_live_rag_trace_falls_back_to_eval_snapshot(monkeypatch):
                 "trace_snapshot_id": "snapshot-805",
                 "task_id": "task-805",
                 "thread_id": thread_id,
-                "trace_json": {
+                "trace": {
                     "documents": [],
                     "graph": [],
                     "retrieval_policy": {"source_mode": "project"},
@@ -176,7 +176,7 @@ def test_live_rag_trace_falls_back_to_eval_snapshot(monkeypatch):
                         },
                     },
                 },
-                "payload_summary_json": {
+                "payload_summary": {
                     "image_routing_path": "interpreter",
                     "requested_model": "medgemma:4b-it-q8_0",
                     "final_model": "library2/ministral-3:8b",
@@ -198,12 +198,19 @@ def test_live_rag_trace_falls_back_to_eval_snapshot(monkeypatch):
                         },
                     },
                 },
-                "metadata_json": {
+                "metadata": {
                     "selection_source": "LOCAL_LLM_MODEL",
                     "attempted_provider": "local",
                     "attempted_model": "medgemma:4b-it-q8_0",
                     "final_provider": "local",
                     "final_model": "library2/ministral-3:8b",
+                },
+                "retrieval_summary": {
+                    "retrieval_provenance": {
+                        "requested_source_mode": "project",
+                        "normalized_source_mode": "project",
+                        "retrieval_status": "workspace_local_success",
+                    }
                 },
             },
             "verdicts": [],
@@ -220,6 +227,28 @@ def test_live_rag_trace_falls_back_to_eval_snapshot(monkeypatch):
     assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
     assert trace["completion"]["selection_source"] == "LOCAL_LLM_MODEL"
     assert trace["model_selection"]["policy_reason"] == "LOCAL_LLM_MODEL"
+    assert "trace_unavailable_reason" not in trace
+
+    chat._thread_latest_task.pop(thread_id, None)
+    chat._rag_traces.pop(thread_id, None)
+
+
+def test_live_rag_trace_reports_empty_shell_reason_when_no_sources(monkeypatch):
+    thread_id = 806
+    chat._thread_latest_task[thread_id] = "task-806"
+
+    monkeypatch.setattr(chat, "_get_task_completed_payload", lambda _task: None)
+    monkeypatch.setattr(
+        chat,
+        "get_latest_eval_diagnostics",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(chat, "_thread_trace_entry", lambda *args, **kwargs: None)
+
+    trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
+    assert trace["documents"] == []
+    assert trace["graph"] == []
+    assert trace["trace_unavailable_reason"] == "trace_source_unavailable"
 
     chat._thread_latest_task.pop(thread_id, None)
     chat._rag_traces.pop(thread_id, None)

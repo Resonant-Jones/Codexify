@@ -3599,11 +3599,32 @@ def _latest_eval_trace_payload(thread_id: int) -> dict[str, Any] | None:
     snapshot = diagnostics.get("trace_snapshot")
     if not isinstance(snapshot, dict):
         return None
-    trace = snapshot.get("trace_json")
-    payload_summary = snapshot.get("payload_summary_json")
+    trace = snapshot.get("trace")
+    if not isinstance(trace, dict):
+        trace = snapshot.get("trace_json")
+    payload_summary = snapshot.get("payload_summary")
+    if not isinstance(payload_summary, dict):
+        payload_summary = snapshot.get("payload_summary_json")
+    metadata = snapshot.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = snapshot.get("metadata_json")
+    retrieval_summary = snapshot.get("retrieval_summary")
+    if not isinstance(retrieval_summary, dict):
+        retrieval_summary = snapshot.get("retrieval_summary_json")
     if not isinstance(trace, dict) and not isinstance(payload_summary, dict):
         return None
     if isinstance(payload_summary, dict):
+        if not payload_summary.get("retrieval_provenance") and isinstance(
+            retrieval_summary, dict
+        ):
+            retrieval_provenance = retrieval_summary.get(
+                "retrieval_provenance"
+            )
+            if isinstance(retrieval_provenance, dict):
+                payload_summary = dict(payload_summary)
+                payload_summary["retrieval_provenance"] = dict(
+                    retrieval_provenance
+                )
         model_selection = _build_eval_model_selection(
             trace_snapshot=snapshot,
             payload_summary=payload_summary,
@@ -3617,6 +3638,12 @@ def _latest_eval_trace_payload(thread_id: int) -> dict[str, Any] | None:
             dict(payload_summary) if isinstance(payload_summary, dict) else {}
         ),
         "trace_snapshot": dict(snapshot),
+        "trace_snapshot_metadata": dict(metadata)
+        if isinstance(metadata, dict)
+        else {},
+        "trace_snapshot_retrieval_summary": dict(retrieval_summary)
+        if isinstance(retrieval_summary, dict)
+        else {},
     }
     return payload
 
@@ -3646,7 +3673,9 @@ def _build_eval_model_selection(
     if isinstance(existing, dict) and existing:
         return dict(existing)
 
-    metadata = trace_snapshot.get("metadata_json")
+    metadata = trace_snapshot.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = trace_snapshot.get("metadata_json")
     metadata = dict(metadata) if isinstance(metadata, dict) else {}
 
     requested_provider = payload_summary.get("requested_provider")
@@ -3781,6 +3810,7 @@ def get_latest_rag_trace(
     task_id = _thread_latest_task_id(thread_id, metadata)
     completed_payload: dict[str, Any] | None = None
     retrieval_provenance: dict[str, Any] | None = None
+    trace_source_evidence = False
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
         if isinstance(completed_payload, dict):
@@ -3804,31 +3834,37 @@ def get_latest_rag_trace(
                         task_id,
                         trace,
                     )
-    if isinstance(completed_payload, dict):
-        payload_summary_value = completed_payload.get("payload_summary")
-        if isinstance(payload_summary_value, dict):
-            payload_summary = dict(payload_summary_value)
-            retrieval_provenance_value = payload_summary.get(
-                "retrieval_provenance"
-            )
-            if isinstance(retrieval_provenance_value, dict):
-                retrieval_provenance = dict(retrieval_provenance_value)
-        else:
-            retrieval_provenance_value = completed_payload.get(
-                "retrieval_provenance"
-            )
-            if isinstance(retrieval_provenance_value, dict):
-                retrieval_provenance = dict(retrieval_provenance_value)
+            payload_summary_value = completed_payload.get("payload_summary")
+            if isinstance(payload_summary_value, dict):
+                payload_summary = dict(payload_summary_value)
+                retrieval_provenance_value = payload_summary.get(
+                    "retrieval_provenance"
+                )
+                if isinstance(retrieval_provenance_value, dict):
+                    retrieval_provenance = dict(retrieval_provenance_value)
+            else:
+                retrieval_provenance_value = completed_payload.get(
+                    "retrieval_provenance"
+                )
+                if isinstance(retrieval_provenance_value, dict):
+                    retrieval_provenance = dict(retrieval_provenance_value)
 
-        for key in (
-            "active_profile_id",
-            "provider_override",
-            "model_override",
-            "injection_hash",
-            "retrieval_mode",
-            "model_mode",
-        ):
-            profile_debug[key] = completed_payload.get(key)
+            for key in (
+                "active_profile_id",
+                "provider_override",
+                "model_override",
+                "injection_hash",
+                "retrieval_mode",
+                "model_mode",
+            ):
+                profile_debug[key] = completed_payload.get(key)
+            trace_source_evidence = bool(
+                isinstance(payload_trace, dict)
+                or isinstance(payload_summary_value, dict)
+                or isinstance(
+                    completed_payload.get("retrieval_provenance"), dict
+                )
+            )
 
     trace_missing_visibility = not isinstance(trace, dict) or not trace.get(
         "retrieval_policy"
@@ -3859,6 +3895,10 @@ def get_latest_rag_trace(
                 )
                 if isinstance(retrieval_provenance_value, dict):
                     retrieval_provenance = dict(retrieval_provenance_value)
+            trace_source_evidence = bool(
+                isinstance(eval_trace, dict)
+                or isinstance(eval_payload_summary, dict)
+            ) or trace_source_evidence
 
     if trace is None:
         persisted = _thread_trace_entry(
@@ -3867,12 +3907,14 @@ def get_latest_rag_trace(
             thread_id=thread_id,
         )
         if persisted is not None:
+            trace_source_evidence = True
             trace = persisted
 
     # Fall back to in-memory cache
     if trace is None:
         cached = _rag_traces.get(thread_id)
         if isinstance(cached, dict):
+            trace_source_evidence = True
             trace = dict(cached)
 
     if not trace:
@@ -3880,6 +3922,10 @@ def get_latest_rag_trace(
     else:
         trace.setdefault("documents", [])
         trace.setdefault("graph", [])
+
+    trace_unavailable_reason = None
+    if not trace_source_evidence:
+        trace_unavailable_reason = "trace_source_unavailable"
 
     if payload_summary is not None:
         trace["payload_summary"] = payload_summary
@@ -3931,6 +3977,8 @@ def get_latest_rag_trace(
         }
         if completion_fields:
             trace["completion"] = completion_fields
+    if trace_unavailable_reason and not trace.get("retrieval_policy"):
+        trace["trace_unavailable_reason"] = trace_unavailable_reason
 
     trace.setdefault("thread_id", thread_id)
     trace.setdefault("project_id", None)
