@@ -231,17 +231,20 @@ def test_image_routing_text_only_uses_local_blip_captioning(
 
     captured: dict[str, object] = {}
 
-    def _empty_stream(*_args, **_kwargs):
-        if False:
-            yield ""
-
-    def _capture(messages, **kwargs):
+    def _capture_stream(messages, model, **kwargs):
         captured["messages"] = messages
+        captured["model"] = model
         captured["kwargs"] = kwargs
         return "yes, I do see the image of green hills and floating clouds."
 
-    monkeypatch.setattr(chat_completion_service, "stream_local", _empty_stream)
-    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
+    monkeypatch.setattr(chat_completion_service, "stream_local", _capture_stream)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: pytest.fail(
+            "local caption fallback should use stream_local, not chat_with_ai"
+        ),
+    )
 
     task = ChatCompletionTask(
         user_id="local", thread_id=1, provider="local", model="qwen3.5:9b"
