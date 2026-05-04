@@ -87,6 +87,18 @@ vi.mock("@/lib/api", async () => {
       );
       return response?.data ?? {};
     },
+    dispatchGuardianIntent: async (payload: Record<string, unknown>) => {
+      const response = await apiSpies.post(
+        "/api/guardian/intents/dispatch",
+        payload,
+        {
+          headers: {
+            "X-User-Id": String((payload as any)?.actor?.id ?? ""),
+          },
+        }
+      );
+      return response?.data ?? {};
+    },
     moveChatThread: async (
       threadId: string | number,
       toProjectId: string | number
@@ -889,33 +901,54 @@ describe("GuardianChat inference rail", () => {
     ).toBe(false);
   });
 
-  it("switches profiles through the command bus invoke surface instead of the legacy tools shim", async () => {
+  it("switches profiles through the intent spine instead of the legacy tools shim", async () => {
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("local_mode");
     renderChat("1");
 
     apiMock.post.mockImplementation(async (url: string, body?: any) => {
-      if (url === "/api/guardian/commands/invoke") {
+      if (url === "/api/guardian/intents/dispatch") {
         expect(body).toEqual(
           expect.objectContaining({
-            invoke_version: "1.0",
-            command_id: "op::guardian.profile.switch",
+            source_surface: "chat",
+            intent_kind: "command_bus.invoke",
             actor: { kind: "human", id: "local" },
-            arguments: expect.objectContaining({
-              path_params: { thread_id: 1 },
-              body: { profile_id: "local_mode" },
+            target: expect.objectContaining({
+              command_id: "op::guardian.profile.switch",
+              idempotency_key: "chat-profile-switch:1:local_mode",
+              arguments: expect.objectContaining({
+                path_params: { thread_id: 1 },
+                body: { profile_id: "local_mode" },
+              }),
+            }),
+            scope: expect.objectContaining({
+              thread_id: 1,
+              metadata: expect.objectContaining({
+                action: "profile_switch",
+              }),
+            }),
+            policy: expect.objectContaining({
+              approval_required: false,
+              allow_write_execution: true,
             }),
           })
         );
         return {
           data: {
-            run_id: "run-profile-switch-1",
-            status: "completed",
-            inline_result: {
-              ok: true,
-              thread_id: 1,
-              active_profile_id: "local_mode",
-              provider_override: "local",
-              model_override: "local-model",
+            intent_id: "intent-profile-switch-1",
+            status: "accepted",
+            dispatch_target: "command_bus",
+            source_surface: "chat",
+            receipt_ref: "run-profile-switch-1",
+            downstream_result_json: {
+              run_id: "run-profile-switch-1",
+              status: "completed",
+              inline_result: {
+                ok: true,
+                thread_id: 1,
+                active_profile_id: "local_mode",
+                provider_override: "local",
+                model_override: "local-model",
+              },
             },
           },
         };
@@ -944,9 +977,13 @@ describe("GuardianChat inference rail", () => {
 
     await waitFor(() => {
       expect(apiMock.post).toHaveBeenCalledWith(
-        "/api/guardian/commands/invoke",
+        "/api/guardian/intents/dispatch",
         expect.objectContaining({
-          command_id: "op::guardian.profile.switch",
+          source_surface: "chat",
+          intent_kind: "command_bus.invoke",
+          target: expect.objectContaining({
+            command_id: "op::guardian.profile.switch",
+          }),
         }),
         expect.objectContaining({
           headers: { "X-User-Id": "local" },

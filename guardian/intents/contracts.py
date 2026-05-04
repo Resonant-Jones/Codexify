@@ -1,8 +1,9 @@
 """Canonical intent spine contracts.
 
-The first operational slice currently supports command-bus invocation as the
-dispatch target. The envelope is intentionally broader so later surfaces can
-normalize into the same shape without inventing a second request vocabulary.
+The first operational slice currently supports command-bus invocation and
+cron job creation as dispatch targets. The envelope is intentionally broader
+so later surfaces can normalize into the same shape without inventing a second
+request vocabulary.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from guardian.command_bus.contracts import ActorSpec, InvokeArguments
 
 IntentSourceSurface = Literal["chat", "voice", "automation", "cli", "plugin"]
-IntentKind = Literal["command_bus.invoke"]
+IntentKind = Literal["command_bus.invoke", "cron.create"]
 IntentApprovalState = Literal["pending", "approved", "blocked"]
 IntentExecutionState = Literal[
     "accepted",
@@ -83,6 +84,31 @@ class GuardianCommandBusIntentTarget(BaseModel):
         return resolved
 
 
+class GuardianCronCreateIntentTarget(BaseModel):
+    """Cron-dispatch target for durable scheduled job creation."""
+
+    name: str = Field(min_length=1, max_length=255)
+    schedule: str = Field(min_length=1, max_length=128)
+    job_type: str = Field(default="noop", min_length=1, max_length=32)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    is_enabled: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("name", "schedule", "job_type")
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        resolved = value.strip()
+        if not resolved:
+            raise ValueError("value is required")
+        return resolved
+
+
+GuardianIntentTarget = (
+    GuardianCommandBusIntentTarget | GuardianCronCreateIntentTarget
+)
+
+
 class GuardianIntentRequest(BaseModel):
     """Canonical Guardian-owned intent envelope."""
 
@@ -92,7 +118,7 @@ class GuardianIntentRequest(BaseModel):
     actor: ActorSpec
     source_surface: IntentSourceSurface
     intent_kind: IntentKind = "command_bus.invoke"
-    target: GuardianCommandBusIntentTarget
+    target: GuardianIntentTarget
     scope: GuardianIntentScope = Field(default_factory=GuardianIntentScope)
     policy: GuardianIntentPolicy = Field(default_factory=GuardianIntentPolicy)
     provenance_json: dict[str, Any] = Field(default_factory=dict)
@@ -118,7 +144,7 @@ class GuardianIntentDispatchResult(BaseModel):
 
     intent_id: str = Field(min_length=1, max_length=255)
     status: Literal["accepted", "blocked", "failed"]
-    dispatch_target: Literal["command_bus"]
+    dispatch_target: Literal["command_bus", "cron"]
     intent_kind: IntentKind = "command_bus.invoke"
     source_surface: IntentSourceSurface
     receipt_ref: str | None = Field(default=None, max_length=255)

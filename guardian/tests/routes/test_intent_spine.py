@@ -197,3 +197,64 @@ async def test_intent_service_builds_command_bus_invoke_request(
     assert observed["execution_lane"] == "tools"
     assert observed["allow_write_execution"] is False
     assert observed["confirmation_granted"] is False
+
+
+@pytest.mark.asyncio
+async def test_intent_service_builds_cron_job_create_request(
+    monkeypatch,
+) -> None:
+    observed: dict[str, Any] = {}
+
+    async def fake_create_cron_job(body: Any) -> dict[str, Any]:
+        observed["body"] = body
+        return {
+            "id": 77,
+            "name": body.name,
+            "schedule": body.schedule,
+            "job_type": body.job_type,
+            "payload": body.payload,
+            "is_enabled": body.is_enabled,
+            "created_at": "2026-03-09T05:30:00Z",
+            "updated_at": "2026-03-09T05:30:00Z",
+        }
+
+    monkeypatch.setattr(
+        "guardian.routes.cron.create_cron_job",
+        fake_create_cron_job,
+    )
+
+    intent = GuardianIntentRequest(
+        intent_id="intent_cron_1",
+        actor={"kind": "human", "id": "local"},
+        source_surface="chat",
+        intent_kind="cron.create",
+        target={
+            "name": "Daily pulse",
+            "schedule": "@daily",
+            "job_type": "noop",
+            "payload": {"reference": "status/daily-pulse"},
+            "is_enabled": True,
+        },
+        policy={
+            "approval_required": False,
+            "allow_write_execution": False,
+            "metadata": {"priority": "low"},
+        },
+        provenance_json={"surface": "chat"},
+    )
+
+    result = await intent_service.dispatch_guardian_intent(
+        intent=intent,
+        auth_subject="local",
+        inbound_headers={"x-api-key": "test-key"},
+        app=object(),
+    )
+
+    assert result.status == "accepted"
+    assert result.dispatch_target == "cron"
+    assert result.receipt_ref == "cron_job_77"
+    body = observed["body"]
+    assert body.name == "Daily pulse"
+    assert body.schedule == "@daily"
+    assert body.job_type == "noop"
+    assert body.payload == {"reference": "status/daily-pulse"}
