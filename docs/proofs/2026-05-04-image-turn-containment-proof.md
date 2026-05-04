@@ -152,3 +152,107 @@ FAIL
 3. Confirm why the completion request resolved to `library2/ministral-3:8b` instead of the requested local vision-capable model override.
 4. Once the runtime is refreshed, repeat the proof and only then claim containment on the live path.
 5. The current branch now promotes completion and eval snapshot metadata into the live trace route; rerun the proof against refreshed services to confirm the operator-visible payload now includes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, `image_routing_path`, and model-selection fields on the supported path.
+
+## Rerun — 2026-05-04 after live trace promotion
+
+### Result
+FAIL
+
+### Environment
+- branch: `codex/add-vision-capability-validation`
+- HEAD: `6b95af99b35bc5761a6f7569b32ea555848ffc3c`
+- runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- services refreshed: `backend`, `worker-chat`, `worker-chat-embed`, `worker-document-embed`, `worker-voice`, `worker-warmup`
+- requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- resolved provider/model: `local` / `library2/ministral-3:8b`
+
+### Exact Commands
+```sh
+docker compose up -d --build backend worker-chat worker-chat-embed worker-document-embed worker-voice worker-warmup
+docker compose up -d --no-deps backend worker-chat worker-chat-embed worker-document-embed worker-voice worker-warmup
+docker compose exec -T backend python - <<'PY'
+# health checks, thread A/B setup, image upload, completion, trace fetch
+PY
+docker compose exec -T backend python - <<'PY'
+# task-events inspection
+PY
+```
+
+### Health And Supported-Profile Evidence
+- `GET /health` returned `200` with `status: ok`.
+- `GET /health/chat` returned `200` with:
+  - `status: healthy`
+  - `provider: local`
+  - `model: library2/ministral-3:8b`
+  - `provider_runtime.models[0].supports_vision: false`
+- `GET /api/health/llm` returned `200` with `status: ok` / `status: online`.
+- `GET /api/llm/catalog` returned a live catalog that included the local nonvision model plus vision-capable local models such as `medgemma:4b-it-q8_0`.
+
+### Fixture Setup
+- Thread A refusal source:
+  - Thread A id: `6`
+  - user message id: `23`
+  - assistant refusal message id: `24`
+  - assistant content: `I can't view the image.`
+- Thread B image turn:
+  - Thread B id: `7`
+  - image upload id: `c6a89d26-8854-4117-a580-8bf6eafc6af9`
+  - image upload result: `POST /api/media/upload/image` returned a signed `src_url`
+  - user message id: `25`
+  - user content included the supported `cfy-media` attachment markers
+
+### Completion Execution Evidence
+- Request endpoint: `POST /api/chat/7/complete`
+- Request body included:
+  - `provider: local`
+  - `model: medgemma:4b-it-q8_0`
+  - `depth_mode: normal`
+  - `source_mode: project`
+  - `turn_id: 4f7aa578-3eda-4ca6-92f5-cedb45cf482b`
+- Task id: `dd96dc0e-269c-4e6c-9533-61cd115343d8`
+- Assistant message id: `26`
+- Requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- Final provider/model: `local` / `library2/ministral-3:8b`
+- Image-routing path: not surfaced in the live task/event/debug payloads for this run
+
+### Live RAG Trace Evidence
+- `GET /api/chat/debug/rag-trace/7/latest` returned an empty public shell:
+  - `documents: []`
+  - `graph: []`
+  - `model_mode: cloud`
+  - `widen_reason: none`
+  - no surfaced `retrieval_policy`
+  - no surfaced `retrieval_provenance`
+  - no surfaced `retrieval_suppression`
+  - no surfaced `image_routing_path`
+- `GET /api/chat/debug/evals/7/latest` returned a trace snapshot whose `payload_summary` and `metadata` exposed:
+  - `requested_model: medgemma:4b-it-q8_0`
+  - `final_model: library2/ministral-3:8b`
+  - `selection_source: LOCAL_CHAT_MODEL`
+  - `policy_reason: LOCAL_CHAT_MODEL`
+  - `retrieval_summary.retrieval_query: Attached image: image-containment-proof.png ...`
+  - `retrieval_provenance: null`
+- The `task.completed` event stream exposed the same model-selection truth:
+  - `attempted_model: medgemma:4b-it-q8_0`
+  - `final_model: library2/ministral-3:8b`
+  - `selection_source: LOCAL_CHAT_MODEL`
+  - `retrieval_provenance: null`
+- Thread A refusal text did not appear in Thread B messages.
+- The assistant response on Thread B was a refusal-like answer, but the live trace still did not provide machine-readable evidence that this came from supported image routing rather than model behavior.
+
+### Result Interpretation
+- Containment is still not machine-readably proven on the live supported path.
+- The proof did not establish image interpretation fidelity.
+- The live path now exposes requested/final model-selection truth in eval/task metadata, but the public rag-trace endpoint still did not surface the promoted retrieval policy, provenance, suppression, or image-routing fields.
+
+### Limitations
+- RAG trace remains transient and not a durable forensic store.
+- The live debug trace route still returned an empty shell for this thread.
+- The completion path still resolved the requested vision-capable override to `library2/ministral-3:8b`.
+- The task-event and eval surfaces showed model-selection truth, but not the retrieval provenance/suppression fields required for a containment PASS.
+- The backend refresh required `docker compose up -d --no-deps ...` after the migrator failed, so the refresh step itself is an environmental blocker worth tracking separately.
+
+### Follow-Up Recommendations
+1. Fix the remaining live trace promotion gap so `GET /api/chat/debug/rag-trace/{thread_id}/latest` surfaces the same completion and retrieval truth already visible in eval/task metadata.
+2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
+3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
