@@ -431,6 +431,9 @@ describe("GuardianChat inference rail", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-05T00:00:00.000Z"));
     vi.clearAllMocks();
+    authState.ready = true;
+    authState.status = "authenticated";
+    authState.token = "test-token";
     try {
       window.localStorage.setItem("cfy.voice.playbackEnabled", "");
       window.localStorage.setItem("cfy.voice.turnEnabled", "");
@@ -1047,5 +1050,21 @@ describe("GuardianChat inference rail", () => {
     expect(longContent).toHaveStyle({ maxHeight: "360px", overflowY: "auto" });
     expect(within(shortCard).queryByRole("button", { name: "Show less" })).not.toBeInTheDocument();
     expect(screen.getByTestId("chat-container")).toHaveClass("overflow-y-auto");
+  });
+
+  it("does not attempt thread creation when auth is unauthenticated", async () => {
+    authState.ready = true;
+    authState.status = "unauthenticated";
+    authState.token = undefined;
+
+    renderChat("1");
+
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(
+        apiMock.post.mock.calls.some(([url]) => url === "/api/chat/threads")
+      ).toBe(false);
+    });
   });
 });
