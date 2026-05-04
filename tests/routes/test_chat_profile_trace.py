@@ -338,6 +338,11 @@ def test_rag_trace_preserves_conversation_override_and_effective_source_mode(
                     "mode": "personal_knowledge",
                     "reason": "slash_personal_knowledge_hint",
                 },
+                "retrieval_policy": {
+                    "source_mode": "personal_knowledge",
+                    "widening_source_mode": "personal_knowledge",
+                    "allow_semantic_widening": True,
+                },
                 "effective_policy": {
                     "source_mode": "personal_knowledge",
                     "widening_enabled": True,
@@ -356,6 +361,11 @@ def test_rag_trace_preserves_conversation_override_and_effective_source_mode(
                 "retrieval_override": {
                     "mode": "conversation",
                     "reason": "slash_conversation_hint",
+                },
+                "retrieval_policy": {
+                    "source_mode": "conversation",
+                    "widening_source_mode": "conversation",
+                    "allow_semantic_widening": False,
                 },
                 "effective_policy": {
                     "source_mode": "thread",
@@ -413,6 +423,10 @@ def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
     assert result["trace"]["effective_policy"] == expected_effective_policy
     assert result["payload_summary"]["effective_policy"] == (
         expected_effective_policy
+    )
+    assert result["trace"]["retrieval_policy"] == trace_payload["retrieval_policy"]
+    assert result["payload_summary"]["retrieval_policy"] == (
+        trace_payload["retrieval_policy"]
     )
     assert (
         result["payload_summary"]["source_mode"] == trace_payload["source_mode"]
