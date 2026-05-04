@@ -281,6 +281,92 @@ def test_image_routing_text_only_uses_local_blip_captioning(
     )
 
 
+def test_image_routing_local_model_substitution_is_machine_readable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="local", model="medgemma:4b-it-q8_0")
+
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "ENABLE_BLIP_MODEL",
+        True,
+        raising=False,
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_caption_image_with_local_blip",
+        lambda _src: "a green hill with clouds",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_caption_image_with_groq_vision",
+        lambda *args, **kwargs: pytest.fail(
+            "cloud fallback should not be used when local BLIP is available"
+        ),
+    )
+
+    class _Resolution:
+        ok = True
+        model = "library2/ministral-3:8b"
+        source = "LOCAL_CHAT_MODEL"
+        strict = True
+        requested_model = "medgemma:4b-it-q8_0"
+        failure_kind = None
+        message = "configured local chat model selected from LOCAL_CHAT_MODEL"
+        endpoint_resolution = None
+
+        def as_dict(self):
+            return {
+                "model": self.model,
+                "source": self.source,
+                "strict": self.strict,
+                "requested_model": self.requested_model,
+                "message": self.message,
+            }
+
+    captured: dict[str, object] = {}
+
+    def _capture_stream(messages, model, **kwargs):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        return "local model substitution reply"
+
+    monkeypatch.setattr(chat_completion_service, "resolve_local_execution_model", lambda **kwargs: _Resolution())
+    monkeypatch.setattr(chat_completion_service, "stream_local", _capture_stream)
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="medgemma:4b-it-q8_0",
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    summary = result["payload_summary"]
+    assert "messages" in captured
+    assert summary["requested_model"] == "medgemma:4b-it-q8_0"
+    assert summary["final_model"] == "library2/ministral-3:8b"
+    assert summary["selection_source"] == "LOCAL_CHAT_MODEL"
+    assert summary["fallback_reason"] == (
+        "configured local chat model selected from LOCAL_CHAT_MODEL"
+    )
+    assert summary["model_selection"]["requested_model"] == (
+        "medgemma:4b-it-q8_0"
+    )
+    assert summary["model_selection"]["final_model"] == (
+        "library2/ministral-3:8b"
+    )
+    assert summary["model_selection"]["policy_reason"] == "LOCAL_CHAT_MODEL"
+    assert summary["model_selection"]["model_resolution"]["source"] == (
+        "LOCAL_CHAT_MODEL"
+    )
+
+
 def test_image_routing_fails_without_path(monkeypatch: pytest.MonkeyPatch):
     _seed_common(monkeypatch, provider="groq", model="llama-3.1-70b-versatile")
 
