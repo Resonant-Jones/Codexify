@@ -789,6 +789,28 @@ describe("Composer draft sync", () => {
     ).not.toBeDisabled();
   });
 
+  it("still stages attachments while dispatching so uploads stay responsive", () => {
+    const { container } = render(
+      <Composer
+        onSend={vi.fn()}
+        draftScopeKey="tab-1"
+        draftValue=""
+        currentRequestState="dispatching"
+      />
+    );
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const file = new File(["hello world"], "notes.txt", {
+      type: "text/plain",
+    });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(screen.getByLabelText("Remove attachment")).toBeInTheDocument();
+  });
+
   it("shows streaming as a live state without disabling the composer", () => {
     render(
       <Composer

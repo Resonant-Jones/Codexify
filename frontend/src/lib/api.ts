@@ -60,11 +60,11 @@ export function classifyOptionalSurfaceError(error: unknown): OptionalSurfaceErr
 }
 
 function readRuntimeEnv(name: string, fallback = ""): string {
-  const viteEnv =
-    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
   const nodeEnv =
     typeof process !== "undefined" ? ((process as any).env ?? {}) : {};
-  const raw = viteEnv[name] ?? nodeEnv[name] ?? fallback;
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  const raw = nodeEnv[name] ?? viteEnv[name] ?? fallback;
   return String(raw ?? "");
 }
 
@@ -84,8 +84,6 @@ function resolveDevApiKey(): string {
   if (!isDevRuntime()) return "";
   const explicitDevKey = readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
   if (explicitDevKey) return explicitDevKey;
-  const useProxy = readRuntimeEnv("VITE_USE_PROXY", "true").trim().toLowerCase() === "true";
-  if (useProxy) return "";
   // Backward-compat: existing local setups may still use VITE_GUARDIAN_API_KEY.
   return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
 }

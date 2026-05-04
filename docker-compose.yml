@@ -136,6 +136,7 @@ services:
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
+      - ./guardian/db/migrations:/app/guardian/db/migrations
       - ./backend:/app/backend
     restart: "no"
     command: ["/app/backend/scripts/docker/run_migrator.py"]

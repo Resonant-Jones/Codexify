@@ -8,6 +8,7 @@ import { configureGC } from "./dcw-services/gc";
 import {
   refreshApiBaseUrl,
   readRuntimeApiKey,
+  getDevApiKey,
   setRuntimeApiKey,
 } from "./lib/api";
 import { resolveAuthStateOnBoot } from "./lib/authState";
@@ -45,8 +46,7 @@ if (typeof window !== "undefined") {
 injectCssVars();
 
 function readDevApiKey(): string {
-  if (!import.meta.env.DEV) return "";
-  return ((import.meta as any).env.VITE_GUARDIAN_DEV_API_KEY || "").trim();
+  return getDevApiKey();
 }
 
 async function hydrateDesktopApiKey(): Promise<void> {

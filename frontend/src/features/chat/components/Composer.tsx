@@ -670,10 +670,6 @@ export function Composer({
   function stageFiles(files: FileList | File[]) {
     const arr = Array.from(files || []);
     if (!arr.length) return;
-    if (draftControlsDisabled) {
-      notifyTransportBusy();
-      return;
-    }
 
     setDraftAttachments((prev) => {
       const next = [...prev];
@@ -926,10 +922,6 @@ export function Composer({
   }
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (draftControlsDisabled) {
-      notifyTransportBusy();
-      return;
-    }
     const rawAsset = e.dataTransfer?.getData("application/x-cfy-asset");
     if (rawAsset) {
       try {
@@ -1367,15 +1359,11 @@ export function Composer({
               style={{ gap: "var(--composer-control-gap, 12px)" }}
             >
               <ComposerActionMenu
-                disabled={draftControlsDisabled}
+                disabled={false}
                 isPhoneShell={isPhoneShell}
                 depthMode={depthMode}
                 depthOptions={depthOptions}
                 onAttach={() => {
-                  if (draftControlsDisabled) {
-                    notifyTransportBusy();
-                    return;
-                  }
                   fileInputRef.current?.click();
                 }}
                 onGenerateImage={() => {
