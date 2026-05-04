@@ -1857,8 +1857,6 @@ def call_local(
     compat_first = compat_first or bool(
         getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
     )
-    if _messages_contain_image_payload(adapted_messages):
-        compat_first = True
 
     # Optional last-resort fallback to /api/generate (disabled by default).
     enable_generate_fallback = bool(
@@ -2077,8 +2075,6 @@ def stream_local(
     compat_first = compat_first or bool(
         getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
     )
-    if _messages_contain_image_payload(adapted_messages):
-        compat_first = True
 
     response: Optional[requests.Response] = None
     current_url = ""

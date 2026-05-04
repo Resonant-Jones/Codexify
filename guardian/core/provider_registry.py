@@ -977,7 +977,7 @@ def _apply_model_overrides(
     models: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     try:
-        from guardian.core.model_overrides import get_model_override_map
+        from backend.model_overrides import get_model_override_map
     except Exception:
         return models
 

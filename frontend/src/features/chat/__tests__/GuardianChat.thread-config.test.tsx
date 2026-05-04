@@ -271,6 +271,11 @@ vi.mock("@/hooks/useLiveEvents", () => ({
 }));
 
 vi.mock("@/features/chat/hooks/useInferenceRequestState", () => ({
+  describeInferenceRequestState: () => ({
+    canonicalState: "idle",
+    delayDetailText: null,
+    timings: {},
+  }),
   useInferenceRequestState: () => ({
     state: inferenceMocks.state,
     startRequest: inferenceMocks.startRequest,

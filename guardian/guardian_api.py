@@ -507,7 +507,6 @@ from guardian.routes import (
     embeddings,
     federation,
     health,
-    llm_overrides,
     memory,
     migration,
 )
@@ -537,6 +536,7 @@ from guardian.routes.voice import router as voice_router
 from guardian.voice.config import get_voice_runtime_config
 from guardian.voice.runtime import SUPPORTED_INPUT_MIME
 from guardian.voice.service import validate_voice_runtime_dependencies
+from backend import llm_overrides
 
 # =========================
 # Application Lifespan Management

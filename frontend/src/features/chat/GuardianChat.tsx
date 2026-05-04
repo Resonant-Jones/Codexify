@@ -315,6 +315,22 @@ function normalizeThreadConfigInferenceMode(
   return DEFAULT_COMPOSER_INFERENCE_MODE;
 }
 
+function threadConfigSnapshotsEqual(
+  left: ThreadConfig | null | undefined,
+  right: ThreadConfig | null | undefined
+): boolean {
+  if (!left || !right) return false;
+  return (
+    left.providerId === right.providerId &&
+    left.modelId === right.modelId &&
+    normalizeThreadConfigInferenceMode(left.inferenceMode) ===
+      normalizeThreadConfigInferenceMode(right.inferenceMode) &&
+    normalizeSourceMode(left.retrievalSource) ===
+      normalizeSourceMode(right.retrievalSource) &&
+    (left.personaId ?? null) === (right.personaId ?? null)
+  );
+}
+
 function threadConfigInferenceModeFromComposer(
   mode: ComposerInferenceMode
 ): string {
@@ -795,6 +811,7 @@ export function GuardianChat({
   onSessionDraftChange?: (text: string) => void;
 }) {
   const auth = useAuthState();
+  const authCanSend = auth.ready && auth.status === "authenticated";
   // RAG depth selector: User's control of perceptual awareness
   const [depth, setDepth] = useState<DepthMode>("normal");
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
@@ -1937,8 +1954,8 @@ export function GuardianChat({
   ]);
 
   const saveThreadConfigSnapshot = useCallback(
-    async (threadConfig: ThreadConfig) => {
-      const threadId = effectiveThreadId;
+    async (threadConfig: ThreadConfig, threadIdOverride?: number | null) => {
+      const threadId = threadIdOverride ?? effectiveThreadId;
       if (threadId == null) {
         return applyThreadConfigSnapshot(threadConfig);
       }
@@ -1965,6 +1982,29 @@ export function GuardianChat({
       }
     },
     [applyThreadConfigSnapshot, effectiveThreadId, showToast]
+  );
+
+  const syncThreadConfigBeforeSend = useCallback(
+    async (threadId: number | null) => {
+      if (threadId == null) {
+        return true;
+      }
+      if (
+        !currentThreadConfigSnapshot ||
+        threadConfigSnapshotsEqual(
+          persistedThreadConfig,
+          currentThreadConfigSnapshot
+        )
+      ) {
+        return true;
+      }
+      const saved = await saveThreadConfigSnapshot(
+        currentThreadConfigSnapshot,
+        threadId
+      );
+      return saved != null;
+    },
+    [currentThreadConfigSnapshot, persistedThreadConfig, saveThreadConfigSnapshot]
   );
 
   const mergeThreadConfigSnapshot = useCallback(
@@ -2748,6 +2788,12 @@ export function GuardianChat({
         showToast("Authentication is not ready yet.");
         return null;
       }
+      if (!authCanSend) {
+        showToast(
+          "Authentication required. Sign in or provide a dev key in local development."
+        );
+        return null;
+      }
       if (effectiveThreadId != null) {
         return effectiveThreadId;
       }
@@ -2812,7 +2858,7 @@ export function GuardianChat({
       return null;
     }
     },
-    [auth.ready, effectiveThreadId, handleThreadCreated, showToast]
+    [auth.ready, authCanSend, effectiveThreadId, handleThreadCreated, showToast]
   );
 
   const ensureThreadIdForAttachments = useCallback(
@@ -2937,6 +2983,12 @@ export function GuardianChat({
       showToast("Authentication is not ready yet.");
       return;
     }
+    if (!authCanSend) {
+      showToast(
+        "Authentication required. Sign in or provide a dev key in local development."
+      );
+      return;
+    }
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =
@@ -3010,6 +3062,12 @@ export function GuardianChat({
           return;
         }
         await activateThread(createdThreadId);
+        const synced = await syncThreadConfigBeforeSend(createdThreadId);
+        if (!synced) {
+          setPendingTurnLock(false);
+          setTurnLockForThread(createdThreadId, false);
+          return;
+        }
 
         await api.post(`/chat/${createdThreadId}/messages`, {
           role: "user",
@@ -3058,6 +3116,11 @@ export function GuardianChat({
       setTurnLockForThread(targetThreadId, true);
       // Thread exists, just send the message via parent callback
       try {
+        const synced = await syncThreadConfigBeforeSend(targetThreadId);
+        if (!synced) {
+          setTurnLockForThread(targetThreadId, false);
+          return;
+        }
         if (targetThreadId !== effectiveThreadId) {
           await api.post(`/chat/${targetThreadId}/messages`, {
             role: "user",

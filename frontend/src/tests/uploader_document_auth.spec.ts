@@ -101,7 +101,7 @@ describe("useUploader auth headers", () => {
     expect(headers["X-API-Key"]).toBe("non-proxy-key");
   });
 
-  it("still adds X-API-Key on document upload in proxy mode", async () => {
+  it("adds X-API-Key on document upload in proxy mode when a local key is configured", async () => {
     vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
     vi.stubEnv("VITE_USE_PROXY", "true");
     vi.stubEnv("VITE_GUARDIAN_API_KEY", "proxy-key");
