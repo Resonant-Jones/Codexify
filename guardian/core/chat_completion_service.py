@@ -10,6 +10,7 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -1147,6 +1148,70 @@ def _image_attachments_from_meta(
     return images
 
 
+_IMAGE_REFUSAL_PATTERNS = (
+    re.compile(
+        r"\b(?:i\s+)?(?:can(?:not|'t)|unable\s+to)\s+"
+        r"(?:directly\s+)?(?:see|view|analyze|inspect)\s+"
+        r"(?:the\s+)?images?\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:i\s+)?(?:can(?:not|'t)|unable\s+to)\s+"
+        r"(?:directly\s+)?view\s+(?:or\s+analyze\s+)?images?\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:i\s+)?(?:can(?:not|'t)|unable\s+to)\s+"
+        r"(?:directly\s+)?see\s+(?:the\s+)?image\b",
+        flags=re.IGNORECASE,
+    ),
+)
+
+
+def _assistant_image_refusal_message(content: Any) -> bool:
+    text = " ".join(str(content or "").split()).strip()
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in _IMAGE_REFUSAL_PATTERNS)
+
+
+def _should_skip_history_message_for_image_turn(
+    message: dict[str, Any],
+    latest_user_meta: dict[str, Any] | None,
+) -> bool:
+    if not isinstance(message, dict):
+        return False
+    if str(message.get("role") or "").strip().lower() != "assistant":
+        return False
+    if not _image_attachments_from_meta(latest_user_meta):
+        return False
+    return _assistant_image_refusal_message(message.get("content"))
+
+
+def _semantic_context_item_text(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("content") or item.get("snippet") or item.get("text") or ""
+    ).strip()
+
+
+def _filter_image_refusal_semantic_context(
+    semantic_items: Any,
+    latest_user_meta: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not _image_attachments_from_meta(latest_user_meta):
+        return [item for item in semantic_items or [] if isinstance(item, dict)]
+    filtered: list[dict[str, Any]] = []
+    for item in semantic_items or []:
+        if not isinstance(item, dict):
+            continue
+        if _assistant_image_refusal_message(_semantic_context_item_text(item)):
+            continue
+        filtered.append(item)
+    return filtered
+
+
 def _format_image_label(attachment: dict[str, Any]) -> str:
     label = str(attachment.get("name") or "").strip()
     if not label:
@@ -2230,6 +2295,8 @@ async def build_messages_for_llm(
                     "text": clean_text,
                     "attachments": attachments,
                 }
+        if _should_skip_history_message_for_image_turn(msg, latest_user_meta):
+            continue
         content = render_content_for_inference(msg.get("content"))
         if content and content.strip() and content.strip().lower() != "null":
             context.append({"role": role, "content": content})
@@ -2406,6 +2473,10 @@ async def build_messages_for_llm(
         bundle["_attachment_meta"] = {
             "latest_user": latest_user_meta,
         }
+        bundle["semantic"] = _filter_image_refusal_semantic_context(
+            bundle.get("semantic"),
+            latest_user_meta,
+        )
         bundle["_completion_assembly"] = completion_assembly
 
     if trace is None:
