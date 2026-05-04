@@ -91,6 +91,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
 - [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, machine-readable failure codes, and bounded tool-loop meanings.
+- [Web Agent Spec v1](./web-agent-spec.md): architecture/specification note for governed web retrieval, extraction, and browser/service connector boundaries; not current runtime proof.
 - [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md): canonical architecture note for bounded generated extensions, plugin forge flow, and sovereignty boundaries.
 - [ADR-020 Guardian Mediated Coding Agent Execution Contract](./adr/020-guardian-mediated-coding-agent-execution-contract.md): contract-only seam for Guardian-mediated coding-agent requests and results, including future Pi SDK adapters.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.

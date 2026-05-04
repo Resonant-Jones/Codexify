@@ -54,6 +54,7 @@ Use this note as the local map for all ADRs.
 18. [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] — latest-per-thread graph-lane inspection snapshots for operator/debug visibility without promoting graph truth.
 19. [[019-Graph-Backend-Adapter-Contract|ADR-019 Graph Backend Adapter Contract]] — typed graph backend seam with a default no-op implementation mounted after inspection.
 20. [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]] — Guardian-owned contract for coding-agent execution attempts, future Pi SDK adapters, and result ingestion before user-visible output.
+21. [[021-Web-Agent-Boundary-and-Retrieval-Contract|ADR-021 Web Agent Boundary and Retrieval Contract]] — governed external retrieval and interaction boundary with separate search, read, extract, browser, and service-connector modes.
 
 ---
 
@@ -251,6 +252,16 @@ Primary companion notes:
   * [[modules-and-ownership|Modules and Ownership]]
   * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
   * [[00-current-state]]
+
+* [[021-Web-Agent-Boundary-and-Retrieval-Contract|ADR-021 Web Agent Boundary and Retrieval Contract]] links to:
+
+  * [[web-agent-spec|Web Agent Spec v1]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[config-and-ops|Config and Ops]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[canonical-token-philosophy|Canonical Token Philosophy]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
 ---
 
 ## Maintenance rule
