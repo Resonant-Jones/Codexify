@@ -43,6 +43,8 @@ The future adapter boundary is:
 
 Provider adapters must not perform synthesis. Synthesis happens after this boundary, in the retrieval or completion pipeline that consumes normalized evidence.
 
+Adapter output is not synthesis-ready until it is accepted by the Web Evidence Intake Gate: [Web Evidence Intake Gate Contract](./web-evidence-intake-gate-contract.md).
+
 ## 5. Conceptual Data Shapes
 
 The following shapes are docs-only and conceptual. They describe the contract a future implementation should satisfy without prescribing code structure.
