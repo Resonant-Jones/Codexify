@@ -1056,7 +1056,7 @@ class PgDB(ChatDB):
             payload = self._model_override_to_dict(row)
 
         try:
-            from guardian.core.model_overrides import (
+            from backend.model_overrides import (
                 invalidate_model_overrides_cache,
             )
 
@@ -1089,7 +1089,7 @@ class PgDB(ChatDB):
 
         if deleted:
             try:
-                from guardian.core.model_overrides import (
+                from backend.model_overrides import (
                     invalidate_model_overrides_cache,
                 )
 
