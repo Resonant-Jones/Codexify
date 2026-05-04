@@ -161,6 +161,54 @@ def test_rag_trace_exposes_retrieval_provenance(monkeypatch):
     chat._rag_traces.pop(781, None)
 
 
+def test_rag_trace_exposes_retrieval_suppression(monkeypatch):
+    chat._thread_latest_task[782] = "task-782"
+
+    retrieval_suppression = {
+        "count": 1,
+        "counts_by_reason": {
+            "assistant_vision_refusal_on_image_turn": 1,
+        },
+        "items": [
+            {
+                "id": "refusal-1",
+                "source_type": "retrieval",
+                "role": "assistant",
+                "thread_id": 9,
+                "project_id": 7,
+                "retrieval_lane": "thread_semantic",
+                "score": 0.2,
+                "policy_reason": "assistant_vision_refusal_on_image_turn",
+                "retrieval_policy": {"source_mode": "project"},
+                "suppressed": True,
+                "suppression_reason": "assistant_vision_refusal_on_image_turn",
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "retrieval_suppression": retrieval_suppression,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(782, api_key="test-key")
+    assert trace["payload_summary"]["retrieval_suppression"] == (
+        retrieval_suppression
+    )
+    assert trace["retrieval_suppression"] == retrieval_suppression
+
+    chat._thread_latest_task.pop(782, None)
+    chat._rag_traces.pop(782, None)
+
+
 def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
     chat._thread_latest_task[78] = "task-78"
 

@@ -38,6 +38,9 @@ inline literals.
   `CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED`,
   `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING`
 
+- Trace suppression reasons:
+  `assistant_vision_refusal_on_image_turn`
+
 - Bounded tool-loop states:
   `idle`, `decision_received`, `command_dispatched`,
   `result_reinjected`, `completed`, `failed`, `limit_reached`

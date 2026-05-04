@@ -19,6 +19,7 @@ from guardian.protocol_tokens import (
     TASK_EVENT_TYPES,
     TOOL_LOOP_STOP_REASONS,
     TOOL_TURN_STATES,
+    TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -36,6 +37,7 @@ from guardian.protocol_tokens import (
     TaskEventType,
     ToolLoopStopReason,
     ToolTurnState,
+    TraceSuppressionReason,
 )
 
 
@@ -48,6 +50,16 @@ def test_acceptance_status_tokens() -> None:
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
+
+
+def test_trace_suppression_tokens() -> None:
+    assert (
+        TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
+        == "assistant_vision_refusal_on_image_turn"
+    )
+    assert TRACE_SUPPRESSION_REASONS == {
+        "assistant_vision_refusal_on_image_turn",
+    }
 
 
 def test_tool_turn_protocol_tokens() -> None:

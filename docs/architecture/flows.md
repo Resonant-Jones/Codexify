@@ -135,12 +135,14 @@ Sequence:
    - graph context when `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`
    - sensor diagnostics and optional federated context when requested
    - workspace-local retrieval, which keeps the same-user boundary but can widen beyond the thread into the local working set, including Obsidian-backed notes
+   - selected-item provenance plus suppression summaries so operator traces can show what was included, what was filtered, and why
 4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block, including a bounded verified-personal-facts section when eligible facts exist.
 5. The final LLM input is the system/context block plus conversation messages.
 
 Outputs:
 - Provider-ready message array
 - `rag_trace` payload for debugging and UI inspection
+- `rag_trace` retains transient provenance and suppression metadata for diagnosis, but it is still not a durable forensic store
 - Effective retrieval depth and document context metadata
 
 Failure modes:
