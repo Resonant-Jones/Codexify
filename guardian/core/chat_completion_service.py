@@ -46,7 +46,7 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_WORKSPACE,
     normalize_retrieval_override_mode,
     normalize_source_mode,
-    resolve_retrieval_plan,
+    resolve_context_assembly_policy,
     source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
@@ -984,6 +984,7 @@ async def _assemble_context_bundle(
     project_id: int | None,
     source_mode: str,
     retrieval_override: dict[str, Any] | None = None,
+    retrieval_policy: dict[str, Any] | None = None,
     request_user_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     _ = request_user_id
@@ -996,33 +997,48 @@ async def _assemble_context_bundle(
             project_id=project_id,
             source_mode=source_mode,
             retrieval_override=retrieval_override,
+            retrieval_policy=retrieval_policy,
         )
     except TypeError as exc:
         error_text = str(exc)
         retrieval_override_error = "retrieval_override" in error_text
+        retrieval_policy_error = "retrieval_policy" in error_text
         source_mode_error = "source_mode" in error_text
         project_id_error = "project_id" in error_text
         if not (
-            retrieval_override_error or source_mode_error or project_id_error
+            retrieval_override_error
+            or retrieval_policy_error
+            or source_mode_error
+            or project_id_error
         ):
             raise
         if retrieval_override_error and not (
-            source_mode_error or project_id_error
+            retrieval_policy_error
+            or source_mode_error
+            or project_id_error
         ):
-            return await broker.assemble(
-                thread_id,
+            assemble_kwargs = dict(
+                thread_id=thread_id,
                 query=query,
                 depth_mode=depth_mode,
                 user_id=user_id,
                 project_id=project_id,
                 source_mode=source_mode,
             )
-        return await broker.assemble(
-            thread_id,
+            if not retrieval_policy_error:
+                assemble_kwargs["retrieval_policy"] = retrieval_policy
+            return await broker.assemble(
+                **assemble_kwargs,
+            )
+        assemble_kwargs = dict(
+            thread_id=thread_id,
             query=query,
             depth_mode=depth_mode,
             user_id=user_id,
         )
+        if not retrieval_policy_error:
+            assemble_kwargs["retrieval_policy"] = retrieval_policy
+        return await broker.assemble(**assemble_kwargs)
 
 
 def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
@@ -2344,7 +2360,25 @@ async def build_messages_for_llm(
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
     trace_candidate: dict[str, Any] | None = None
+    retrieval_policy_obj: Any | None = None
+    retrieval_policy: dict[str, Any] | None = None
     try:
+        effective_source_mode = _resolve_effective_source_mode_for_assembly(
+            source_mode,
+            routing_debug_metadata.get("retrieval_override"),
+        )
+        retrieval_policy_obj = resolve_context_assembly_policy(
+            retrieval_query,
+            depth,
+            source_mode=effective_source_mode,
+            retrieval_override=routing_debug_metadata.get(
+                "retrieval_override"
+            ),
+            active_thread_id=thread_id,
+            active_project_id=project_id_for_prompt,
+            active_persona=None,
+        )
+        retrieval_policy = retrieval_policy_obj.as_dict()
         broker = ContextBroker(
             dependencies.chatlog_db,
             dependencies._vector_store,
@@ -2362,6 +2396,7 @@ async def build_messages_for_llm(
             project_id=project_id_for_prompt,
             source_mode=source_mode,
             retrieval_override=routing_debug_metadata.get("retrieval_override"),
+            retrieval_policy=retrieval_policy,
         )
         if thread_execution.persona_id:
             # Thread config personaId is request-scoped input, not actor
@@ -2509,28 +2544,20 @@ async def build_messages_for_llm(
         trace.update(routing_debug_metadata)
         trace.setdefault("source_mode", effective_source_mode)
 
-    try:
-        retrieval_plan = resolve_retrieval_plan(
-            retrieval_query,
-            depth,
-            active_thread_id=thread_id,
-            active_project_id=project_id_for_prompt,
-            active_persona=_active_persona_context_from_prompt_meta(
-                prompt_meta
-            ),
-        )
-        if isinstance(trace, dict):
+    if retrieval_policy_obj is not None and isinstance(trace, dict):
+        try:
             trace = dict(trace)
             trace[RETRIEVAL_PLAN_TRACE_KEY] = _serialize_retrieval_plan_trace(
-                plan=retrieval_plan,
+                plan=retrieval_policy_obj.plan,
                 user_depth=depth,
             )
-    except Exception as exc:
-        logger.warning(
-            "[chat-completion] retrieval plan resolution failed depth=%s err=%s",
-            depth,
-            exc,
-        )
+            trace["retrieval_policy"] = retrieval_policy_obj.as_dict()
+        except Exception as exc:
+            logger.warning(
+                "[chat-completion] retrieval policy serialization failed depth=%s err=%s",
+                depth,
+                exc,
+            )
 
     if isinstance(trace_candidate, dict):
         _persist_thread_trace_candidate(task, trace)
@@ -2883,6 +2910,8 @@ def run_chat_completion_task(
     payload_summary["effective_source_mode"] = trace_source_mode
     payload_summary["normalized_source_mode"] = trace_source_mode
     payload_summary["effective_policy"] = effective_policy
+    if isinstance(trace, dict) and trace.get("retrieval_policy") is not None:
+        payload_summary["retrieval_policy"] = trace.get("retrieval_policy")
     retrieval_provenance = _build_retrieval_provenance(
         requested_source_mode=requested_source_mode,
         normalized_source_mode=trace_source_mode,

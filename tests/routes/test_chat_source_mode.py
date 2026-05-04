@@ -348,7 +348,7 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
                 "widening_enabled": True,
                 "identity_scope": SOURCE_MODE_PROJECT,
             },
-            True,
+            False,
         ),
         (
             {"mode": "project"},
@@ -357,7 +357,7 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
                 "widening_enabled": True,
                 "identity_scope": SOURCE_MODE_PROJECT,
             },
-            True,
+            False,
         ),
         (
             {"mode": "personal_knowledge"},
@@ -472,3 +472,12 @@ async def test_context_broker_merges_retrieval_override_without_skipping_thread_
     assert captured["called"] is True
     assert captured["widening_enabled"] is expected_widening_enabled
     assert trace["effective_policy"] == expected_policy
+    assert (
+        trace["retrieval_policy"]["allow_semantic_widening"]
+        is expected_widening_enabled
+    )
+    assert trace["retrieval_policy"]["source_mode"] == trace["source_mode"]
+    assert (
+        trace["retrieval_policy"]["widening_source_mode"]
+        == trace["source_mode"]
+    )

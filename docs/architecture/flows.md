@@ -32,12 +32,13 @@ Sequence:
 4. The route enqueues a `ChatCompletionTask` on `codexify:queue:chat`.
 5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
-7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
+7. `guardian/core/chat_completion_service.py` loads recent messages, resolves the retrieval policy before context assembly, assembles thread-first context, and carries the live retrieval posture for the turn.
 8. The provider call executes through `guardian/core/ai_router.py`.
    - If the provider returns plain assistant text, the existing completion path continues.
    - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
+   - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
    - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and the canonical retrieval posture records that workspace widening occurred.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
@@ -124,11 +125,12 @@ Trigger:
 Sequence:
 1. Load recent thread messages from chat storage.
 2. Use the latest user utterance as the semantic retrieval query.
-3. `ContextBroker.assemble()` gathers:
+3. `ContextBroker.assemble()` first resolves a retrieval policy, then gathers:
    - recent messages
    - verified active personal facts scoped to the resolved user
    - semantic vector matches unless depth is `shallow`
-   - linked project/thread documents
+   - thread-local semantic matches before any broader local widening
+   - linked project/thread documents under the same scope boundary
    - memory retrieval for `deep` and `diagnostic`
    - graph context when `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`
    - sensor diagnostics and optional federated context when requested
