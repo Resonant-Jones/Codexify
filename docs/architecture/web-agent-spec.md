@@ -39,6 +39,7 @@ The modes below are separate contracts. They may share a future implementation s
 - Intent shape: find, rank, and summarize remote sources relevant to a question.
 - Input examples: "What does the official docs say?", "Find current guidance on X", "Compare public references for Y".
 - Expected tool boundary: search provider or remote index query, then evidence selection.
+- Provider-adapter contract pointer: [Search-as-RAG Provider Adapter Contract](./web-search-provider-adapter-contract.md).
 - Statefulness: stateless across queries except for stored provenance and trace.
 - Provenance requirement: record query, provider, result URLs, snippets, fetched_at, and any evidence hash.
 - Failure modes: empty result set, stale index, blocked search provider, ambiguous query, low-confidence matches.
@@ -322,7 +323,7 @@ These diagnostics belong in diagnostics or operator surfaces, not in noisy chat 
 ## 12. Phased Implementation Sketch
 
 - Phase 0: architecture spec and ADR only
-- Phase 1: search-as-RAG provider adapter contract
+- Phase 1: search-as-RAG provider adapter contract only; no provider implementation implied
 - Phase 2: URL reader and extractor
 - Phase 3: Google service connector posture
 - Phase 4: live browser automation with explicit permissions
