@@ -511,6 +511,40 @@ services:
     restart: unless-stopped
     command: ["-m", "guardian.workers.chat_worker"]
 
+  worker-coding:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    working_dir: /app
+    entrypoint: ["python"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HOME: /home/codexify
+      PYTHONPATH: /app
+      REDIS_URL: redis://redis:6379/0
+      GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+      CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    command: ["-m", "guardian.workers.coding_worker"]
+
   worker-voice:
     build:
       context: .

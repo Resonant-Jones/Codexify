@@ -7,6 +7,7 @@ import type { ExtColors } from "@/types/ui";
 const { requestWorkspaceOpenMock, uploaderMocks } = vi.hoisted(() => ({
   requestWorkspaceOpenMock: vi.fn(() => true),
   uploaderMocks: {
+    configs: [] as Array<Record<string, unknown>>,
     onDrop: vi.fn(),
     onDragOver: vi.fn(),
     pick: vi.fn(),
@@ -18,11 +19,15 @@ vi.mock("@/features/workspace/state/useWorkspaceState", () => ({
 }));
 
 vi.mock("@/hooks/useUploader", () => ({
-  default: () => ({
-    onDrop: uploaderMocks.onDrop,
-    onDragOver: uploaderMocks.onDragOver,
-    pick: uploaderMocks.pick,
-  }),
+  default: (config: Record<string, unknown>) => {
+    uploaderMocks.configs.push(config);
+    return {
+      handleFiles: vi.fn(),
+      onDrop: uploaderMocks.onDrop,
+      onDragOver: uploaderMocks.onDragOver,
+      pick: uploaderMocks.pick,
+    };
+  },
 }));
 
 const EXT_COLORS: ExtColors = {
@@ -67,6 +72,7 @@ describe("DocumentsView interactions", () => {
       setViewportWidth(1280);
     });
     requestWorkspaceOpenMock.mockReset();
+    uploaderMocks.configs = [];
     uploaderMocks.onDrop.mockReset();
     uploaderMocks.onDragOver.mockReset();
     uploaderMocks.pick.mockReset();
@@ -129,6 +135,26 @@ describe("DocumentsView interactions", () => {
     expect(layout.style.minWidth).toBe("0");
     expect(layout.style.maxWidth).toBe("100%");
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+  });
+
+  it("forwards the selected project and thread into the uploader context", () => {
+    render(
+      <DocumentsView
+        documents={[]}
+        extColors={EXT_COLORS}
+        projectId={42}
+        threadId={101}
+      />
+    );
+
+    expect(uploaderMocks.configs).toHaveLength(1);
+    expect(uploaderMocks.configs[0]).toEqual(
+      expect.objectContaining({
+        tag: "upload",
+        projectId: 42,
+        threadId: 101,
+      })
+    );
   });
 
   it("opens the workspace on primary click", () => {

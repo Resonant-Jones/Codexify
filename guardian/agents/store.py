@@ -807,6 +807,132 @@ class AgentStore:
                 ]
         return []
 
+    def store_coding_result(
+        self,
+        *,
+        run_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+        thread_id: int | None,
+        source_message_id: str | None,
+        result_status: str,
+        result_summary: str,
+        artifacts: list[dict[str, Any]] | None = None,
+        errors: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Store coding result and inject into source thread.
+
+        Per ADR-020: results must return through Guardian before user-visible output.
+        """
+        files_changed = [
+            a.get("path", a.get("name", ""))
+            for a in (artifacts or [])
+            if isinstance(a, dict) and a.get("path")
+        ]
+
+        self.update_run_status(
+            run_id=run_id,
+            status="completed" if result_status == "ok" else "failed",
+            error=errors[0] if errors else None,
+        )
+
+        message_id = None
+        if thread_id is not None and self._has_db():
+            message_id = self._inject_coding_result_into_thread(
+                thread_id=thread_id,
+                run_id=run_id,
+                coding_task_id=coding_task_id,
+                source_message_id=source_message_id,
+                status=result_status,
+                summary=result_summary,
+                files_changed=files_changed,
+                artifacts=artifacts or [],
+                errors=errors or [],
+            )
+
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "status": result_status,
+            "message_id": message_id,
+            "files_changed": files_changed,
+            "artifacts_count": len(artifacts) if artifacts else 0,
+        }
+
+    def _inject_coding_result_into_thread(
+        self,
+        *,
+        thread_id: int,
+        run_id: str,
+        coding_task_id: str,
+        source_message_id: str | None,
+        status: str,
+        summary: str,
+        files_changed: list[str],
+        artifacts: list[dict[str, Any]],
+        errors: list[str],
+    ) -> int | None:
+        if not self._has_db():
+            return None
+
+        with self.db.get_session() as session:
+            existing = (
+                session.query(ChatMessage)
+                .filter(
+                    ChatMessage.thread_id == thread_id,
+                    ChatMessage.extra_meta["run_id"] == run_id,
+                    ChatMessage.kind == "coding_result",
+                )
+                .first()
+            )
+            if existing:
+                return existing.id
+
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if thread is None:
+                return None
+
+            extra_meta = {
+                "type": "coding_result",
+                "run_id": run_id,
+                "coding_task_id": coding_task_id,
+                "source_message_id": source_message_id,
+                "status": status,
+            }
+
+            content_parts = [f"## Coding Task Result\n\n"]
+            content_parts.append(f"**Status**: {status.upper()}\n\n")
+            content_parts.append(f"**Summary**: {summary}\n\n")
+
+            if files_changed:
+                content_parts.append("**Files Changed**:\n")
+                for f in files_changed:
+                    content_parts.append(f"- `{f}`\n")
+                content_parts.append("\n")
+
+            if artifacts:
+                content_parts.append("**Artifacts**:\n")
+                for a in artifacts:
+                    name = a.get("name", a.get("path", "unnamed"))
+                    content_parts.append(f"- {name}\n")
+                content_parts.append("\n")
+
+            if errors:
+                content_parts.append("**This task requires attention.**\n")
+                content_parts.append("Please review the errors above.\n")
+
+            message = ChatMessage(
+                thread_id=thread_id,
+                user_id=thread.user_id,
+                role="assistant",
+                content="".join(content_parts),
+                kind="coding_result",
+                extra_meta=extra_meta,
+            )
+            session.add(message)
+            session.commit()
+            return message.id
+
 
 store = AgentStore()
 
