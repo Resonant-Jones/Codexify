@@ -22,6 +22,7 @@ from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
 from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
 from guardian.core.provider_registry import PROVIDER_ORDER as _PROVIDER_ORDER
 from guardian.core.provider_registry import (
+    _apply_model_override,
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
@@ -383,12 +384,37 @@ def _fetch_local_models(
             entry["source"] = source
         entry["runtime"] = describe_local_runtime(name, settings=settings)
         entries.append(entry)
+    entries = _apply_local_model_overrides(entries)
     if endpoint_resolution.get("state") != "available" and names:
         logger.warning(
             "Local model discovery degraded; using configured/local fallback names. resolution=%s",
             endpoint_resolution,
         )
     return entries, endpoint_resolution, local_model_resolution
+
+
+def _apply_local_model_overrides(
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    try:
+        from guardian.core.model_overrides import get_model_override_map
+    except Exception:
+        return entries
+
+    override_map = get_model_override_map()
+    local_overrides = override_map.get("local", {})
+    if not local_overrides:
+        return entries
+
+    merged: list[dict[str, Any]] = []
+    for entry in entries:
+        model_id = normalize_model_id(entry.get("id"))
+        override = local_overrides.get(model_id or "")
+        if override:
+            merged.append(_apply_model_override(entry, override))
+        else:
+            merged.append(dict(entry))
+    return merged
 
 
 def _cloud_models(

@@ -35,6 +35,7 @@ from guardian.queue.turn_lock import (
     release_turn_lock,
     turn_lock_key,
 )
+from guardian.tts.tts_manager import TTSManager
 from guardian.voice.audio_assets import (
     compute_text_hash,
     find_cached_asset,
@@ -201,6 +202,33 @@ def _configured_provider(
     return value
 
 
+def _list_tts_voices(provider: str | None) -> list[str]:
+    active_provider = str(provider or "").strip().lower()
+    if not active_provider:
+        return []
+
+    try:
+        manager = TTSManager()
+        voices = manager.list_voices(active_provider)
+    except Exception:
+        logger.debug(
+            "[voice.capabilities] failed listing voices for provider=%s",
+            active_provider,
+            exc_info=True,
+        )
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for voice in voices or []:
+        value = str(voice or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
+
+
 def _load_message(message_id: int) -> ChatMessage | None:
     db = chatlog_db or load_guardian_db_from_env()
     if not db or not hasattr(db, "get_session"):
@@ -318,6 +346,14 @@ def voice_capabilities(
         local_voice_base_url=cfg.local_voice_base_url,
     )
     worker_present = _voice_worker_available()
+    voices = _list_tts_voices(cfg.tts_provider if tts_configured else None)
+    configured_voice_default = (os.getenv("CODEXIFY_DEFAULT_VOICE") or "").strip()
+    if configured_voice_default and (
+        not voices or configured_voice_default in voices
+    ):
+        voice_default = configured_voice_default
+    else:
+        voice_default = voices[0] if voices else "alloy"
 
     read_aloud_enabled = bool(routes_enabled and tts_configured)
     turn_based_enabled = bool(
@@ -360,9 +396,6 @@ def voice_capabilities(
         "voice_turns_enabled": turns_config_enabled,
         "stream_proxy_enabled": bool(STREAM_PROXY_ENABLED),
         "provider_default": cfg.tts_provider,
-        "voice_default": (
-            os.getenv("CODEXIFY_DEFAULT_VOICE") or "alloy"
-        ).strip(),
         "providers_supported": {
             "tts": list(SUPPORTED_TTS_PROVIDERS),
             "stt": list(SUPPORTED_STT_PROVIDERS),
@@ -371,6 +404,8 @@ def voice_capabilities(
             "tts": tts_configured,
             "stt": stt_configured,
         },
+        "voices": voices,
+        "voice_default": voice_default,
         "supported_input_mime": list(SUPPORTED_INPUT_MIME),
         "limits": {
             "max_upload_bytes": cfg.input_max_bytes,

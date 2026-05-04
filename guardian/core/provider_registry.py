@@ -877,6 +877,127 @@ def _normalize_model_descriptor(item: dict[str, Any]) -> dict[str, Any]:
     return descriptor
 
 
+def _clean_override_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    clean = value.strip()
+    return clean or None
+
+
+def _apply_model_override(
+    descriptor: dict[str, Any],
+    override: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(descriptor)
+    override_snapshot: dict[str, Any] = {
+        "provider_id": _clean_override_text(override.get("provider_id")),
+        "model_id": _clean_override_text(override.get("model_id")),
+        "display_label": _clean_override_text(override.get("display_label")),
+        "picker_label": _clean_override_text(override.get("picker_label")),
+        "supports_chat": (
+            override.get("supports_chat")
+            if isinstance(override.get("supports_chat"), bool)
+            else None
+        ),
+        "supports_vision": (
+            override.get("supports_vision")
+            if isinstance(override.get("supports_vision"), bool)
+            else None
+        ),
+        "supports_text_input": (
+            override.get("supports_text_input")
+            if isinstance(override.get("supports_text_input"), bool)
+            else None
+        ),
+        "model_kind": (
+            _clean_override_text(override.get("model_kind"))
+            if _clean_override_text(override.get("model_kind"))
+            in {"chat", "vision_chat", "utility"}
+            else None
+        ),
+        "notes": _clean_override_text(override.get("notes")),
+        "created_at": override.get("created_at"),
+        "updated_at": override.get("updated_at"),
+    }
+
+    display_label = override_snapshot["display_label"]
+    picker_label = override_snapshot["picker_label"]
+    if display_label:
+        merged["displayName"] = display_label
+        merged["display_label"] = display_label
+        merged["label"] = display_label
+    elif picker_label:
+        merged["displayName"] = picker_label
+        merged["display_label"] = picker_label
+        merged["label"] = picker_label
+
+    if picker_label:
+        merged["picker_label"] = picker_label
+
+    if override_snapshot["supports_chat"] is not None:
+        merged["supports_chat"] = bool(override_snapshot["supports_chat"])
+    if override_snapshot["supports_vision"] is not None:
+        merged["supports_vision"] = bool(override_snapshot["supports_vision"])
+    if override_snapshot["supports_text_input"] is not None:
+        merged["supports_text_input"] = bool(
+            override_snapshot["supports_text_input"]
+        )
+
+    model_kind = override_snapshot["model_kind"]
+    if model_kind:
+        merged["model_kind"] = model_kind
+    else:
+        derived_kind_source = {
+            key: value
+            for key, value in merged.items()
+            if key not in {"model_kind", "modelKind"}
+        }
+        merged["model_kind"] = _normalize_model_kind(
+            derived_kind_source,
+            supports_chat=bool(merged.get("supports_chat")),
+            supports_vision=bool(merged.get("supports_vision")),
+        )
+
+    capabilities = dict(merged.get("capabilities") or {})
+    capabilities["chat"] = bool(merged.get("supports_chat"))
+    capabilities["vision"] = bool(merged.get("supports_vision"))
+    capabilities["text_input"] = bool(merged.get("supports_text_input"))
+    merged["capabilities"] = capabilities
+    merged["override"] = {
+        key: value
+        for key, value in override_snapshot.items()
+        if value is not None
+    }
+    merged["manual_override"] = True
+    return merged
+
+
+def _apply_model_overrides(
+    provider_id: str,
+    models: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    try:
+        from guardian.core.model_overrides import get_model_override_map
+    except Exception:
+        return models
+
+    provider_key = normalize_provider(provider_id)
+    override_map = get_model_override_map()
+    provider_overrides = override_map.get(provider_key or "", {})
+    if not provider_overrides:
+        return models
+
+    merged_models: list[dict[str, Any]] = []
+    for item in models:
+        model_id = normalize_model_id(item.get("id"))
+        override = provider_overrides.get(model_id or "")
+        if override:
+            merged_models.append(_apply_model_override(item, override))
+        else:
+            merged_models.append(dict(item))
+    return merged_models
+
+
 def _fallback_chat_capable_models(
     provider_id: str, models: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -1348,12 +1469,13 @@ def resolve_provider_capability(
             "model_count": sum(
                 1 for model in models if bool(model.get("supports_chat"))
             ),
-            "utility_model_count": sum(
-                1 for model in models if not bool(model.get("supports_chat"))
-            ),
-            "total_model_count": len(models),
-        }
+                "utility_model_count": sum(
+                    1 for model in models if not bool(model.get("supports_chat"))
+                ),
+                "total_model_count": len(models),
+            }
 
+    models = _apply_model_overrides(provider, models)
     chat_model_count = sum(
         1 for model in models if bool(model.get("supports_chat"))
     )

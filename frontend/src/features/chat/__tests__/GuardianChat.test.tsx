@@ -431,6 +431,14 @@ describe("GuardianChat inference rail", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-05T00:00:00.000Z"));
     vi.clearAllMocks();
+    try {
+      window.localStorage.setItem("cfy.voice.playbackEnabled", "");
+      window.localStorage.setItem("cfy.voice.turnEnabled", "");
+      window.localStorage.setItem("cfy.voice.selectedVoice", "");
+      window.localStorage.setItem("cfy.voice.autoRead", "");
+    } catch {
+      // no-op
+    }
     composerState.slashIntent = null;
     chatState.messages = [];
     chatState.loading = false;
@@ -447,6 +455,9 @@ describe("GuardianChat inference rail", () => {
           data: {
             read_aloud_enabled: true,
             turn_based_enabled: true,
+            provider_default: "local_openai_compatible",
+            voice_default: "alloy",
+            voices: ["alloy", "ember"],
             supported_input_mime: ["audio/wav"],
             limits: {
               max_upload_bytes: 1024,
@@ -943,6 +954,54 @@ describe("GuardianChat inference rail", () => {
       apiMock.post.mock.calls.some(([url]) => url === "/tools/execute")
     ).toBe(false);
     promptSpy.mockRestore();
+  });
+
+  it("lets the user choose a voice and threads that selection through voice turns", async () => {
+    const { container } = renderChat("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice settings" }));
+    const voicePanel = await screen.findByTestId("voice-settings-popover");
+    await waitFor(() => {
+      expect(within(voicePanel).getByRole("option", { name: "ember" })).toBeInTheDocument();
+    });
+    const voiceSelect = within(voicePanel).getByLabelText("Voice");
+    fireEvent.change(voiceSelect, { target: { value: "ember" } });
+    expect((voiceSelect as HTMLSelectElement).value).toBe("ember");
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/voice/turn") {
+        expect(body).toBeInstanceOf(FormData);
+        expect((body as FormData).get("voice")).toBe("ember");
+        expect((body as FormData).get("tts_provider")).toBe(
+          "local_openai_compatible"
+        );
+        expect((body as FormData).get("tts_enabled")).toBe("true");
+        return { data: { ok: true } };
+      }
+      return { data: {} };
+    });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement | null;
+    expect(fileInput).toBeTruthy();
+
+    fireEvent.change(fileInput as HTMLInputElement, {
+      target: {
+        files: [new File(["voice"], "voice.wav", { type: "audio/wav" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/voice/turn",
+        expect.any(FormData),
+        expect.objectContaining({
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 180000,
+        })
+      );
+    });
   });
 
   it("collapses oversized user messages by default and keeps the chat scroll container intact", async () => {
