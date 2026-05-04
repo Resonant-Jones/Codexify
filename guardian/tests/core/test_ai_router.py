@@ -381,9 +381,55 @@ def test_stream_local_parses_ollama_chat_chunks(monkeypatch):
     assert "".join(tokens) == "Hello"
 
 
-def test_stream_local_keeps_multimodal_payload_and_prefers_compat_endpoint(
-    monkeypatch,
-):
+def test_call_local_routes_multimodal_payload_to_ollama_chat(monkeypatch):
+    calls = {}
+
+    def fake_post(url, json, headers, timeout):
+        calls["url"] = url
+        calls["json"] = json
+        calls["headers"] = headers
+        calls["timeout"] = timeout
+        return _FakeResponse({"message": {"content": "ok"}})
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router._encode_image_url_to_base64",
+        lambda url: "ZmFrZS1pbWFnZS1ieXRlcw==",
+    )
+
+    settings = _fake_settings("local")
+    settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
+
+    reply = chat_with_ai(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image."},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "https://example.test/scene.png"
+                        },
+                    },
+                ],
+            }
+        ],
+        provider="local",
+        model="medgemma:4b-it-q8_0",
+        settings=settings,
+    )
+
+    assert reply == "ok"
+    assert calls["url"].endswith("/api/chat")
+    assert isinstance(calls["json"]["messages"][-1]["content"], str)
+    assert calls["json"]["messages"][-1]["content"] == "Describe this image."
+    assert calls["json"]["messages"][-1]["images"] == [
+        "ZmFrZS1pbWFnZS1ieXRlcw=="
+    ]
+
+
+def test_stream_local_routes_multimodal_payload_to_ollama_chat(monkeypatch):
     calls = {}
 
     def fake_post(url, json, headers, stream, timeout):
@@ -401,6 +447,10 @@ def test_stream_local_keeps_multimodal_payload_and_prefers_compat_endpoint(
         )
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
+    monkeypatch.setattr(
+        "guardian.core.ai_router._encode_image_url_to_base64",
+        lambda url: "ZmFrZS1pbWFnZS1ieXRlcw==",
+    )
 
     settings = _fake_settings("local")
     settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
@@ -420,26 +470,18 @@ def test_stream_local_keeps_multimodal_payload_and_prefers_compat_endpoint(
                         },
                     ],
                 }
-            ],
-            "qwen3.5:4b",
+                ],
+            "medgemma:4b-it-q8_0",
             settings=settings,
         )
     )
 
     assert "".join(tokens) == "Vision"
-    assert calls["url"].endswith("/v1/chat/completions")
-    assert isinstance(calls["json"]["messages"][-1]["content"], list)
-    assert any(
-        block.get("type") == "image_url"
-        for block in calls["json"]["messages"][-1]["content"]
-        if isinstance(block, dict)
-    )
-    assert any(
-        block.get("type") == "text"
-        and "/no_think" in str(block.get("text") or "")
-        for block in calls["json"]["messages"][-1]["content"]
-        if isinstance(block, dict)
-    )
+    assert calls["url"].endswith("/api/chat")
+    assert calls["json"]["messages"][-1]["content"] == "Describe this image."
+    assert calls["json"]["messages"][-1]["images"] == [
+        "ZmFrZS1pbWFnZS1ieXRlcw=="
+    ]
 
 
 def test_call_local_injects_qwen_no_think_instruction(monkeypatch):
