@@ -128,6 +128,7 @@ async def test_context_broker_workspace_mode_stays_local_and_user_bounded(
         source_mode,
         search_fn,
         widening_enabled=True,
+        retrieval_policy=None,
     ):
         captured.update(
             {
@@ -415,6 +416,7 @@ async def test_context_broker_merges_retrieval_override_without_skipping_thread_
         source_mode,
         search_fn,
         widening_enabled=True,
+        retrieval_policy=None,
     ):
         captured.update(
             {

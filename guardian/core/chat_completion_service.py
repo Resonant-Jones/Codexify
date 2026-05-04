@@ -81,6 +81,7 @@ from guardian.protocol_tokens import (
     LoopStopReason,
     ToolLoopStopReason,
     ToolTurnState,
+    TraceSuppressionReason,
 )
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
@@ -1214,20 +1215,140 @@ def _semantic_context_item_text(item: Any) -> str:
     ).strip()
 
 
+def _build_retrieval_suppression_item(
+    item: dict[str, Any],
+    *,
+    suppression_reason: str,
+    policy_reason: str,
+    retrieval_lane: str,
+    thread_id: int | None,
+    project_id: int | None,
+    retrieval_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    metadata = item.get("metadata") if isinstance(item, dict) else None
+    if not isinstance(metadata, dict):
+        metadata = {}
+    score_value: float | None = None
+    try:
+        raw_score = item.get("score")
+        if raw_score is not None and not isinstance(raw_score, bool):
+            score_value = float(raw_score)
+    except (TypeError, ValueError):
+        score_value = None
+    item_thread_id = item.get("thread_id")
+    if item_thread_id in (None, ""):
+        item_thread_id = thread_id
+    item_project_id = item.get("project_id")
+    if item_project_id in (None, ""):
+        item_project_id = project_id
+    return {
+        "id": str(item.get("id") or metadata.get("id") or ""),
+        "source_type": str(
+            item.get("source_type")
+            or metadata.get("source_type")
+            or "retrieval"
+        ).strip()
+        or "retrieval",
+        "role": str(
+            item.get("role")
+            or metadata.get("role")
+            or metadata.get("author_role")
+            or metadata.get("speaker_role")
+            or "retrieval"
+        ).strip()
+        or "retrieval",
+        "thread_id": item_thread_id,
+        "project_id": item_project_id,
+        "retrieval_lane": str(item.get("retrieval_lane") or retrieval_lane),
+        "score": score_value,
+        "policy_reason": policy_reason,
+        "retrieval_policy": dict(retrieval_policy or {}),
+        "suppressed": True,
+        "suppression_reason": suppression_reason,
+    }
+
+
+def _merge_retrieval_suppression_summaries(
+    *summaries: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    merged_items: list[dict[str, Any]] = []
+    counts_by_reason: dict[str, int] = {}
+    for summary in summaries:
+        if not isinstance(summary, dict):
+            continue
+        items = summary.get("items")
+        if isinstance(items, list):
+            merged_items.extend(
+                [item for item in items if isinstance(item, dict)]
+            )
+        counts = summary.get("counts_by_reason")
+        if isinstance(counts, dict):
+            for reason, count in counts.items():
+                reason_text = str(reason or "").strip()
+                if not reason_text:
+                    continue
+                try:
+                    numeric_count = int(count)
+                except (TypeError, ValueError):
+                    continue
+                if numeric_count <= 0:
+                    continue
+                counts_by_reason[reason_text] = (
+                    counts_by_reason.get(reason_text, 0) + numeric_count
+                )
+    if not merged_items and not counts_by_reason:
+        return None
+    return {
+        "count": len(merged_items) if merged_items else sum(counts_by_reason.values()),
+        "items": merged_items,
+        "counts_by_reason": counts_by_reason,
+    }
+
+
 def _filter_image_refusal_semantic_context(
     semantic_items: Any,
     latest_user_meta: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     if not _image_attachments_from_meta(latest_user_meta):
-        return [item for item in semantic_items or [] if isinstance(item, dict)]
+        return [item for item in semantic_items or [] if isinstance(item, dict)], None
     filtered: list[dict[str, Any]] = []
+    suppressed_items: list[dict[str, Any]] = []
     for item in semantic_items or []:
         if not isinstance(item, dict):
             continue
         if _assistant_image_refusal_message(_semantic_context_item_text(item)):
+            suppressed_items.append(
+                _build_retrieval_suppression_item(
+                    item,
+                    suppression_reason=TraceSuppressionReason
+                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
+                    policy_reason=TraceSuppressionReason
+                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
+                    retrieval_lane=str(item.get("retrieval_lane") or "thread_semantic"),
+                    thread_id=item.get("thread_id"),
+                    project_id=item.get("project_id"),
+                    retrieval_policy=item.get("retrieval_policy")
+                    if isinstance(item.get("retrieval_policy"), dict)
+                    else None,
+                )
+            )
             continue
         filtered.append(item)
-    return filtered
+    suppression_summary = _merge_retrieval_suppression_summaries(
+        None
+        if not suppressed_items
+        else {
+            "count": len(suppressed_items),
+            "items": suppressed_items,
+            "counts_by_reason": {
+                TraceSuppressionReason
+                .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value: len(
+                    suppressed_items
+                )
+            },
+        }
+    )
+    return filtered, suppression_summary
 
 
 def _format_image_label(attachment: dict[str, Any]) -> str:
@@ -2530,10 +2651,6 @@ async def build_messages_for_llm(
         bundle["_attachment_meta"] = {
             "latest_user": latest_user_meta,
         }
-        bundle["semantic"] = _filter_image_refusal_semantic_context(
-            bundle.get("semantic"),
-            latest_user_meta,
-        )
         bundle["_completion_assembly"] = completion_assembly
 
     if trace is None:
@@ -2558,6 +2675,22 @@ async def build_messages_for_llm(
                 depth,
                 exc,
             )
+
+    if isinstance(bundle, dict):
+        semantic_items, image_suppression = _filter_image_refusal_semantic_context(
+            bundle.get("semantic"),
+            latest_user_meta,
+        )
+        bundle["semantic"] = semantic_items
+        merged_suppression = _merge_retrieval_suppression_summaries(
+            bundle.get("retrieval_suppression"),
+            image_suppression,
+        )
+        if merged_suppression is not None:
+            bundle["retrieval_suppression"] = merged_suppression
+            if isinstance(trace, dict):
+                trace = dict(trace)
+                trace["retrieval_suppression"] = merged_suppression
 
     if isinstance(trace_candidate, dict):
         _persist_thread_trace_candidate(task, trace)
@@ -2638,6 +2771,7 @@ def _execute_bounded_tool_turn_completion(
             "requested_source_mode",
             "effective_policy",
             "retrieval_provenance",
+            "retrieval_suppression",
         ):
             if key in base_payload_summary:
                 payload_summary[key] = base_payload_summary[key]
@@ -2918,6 +3052,10 @@ def run_chat_completion_task(
         bundle=bundle if isinstance(bundle, dict) else None,
     )
     payload_summary["retrieval_provenance"] = retrieval_provenance
+    if isinstance(trace, dict) and trace.get("retrieval_suppression") is not None:
+        payload_summary["retrieval_suppression"] = trace.get(
+            "retrieval_suppression"
+        )
     retrieval_posture = _build_retrieval_posture(
         source_mode=trace_source_mode,
         retrieval_override=routing_debug_metadata.get("retrieval_override"),
@@ -3012,6 +3150,7 @@ def run_chat_completion_task(
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
         "retrieval_provenance": retrieval_provenance,
+        "retrieval_suppression": payload_summary.get("retrieval_suppression"),
         "messageId": payload_summary.get("message_id"),
         "requestId": request_id,
         "toolTurnId": payload_summary.get("tool_turn_id"),

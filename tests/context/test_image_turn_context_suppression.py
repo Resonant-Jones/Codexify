@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from guardian.core import chat_completion_service
+from guardian.protocol_tokens import TraceSuppressionReason
 
 
 def test_image_turn_refusal_history_is_skipped_only_when_images_exist() -> None:
@@ -58,12 +59,17 @@ def test_image_turn_refusal_semantic_context_is_filtered() -> None:
         {"content": "plain text fallback", "label": "fallback"},
     ]
 
-    filtered = chat_completion_service._filter_image_refusal_semantic_context(
+    filtered, suppression = chat_completion_service._filter_image_refusal_semantic_context(
         semantic_items,
         latest_user_meta,
     )
 
     assert [item["label"] for item in filtered] == ["signal", "fallback"]
+    assert suppression is not None
+    assert suppression["count"] == 1
+    assert suppression["items"][0]["suppression_reason"] == (
+        TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
+    )
 
 
 def test_non_image_turn_context_is_left_alone() -> None:
@@ -72,9 +78,10 @@ def test_non_image_turn_context_is_left_alone() -> None:
         {"content": "This chart looks like a rising trend.", "label": "signal"},
     ]
 
-    filtered = chat_completion_service._filter_image_refusal_semantic_context(
+    filtered, suppression = chat_completion_service._filter_image_refusal_semantic_context(
         semantic_items,
         None,
     )
 
     assert [item["label"] for item in filtered] == ["refusal", "signal"]
+    assert suppression is None

@@ -3699,6 +3699,16 @@ def get_latest_rag_trace(
         trace["payload_summary"] = payload_summary
     if retrieval_provenance is not None:
         trace["retrieval_provenance"] = retrieval_provenance
+    if payload_summary is not None:
+        retrieval_suppression = payload_summary.get("retrieval_suppression")
+        if isinstance(retrieval_suppression, dict):
+            trace["retrieval_suppression"] = retrieval_suppression
+    if "retrieval_suppression" not in trace and isinstance(completed_payload, dict):
+        retrieval_suppression_value = completed_payload.get(
+            "retrieval_suppression"
+        )
+        if isinstance(retrieval_suppression_value, dict):
+            trace["retrieval_suppression"] = dict(retrieval_suppression_value)
 
     trace.setdefault("thread_id", thread_id)
     trace.setdefault("project_id", None)
