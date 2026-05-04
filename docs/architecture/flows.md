@@ -249,6 +249,10 @@ Sequence:
 7. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
 8. The bounded chat tool-turn slice also lands on this command-bus lane, but it remains one turn only and does not become a recursive agent loop.
 9. Cron jobs follow a separate path: scheduler finds due jobs, creates `cron_runs`, enqueues work, and `cron_worker` executes it.
+10. When a completion turn includes image attachments, the completion service first checks the selected model's vision capability:
+    - explicit vision support keeps the turn on the multimodal path and preserves image-turn context suppression
+    - explicit lack of vision support fails closed before provider execution with a machine-readable validation error
+    - unknown vision capability preserves the existing fallback behavior instead of inventing a new governance rule
 
 Outputs:
 - Command bus run record plus event stream

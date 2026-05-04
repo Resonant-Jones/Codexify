@@ -1553,19 +1553,40 @@ def model_supports_capability(
     capability_key: str,
     settings: Settings,
 ) -> bool:
+    return bool(
+        resolve_model_capability_state(
+            provider_id,
+            model_id,
+            capability_key,
+            settings,
+        )
+    )
+
+
+def resolve_model_capability_state(
+    provider_id: str,
+    model_id: str | None,
+    capability_key: str,
+    settings: Settings,
+) -> bool | None:
     provider = normalize_provider(provider_id)
     target = normalize_model_id(model_id)
     if not target:
-        return False
+        return None
     for item in get_provider_model_descriptors(provider, settings):
         if normalize_model_id(item.get("id")) != target:
             continue
         capabilities = item.get("capabilities")
         if not isinstance(capabilities, dict):
-            return False
+            return None
         value = capabilities.get(capability_key)
-        return bool(value) if isinstance(value, bool) else False
-    return False
+        if isinstance(value, bool):
+            return bool(value)
+        direct_value = item.get(f"supports_{capability_key}")
+        if isinstance(direct_value, bool):
+            return bool(direct_value)
+        return None
+    return None
 
 
 def resolve_provider_for_model(
