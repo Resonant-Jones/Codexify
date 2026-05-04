@@ -272,6 +272,13 @@ def test_image_routing_text_only_uses_local_blip_captioning(
     assert summary["image_attachment_count"] == 1
     assert summary["derived_image_context_injected"] is True
     assert "green hills and floating clouds" in result["assistant_text"]
+    assert summary["requested_model"] == "qwen3.5:9b"
+    assert summary["final_model"] == "qwen3.5:9b"
+    assert summary["model_selection"]["requested_model"] == "qwen3.5:9b"
+    assert summary["model_selection"]["final_model"] == "qwen3.5:9b"
+    assert summary["model_selection"]["model_resolution"]["requested_model"] == (
+        "qwen3.5:9b"
+    )
 
 
 def test_image_routing_fails_without_path(monkeypatch: pytest.MonkeyPatch):

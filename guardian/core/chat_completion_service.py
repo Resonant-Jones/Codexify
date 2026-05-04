@@ -55,6 +55,7 @@ from guardian.core.ai_router import (
     _image_turn_vision_unsupported_detail,
     chat_with_ai,
     normalize_completion_output,
+    resolve_local_execution_model,
     resolve_model_vision_capability_state,
     stream_local,
 )
@@ -1684,6 +1685,8 @@ def build_sanitized_payload_summary(
     *,
     provider: str | None,
     model: str | None,
+    requested_provider: str | None = None,
+    requested_model: str | None = None,
     requested_source_mode: str | None = None,
 ) -> dict[str, Any]:
     """Build a minimal, non-sensitive summary of the outbound provider payload.
@@ -1827,6 +1830,16 @@ def build_sanitized_payload_summary(
         ),
         "resolved_provider": (provider or "").strip() or None,
         "resolved_model": (model or "").strip() or None,
+        "requested_provider": (
+            str(requested_provider).strip() or None
+            if requested_provider is not None
+            else None
+        ),
+        "requested_model": (
+            str(requested_model).strip() or None
+            if requested_model is not None
+            else None
+        ),
         "source_mode": None,
         "effective_source_mode": None,
         "requested_source_mode": (
@@ -2036,6 +2049,101 @@ def _build_retrieval_provenance(
         "source_hit_counts": source_hit_counts,
         "retrieval_status": retrieval_status,
     }
+
+
+def _build_model_selection_metadata(
+    *,
+    requested_provider: str | None,
+    requested_model: str | None,
+    attempted_provider: str | None,
+    attempted_model: str | None,
+    resolved_provider: str | None,
+    resolved_model: str | None,
+    final_provider: str | None,
+    final_model: str | None,
+    selection_source: str | None,
+    fallback_reason: str | None,
+    model_resolution: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "requested_provider": (
+            str(requested_provider).strip() or None
+            if requested_provider is not None
+            else None
+        ),
+        "requested_model": (
+            str(requested_model).strip() or None
+            if requested_model is not None
+            else None
+        ),
+        "attempted_provider": (
+            str(attempted_provider).strip() or None
+            if attempted_provider is not None
+            else None
+        ),
+        "attempted_model": (
+            str(attempted_model).strip() or None
+            if attempted_model is not None
+            else None
+        ),
+        "resolved_provider": (
+            str(resolved_provider).strip() or None
+            if resolved_provider is not None
+            else None
+        ),
+        "resolved_model": (
+            str(resolved_model).strip() or None
+            if resolved_model is not None
+            else None
+        ),
+        "final_provider": (
+            str(final_provider).strip() or None
+            if final_provider is not None
+            else None
+        ),
+        "final_model": (
+            str(final_model).strip() or None
+            if final_model is not None
+            else None
+        ),
+        "selection_source": (
+            str(selection_source).strip() or None
+            if selection_source is not None
+            else None
+        ),
+        "fallback_reason": (
+            str(fallback_reason).strip() or None
+            if fallback_reason is not None
+            else None
+        ),
+    }
+    if isinstance(model_resolution, dict):
+        payload["model_resolution"] = dict(model_resolution)
+        source = str(model_resolution.get("source") or "").strip()
+        if source:
+            payload["policy_reason"] = source
+        failure_kind = str(model_resolution.get("failure_kind") or "").strip()
+        if failure_kind:
+            payload["model_resolution_failure_kind"] = failure_kind
+        message = str(model_resolution.get("message") or "").strip()
+        if message:
+            payload["model_resolution_message"] = message
+    if not payload.get("policy_reason"):
+        if fallback_reason:
+            payload["policy_reason"] = fallback_reason
+        elif (
+            payload.get("requested_model")
+            and payload.get("final_model")
+            and payload["requested_model"] != payload["final_model"]
+        ):
+            payload["policy_reason"] = "requested_model_not_selected"
+        elif (
+            payload.get("requested_provider")
+            and payload.get("final_provider")
+            and payload["requested_provider"] != payload["final_provider"]
+        ):
+            payload["policy_reason"] = "requested_provider_not_selected"
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def _build_retrieval_posture(
@@ -3006,6 +3114,14 @@ def run_chat_completion_task(
     requested_source_mode = (
         str(getattr(task, "requested_source_mode", "") or "").strip() or None
     )
+    requested_provider = (
+        normalize_provider(getattr(task, "requested_provider", None))
+        or normalize_provider(getattr(task, "provider", None))
+    )
+    requested_model = (
+        normalize_model_id(getattr(task, "requested_model", None))
+        or normalize_model_id(getattr(task, "model", None))
+    )
     messages_for_llm, routing_meta = _apply_image_attachment_routing(
         messages_for_llm,
         bundle=bundle,
@@ -3020,6 +3136,8 @@ def run_chat_completion_task(
         bundle,
         provider=provider,
         model=model,
+        requested_provider=requested_provider,
+        requested_model=requested_model,
         requested_source_mode=requested_source_mode,
     )
     payload_summary.update(
@@ -3046,6 +3164,54 @@ def run_chat_completion_task(
     payload_summary["effective_policy"] = effective_policy
     if isinstance(trace, dict) and trace.get("retrieval_policy") is not None:
         payload_summary["retrieval_policy"] = trace.get("retrieval_policy")
+    model_resolution = None
+    if provider == "local":
+        try:
+            local_model_resolution = resolve_local_execution_model(
+                settings=settings,
+                requested_model=requested_model or model,
+            )
+            model_resolution = local_model_resolution.as_dict()
+        except Exception:
+            model_resolution = None
+    selection_source = (
+        str(getattr(task, "selection_source", "") or "").strip() or None
+    )
+    if isinstance(model_resolution, dict):
+        resolution_source = str(model_resolution.get("source") or "").strip()
+        if resolution_source:
+            selection_source = resolution_source
+    if not selection_source:
+        selection_source = (
+            "explicit" if (requested_provider or requested_model) else "default"
+        )
+    attempted_provider = requested_provider or provider
+    attempted_model = requested_model or model
+    resolved_provider = provider
+    resolved_model = model
+    final_provider = provider
+    final_model = (
+        str(model_resolution.get("model") or "").strip()
+        if isinstance(model_resolution, dict)
+        else ""
+    ) or model
+    fallback_reason = None
+    if isinstance(model_resolution, dict):
+        fallback_reason = (
+            str(model_resolution.get("message") or "").strip() or None
+        )
+    payload_summary["requested_provider"] = requested_provider
+    payload_summary["requested_model"] = requested_model
+    payload_summary["attempted_provider"] = attempted_provider
+    payload_summary["attempted_model"] = attempted_model
+    payload_summary["resolved_provider"] = resolved_provider
+    payload_summary["resolved_model"] = resolved_model
+    payload_summary["final_provider"] = final_provider
+    payload_summary["final_model"] = final_model
+    payload_summary["selection_source"] = selection_source
+    payload_summary["fallback_reason"] = fallback_reason
+    if isinstance(model_resolution, dict):
+        payload_summary["model_resolution"] = model_resolution
     retrieval_provenance = _build_retrieval_provenance(
         requested_source_mode=requested_source_mode,
         normalized_source_mode=trace_source_mode,
@@ -3068,6 +3234,25 @@ def run_chat_completion_task(
         if isinstance(trace, dict):
             trace = dict(trace)
             trace["retrieval_posture"] = retrieval_posture
+    model_selection = _build_model_selection_metadata(
+        requested_provider=requested_provider,
+        requested_model=requested_model,
+        attempted_provider=attempted_provider,
+        attempted_model=attempted_model,
+        resolved_provider=resolved_provider,
+        resolved_model=resolved_model,
+        final_provider=final_provider,
+        final_model=final_model,
+        selection_source=selection_source,
+        fallback_reason=fallback_reason,
+        model_resolution=model_resolution,
+    )
+    payload_summary["model_selection"] = model_selection
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace["model_selection"] = model_selection
+        trace.setdefault("requested_provider", requested_provider)
+        trace.setdefault("requested_model", requested_model)
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {
@@ -3093,6 +3278,19 @@ def run_chat_completion_task(
     )
     assistant_text = str(result.get("assistant_text") or "")
     payload_summary = dict(result.get("payload_summary") or payload_summary)
+    payload_summary["requested_provider"] = requested_provider
+    payload_summary["requested_model"] = requested_model
+    payload_summary["attempted_provider"] = attempted_provider
+    payload_summary["attempted_model"] = attempted_model
+    payload_summary["resolved_provider"] = resolved_provider
+    payload_summary["resolved_model"] = resolved_model
+    payload_summary["final_provider"] = final_provider
+    payload_summary["final_model"] = final_model
+    payload_summary["selection_source"] = selection_source
+    payload_summary["fallback_reason"] = fallback_reason
+    if isinstance(model_resolution, dict):
+        payload_summary["model_resolution"] = model_resolution
+    payload_summary["model_selection"] = model_selection
     request_id = str(result.get("requestId") or _completion_request_id(task))
 
     candidate_trace = _build_candidate_trace(
@@ -3145,12 +3343,23 @@ def run_chat_completion_task(
         "assistant_text": assistant_text,
         "provider": provider,
         "model": model,
+        "requested_provider": requested_provider,
+        "requested_model": requested_model,
+        "attempted_provider": attempted_provider,
+        "attempted_model": attempted_model,
+        "resolved_provider": resolved_provider,
+        "resolved_model": resolved_model,
+        "final_provider": final_provider,
+        "final_model": final_model,
+        "selection_source": selection_source,
+        "fallback_reason": fallback_reason,
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
         "retrieval_provenance": retrieval_provenance,
         "retrieval_suppression": payload_summary.get("retrieval_suppression"),
+        "model_selection": model_selection,
         "messageId": payload_summary.get("message_id"),
         "requestId": request_id,
         "toolTurnId": payload_summary.get("tool_turn_id"),

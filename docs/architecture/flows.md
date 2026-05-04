@@ -44,6 +44,7 @@ Sequence:
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
 11. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
 12. The worker publishes terminal task events and releases the turn lock in `finally`.
+13. The live debug RAG trace endpoint promotes completion metadata from the latest task event payload when available, and can fall back to the latest eval snapshot to expose retrieval policy, provenance, suppression summaries, image-routing decisions, and model-selection truth for operator diagnosis.
 
 Outputs:
 - Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
@@ -138,6 +139,7 @@ Sequence:
    - selected-item provenance plus suppression summaries so operator traces can show what was included, what was filtered, and why
 4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block, including a bounded verified-personal-facts section when eligible facts exist.
 5. The final LLM input is the system/context block plus conversation messages.
+6. The live RAG trace/debug payload preserves the retrieval policy and, when surfaced by the completion path, the completion model-selection and image-routing metadata needed to explain why a turn was included, suppressed, widened, or captioned.
 
 Outputs:
 - Provider-ready message array

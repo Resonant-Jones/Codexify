@@ -209,6 +209,105 @@ def test_rag_trace_exposes_retrieval_suppression(monkeypatch):
     chat._rag_traces.pop(782, None)
 
 
+def test_rag_trace_exposes_completion_metadata(monkeypatch):
+    chat._thread_latest_task[783] = "task-783"
+
+    payload_summary = {
+        "payload_char_count": 10,
+        "message_count": 2,
+        "image_routing_path": "vlm",
+        "image_attachment_count": 1,
+        "derived_image_context_injected": False,
+        "requested_provider": "local",
+        "requested_model": "medgemma:4b-it-q8_0",
+        "attempted_provider": "local",
+        "attempted_model": "medgemma:4b-it-q8_0",
+        "resolved_provider": "local",
+        "resolved_model": "library2/ministral-3:8b",
+        "final_provider": "local",
+        "final_model": "library2/ministral-3:8b",
+        "selection_source": "LOCAL_LLM_MODEL",
+        "fallback_reason": None,
+        "model_resolution": {
+            "requested_model": "medgemma:4b-it-q8_0",
+            "model": "library2/ministral-3:8b",
+            "source": "LOCAL_LLM_MODEL",
+            "strict": False,
+        },
+        "model_selection": {
+            "requested_provider": "local",
+            "requested_model": "medgemma:4b-it-q8_0",
+            "attempted_provider": "local",
+            "attempted_model": "medgemma:4b-it-q8_0",
+            "resolved_provider": "local",
+            "resolved_model": "library2/ministral-3:8b",
+            "final_provider": "local",
+            "final_model": "library2/ministral-3:8b",
+            "selection_source": "LOCAL_LLM_MODEL",
+            "policy_reason": "LOCAL_LLM_MODEL",
+            "model_resolution": {
+                "requested_model": "medgemma:4b-it-q8_0",
+                "model": "library2/ministral-3:8b",
+                "source": "LOCAL_LLM_MODEL",
+                "strict": False,
+            },
+        },
+        "retrieval_provenance": {
+            "requested_source_mode": "project",
+            "normalized_source_mode": "project",
+            "source_hit_counts": {
+                "semantic_total": 1,
+                "thread_semantic": 1,
+                "obsidian_semantic": 0,
+                "other_semantic": 0,
+                "project_documents": 0,
+                "thread_documents": 0,
+                "global_documents": 0,
+                "other_documents": 0,
+                "memory": 0,
+                "graph": 0,
+            },
+            "retrieval_status": "workspace_local_success",
+        },
+        "retrieval_suppression": {
+            "count": 1,
+            "counts_by_reason": {
+                "assistant_vision_refusal_on_image_turn": 1,
+            },
+        },
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "retrieval_policy": {"source_mode": "project"},
+            },
+            "payload_summary": payload_summary,
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(783, api_key="test-key")
+    assert trace["image_routing_path"] == "vlm"
+    assert trace["retrieval_policy"] == {"source_mode": "project"}
+    assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
+    assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
+    assert trace["completion"]["selection_source"] == "LOCAL_LLM_MODEL"
+    assert trace["completion"]["model_resolution"]["source"] == (
+        "LOCAL_LLM_MODEL"
+    )
+    assert trace["model_selection"]["policy_reason"] == "LOCAL_LLM_MODEL"
+    assert trace["retrieval_suppression"]["counts_by_reason"][
+        "assistant_vision_refusal_on_image_turn"
+    ] == 1
+
+    chat._thread_latest_task.pop(783, None)
+    chat._rag_traces.pop(783, None)
+
+
 def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
     chat._thread_latest_task[78] = "task-78"
 
