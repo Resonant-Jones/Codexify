@@ -142,6 +142,150 @@ describe("gallery auth", () => {
     expect(init?.credentials).toBe("include");
   });
 
+  it("reuses an existing project thread for gallery image uploads", async () => {
+    vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
+    setAuthToken(null);
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit): Promise<{
+        ok: boolean;
+        status: number;
+        json: () => Promise<unknown>;
+      }> => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url === "/api/chat/threads" && init?.method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              threads: [
+                {
+                  id: 44,
+                  project_id: 7,
+                  title: "General uploads",
+                },
+              ],
+            }),
+          };
+        }
+        if (url === "/api/media/upload/image") {
+          const form = init?.body as FormData | undefined;
+          expect(form?.get("thread_id")).toBe("44");
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              id: "img-2",
+              src_url: "/media/images/img-2.png",
+              filename: "img-2.png",
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onImages = vi.fn();
+    const { result } = renderHook(() =>
+      useUploader({
+        onImages,
+        onDocuments: vi.fn(),
+        tag: "gallery",
+        projectId: 7,
+        explicitAuth: true,
+      })
+    );
+
+    const file = new File(["fake"], "image.png", { type: "image/png" });
+    await act(async () => {
+      await result.current.handleFiles([file]);
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === "/api/chat/threads")
+    ).toBe(true);
+    expect(onImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates a project-scoped upload thread when no project thread exists", async () => {
+    vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
+    setAuthToken(null);
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit): Promise<{
+        ok: boolean;
+        status: number;
+        json: () => Promise<unknown>;
+      }> => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url === "/api/chat/threads" && init?.method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ threads: [] }),
+          };
+        }
+        if (url === "/api/chat/threads" && init?.method === "POST") {
+          expect(JSON.parse(String(init?.body)) as Record<string, unknown>).toMatchObject(
+            {
+              title: "Gallery uploads",
+              project_id: 7,
+            }
+          );
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ok: true,
+              thread_id: 55,
+              thread: { id: 55, title: "Gallery uploads" },
+            }),
+          };
+        }
+        if (url === "/api/media/upload/image") {
+          const form = init?.body as FormData | undefined;
+          expect(form?.get("thread_id")).toBe("55");
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              id: "img-3",
+              src_url: "/media/images/img-3.png",
+              filename: "img-3.png",
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() =>
+      useUploader({
+        onImages: vi.fn(),
+        onDocuments: vi.fn(),
+        tag: "gallery",
+        projectId: 7,
+        explicitAuth: true,
+      })
+    );
+
+    const file = new File(["fake"], "image.png", { type: "image/png" });
+    await act(async () => {
+      await result.current.handleFiles([file]);
+    });
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url === "/api/chat/threads" && init?.method === "POST"
+      )
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === "/api/media/upload/image")
+    ).toBe(true);
+  });
+
   it("sends no auth header when no token and no dev key are present", async () => {
     setAuthToken(null);
 

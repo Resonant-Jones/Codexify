@@ -84,6 +84,8 @@ function resolveDevApiKey(): string {
   if (!isDevRuntime()) return "";
   const explicitDevKey = readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
   if (explicitDevKey) return explicitDevKey;
+  const useProxy = readRuntimeEnv("VITE_USE_PROXY", "true").trim().toLowerCase() === "true";
+  if (useProxy) return "";
   // Backward-compat: existing local setups may still use VITE_GUARDIAN_API_KEY.
   return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
 }
@@ -280,6 +282,17 @@ export function buildThreadDocumentsPath(threadId: string | number): string {
 
 export function buildLlmCatalogPath(): string {
   return "/llm/catalog";
+}
+
+export function buildLlmModelOverridesPath(): string {
+  return "/api/llm/model-overrides";
+}
+
+export function buildLlmModelOverridePath(
+  providerId: string | number,
+  modelId: string | number
+): string {
+  return `${buildLlmModelOverridesPath()}/${normalizePathSegment(providerId)}/${normalizePathSegment(modelId)}`;
 }
 
 export function buildChatThreadsPath(): string {

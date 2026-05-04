@@ -131,4 +131,41 @@ describe("useUploader auth headers", () => {
     );
     expect(mediaCall).toBeDefined();
   });
+
+  it("mounts a file input in the DOM before opening the picker", () => {
+    const appendSpy = vi.spyOn(document.body, "appendChild");
+    const clickSpy = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    const { result } = renderHook(() =>
+      useUploader({
+        onImages: vi.fn(),
+        onDocuments: vi.fn(),
+        projectId: 7,
+        threadId: 11,
+      })
+    );
+
+    act(() => {
+      result.current.pick();
+    });
+
+    expect(
+      appendSpy.mock.calls.some(([node]) => node instanceof HTMLInputElement)
+    ).toBe(true);
+    const appended = appendSpy.mock.calls.find(
+      ([node]) => node instanceof HTMLInputElement
+    )?.[0] as HTMLInputElement | undefined;
+    expect(appended).toBeInstanceOf(HTMLInputElement);
+    expect(appended?.type).toBe("file");
+    expect(appended?.multiple).toBe(true);
+    expect(appended?.accept).toContain(".png");
+    expect(appended?.accept).toContain(".pdf");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    appended?.remove();
+    appendSpy.mockRestore();
+    clickSpy.mockRestore();
+  });
 });

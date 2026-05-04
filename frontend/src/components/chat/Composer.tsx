@@ -48,18 +48,6 @@ function readCssVar(name: string, fallback: string) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return v || fallback;
 }
-
-
-function inferProjectIdFromLocation(fallback = 1): number {
-  if (typeof window === "undefined") return fallback;
-  const path = window.location.pathname || "";
-  // Common shapes: /projects/:id, /project/:id, /p/:id
-  const m = path.match(/\/(?:projects?|p)\/(\d+)/i);
-  if (!m) return fallback;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 function toAbsoluteMediaUrl(srcUrl: string) {
   if (!srcUrl) return srcUrl;
   if (srcUrl.startsWith("http://") || srcUrl.startsWith("https://")) return srcUrl;
@@ -301,21 +289,17 @@ export function Composer({
     if (!file) return null;
 
     // Prefer explicit threadId prop when present; projectId is inferred from the URL as a best-effort fallback.
-    const projectId = inferProjectIdFromLocation(1);
     const tid = typeof threadId === "number" ? threadId : undefined;
 
     const isImage = att.kind === "image";
     const endpoint = isImage ? "/api/media/upload/image" : "/api/media/upload/file";
 
     const form = new FormData();
-    form.append("project_id", String(projectId));
     if (tid !== undefined) form.append("thread_id", String(tid));
     form.append("file", file);
 
     try {
-      const res = await api.post(endpoint, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const res = await api.post(endpoint, form);
 
       const data = (res as any)?.data ?? res;
       const src_url = data?.src_url;
@@ -516,7 +500,7 @@ export function Composer({
           multiple
           style={{ display: "none" }}
           onChange={(e) => {
-            const files = e.target.files;
+            const files = Array.from(e.currentTarget.files ?? []);
             e.currentTarget.value = "";
             if (files && files.length) stageFiles(files);
           }}
@@ -529,7 +513,7 @@ export function Composer({
           multiple
           style={{ display: "none" }}
           onChange={(e) => {
-            const files = e.target.files;
+            const files = Array.from(e.currentTarget.files ?? []);
             e.currentTarget.value = "";
             if (files && files.length) stageFiles(files);
           }}

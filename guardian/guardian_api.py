@@ -507,6 +507,7 @@ from guardian.routes import (
     embeddings,
     federation,
     health,
+    llm_overrides,
     memory,
     migration,
 )
@@ -958,6 +959,12 @@ _include_router(
     label="health",
     flag_name="CODEXIFY_ENABLE_HEALTH_ROUTES",
     include_fn=lambda: app.include_router(health.router),
+    core_surface=True,
+)
+_include_router(
+    label="llm_overrides",
+    flag_name="CODEXIFY_ENABLE_CHAT_ROUTES",
+    include_fn=lambda: app.include_router(llm_overrides.router),
     core_surface=True,
 )
 _include_router(

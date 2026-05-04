@@ -257,6 +257,51 @@ describe("ChatView loop guards", () => {
     await waitFor(() => expect(audioPlayMock).toHaveBeenCalled());
   });
 
+  it("threads the selected voice through lazy speak requests", async () => {
+    apiPostMock.mockResolvedValueOnce({
+      data: {
+        audio_asset: {
+          stream_url: "/api/voice/audio/99",
+        },
+        cached: false,
+      },
+    });
+
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[
+          buildMessage(3, "assistant", {
+            audio_status: "unavailable",
+          }),
+        ]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+        voiceReadAloudEnabled
+        voiceProvider="local_openai_compatible"
+        voiceSelectedVoice="ember"
+        voiceDefaultVoice="alloy"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate audio" }));
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith(
+        "/voice/messages/3/speak",
+        {
+          force_regenerate: false,
+          provider: "local_openai_compatible",
+          voice: "ember",
+        }
+      )
+    );
+  });
+
   it("renders a visible loading state before any messages arrive", () => {
     render(
       <ChatView
