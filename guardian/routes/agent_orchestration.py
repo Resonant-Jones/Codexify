@@ -42,7 +42,7 @@ chat_router = APIRouter(
 _store: AgentStore = store
 _event_publisher: AgentEventPublisher = publisher
 
-ALLOWED_RUNTIME_TARGETS = {"container", "terminal", "pi_codex_runner"}
+ALLOWED_RUNTIME_TARGETS = {"container", "terminal"}
 
 
 def configure_db(db: Any | None) -> None:
@@ -197,10 +197,12 @@ async def execute_coding_task(
     )
 
     # Create run for tracking
+    # The DB only tracks the execution surface here; the Pi adapter remains
+    # the implementation detail behind the worker.
     run = _store.create_run(
         deployment_id=deployment["deployment_id"],
         thread_id=deployment.get("thread_id"),
-        runtime_target="pi_codex_runner",
+        runtime_target="terminal",
         rollback_mode="auto",
         status="queued",
     )
