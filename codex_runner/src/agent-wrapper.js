@@ -13,9 +13,6 @@
  *   node agent-wrapper.js task "<prompt>" [options]
  */
 
-import { createAgentSession, SessionManager, AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
-import { getModel } from "@mariozechner/pi-ai";
-
 // Parse command line args
 const args = process.argv.slice(2);
 const mode = args[0] || "help";
@@ -42,7 +39,7 @@ const MODEL_ALIASES = {
 	"haiku-4": "claude-haiku-4",
 };
 
-function resolveModel(modelId) {
+function resolveModel(modelId, getModel) {
 	// Check alias first
 	if (MODEL_ALIASES[modelId.toLowerCase()]) {
 		return MODEL_ALIASES[modelId.toLowerCase()];
@@ -61,18 +58,64 @@ function resolveModel(modelId) {
 	return modelId; // Return as-is, let SDK handle error
 }
 
-const resolvedModelId = resolveModel(OPTIONS.model);
-
 // Session state
 let session = null;
 
+function isModuleResolutionError(error) {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("Cannot find package") || message.includes("Cannot find module");
+}
+
+async function loadPiSdk() {
+	const codingAgent = await import(new URL("../vendor/pi-coding-agent/dist/index.js", import.meta.url).href);
+	const piAi = await import(
+		new URL("../vendor/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/index.js", import.meta.url).href
+	);
+	return {
+		createAgentSession: codingAgent.createAgentSession,
+		SessionManager: codingAgent.SessionManager,
+		AuthStorage: codingAgent.AuthStorage,
+		ModelRegistry: codingAgent.ModelRegistry,
+		createCodingTools: codingAgent.createCodingTools,
+		getModel: piAi.getModel,
+	};
+}
+
 async function runAgent() {
+	let createAgentSession;
+	let SessionManager;
+	let AuthStorage;
+	let ModelRegistry;
+	let createCodingTools;
+	let getModel;
+
+	try {
+		({
+			createAgentSession,
+			SessionManager,
+			AuthStorage,
+			ModelRegistry,
+			createCodingTools,
+			getModel,
+		} = await loadPiSdk());
+	} catch (error) {
+		if (isModuleResolutionError(error)) {
+			console.error("Pi SDK dependencies are not available in this Node environment.");
+			console.error("The repo expects a vendored copy under codex_runner/vendor/pi-coding-agent.");
+			console.error("If that tree is missing or incomplete, restore the checkout or refresh the vendored package.");
+			console.error("Shared Pi auth still reuses ~/.pi/agent/auth.json once the SDK is present.");
+			process.exit(1);
+		}
+		throw error;
+	}
+
+	const resolvedModelId = resolveModel(OPTIONS.model, getModel);
+
 	// Set up auth and model registry
 	const authStorage = AuthStorage.create();
 	const modelRegistry = ModelRegistry.create(authStorage);
 
 	// Create default coding tools
-	const { createCodingTools } = await import("@mariozechner/pi-coding-agent");
 	const tools = createCodingTools(OPTIONS.cwd);
 
 	// Get model
@@ -96,20 +139,24 @@ async function runAgent() {
 		const hasModel = available.some(m => m.id === model.id);
 		if (!hasModel) {
 			console.error(`\nNo API key configured for ${OPTIONS.provider}.`);
-			console.error("\nTo authenticate, run:");
+			console.error("\nThis wrapper reads the shared Pi auth store at ~/.pi/agent/auth.json.");
+			console.error("If you already logged into Pi for this user, make sure Codexify sees the same HOME directory.");
+			console.error("\nOtherwise, authenticate with Pi or set the provider API key directly:");
 			console.error("  pi /login");
-			console.error("\nOr set API key directly:");
-			console.error("  export ANTHROPIC_API_KEY=sk-ant-...");
+			console.error("\nShared auth is reused automatically; Codexify does not require a separate Pi sign-in.");
+			console.error("\nOr set the matching provider API key in your shell.");
 			console.error("\nSee: ~/.pi/agent/auth.json for stored credentials");
 			process.exit(1);
 		}
 	} catch (err) {
 		if (err.message?.includes("No API key")) {
 			console.error(`\nNo API key configured for ${OPTIONS.provider}.`);
-			console.error("\nTo authenticate, run:");
+			console.error("\nThis wrapper reads the shared Pi auth store at ~/.pi/agent/auth.json.");
+			console.error("If you already logged into Pi for this user, make sure Codexify sees the same HOME directory.");
+			console.error("\nOtherwise, authenticate with Pi or set the provider API key directly:");
 			console.error("  pi /login");
-			console.error("\nOr set API key directly:");
-			console.error("  export ANTHROPIC_API_KEY=sk-ant-...");
+			console.error("\nShared auth is reused automatically; Codexify does not require a separate Pi sign-in.");
+			console.error("\nOr set the matching provider API key in your shell.");
 			console.error("\nSee: ~/.pi/agent/auth.json for stored credentials");
 			process.exit(1);
 		}
