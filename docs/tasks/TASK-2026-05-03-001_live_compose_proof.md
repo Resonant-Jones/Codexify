@@ -134,14 +134,18 @@ WHERE run_id = '$RUN_ID';
 "
 ```
 
-**Pass criteria:** `status` is `succeeded` or `failed` (not `queued` or `running`).
+**Pass criteria:** `status` is `completed` or `failed` (not `queued` or `running`).
+
+> **Note:** The coding worker sets run status to `completed` (not `succeeded`) per `guardian/workers/coding_worker.py` line 107. This differs from generic agent runs which normalize to `succeeded`.
 
 #### 6. Task Events Show Lifecycle Evidence
 
-**Expected event sequence:**
-1. `created` (from route)
-2. `task.running` (from worker)
-3. `task.completed` or `task.failed` (from worker)
+**Observed event sequence** (per runtime inspection):
+1. `created` — emitted by route in `guardian/routes/agent_orchestration.py:140`
+2. `task.running` — emitted by worker in `guardian/workers/coding_worker.py:113`
+3. `task.completed` or `task.failed` — emitted by worker in `guardian/workers/coding_worker.py:139`
+
+> **Canonical alignment note:** Event names are contract-bearing runtime literals. The route emits plain `created` rather than `task.created`. This may need future canonical-token alignment with `guardian/protocol_tokens.py`.
 
 ```bash
 # Stream and capture all events
@@ -152,7 +156,7 @@ sleep 15
 kill %1 2>/dev/null
 ```
 
-**Pass criteria:** All three event types observed.
+**Pass criteria:** All three event types observed (`created`, `task.running`, `task.completed`/`task.failed`).
 
 #### 7. Exactly One coding_result Message in Source Thread
 
@@ -170,26 +174,73 @@ ORDER BY created_at;
 
 #### 8. Idempotency Prevents Duplicate
 
+This step actually exercises the idempotency guard in `store_coding_result()` rather than passively comparing counts.
+
 ```bash
-# Record current count
-BEFORE="$(docker compose exec db psql -U codexify -d Codexify -t -c "
-  SELECT COUNT(*) FROM chat_messages 
-  WHERE thread_id = <THREAD_ID> AND kind = 'coding_result';
-")"
+# Verify idempotency by calling store_coding_result twice with same identity fields
+docker compose exec backend python <<'PY'
+import os
+from guardian.agents.store import AgentStore
+from guardian.core.db import load_guardian_db_from_env
 
-# Trigger same run_id again (simulate retry)
-# Note: This tests the guard in _inject_coding_result_into_thread
-# In practice, retries use new attempt_id but same run_id
+# Configure store with actual DB
+db = load_guardian_db_from_env()
+store = AgentStore()
+store.configure_db(db)
 
-AFTER="$(docker compose exec db psql -U codexify -d Codexify -t -c "
-  SELECT COUNT(*) FROM chat_messages 
-  WHERE thread_id = <THREAD_ID> AND kind = 'coding_result';
-")"
+# Use the RUN_ID from step 3 and THREAD_ID from precondition
+run_id = os.environ.get('TEST_RUN_ID', 'run_test_idem_001')
+thread_id = int(os.environ.get('TEST_THREAD_ID', '1'))
 
-echo "Before: $BEFORE, After: $AFTER"
+# First call - should create message
+result1 = store.store_coding_result(
+    run_id=run_id,
+    coding_task_id='idem-test',
+    attempt_id='attempt-idem',
+    thread_id=thread_id,
+    source_message_id='msg-idempotency-check',
+    result_status='ok',
+    result_summary='First injection',
+    artifacts=[],
+    errors=[],
+)
+print(f"First call: message_id={result1.get('message_id')}")
+
+# Second call with same run_id, thread_id - should skip (idempotency guard)
+result2 = store.store_coding_result(
+    run_id=run_id,
+    coding_task_id='idem-test',
+    attempt_id='attempt-idem',
+    thread_id=thread_id,
+    source_message_id='msg-idempotency-check',
+    result_status='ok',
+    result_summary='Duplicate injection attempt',
+    artifacts=[],
+    errors=[],
+)
+print(f"Second call: message_id={result2.get('message_id')}")
+
+# Verify count in DB
+from guardian.db.models import ChatMessage
+with store.db.get_session() as session:
+    count = session.query(ChatMessage).filter(
+        ChatMessage.thread_id == thread_id,
+        ChatMessage.kind == 'coding_result',
+        ChatMessage.extra_meta['run_id'] == run_id,
+    ).count()
+    print(f"DB count for run_id={run_id}: {count}")
+    assert count == 1, f"Expected 1, got {count} - idempotency guard not working"
+    print("PASS: Idempotency guard verified")
+PY
+
+# Set the variables first
+export TEST_RUN_ID="$RUN_ID"
+export TEST_THREAD_ID="<THREAD_ID>"
 ```
 
-**Pass criteria:** Count unchanged (no duplicate created).
+**Pass criteria:** 
+- Count for `thread_id = <THREAD_ID>`, `kind = 'coding_result'`, and `extra_meta.run_id = $RUN_ID` remains exactly `1` after duplicate ingestion is attempted.
+- The second `store_coding_result` call returns `message_id = None` (guard prevents duplicate).
 
 #### 9. Failures Are Bounded and Visible
 
@@ -262,3 +313,4 @@ All 9 verification targets must pass before this task is marked complete.
 - The worker may take 5-15 seconds to process a task
 - If worker is not running, start it: `docker compose up -d worker-coding`
 - If queue is empty but task not processed, check worker logs for errors
+- Event names (`created`, `task.running`, `task.completed`, `task.failed`) are contract-bearing. Align any new events with `guardian/protocol_tokens.py`.
