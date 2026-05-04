@@ -31,7 +31,11 @@ from guardian.cognition.system_profiles.resolver import (
 from guardian.context.broker import ContextBroker
 from guardian.core import chat_completion_service as _chat_completion_service
 from guardian.core import dependencies, event_bus
-from guardian.core.ai_router import chat_with_ai, stream_local
+from guardian.core.ai_router import (
+    chat_with_ai,
+    resolve_local_execution_model,
+    stream_local,
+)
 from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
     ToolLoopExecutionError,
@@ -1550,22 +1554,35 @@ def _run_chat_completion_task_compat(
         )
     settings = get_settings()
     turn_id = _extract_turn_id(task)
-    attempted_provider = provider
-    attempted_model = model
-    selection_source = str(
-        getattr(task, "selection_source", "") or ""
-    ).strip() or (
-        "explicit"
-        if (
-            _normalize_provider_override(
-                getattr(task, "requested_provider", None) or task.provider
-            )
-            or _normalize_model_override(
-                getattr(task, "requested_model", None) or task.model
-            )
-        )
-        else "default"
+    requested_provider = _normalize_provider_override(
+        getattr(task, "requested_provider", None)
+    ) or _normalize_provider_override(task.provider)
+    requested_model = _normalize_model_override(
+        getattr(task, "requested_model", None)
+    ) or _normalize_model_override(task.model)
+    attempted_provider = requested_provider or provider
+    attempted_model = requested_model or model
+    selection_source = (
+        str(getattr(task, "selection_source", "") or "").strip() or None
     )
+    model_resolution: dict[str, Any] | None = None
+    if provider == "local":
+        try:
+            local_model_resolution = resolve_local_execution_model(
+                settings=settings,
+                requested_model=requested_model or model,
+            )
+            model_resolution = local_model_resolution.as_dict()
+        except Exception:
+            model_resolution = None
+    if isinstance(model_resolution, dict):
+        resolution_source = str(model_resolution.get("source") or "").strip()
+        if resolution_source:
+            selection_source = resolution_source
+    if not selection_source:
+        selection_source = (
+            "explicit" if (requested_provider or requested_model) else "default"
+        )
     provider_pinned = bool(getattr(task, "provider_pinned", False))
     completion_truth = _completion_truth(
         accepted=True,
@@ -1640,7 +1657,11 @@ def _run_chat_completion_task_compat(
     fallback_reason: str | None = None
     failure_meta: dict[str, Any] = {}
     final_provider = provider
-    final_model = model
+    final_model = (
+        str(model_resolution.get("model") or "").strip()
+        if isinstance(model_resolution, dict)
+        else ""
+    ) or model
     try:
         completion_truth["attempted"] = True
         assistant_text = _execute_completion(provider, model)
@@ -1666,6 +1687,7 @@ def _run_chat_completion_task_compat(
                 "resolved_model": model,
                 "selection_source": selection_source,
                 "fallback_reason": fallback_reason,
+                "model_resolution": model_resolution,
                 "completion_truth": completion_truth,
             }
         )
@@ -1749,18 +1771,65 @@ def _run_chat_completion_task_compat(
 
     payload_summary.update(
         {
+            "requested_provider": requested_provider,
+            "requested_model": requested_model,
             "attempted_provider": attempted_provider,
             "attempted_model": attempted_model,
             "resolved_provider": provider,
             "resolved_model": model,
             "final_provider": final_provider,
             "final_model": final_model,
+            "selection_source": selection_source,
             "fallback_reason": fallback_reason,
             "completion_truth": completion_truth,
             "attempted_provider_truth": attempted_provider_truth,
             "final_provider_truth": final_provider_truth,
         }
     )
+    if isinstance(model_resolution, dict):
+        payload_summary["model_resolution"] = model_resolution
+
+    model_selection: dict[str, Any] = {
+        "requested_provider": requested_provider,
+        "requested_model": requested_model,
+        "attempted_provider": attempted_provider,
+        "attempted_model": attempted_model,
+        "resolved_provider": provider,
+        "resolved_model": model,
+        "final_provider": final_provider,
+        "final_model": final_model,
+        "selection_source": selection_source,
+        "fallback_reason": fallback_reason,
+    }
+    if isinstance(model_resolution, dict):
+        model_selection["model_resolution"] = dict(model_resolution)
+        source_reason = str(model_resolution.get("source") or "").strip()
+        if source_reason:
+            model_selection["policy_reason"] = source_reason
+        failure_kind = str(model_resolution.get("failure_kind") or "").strip()
+        if failure_kind:
+            model_selection["model_resolution_failure_kind"] = failure_kind
+        message = str(model_resolution.get("message") or "").strip()
+        if message:
+            model_selection["model_resolution_message"] = message
+    if not model_selection.get("policy_reason"):
+        if fallback_reason:
+            model_selection["policy_reason"] = fallback_reason
+        elif (
+            requested_model
+            and final_model
+            and requested_model != final_model
+        ):
+            model_selection["policy_reason"] = "requested_model_not_selected"
+        elif (
+            requested_provider
+            and final_provider
+            and requested_provider != final_provider
+        ):
+            model_selection["policy_reason"] = (
+                "requested_provider_not_selected"
+            )
+    payload_summary["model_selection"] = model_selection
 
     execution = {
         "attempted_provider": attempted_provider,
@@ -1774,12 +1843,15 @@ def _run_chat_completion_task_compat(
         "assistant_text": assistant_text,
         "provider": final_provider,
         "model": final_model,
+        "requested_provider": requested_provider,
+        "requested_model": requested_model,
         "attempted_provider": attempted_provider,
         "attempted_model": attempted_model,
         "resolved_provider": provider,
         "resolved_model": model,
         "selection_source": selection_source,
         "fallback_reason": fallback_reason,
+        "model_selection": model_selection,
         "upstream_status": failure_meta.get("upstream_status"),
         "provider_error": failure_meta.get("provider_error"),
         "transport_classification": failure_meta.get(
@@ -2363,12 +2435,15 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "message_id": message_id,
                 "provider": result.get("provider"),
                 "model": result.get("model"),
+                "requested_provider": result.get("requested_provider"),
+                "requested_model": result.get("requested_model"),
                 "attempted_provider": result.get("attempted_provider"),
                 "attempted_model": result.get("attempted_model"),
                 "resolved_provider": result.get("resolved_provider"),
                 "resolved_model": result.get("resolved_model"),
                 "selection_source": result.get("selection_source"),
                 "fallback_reason": result.get("fallback_reason"),
+                "model_selection": result.get("model_selection"),
                 "upstream_status": result.get("upstream_status"),
                 "provider_error": result.get("provider_error"),
                 "transport_classification": result.get(

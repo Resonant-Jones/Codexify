@@ -151,3 +151,4 @@ FAIL
 2. Re-run the same two-thread image proof and verify that the completion payload now includes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path`.
 3. Confirm why the completion request resolved to `library2/ministral-3:8b` instead of the requested local vision-capable model override.
 4. Once the runtime is refreshed, repeat the proof and only then claim containment on the live path.
+5. The current branch now promotes completion and eval snapshot metadata into the live trace route; rerun the proof against refreshed services to confirm the operator-visible payload now includes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, `image_routing_path`, and model-selection fields on the supported path.
