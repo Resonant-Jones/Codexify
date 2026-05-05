@@ -261,3 +261,99 @@ PY
 - The live trace blocker was the route reading the wrong eval snapshot shape; the backend now promotes `trace`, `payload_summary`, `retrieval_summary`, and `metadata` from the latest persisted eval snapshot into the public debug RAG trace surface.
 - The model-selection truth is already machine-readable in the live task/eval lanes as requested versus final model plus `selection_source` and `policy_reason`; the route now mirrors that truth when the snapshot exists.
 - This task makes the containment proof ready to rerun on the live supported path, but it does not rewrite the earlier FAIL result and it does not resolve the separate Compose migrator issue.
+
+## Rerun — after eab3c69b live trace row-shape fix
+
+### Result
+FAIL
+
+### Health Evidence Summary
+- `GET /health` returned `200` with `status: ok`.
+- `GET /health/chat` returned `200` with `status: healthy`.
+- `GET /api/health/llm` returned `200` with `status: ok` / `status: online`.
+- `GET /api/llm/catalog` returned the live supported catalog, including the local nonvision model and vision-capable local models such as `medgemma:4b-it-q8_0`.
+
+### Environment
+- branch: `codex/add-vision-capability-validation`
+- HEAD: `eab3c69b35885320f4746d937753f55218e759eb`
+- runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- services refreshed: `backend`, `worker-chat`, `worker-chat-embed`, `worker-document-embed`, `worker-voice`, `worker-warmup`
+- requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- resolved provider/model: `local` / `library2/ministral-3:8b`
+
+### Exact Commands
+```sh
+docker compose up -d --no-deps --force-recreate backend worker-chat worker-chat-embed worker-document-embed worker-voice worker-warmup
+docker compose exec -T backend python - <<'PY'
+# health checks, Thread A refusal seed, Thread B image upload, completion, trace fetch
+PY
+docker compose exec -T backend python - <<'PY'
+# task-event and eval snapshot inspection
+PY
+```
+
+### Fixture Setup
+- Thread A refusal source:
+  - Thread A id: `16`
+  - user message id: `39`
+  - assistant refusal message id: `40`
+  - assistant content: `I can't view the image.`
+- Thread B image turn:
+  - Thread B id: `17`
+  - user message id: `41`
+  - image upload id: `fdea58f2-5ea9-43fc-8fe7-1f3ed0f3542e`
+  - image upload result: `POST /api/media/upload/image` returned a signed `src_url`
+  - user message id: `42`
+  - user content included the supported `cfy-media` attachment markers
+
+### Completion Execution Evidence
+- Request endpoint: `POST /api/chat/17/complete`
+- Request body included:
+  - `provider: local`
+  - `model: medgemma:4b-it-q8_0`
+  - `depth_mode: normal`
+  - `source_mode: project`
+  - `turn_id: 00472bf4-699c-4965-b1c9-c7005a38690b`
+- Task id: `7d8bd5b5-130e-4997-af91-e72611cf82d6`
+- Assistant message id: `43`
+- Requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- Final provider/model: `local` / `library2/ministral-3:8b`
+- Image-routing path: `null` in the live task/event and debug payloads for this run
+
+### Live RAG Trace Evidence
+- `GET /api/chat/debug/rag-trace/17/latest` returned `200` and now promoted the real eval snapshot row shape, but it still did not surface the containment fields required for a PASS:
+  - no surfaced `retrieval_policy`
+  - no surfaced `retrieval_provenance`
+  - no surfaced `retrieval_suppression`
+  - no surfaced `image_routing_path`
+- The route did expose model-selection truth in the promoted payload:
+  - `requested_model: medgemma:4b-it-q8_0`
+  - `final_model: library2/ministral-3:8b`
+  - `selection_source: LOCAL_CHAT_MODEL`
+  - `policy_reason: LOCAL_CHAT_MODEL`
+- `GET /api/chat/debug/evals/17/latest` returned the same requested/final model-selection truth and showed:
+  - `retrieval_summary.retrieval_query: Attached image: image-containment-proof.png ...`
+  - `retrieval_provenance: null`
+- The `task.completed` event lane for the same task also carried model-selection truth:
+  - `attempted_model: medgemma:4b-it-q8_0`
+  - `final_model: library2/ministral-3:8b`
+  - `selection_source: LOCAL_CHAT_MODEL`
+- Thread A refusal text did not appear in Thread B messages.
+- The assistant response on Thread B was refusal-like, but the live trace still did not provide machine-readable evidence that this came from supported image routing rather than model behavior.
+
+### Result Interpretation
+- Containment is still not machine-readably proven on the live supported path.
+- The proof did not establish image interpretation fidelity.
+- The live path now exposes requested/final model-selection truth in eval/task metadata, but the public rag-trace endpoint still did not surface the promoted retrieval policy, provenance, suppression, or image-routing fields.
+
+### Limitations
+- RAG trace remains transient and is not a durable forensic store.
+- The live debug trace route still lacked the required containment fields for this thread.
+- The completion path still resolved the requested vision-capable override to `library2/ministral-3:8b`.
+- The task-event and eval surfaces showed model-selection truth, but not the retrieval provenance/suppression fields required for a containment PASS.
+- The backend refresh required `docker compose up -d --no-deps ...` after the migrator failure, so the refresh step itself remains an environmental blocker worth tracking separately.
+
+### Follow-Up Recommendations
+1. Fix the remaining live trace promotion gap so `GET /api/chat/debug/rag-trace/{thread_id}/latest` surfaces the same completion and retrieval truth already visible in eval/task metadata.
+2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
+3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
