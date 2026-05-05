@@ -151,3 +151,13 @@ FAIL
 
 - Rerun after the rag-trace promotion path exposes the persisted snapshot fields for the live thread.
 - If the local model substitution is intentional, add a non-null image-routing absence reason so the live proof can distinguish substitution from unsupported image handling.
+
+### Remediation note
+
+- The runtime fix in this slice now promotes persisted eval snapshot fields through the public rag-trace route and records a canonical image-routing absence reason when a requested vision-capable model is substituted to a non-vision local default.
+- The proof is ready to rerun after the refreshed services pick up this change.
+
+### Current rerun readiness
+
+- The live blockers identified in the previous rerun are now addressed in code and covered by regression tests.
+- A fresh live rerun should now be able to validate whether containment is machine-readably proven on the supported path.

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.core import chat_completion_service
+from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -382,3 +383,82 @@ def test_image_routing_snapshot_carries_containment_fields(
     assert trace["model_selection"]["final_provider"] == "openai"
     assert trace["model_selection"]["final_model"] == "gpt-4o"
     assert result["payload_summary"]["model_selection"] == trace["model_selection"]
+
+
+def test_image_routing_snapshot_marks_local_model_substitution_absence(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="local", model="library2/ministral-3:8b")
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_thread_completion_settings",
+        lambda *args, **kwargs: SimpleNamespace(
+            provider="local",
+            model="library2/ministral-3:8b",
+            source_mode="project",
+            persona_id=None,
+            temperature_override=None,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: False,
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_apply_image_attachment_routing",
+        lambda messages, **kwargs: (
+            messages,
+            {
+                "image_routing_path": None,
+                "image_attachment_count": 1,
+                "derived_image_context_injected": False,
+            },
+        ),
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "stream_local",
+        lambda *args, **kwargs: "ok",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "ok",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="medgemma:4b-it-q8_0",
+        requested_provider="local",
+        requested_model="medgemma:4b-it-q8_0",
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["model_selection"]["requested_model"] == (
+        "medgemma:4b-it-q8_0"
+    )
+    assert trace["model_selection"]["final_model"] == (
+        "library2/ministral-3:8b"
+    )
+    assert trace["image_routing_path"] is None
+    assert trace["image_routing_absence_reason"] == (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+    assert result["payload_summary"]["image_routing_absence_reason"] == (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )

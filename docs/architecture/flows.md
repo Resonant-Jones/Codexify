@@ -41,6 +41,7 @@ Sequence:
    - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and the canonical retrieval posture records that workspace widening occurred.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
+   - The snapshot is expected to carry containment-grade retrieval policy, provenance, suppression, and image-routing truth when available, including explicit absence reasons rather than silent nulls.
 11. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
 12. The worker publishes terminal task events and releases the turn lock in `finally`.
 

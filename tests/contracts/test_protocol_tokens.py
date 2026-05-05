@@ -62,6 +62,12 @@ def test_trace_snapshot_absence_reason_tokens() -> None:
     assert TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value == (
         "image_routing_not_evaluated"
     )
+    assert (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+        == "local_model_substitution_selected_nonvision_model"
+    )
     assert TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value == (
         "retrieval_not_executed"
     )
@@ -72,6 +78,7 @@ def test_trace_snapshot_absence_reason_tokens() -> None:
         "trace_source_unavailable",
         "trace_snapshot_missing",
         "image_routing_not_evaluated",
+        "local_model_substitution_selected_nonvision_model",
         "retrieval_not_executed",
         "retrieval_no_candidates",
     }

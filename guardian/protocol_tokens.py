@@ -159,6 +159,9 @@ class TraceSnapshotAbsenceReason(str, Enum):
     TRACE_SOURCE_UNAVAILABLE = "trace_source_unavailable"
     TRACE_SNAPSHOT_MISSING = "trace_snapshot_missing"
     IMAGE_ROUTING_NOT_EVALUATED = "image_routing_not_evaluated"
+    LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL = (
+        "local_model_substitution_selected_nonvision_model"
+    )
     RETRIEVAL_NOT_EXECUTED = "retrieval_not_executed"
     RETRIEVAL_NO_CANDIDATES = "retrieval_no_candidates"
 

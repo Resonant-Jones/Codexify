@@ -13,6 +13,7 @@ from guardian.core.chat_completion_service import (
 )
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat
+from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -163,6 +164,45 @@ def test_rag_trace_exposes_retrieval_provenance(monkeypatch):
 
     chat._thread_latest_task.pop(781, None)
     chat._rag_traces.pop(781, None)
+
+
+def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
+    chat._thread_latest_task[782] = "task-782"
+
+    absence_reason = (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "image_routing_path": None,
+                "image_routing_absence_reason": absence_reason,
+            },
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "image_routing_path": None,
+                "image_routing_absence_reason": absence_reason,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(782, api_key="test-key")
+    assert trace["image_routing_path"] is None
+    assert trace["image_routing_absence_reason"] == absence_reason
+    assert trace["payload_summary"]["image_routing_absence_reason"] == (
+        absence_reason
+    )
+
+    chat._thread_latest_task.pop(782, None)
+    chat._rag_traces.pop(782, None)
 
 
 def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
