@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -17,6 +18,8 @@ from guardian.db.models import (
     AgentRunArtifact,
     AgentRunAttempt,
     AgentRunStep,
+    ChatMessage,
+    ChatThread,
 )
 
 
@@ -34,6 +37,14 @@ def deterministic_worktree_id(
     seed = f"{deployment_id}:{run_id}:{step_index}".encode()
     digest = hashlib.sha256(seed).hexdigest()
     return digest[:24]
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if coerced > 0 else None
 
 
 @dataclass
@@ -91,6 +102,7 @@ class AgentStore:
                     "trust_state": row.trust_state,
                     "status": row.status,
                     "spec_hash": row.spec_hash,
+                    "spec_json": dict(row.spec_json or {}),
                 }
 
         data = {
@@ -124,6 +136,7 @@ class AgentStore:
                     "trust_state": row.trust_state,
                     "status": row.status,
                     "spec_hash": row.spec_hash,
+                    "spec_json": dict(row.spec_json or {}),
                 }
         return self._mem_deployments.get(deployment_id)
 
@@ -829,34 +842,133 @@ class AgentStore:
             for a in (artifacts or [])
             if isinstance(a, dict) and a.get("path")
         ]
+        run = self.get_run(run_id)
+        deployment = None
+        if run and run.get("deployment_id"):
+            deployment = self.get_deployment(str(run["deployment_id"]))
 
-        self.update_run_status(
-            run_id=run_id,
-            status="completed" if result_status == "ok" else "failed",
-            error=errors[0] if errors else None,
+        deployment_spec: dict[str, Any] = {}
+        if isinstance(deployment, dict):
+            deployment_spec = dict(deployment.get("spec_json") or {})
+        expected_thread_id = (
+            _coerce_positive_int(
+                deployment_spec.get("source_thread_id")
+                or deployment_spec.get("thread_id")
+            )
+            or thread_id
+        )
+        expected_source_message_id = _coerce_positive_int(
+            deployment_spec.get("source_message_id") or source_message_id
+        )
+        expected_user_id = str(deployment_spec.get("user_id") or "").strip() or None
+        expected_project_id = _coerce_positive_int(
+            deployment_spec.get("project_id")
         )
 
+        commit_hash = None
+        validation_results = None
+        for artifact in artifacts or []:
+            if not isinstance(artifact, dict):
+                continue
+            if commit_hash is None:
+                candidate = artifact.get("commit_hash") or artifact.get(
+                    "git_commit"
+                )
+                if isinstance(candidate, str) and candidate.strip():
+                    commit_hash = candidate.strip()
+            if validation_results is None and artifact.get("validation_results") is not None:
+                validation_results = artifact.get("validation_results")
+
+        result_payload = {
+            "run_id": run_id,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "thread_id": expected_thread_id,
+            "source_message_id": expected_source_message_id,
+            "user_id": expected_user_id,
+            "project_id": expected_project_id,
+            "status": result_status,
+            "summary": result_summary,
+            "files_changed": files_changed,
+            "artifacts": artifacts or [],
+            "errors": errors or [],
+            "commit_hash": commit_hash,
+            "validation_results": validation_results,
+        }
+
         message_id = None
-        if thread_id is not None and self._has_db():
-            message_id = self._inject_coding_result_into_thread(
-                thread_id=thread_id,
+        delivery_reason = None
+        delivery_ok = False
+        if expected_thread_id is not None and self._has_db():
+            message_id, delivery_reason = self._inject_coding_result_into_thread(
+                thread_id=expected_thread_id,
                 run_id=run_id,
                 coding_task_id=coding_task_id,
-                source_message_id=source_message_id,
+                source_message_id=expected_source_message_id,
+                expected_user_id=expected_user_id,
+                expected_project_id=expected_project_id,
                 status=result_status,
                 summary=result_summary,
                 files_changed=files_changed,
                 artifacts=artifacts or [],
                 errors=errors or [],
+                commit_hash=commit_hash,
+                validation_results=validation_results,
             )
+            delivery_ok = message_id is not None
+        elif expected_thread_id is None:
+            delivery_reason = "missing_source_thread"
+        else:
+            delivery_reason = "delivery_database_unavailable"
+
+        final_status = (
+            "succeeded"
+            if result_status == "ok" and delivery_ok
+            else "failed"
+        )
+        self.update_run_status(
+            run_id=run_id,
+            status=final_status,
+            error=delivery_reason or (errors[0] if errors else None),
+        )
+
+        artifact_payload = dict(result_payload)
+        artifact_payload["delivery_ok"] = delivery_ok
+        artifact_payload["delivery_reason"] = delivery_reason
+        if self._has_db():
+            existing_artifact = None
+            for row in self.list_artifacts(
+                run_id=run_id, artifact_type="coding_result"
+            ):
+                content = row.get("content_json")
+                if not isinstance(content, dict):
+                    continue
+                if (
+                    content.get("coding_task_id") == coding_task_id
+                    and content.get("attempt_id") == attempt_id
+                ):
+                    existing_artifact = row
+                    break
+            if existing_artifact is None:
+                self.add_artifact(
+                    run_id=run_id,
+                    step_index=None,
+                    artifact_type="coding_result",
+                    content_json=artifact_payload,
+                )
 
         return {
             "ok": True,
             "run_id": run_id,
             "status": result_status,
             "message_id": message_id,
+            "delivery_ok": delivery_ok,
+            "delivery_reason": delivery_reason,
             "files_changed": files_changed,
             "artifacts_count": len(artifacts) if artifacts else 0,
+            "commit_hash": commit_hash,
+            "validation_results": validation_results,
+            "result_payload": result_payload,
         }
 
     def _inject_coding_result_into_thread(
@@ -866,49 +978,90 @@ class AgentStore:
         run_id: str,
         coding_task_id: str,
         source_message_id: str | None,
+        expected_user_id: str | None,
+        expected_project_id: int | None,
         status: str,
         summary: str,
         files_changed: list[str],
         artifacts: list[dict[str, Any]],
         errors: list[str],
-    ) -> int | None:
+        commit_hash: str | None = None,
+        validation_results: Any | None = None,
+    ) -> tuple[int | None, str | None]:
         if not self._has_db():
-            return None
+            return None, "delivery_database_unavailable"
 
         with self.db.get_session() as session:
-            existing = (
+            existing = None
+            for candidate in (
                 session.query(ChatMessage)
-                .filter(
-                    ChatMessage.thread_id == thread_id,
-                    ChatMessage.extra_meta["run_id"] == run_id,
-                    ChatMessage.kind == "coding_result",
-                )
-                .first()
-            )
+                .filter_by(thread_id=thread_id, kind="coding_result")
+                .order_by(ChatMessage.id.asc())
+                .all()
+            ):
+                if isinstance(candidate.extra_meta, dict) and str(
+                    candidate.extra_meta.get("run_id") or ""
+                ) == run_id:
+                    existing = candidate
+                    break
             if existing:
-                return existing.id
+                return existing.id, None
 
             thread = session.query(ChatThread).filter_by(id=thread_id).first()
             if thread is None:
-                return None
+                return None, "source_thread_missing"
+            if expected_user_id and str(thread.user_id) != expected_user_id:
+                return None, "source_thread_scope_mismatch"
+            if expected_project_id is not None and (
+                thread.project_id is None
+                or int(thread.project_id) != int(expected_project_id)
+            ):
+                return None, "source_project_scope_mismatch"
+            if source_message_id is not None:
+                source_message = (
+                    session.query(ChatMessage)
+                    .filter_by(id=int(source_message_id))
+                    .first()
+                )
+                if (
+                    source_message is None
+                    or int(source_message.thread_id) != int(thread_id)
+                ):
+                    return None, "source_message_missing"
 
             extra_meta = {
                 "type": "coding_result",
                 "run_id": run_id,
                 "coding_task_id": coding_task_id,
+                "source_thread_id": thread_id,
                 "source_message_id": source_message_id,
+                "user_id": expected_user_id,
+                "project_id": expected_project_id,
                 "status": status,
             }
+            if commit_hash:
+                extra_meta["commit_hash"] = commit_hash
+            if validation_results is not None:
+                extra_meta["validation_results"] = validation_results
 
             content_parts = [f"## Coding Task Result\n\n"]
             content_parts.append(f"**Status**: {status.upper()}\n\n")
             content_parts.append(f"**Summary**: {summary}\n\n")
+
+            if commit_hash:
+                content_parts.append(f"**Commit Hash**: `{commit_hash}`\n\n")
 
             if files_changed:
                 content_parts.append("**Files Changed**:\n")
                 for f in files_changed:
                     content_parts.append(f"- `{f}`\n")
                 content_parts.append("\n")
+
+            if validation_results is not None:
+                content_parts.append("**Validation Results**:\n")
+                content_parts.append(
+                    f"```json\n{json.dumps(validation_results, indent=2, sort_keys=True)}\n```\n\n"
+                )
 
             if artifacts:
                 content_parts.append("**Artifacts**:\n")
@@ -931,7 +1084,7 @@ class AgentStore:
             )
             session.add(message)
             session.commit()
-            return message.id
+            return message.id, None
 
 
 store = AgentStore()

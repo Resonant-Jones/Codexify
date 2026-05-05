@@ -9,6 +9,7 @@ from typing import Any
 from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.base import AgentExecutionRequest
 from guardian.agents.store import AgentStore, store
+from guardian.core import dependencies
 from guardian.queue import task_events
 from guardian.queue.redis_queue import dequeue_coding_execution, is_cancelled
 from guardian.tasks.types import CodingExecutionTask, task_from_dict
@@ -19,12 +20,20 @@ WORKER_POLL_INTERVAL_SECONDS = float(
     os.getenv("CODING_WORKER_POLL_INTERVAL_SECONDS", "0.5")
 )
 
+_store: AgentStore = store
+
+
+def configure_db(db: Any | None) -> None:
+    """Bind the worker to a database-backed agent store."""
+    global _store
+    _store = AgentStore(db=db)
+
 
 class CodingWorker:
     """Processes coding execution tasks from queue via PiCodexRunnerAdapter."""
 
     def __init__(self, agent_store: AgentStore | None = None):
-        self.store = agent_store or AgentStore()
+        self.store = agent_store or _store
 
     def poll_once(self) -> bool:
         """Poll for and process one coding task. Returns True if task processed."""
@@ -91,7 +100,7 @@ class CodingWorker:
         result = adapter.execute(request)
 
         # Store result and inject into thread (per ADR-020)
-        self.store.store_coding_result(
+        delivery = self.store.store_coding_result(
             run_id=task.run_id,
             coding_task_id=task.coding_task_id,
             attempt_id=task.attempt_id,
@@ -102,6 +111,17 @@ class CodingWorker:
             artifacts=result.artifacts,
             errors=result.errors,
         )
+
+        if not bool(delivery.get("delivery_ok", False)):
+            self._emit_failure(
+                task,
+                error_message=str(
+                    delivery.get("delivery_reason")
+                    or "coding result delivery failed"
+                ),
+                error_code="PROCESSING_ERROR",
+            )
+            return
 
         # Emit terminal event
         terminal_event = "completed" if result.status == "ok" else "failed"
@@ -160,7 +180,11 @@ class CodingWorker:
         error_code: str,
     ) -> None:
         """Emit task.failed event for unrecoverable errors."""
-        self.store.update_run_status(run_id=task.run_id, status="failed")
+        self.store.update_run_status(
+            run_id=task.run_id,
+            status="failed",
+            error=error_message,
+        )
         try:
             task_events.publish_with_visibility(
                 task.task_id,
@@ -202,9 +226,17 @@ class CodingWorker:
             )
 
 
+def _initialize_worker() -> None:
+    db = dependencies.init_database()
+    if db is None:
+        raise RuntimeError("chatlog_db not configured")
+    configure_db(db)
+
+
 def run_worker_loop() -> None:
     """Run the coding worker indefinitely."""
     logger.info("[coding-worker] starting coding worker loop")
+    _initialize_worker()
     worker = CodingWorker()
 
     while True:

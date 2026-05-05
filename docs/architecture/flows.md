@@ -283,6 +283,8 @@ Concrete anchors:
 
 The bounded chat tool-loop slice uses this same command-bus lane. It may execute one command, reinject the result into the completion context, and then hard-stop after that single tool turn.
 
+The Guardian-mediated coding-agent slice follows the same operator-truth rule: execution completion is not enough by itself, the returned coding result must land back in the source thread, and that returned result must preserve source thread, source message, and job lineage. Result return must be idempotent. If Guardian cannot write the result back, treat that as an operator-visible handoff failure rather than a successful user-visible completion.
+
 ```mermaid
 sequenceDiagram
     participant Client as Caller
