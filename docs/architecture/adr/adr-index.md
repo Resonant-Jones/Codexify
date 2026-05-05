@@ -51,6 +51,7 @@ Use this note as the local map for all ADRs.
 15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
 16. [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] — user-governed continuity control plane for scope, decay, import treatment, exclusions, inspection, and reset semantics.
 17. [[017-Graph-Write-Idempotency-and-Receipt-Semantics|ADR-017 Graph Write Idempotency and Receipt Semantics]] — deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
+18. [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] — canonical live-proof harness for the `retrievalSource="workspace"` seam on the supported local Compose path; release-evidence tool only.
 
 ---
 
@@ -219,6 +220,15 @@ Primary companion notes:
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
+
+* [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] links to:
+
+  * [[016-workspace-retrieval-source-for-local-knowledge|ADR-016 Workspace Retrieval Source for Local Knowledge]]
+  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
+  * [[flows|Critical Flows]]
+  * [[config-and-ops|Config and Ops]]
+  * [[00-current-state]]
+  * [[scripts/proofs/README.md Proof Harness README]]
 ---
 
 ## Maintenance rule

@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-04-27
+Last updated: 2026-05-05
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -68,6 +68,7 @@ Acceptance semantics:
 - The route does not prove dequeue, eventual success, or UI receipt.
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
+- A canonical live-proof harness validates the workspace retrieval seam end-to-end: `scripts/proofs/prove_workspace_obsidian_e2e.py`. It ingests a sentinel Obsidian note, creates a thread with `retrievalSource="workspace"`, waits for task terminal state (not just acceptance), verifies the assistant response contains sentinel-derived content, and asserts workspace-local signal in the retrieval posture. Contract tests at `tests/proofs/test_workspace_obsidian_e2e_contract.py` validate harness behavior without a live stack.
 
 Conceptual state split:
 - The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.

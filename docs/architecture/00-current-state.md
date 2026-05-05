@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-04-29
+2026-05-05
 
 ## Interpretation rule
 This file is authoritative for:
@@ -26,6 +26,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - The RAG trace payload summary now carries graph-ready diagnostics placeholders (`graph_hit_count`, `graph_enrichment_status`) that report `not_used_yet` on current supported runs; graph remains enrichment-only and is not part of active retrieval here.
 - The retrieval broker now enforces strict `user_id` isolation at the aggregation boundary and requires widening to carry an explicit `widen_reason`; `widen_reason` normalizes to `none` when no widening occurs.
 - The completion worker now emits a canonical retrieval-posture snapshot that can distinguish `conversation`, `project`, `personal_knowledge`, `obsidian_only`, and `workspace` source modes.
+- A single-command end-to-end proof harness now exists for the `retrievalSource="workspace"` seam on the supported local Compose path: `scripts/proofs/prove_workspace_obsidian_e2e.py`. It validates health surfaces, sentinel Obsidian note ingestion, thread/message creation, queue-backed completion acceptance, task terminal state, assistant response verdict, and retrieval-posture evidence. A companion contract test suite lives at `tests/proofs/test_workspace_obsidian_e2e_contract.py`. The harness is a release-evidence tool; it does not prove sync automation, connector UX, or non-Compose install modes.
 - A retrieval-posture history route was added: `GET /api/chat/{thread_id}/debug/retrieval-posture/history` for richer temporal access.
 - A retrieval posture explainer was added to the Command Center, rendering human-readable explanations for each posture field value with copy-to-clipboard support.
 - The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
@@ -48,6 +49,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
   - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
   - Broker/source-mode reconciliation (`effective_source_mode` derived from `source_mode` + `retrieval_override`).
   - Workspace-local retrieval posture, including live completion evidence for Obsidian-backed notes.
+- A canonical live-proof harness now exists for the `retrievalSource="workspace"` seam (`scripts/proofs/prove_workspace_obsidian_e2e.py`), covering health → ingest → thread → message → completion → verdict → retrieval-posture evidence on the supported local Compose path.
 
 ## Identity and Runtime Mode
 
