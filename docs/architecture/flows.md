@@ -71,6 +71,12 @@ Acceptance semantics:
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
 - For the workspace proof harness on the supported local Compose path, acceptance is only the first milestone; the proof must also verify terminal task evidence, persisted assistant text, and workspace-local retrieval posture before it can pass.
 
+Debug trace note:
+- The live `/api/chat/debug/rag-trace/{thread_id}/latest` route may surface sanitized trace availability, effective policy, retrieval summary/provenance, and image-routing metadata when a real trace exists.
+- Treat that route as diagnostic/operator evidence only; do not treat it as durable release proof.
+- Durable eval snapshots remain the stronger persistence-backed proof surface.
+- The debug route must not expose raw image or document content, hidden prompts, chain-of-thought, or secrets.
+
 Conceptual state split:
 - The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
 - Provider runtime state answers whether the selected provider lane is reachable, warming, ready, or otherwise degraded.
@@ -277,6 +283,8 @@ Concrete anchors:
 - `guardian/workers/cron_worker.py`
 
 The bounded chat tool-loop slice uses this same command-bus lane. It may execute one command, reinject the result into the completion context, and then hard-stop after that single tool turn.
+
+The Guardian-mediated coding-agent slice follows the same operator-truth rule: execution completion is not enough by itself, the returned coding result must land back in the source thread, and that returned result must preserve source thread, source message, and job lineage. Result return must be idempotent. If Guardian cannot write the result back, treat that as an operator-visible handoff failure rather than a successful user-visible completion.
 
 ```mermaid
 sequenceDiagram

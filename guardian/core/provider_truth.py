@@ -7,6 +7,8 @@ from typing import Any
 from guardian.core.config import Settings
 from guardian.core.provider_registry import (
     normalize_provider,
+    provider_egress_allowed,
+    supported_profile_posture,
     resolve_provider_capability,
 )
 
@@ -53,6 +55,17 @@ def build_provider_truth(
     runtime = capability or resolve_provider_capability(provider, settings)
     configured = provider_configured(provider, settings)
     authorized = bool(runtime.get("authorized"))
+    posture = supported_profile_posture(settings)
+    supported_profile_name = posture.get("name")
+    supported_profile_valid = posture.get("valid")
+    selected_provider = normalize_provider(posture.get("selected_provider"))
+    supported_profile_approved: bool | None
+    if supported_profile_name is None:
+        supported_profile_approved = None
+    else:
+        supported_profile_approved = bool(
+            supported_profile_valid and provider == selected_provider
+        )
     if discoverable is None:
         if provider == "local":
             discoverable = configured
@@ -68,8 +81,20 @@ def build_provider_truth(
     return {
         "configured": configured,
         "authorized": authorized,
+        "discovered_inventory": bool(discoverable),
         "discoverable": bool(discoverable),
         "selectable": bool(selectable),
+        "executable": bool(runtime.get("enabled")),
+        "egress_allowed": provider_egress_allowed(provider, settings),
+        "supported_profile_name": supported_profile_name,
+        "supported_profile_valid": supported_profile_valid,
+        "supported_profile_mismatches": list(
+            posture.get("mismatches") or []
+        ),
+        "supported_profile_approved": supported_profile_approved,
+        "cloud_capable_configuration_present": bool(
+            posture.get("cloud_capable_configuration_present")
+        ),
         "attempted": bool(attempted),
         "executed": bool(executed),
         "completed": bool(completed),
