@@ -257,6 +257,92 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+## Rerun — after 65a2e12e model substitution truth fix
+
+### Result
+FAIL
+
+### Environment
+- branch: `codex/add-vision-capability-validation`
+- HEAD: `65a2e12e9689dff0695931309038a06e80f83b50`
+- runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- services refreshed: `backend`, `worker-chat`, `worker-chat-embed`, `worker-document-embed`, `worker-voice`, `worker-warmup`
+
+### Health Evidence Summary
+- `GET /health` returned `200` with `status: ok`.
+- `GET /health/chat` returned `200` with:
+  - `status: healthy`
+  - `provider: local`
+  - `model: library2/ministral-3:8b`
+  - `provider_runtime.models[0].supports_vision: false`
+- `GET /api/health/llm` returned `200` with `status: ok` / `status: online`.
+- `GET /api/llm/catalog` returned the live local catalog, including `medgemma:4b-it-q8_0` as a vision-capable model.
+
+### Thread Setup
+- Thread A id: `20`
+- Thread A user message id: `47`
+- Thread A assistant refusal message id: `48`
+- Thread A assistant content: `I can't view the image.`
+- Thread B id: `21`
+- Thread B user image message id: `49`
+- Thread B assistant message id: `50`
+
+### Model-Selection Evidence
+- Requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- Final provider/model: `local` / `library2/ministral-3:8b`
+- Selection source: `LOCAL_CHAT_MODEL`
+- Fallback reason: `null` in the assistant message metadata
+- Model resolution message: `requested model 'medgemma:4b-it-q8_0' was overridden by configured local chat model 'library2/ministral-3:8b' from LOCAL_CHAT_MODEL`
+- The task-event / assistant metadata path does explain the substitution machine-readably, but the live response still routed to the configured local default model.
+
+### Image-Routing Evidence
+- Image payload evidence:
+  - reused uploaded image id `fdea58f2-5ea9-43fc-8fe7-1f3ed0f3542e`
+  - `src_url`: `/media/images/20260505-64abf93f--image-containment-proof.png?sig=SSoRblzU5_l32SImrU6HvSSAFcrXGNhgYj3kNYuFhZc`
+  - message content included the supported attachment markers:
+    - `<!-- cfy-media:image:fdea58f2-5ea9-43fc-8fe7-1f3ed0f3542e -->`
+    - `<!-- cfy-media-src:/media/images/20260505-64abf93f--image-containment-proof.png?sig=SSoRblzU5_l32SImrU6HvSSAFcrXGNhgYj3kNYuFhZc -->`
+    - `<!-- cfy-media-name:image-containment-proof.png -->`
+- Image routing path: not surfaced in the live task/event/debug payloads for this run
+- Capability lane: the live health/catalog posture still showed the active resolved model as non-vision local, even though the requested model was vision-capable
+
+### RAG/Debug Trace Evidence
+- `GET /api/chat/debug/rag-trace/21/latest` returned an empty public shell:
+  - `documents: []`
+  - `graph: []`
+  - `trace_unavailable_reason: trace_source_unavailable`
+  - no surfaced `retrieval_policy`
+  - no surfaced `retrieval_provenance`
+  - no surfaced `retrieval_suppression`
+  - no surfaced `image_routing_path`
+- `GET /api/chat/debug/evals/21/latest` returned no `trace_snapshot`.
+- The completed message metadata and payload_summary did expose:
+  - `requested_model: medgemma:4b-it-q8_0`
+  - `final_model: library2/ministral-3:8b`
+  - `selection_source: LOCAL_CHAT_MODEL`
+  - `model_resolution.message` with the substitution reason above
+- `assistant_vision_refusal_on_image_turn` did not appear in the live debug trace payload for this run.
+- Thread A refusal text did not appear in Thread B messages.
+- Thread A refusal text was therefore not visibly leaked into Thread B output, but the live debug trace still did not expose enough provenance/suppression data to prove containment machine-readably.
+
+### Result Interpretation
+- Containment is not machine-readably proven on the live supported path.
+- The model substitution is explained through `selection_source`, `policy_reason`, and `model_resolution.message`, but `fallback_reason` remained null in the assistant message metadata.
+- Image interpretation fidelity was not established because the assistant response remained refusal-like while the public trace surface stayed empty.
+
+### Limitations
+- RAG trace remains transient and is not a durable forensic store.
+- The live debug trace route still returned an empty shell for this thread, so the required containment fields were still missing.
+- The live runtime still resolved the requested vision-capable override to `library2/ministral-3:8b`.
+- The task-event and assistant metadata surfaces now explain the substitution, but the public rag-trace route still did not surface `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, or `image_routing_path`.
+- `pnpm test` was not rerun; the known Vitest resolution issue remains a separate blocker.
+- The Compose migrator blocker remains a separate environmental issue and was not addressed here.
+
+### Follow-Up Recommendations
+1. Fix the live debug trace promotion path so the supported rag-trace endpoint returns the same completion and retrieval truth already visible in task-event and assistant metadata.
+2. Decide whether the live image-turn path should honor the requested vision-capable local override or continue to substitute `LOCAL_CHAT_MODEL`, and keep that choice machine-readable in the public trace.
+3. Rerun the proof only after the public trace exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
+
 ### Remediation Note
 - The live runtime blocker that produced the previous failed rerun was a context-assembly `NameError` at `_normalize_source_mode`; the completion service now calls the imported `normalize_source_mode` helper directly.
 - The local model-selection path now emits a machine-readable substitution reason when strict local-only policy overrides an explicit requested model in favor of `LOCAL_CHAT_MODEL`.
