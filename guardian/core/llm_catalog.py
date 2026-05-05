@@ -26,6 +26,7 @@ from guardian.core.provider_registry import (
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
+    resolve_model_capability_state as resolve_model_capability_state_registry,
     resolve_provider_capability,
 )
 from guardian.core.provider_registry import (
@@ -132,6 +133,41 @@ def _local_model_capabilities(
         "supports_text_input": True,
         "model_kind": "vision_chat" if supports_vision else "chat",
     }
+
+
+def resolve_model_vision_capability_state(
+    provider_id: str,
+    model_id: str | None,
+    settings: Settings | None = None,
+) -> bool | None:
+    provider = normalize_provider(provider_id)
+    target_model = normalize_model_id(model_id)
+    if not provider or not target_model:
+        return None
+
+    resolved_settings = settings or get_settings()
+    if provider == "local":
+        try:
+            local_models, _endpoint_resolution, _resolution = (
+                _fetch_local_models(resolved_settings)
+            )
+        except Exception:
+            return None
+        for item in local_models:
+            if normalize_model_id(item.get("id")) != target_model:
+                continue
+            value = item.get("supports_vision")
+            if isinstance(value, bool) and value is True:
+                return True
+            return None
+        return None
+
+    return resolve_model_capability_state_registry(
+        provider,
+        target_model,
+        "vision",
+        resolved_settings,
+    )
 
 
 def _split_local_model_id(model_id: str) -> tuple[str | None, str, str | None]:
@@ -382,6 +418,11 @@ def _fetch_local_models(
         source = str(identity.get("source") or "").strip()
         if source:
             entry["source"] = source
+        entry["vision_capability_state"] = (
+            "supported"
+            if local_capabilities["supports_vision"]
+            else "unknown"
+        )
         entry["runtime"] = describe_local_runtime(name, settings=settings)
         entries.append(entry)
     entries = _apply_local_model_overrides(entries)
@@ -458,6 +499,11 @@ def _cloud_models(
             )
         if not supports_chat or model_kind == "utility":
             continue
+        vision_support_state = resolve_model_vision_capability_state(
+            provider_id,
+            model_id,
+            settings,
+        )
         entry = _base_model_entry(
             model_id=model_id,
             display_name=str(item.get("displayName") or model_id).strip(),
@@ -475,6 +521,12 @@ def _cloud_models(
         capability_status = str(item.get("_capability") or "").strip().lower()
         if capability_status in {"confirmed", "inferred", "unsupported"}:
             entry["_capability"] = capability_status
+        if vision_support_state is True:
+            entry["vision_capability_state"] = "supported"
+        elif vision_support_state is False:
+            entry["vision_capability_state"] = "unsupported"
+        else:
+            entry["vision_capability_state"] = "unknown"
         entries.append(entry)
     return entries
 

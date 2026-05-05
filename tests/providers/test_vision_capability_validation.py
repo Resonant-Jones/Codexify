@@ -4,8 +4,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 
+from guardian.core import ai_router
 from guardian.core import chat_completion_service
+from guardian.protocol_tokens import ErrorCode
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -101,10 +104,15 @@ def _seed_common(monkeypatch: pytest.MonkeyPatch, *, provider: str, model: str):
     return mock_chatlog_db
 
 
-def test_image_routing_vlm_builds_multimodal_payload(
+def test_vision_capable_image_turn_proceeds_to_provider_ready_assembly(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: True,
+    )
 
     captured: dict[str, object] = {}
 
@@ -144,10 +152,51 @@ def test_image_routing_vlm_builds_multimodal_payload(
     assert summary["derived_image_context_injected"] is False
 
 
-def test_image_routing_text_only_runs_interpreter(
+def test_non_vision_model_rejects_image_turn_before_provider_execution(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: pytest.fail(
+            "provider execution should not be reached when vision is unsupported"
+        ),
+    )
+
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    detail = excinfo.value.detail
+    assert isinstance(detail, dict)
+    assert detail["error_code"] == ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
+    assert "support image turns" in str(detail["message"]).lower()
+    assert detail["provider"] == "openai"
+    assert detail["model"] == "gpt-4o"
+    assert detail["image_attachment_count"] == 1
+
+
+def test_unknown_vision_capability_preserves_existing_fallback_behavior(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _seed_common(monkeypatch, provider="groq", model="llama-3.1-70b-versatile")
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: None,
+    )
 
     def _fake_interpreter(*_args, **_kwargs):
         return [
@@ -183,11 +232,6 @@ def test_image_routing_text_only_runs_interpreter(
     )
 
     messages = captured["messages"]
-    system_messages = [m for m in messages if str(m.get("role")) == "system"]
-    assert len(system_messages) == 2
-    assert system_messages[0]["content"] == "BASE SYSTEM"
-    assert "Completion targeting guidance" in system_messages[1]["content"]
-
     last_user = messages[-1]
     assert last_user["role"] == "user"
     assert isinstance(last_user["content"], str)
@@ -197,103 +241,87 @@ def test_image_routing_text_only_runs_interpreter(
 
     summary = result["payload_summary"]
     assert summary["image_routing_path"] == "interpreter"
-    assert summary["image_attachment_count"] == 1
     assert summary["derived_image_context_injected"] is True
 
 
-def test_image_routing_text_only_uses_local_blip_captioning(
+def test_image_payload_missing_has_distinct_error_code(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    _seed_common(monkeypatch, provider="local", model="qwen3.5:9b")
-
-    monkeypatch.setattr(
-        chat_completion_service.dependencies,
-        "ENABLE_BLIP_MODEL",
-        True,
-        raising=False,
-    )
-
-    def _caption_local(_src):
-        return "a green hill with clouds"
-
+    _seed_common(monkeypatch, provider="openai", model="gpt-4o")
     monkeypatch.setattr(
         chat_completion_service,
-        "_caption_image_with_local_blip",
-        _caption_local,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
         chat_completion_service,
-        "_caption_image_with_groq_vision",
-        lambda *args, **kwargs: pytest.fail(
-            "cloud fallback should not be used when local BLIP is available"
-        ),
+        "extract_attachments_and_text",
+        lambda _content: ([{"kind": "image", "name": "Test.png"}], "Describe this."),
     )
-
-    captured: dict[str, object] = {}
-
-    def _capture_stream(messages, model, **kwargs):
-        captured["messages"] = messages
-        captured["model"] = model
-        captured["kwargs"] = kwargs
-        return "yes, I do see the image of green hills and floating clouds."
-
-    monkeypatch.setattr(chat_completion_service, "stream_local", _capture_stream)
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",
         lambda *_args, **_kwargs: pytest.fail(
-            "local caption fallback should use stream_local, not chat_with_ai"
+            "provider execution should not be reached when image payload is missing"
         ),
     )
 
     task = ChatCompletionTask(
-        user_id="local", thread_id=1, provider="local", model="qwen3.5:9b"
-    )
-    result = chat_completion_service.run_chat_completion_task(
-        task,
-        persist_assistant_message=False,
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
     )
 
-    messages = captured["messages"]
-    system_messages = [m for m in messages if str(m.get("role")) == "system"]
-    assert len(system_messages) == 2
-    assert system_messages[0]["content"] == "BASE SYSTEM"
-    assert "Completion targeting guidance" in system_messages[1]["content"]
-
-    last_user = messages[-1]
-    assert last_user["role"] == "user"
-    assert isinstance(last_user["content"], str)
-    assert "Derived image context" in last_user["content"]
-    assert "a green hill with clouds" in last_user["content"]
-    assert "Describe this." in last_user["content"]
-
-    summary = result["payload_summary"]
-    assert summary["image_routing_path"] == "interpreter"
-    assert summary["image_attachment_count"] == 1
-    assert summary["derived_image_context_injected"] is True
-    assert "green hills and floating clouds" in result["assistant_text"]
-
-
-def test_image_routing_fails_without_path(monkeypatch: pytest.MonkeyPatch):
-    _seed_common(monkeypatch, provider="groq", model="llama-3.1-70b-versatile")
-
-    monkeypatch.setattr(
-        chat_completion_service,
-        "_interpret_image_attachments",
-        lambda *args, **kwargs: None,
-    )
-
-    task = ChatCompletionTask(
-        user_id="local",
-        thread_id=1,
-        provider="groq",
-        model="llama-3.1-70b-versatile",
-    )
-
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(HTTPException) as excinfo:
         chat_completion_service.run_chat_completion_task(
             task,
             persist_assistant_message=False,
         )
 
-    assert "Image attachments present" in str(excinfo.value)
+    detail = excinfo.value.detail
+    assert isinstance(detail, dict)
+    assert detail["error_code"] == ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value
+    assert "missing source urls" in str(detail["message"]).lower()
+    assert detail["provider"] == "openai"
+    assert detail["model"] == "gpt-4o"
+
+
+def test_chat_router_rejects_image_turn_when_vision_is_explicitly_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this."},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "https://example.test/image.png"},
+                },
+            ],
+        }
+    ]
+
+    monkeypatch.setattr(
+        ai_router,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        ai_router,
+        "call_openai",
+        lambda *_args, **_kwargs: pytest.fail(
+            "provider execution should not be reached when vision is unsupported"
+        ),
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        ai_router.chat_with_ai(
+            messages,
+            model="gpt-4o",
+            provider="openai",
+        )
+
+    detail = excinfo.value.detail
+    assert isinstance(detail, dict)
+    assert detail["error_code"] == ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
+    assert "support image turns" in str(detail["message"]).lower()
+    assert detail["provider"] == "openai"

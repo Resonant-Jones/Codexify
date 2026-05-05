@@ -25,6 +25,7 @@ from guardian.core.provider_registry import (
     provider_routing_requires_discovered_inventory,
     validate_provider_model_selection,
 )
+from guardian.protocol_tokens import ErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -1265,6 +1266,51 @@ def _provider_failure_detail(
     return detail
 
 
+def _image_turn_vision_unsupported_detail(
+    *,
+    provider: str,
+    model: str,
+    image_attachment_count: int | None = None,
+    capability_state: str | None = None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "error": "provider_request_failed",
+        "error_code": ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value,
+        "provider": provider,
+        "model": model,
+        "message": (
+            f"Selected model '{model}' for provider '{provider}' does not "
+            "support image turns."
+        ),
+    }
+    if isinstance(image_attachment_count, int):
+        detail["image_attachment_count"] = image_attachment_count
+    if capability_state:
+        detail["vision_capability_state"] = capability_state
+    return detail
+
+
+def resolve_model_vision_capability_state(
+    provider_id: str,
+    model_id: str | None,
+    settings: Settings,
+) -> bool | None:
+    try:
+        from guardian.core.llm_catalog import (
+            resolve_model_vision_capability_state as _resolve_model_vision_capability_state,
+        )
+    except Exception:
+        return None
+    try:
+        return _resolve_model_vision_capability_state(
+            provider_id,
+            model_id,
+            settings,
+        )
+    except Exception:
+        return None
+
+
 def _classify_transport_error(exc: Exception) -> str:
     lowered = str(exc or "").strip().lower()
     if isinstance(exc, req_exc.Timeout) or "timed out" in lowered:
@@ -1386,6 +1432,29 @@ def chat_with_ai(
                 "model setting (e.g. LOCAL_LLM_MODEL / DEFAULT_LOCAL_MODEL)."
             ),
         )
+
+    image_payload_present = _messages_contain_image_payload(messages)
+    if image_payload_present:
+        vision_support_state = resolve_model_vision_capability_state(
+            provider_name,
+            target_model,
+            settings,
+        )
+        if vision_support_state is False:
+            raise HTTPException(
+                status_code=400,
+                detail=_image_turn_vision_unsupported_detail(
+                    provider=provider_name,
+                    model=target_model,
+                    image_attachment_count=sum(
+                        1
+                        for message in messages
+                        if isinstance(message, dict)
+                        and _content_has_image_payload(message.get("content"))
+                    ),
+                    capability_state="unsupported",
+                ),
+            )
 
     if provider_routing_requires_discovered_inventory(provider_name):
         valid, reason = validate_provider_model_selection(
