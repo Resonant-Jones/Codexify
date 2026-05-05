@@ -539,7 +539,7 @@ def _resolve_effective_source_mode_for_assembly(
     source_mode: Any,
     retrieval_override: Any,
 ) -> str:
-    normalized_source_mode = _normalize_source_mode(source_mode)
+    normalized_source_mode = normalize_source_mode(source_mode)
     if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
         return normalized_source_mode
     override_mode = _retrieval_override_mode(retrieval_override)
