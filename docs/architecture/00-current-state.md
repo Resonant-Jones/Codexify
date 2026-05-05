@@ -15,6 +15,8 @@ This file is authoritative for:
 ## Current phase
 Codexify is in late beta hardening on `main`. The codebase now carries the local Docker Compose path, packaged tester-facing delivery surfaces, and a coding-result return path that routes assistant results back through Guardian into the source thread. Release truth still depends on the live runtime matching the supported local-first posture, not just on docs or build artifacts.
 
+Fresh live proof on 2026-05-05 now confirms the supported local-first posture on the current tip, including provider/catalog/health alignment, upload -> embed -> retrieve, image-turn containment, coding-result return, and runtime-target normalization. That proof is evidence of the supported path, not release signoff.
+
 - Coding worker results now ingest back through Guardian with lineage and idempotency guards.
 - Public webUI beta handoff docs and the GHCR pullability note remain on `main`.
 - The public webUI handoff bundle remains packaged for tester distribution.
@@ -25,7 +27,7 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 - The public webUI Docker bundle remains available for browser-only tester use.
 - The supported beta story remains local-first and backend-shared across those surfaces.
 - Coding results now return through Guardian before user-visible output.
-- Current release evidence still treats live health, provider posture, and fresh runtime proof as required signoff inputs.
+- Current release evidence now has fresh live proof for health, provider posture, and runtime path on the current tip.
 - A canonical workspace-local live proof harness now exists at `scripts/proofs/prove_workspace_obsidian_e2e.py`; it validates the supported local Compose path only and does not widen the release promise to other install modes.
 
 - Do not assume any unmerged branch work is shipped.
@@ -35,26 +37,22 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 - Do not assume release readiness if the live runtime posture has not been rechecked.
 - Do not assume coding-result ingestion alone means the full release path is validated.
 
-- The live backend posture still needs confirmation against the supported local-only profile before release signoff.
-- Fresh live evidence still needs to cover the supported beta path on the exact current `main` tip.
-- Any runtime mismatch between supported profile, catalog, and health surfaces remains a release hold.
-- The new coding-result ingestion path still needs live verification before it can count as release proof.
+- The live backend posture is now confirmed against the supported local-only profile on the current `main` tip.
+- Fresh live evidence now covers the supported beta path on the exact current `main` tip.
+- Any future runtime mismatch between supported profile, catalog, and health surfaces would still be a release hold, but the 2026-05-05 proof window did not show one.
+- The coding-result return path now has fresh live verification on the current tip.
 
 ## This week's priorities
-1. Re-run live supported-path proof on the current `main` tip.
-2. Confirm the backend is in the supported local-only posture.
-3. Verify chat completion, retrieval posture, and upload -> embed -> retrieve on the live stack.
-4. Exercise the coding-result return path end to end on the live stack.
-5. Re-check the provider catalog and health surfaces against the supported profile.
-6. Run the workspace-local live proof harness before treating `retrievalSource="workspace"` as release-evidenced.
+1. Keep the fresh supported-path proof artifact synchronized with future runtime changes.
+2. Watch for any future drift between supported-profile, catalog, and health surfaces.
+3. Preserve the proven coding-result return path and runtime-target contract under regression protection.
 
 ## Release definition right now
-- [ ] Supported-profile flags match the beta contract on the live runtime.
-- [ ] Fresh live evidence exists on the current `main` tip for the supported path.
-- [ ] Chat, retrieval, and upload/embedding behavior are proven on the live stack.
-- [ ] Coding results return through Guardian into the source thread without duplicate delivery.
-- [ ] Catalog, health, and provider posture agree with the supported profile.
-- [ ] The workspace-local live proof harness passes on the supported local Compose path.
+- [x] Supported-profile flags match the beta contract on the live runtime.
+- [x] Fresh live evidence exists on the current `main` tip for the supported path.
+- [x] Chat, retrieval, and upload/embedding behavior are proven on the live stack.
+- [x] Coding results return through Guardian into the source thread without duplicate delivery.
+- [x] Catalog, health, and provider posture agree with the supported profile.
 - [ ] No internal-only or quarantined surface is part of the release claim.
 
 ## How to read the rest of the KB
