@@ -9,6 +9,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import CheckConstraint
 
+from guardian.agents.coding_agent_contracts import (
+    CodingAgentPermissionPolicy,
+    CodingAgentTaskEnvelope,
+)
 from guardian.agents.events import AgentEventPublisher
 from guardian.agents.store import AgentStore
 from guardian.db.models import AgentEvent, AgentRun
@@ -352,6 +356,64 @@ def test_start_run_terminal_runtime_target_is_persisted_and_emitted(
     }
     assert dict(run_events)["created"] == expected
     assert dict(run_events)["started"] == expected
+
+
+@pytest.mark.asyncio
+async def test_execute_coding_task_preserves_source_thread_lineage(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    captured_payloads: list[dict[str, Any]] = []
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.enqueue_coding_execution",
+        lambda payload: captured_payloads.append(dict(payload)),
+    )
+
+    envelope = CodingAgentTaskEnvelope(
+        coding_task_id="coding-task-123",
+        thread_id="42",
+        source_message_id="99",
+        attempt_id="attempt-7",
+        user_id="local-user",
+        project_id=17,
+        adapter_kind="pi_sdk",
+        instructions="Patch the failing seam.",
+        repo_root="/workspace/repo",
+        context_summary="source thread summary",
+        permission_policy=CodingAgentPermissionPolicy(
+            allow_shell=True,
+            allow_network=False,
+            allow_write=True,
+            allowed_paths=("/workspace/repo",),
+            max_runtime_seconds=60,
+        ),
+    )
+
+    result = await agent_orchestration.execute_coding_task(envelope)
+
+    assert result["ok"] is True
+    assert captured_payloads
+    payload = captured_payloads[0]
+    assert payload["thread_id"] == 42
+    assert payload["source_thread_id"] == 42
+    assert payload["source_message_id"] == 99
+    assert payload["user_id"] == "local-user"
+    assert payload["project_id"] == 17
+
+    deployment = local_store.get_deployment(result["deployment_id"])
+    assert deployment is not None
+    assert deployment["thread_id"] == 42
+    assert deployment["spec_json"]["source_thread_id"] == 42
+    assert deployment["spec_json"]["source_message_id"] == 99
+    assert deployment["spec_json"]["user_id"] == "local-user"
+    assert deployment["spec_json"]["project_id"] == 17
 
 
 def test_start_run_rejects_invalid_runtime_target(monkeypatch) -> None:

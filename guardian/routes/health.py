@@ -32,6 +32,7 @@ from guardian.core.llm_catalog import build_llm_catalog
 from guardian.core.provider_registry import (
     normalize_provider,
     resolve_provider_capability,
+    supported_profile_posture,
 )
 from guardian.core.provider_truth import build_provider_truth
 
@@ -80,6 +81,22 @@ def _health_response(
     if http_status is None:
         return payload
     return JSONResponse(status_code=http_status, content=payload)
+
+
+def _sanitize_supported_profile_state(
+    supported_profile: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if supported_profile is None:
+        return None
+    return {
+        "name": supported_profile.get("name"),
+        "version": supported_profile.get("version"),
+        "surface": supported_profile.get("surface"),
+        "valid": supported_profile.get("valid"),
+        "mismatches": list(supported_profile.get("mismatches") or []),
+        "routes": dict(supported_profile.get("routes") or {}),
+        "criticality": dict(supported_profile.get("criticality") or {}),
+    }
 
 
 def _resolve_llm_health_endpoints() -> list[str]:
@@ -491,10 +508,27 @@ def _collect_completion_service_health() -> dict[str, object]:
 @router.get("/health")
 def health(request: Request):
     """Base health check endpoint for system-level monitoring."""
+    from guardian.core.config import get_settings
+
     details: dict[str, object] = {}
     supported_profile = getattr(request.app.state, "supported_profile", None)
+    supported_profile_posture_state = supported_profile_posture(get_settings())
     if supported_profile is not None:
-        details["supported_profile"] = supported_profile
+        details["supported_profile"] = {
+            **_sanitize_supported_profile_state(supported_profile),
+            "cloud_capable_configuration_present": supported_profile_posture_state[
+                "cloud_capable_configuration_present"
+            ],
+            "selected_provider": supported_profile_posture_state[
+                "selected_provider"
+            ],
+            "selected_provider_supported": supported_profile_posture_state[
+                "selected_provider_supported"
+            ],
+            "release_hold": supported_profile_posture_state["release_hold"],
+        }
+    elif supported_profile_posture_state.get("name") is not None:
+        details["supported_profile"] = supported_profile_posture_state
     return _health_response("core", "ok", details)
 
 
@@ -519,10 +553,15 @@ def health_llm():
         get_settings,
         validate_llm_config,
     )
+    from guardian.guardian_api import app as guardian_app
 
     settings = get_settings()
     provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
     provider_runtime = dict(resolve_provider_capability(provider, settings))
+    supported_profile_state = _sanitize_supported_profile_state(
+        getattr(guardian_app.state, "supported_profile", None)
+    )
+    supported_profile_posture_state = supported_profile_posture(settings)
     model = str(provider_runtime.get("default_model") or "").strip()
     completion_service = _collect_completion_service_health()
     local_model_resolution = None
@@ -546,6 +585,25 @@ def health_llm():
         "model": model,
         "provider_runtime": provider_runtime,
         "completion_service": completion_service,
+        "supported_profile": (
+            {
+                **supported_profile_state,
+                "cloud_capable_configuration_present": supported_profile_posture_state[
+                    "cloud_capable_configuration_present"
+                ],
+                "selected_provider": supported_profile_posture_state[
+                    "selected_provider"
+                ],
+                "selected_provider_supported": supported_profile_posture_state[
+                    "selected_provider_supported"
+                ],
+                "release_hold": supported_profile_posture_state[
+                    "release_hold"
+                ],
+            }
+            if supported_profile_state is not None
+            else supported_profile_posture_state
+        ),
     }
     if local_model_resolution is not None:
         payload["model_resolution"] = local_model_resolution.as_dict()

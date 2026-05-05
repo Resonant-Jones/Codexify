@@ -55,6 +55,14 @@ def _stable_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _coerce_optional_positive_int(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 class AgentPlanRequest(BaseModel):
     prompt: str = Field(min_length=1)
     thread_id: int | None = None
@@ -174,7 +182,14 @@ async def execute_coding_task(
         thread_id=int(envelope.thread_id) if envelope.thread_id else None,
         spec_json={
             "coding_task_id": envelope.coding_task_id,
-            "source_message_id": envelope.source_message_id,
+            "source_thread_id": int(envelope.thread_id)
+            if envelope.thread_id
+            else None,
+            "source_message_id": _coerce_optional_positive_int(
+                envelope.source_message_id
+            ),
+            "user_id": envelope.user_id,
+            "project_id": envelope.project_id,
             "attempt_id": envelope.attempt_id,
             "instructions": envelope.instructions,
             "repo_root": envelope.repo_root,
@@ -231,7 +246,14 @@ async def execute_coding_task(
         "coding_task_id": envelope.coding_task_id,
         "attempt_id": envelope.attempt_id,
         "thread_id": int(envelope.thread_id) if envelope.thread_id else None,
-        "source_message_id": envelope.source_message_id,
+        "source_message_id": _coerce_optional_positive_int(
+            envelope.source_message_id
+        ),
+        "source_thread_id": int(envelope.thread_id)
+        if envelope.thread_id
+        else None,
+        "user_id": envelope.user_id,
+        "project_id": envelope.project_id,
         "origin": "coding_execute_route",
     }
     enqueue_coding_execution(task_payload)
