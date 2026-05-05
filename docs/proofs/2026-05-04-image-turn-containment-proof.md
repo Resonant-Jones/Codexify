@@ -161,3 +161,86 @@ FAIL
 
 - The live blockers identified in the previous rerun are now addressed in code and covered by regression tests.
 - A fresh live rerun should now be able to validate whether containment is machine-readably proven on the supported path.
+
+## Rerun — after 8093953 containment promotion fix
+
+FAIL
+
+### Environment
+
+- Branch: `main`
+- HEAD: `809395304f1fce95ef06e5a6bc0d08f263b131f6`
+- Runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- Services refreshed: `docker compose up -d --no-deps backend worker-chat`
+
+### Health evidence summary
+
+- `GET /health` returned `status: ok`.
+- `GET /health/chat` returned a healthy local runtime with provider `local`, model `library2/ministral-3:8b`, and a fresh worker heartbeat.
+- `GET /api/health/llm` returned `status: ok` / `online` and reported `model_resolution.source: LOCAL_CHAT_MODEL`.
+- `GET /api/llm/catalog` returned successfully from the live local runtime.
+
+### Thread setup
+
+- Thread A id: `31`
+- Thread A refusal message id: `66`
+- Thread A refusal text: `I can't view the image.`
+- Thread B id: `32`
+- Thread B user message id: `68`
+- Thread B assistant message id: `69`
+- Thread B task id: `f843036c-fac6-4079-a6a7-d16965a25d6c`
+- Thread B turn id: `fed497ef-d80c-43a1-8c66-3e322bf28c02`
+- Thread B image payload marker: `<!-- cfy-media-src:/media/images/20260505-fb63c1ef--test.jpg?sig=-VGr0RX9AbSCFoDZNX62BqXE6_-FjVEFrj3kvqWS5IQ -->`
+
+### Model-selection evidence
+
+- Requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- Final provider/model: `local` / `medgemma:4b-it-q8_0`
+- `selection_source`: `explicit`
+- `policy_reason`: `explicit`
+- `fallback_reason`: `null`
+- `model_resolution.message`: `null`
+- The requested local vision-capable override was honored on the live path, so there was no substitution reason to report.
+
+### Image-routing evidence
+
+- The assistant response on Thread B was refusal-like, but it was not the seeded Thread A refusal text.
+- `image_routing_path` in the persisted eval snapshot and assistant metadata was `null`.
+- `image_routing_absence_reason` in the persisted eval snapshot and assistant metadata was `null`.
+- `assistant_vision_refusal_on_image_turn` did not appear in the persisted trace for this run.
+- Image interpretation fidelity was not established from the live evidence.
+
+### RAG/debug trace evidence
+
+- The task completed event was present in the live task-event stream and carried a nested trace payload.
+- The nested task trace and the persisted eval snapshot both contained:
+  - `retrieval_policy`
+  - `retrieval_provenance`
+  - `retrieval_suppression`
+  - `retrieval_executed`
+  - `retrieval_absence_reason`
+  - `model_selection`
+- `retrieval_policy` resolved to the project posture with widening enabled.
+- `retrieval_provenance` reported `requested_source_mode: project`, `normalized_source_mode: project`, `retrieval_status: no_obsidian_results`, and a nonzero semantic hit count from the current thread context.
+- `retrieval_suppression` reported an empty suppression list and `total_suppressed: 0`.
+- The live `GET /api/chat/debug/rag-trace/32/latest` response returned the promoted snapshot and did not report `trace_unavailable_reason`.
+- Thread A refusal text did not appear in Thread B messages, task events, persisted eval snapshot content, or the rag-trace response.
+- The public live debug route now exposes the containment-grade retrieval fields from the persisted snapshot, but containment is still not machine-readably proven end-to-end because image-routing truth remains null/null.
+
+### Result interpretation
+
+- Model selection is explained machine-readably and now honors the requested local vision-capable override.
+- Image routing truth is still incomplete because the supported image turn did not record a non-null `image_routing_path` or `image_routing_absence_reason`.
+- Containment is **not** machine-readably proven on the live supported path.
+
+### Limitations
+
+- RAG trace remains transient and the public route still depends on the latest persisted snapshot rather than a durable forensic store.
+- No durable forensic store was introduced.
+- The separate Compose migrator issue remains outside this task.
+- The frontend Vitest blocker remains outside this task.
+
+### Follow-up recommendations
+
+- Rerun after the image-routing branch records a non-null routing path or absence reason for supported image turns.
+- Keep the promoted rag-trace surface aligned with the persisted snapshot so future proofs stay machine-readable.
