@@ -257,6 +257,11 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+### Remediation Note
+- Live follow-up verification showed the worker did persist an `eval_trace_snapshots` row for thread `21`, and `GET /api/chat/debug/evals/21/latest` plus `GET /api/chat/debug/rag-trace/21/latest` both returned the snapshot once the completion had settled.
+- That means the remaining failure mode was proof timing, not a missing persistence path.
+- The proof is ready to rerun against a fresh completion thread if the goal is to re-capture the containment evidence with the now-visible snapshot lane.
+
 ## Rerun — after 65a2e12e model substitution truth fix
 
 ### Result
