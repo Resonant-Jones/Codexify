@@ -147,7 +147,7 @@ def test_vision_capable_image_turn_proceeds_to_provider_ready_assembly(
     )
 
     summary = result["payload_summary"]
-    assert summary["image_routing_path"] == "vlm"
+    assert summary["image_routing_path"] == "native_multimodal_vision"
     assert summary["image_attachment_count"] == 1
     assert summary["derived_image_context_injected"] is False
 

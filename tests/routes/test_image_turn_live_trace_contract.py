@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from guardian.core.dependencies import RequestUserScope
+from guardian.protocol_tokens import ImageRoutingPath
 from guardian.routes import chat
 
 
@@ -255,7 +256,7 @@ def test_live_rag_trace_promotes_containment_fields(monkeypatch):
                 "retrieval_suppression": retrieval_suppression,
                 "retrieval_executed": True,
                 "retrieval_absence_reason": None,
-                "image_routing_path": "vlm",
+                "image_routing_path": ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
                 "image_routing_absence_reason": None,
                 "model_selection": model_selection,
                 "source_mode": "project",
@@ -267,7 +268,7 @@ def test_live_rag_trace_promotes_containment_fields(monkeypatch):
                 "retrieval_suppression": retrieval_suppression,
                 "retrieval_executed": True,
                 "retrieval_absence_reason": None,
-                "image_routing_path": "vlm",
+                "image_routing_path": ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
                 "image_routing_absence_reason": None,
                 "model_selection": model_selection,
                 "source_mode": "project",
@@ -281,7 +282,8 @@ def test_live_rag_trace_promotes_containment_fields(monkeypatch):
     assert trace["retrieval_policy"] == retrieval_policy
     assert trace["retrieval_provenance"] == retrieval_provenance
     assert trace["retrieval_suppression"] == retrieval_suppression
-    assert trace["image_routing_path"] == "vlm"
+    assert trace["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    assert trace["image_routing_absence_reason"] is None
     assert trace["retrieval_executed"] is True
     assert trace["model_selection"] == model_selection
     assert trace["payload_summary"]["model_selection"] == model_selection

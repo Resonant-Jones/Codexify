@@ -244,3 +244,9 @@ FAIL
 
 - Rerun after the image-routing branch records a non-null routing path or absence reason for supported image turns.
 - Keep the promoted rag-trace surface aligned with the persisted snapshot so future proofs stay machine-readable.
+
+### Remediation note after native image-routing truth fix
+
+- Native vision-capable image turns now stamp `image_routing_path: native_multimodal_vision` when the provider-ready payload still carries image content.
+- When the runtime cannot confirm image payload routing for a vision-capable model, it now stamps `image_routing_absence_reason: vision_model_selected_but_image_payload_not_routed`.
+- The proof is ready to rerun once the refreshed services are live.

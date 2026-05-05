@@ -56,6 +56,7 @@ from guardian.core.ai_router import (
     chat_with_ai,
     normalize_completion_output,
     resolve_model_vision_capability_state,
+    messages_contain_image_payload,
     stream_local,
 )
 from guardian.core.candidate_trace_store import store_candidate_trace
@@ -78,6 +79,7 @@ from guardian.core.provider_registry import (
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
     ErrorCode,
+    ImageRoutingPath,
     LoopStopReason,
     ToolLoopStopReason,
     ToolTurnState,
@@ -1549,7 +1551,9 @@ def _apply_image_attachment_routing(
             "role": "user",
             "content": build_openai_vision_content(text, image_urls),
         }
-        routing_meta["image_routing_path"] = "vlm"
+        routing_meta["image_routing_path"] = (
+            ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+        )
         return updated, routing_meta
 
     interpretations = _interpret_image_attachments(
@@ -1613,7 +1617,78 @@ def _image_routing_absence_reason(
             TraceSnapshotAbsenceReason
             .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
         )
+    if resolve_model_vision_capability_state(
+        provider,
+        resolved_model or normalized_resolved_model or "",
+        settings,
+    ) is True:
+        return (
+            TraceSnapshotAbsenceReason
+            .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
+        )
     return TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+
+
+def _resolve_image_routing_trace(
+    *,
+    messages_for_llm: list[dict[str, Any]],
+    routing_meta: dict[str, Any],
+    provider: str,
+    model: str,
+    requested_model: str | None,
+    settings: Any,
+) -> tuple[str | None, str | None]:
+    image_attachment_count = int(
+        routing_meta.get("image_attachment_count", 0) or 0
+    )
+    if image_attachment_count <= 0:
+        return None, TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+
+    raw_path = str(routing_meta.get("image_routing_path") or "").strip().lower()
+    provider_ready_image_payload_present = messages_contain_image_payload(
+        messages_for_llm
+    )
+    vision_support_state = resolve_model_vision_capability_state(
+        provider,
+        model,
+        settings,
+    )
+
+    if raw_path in {
+        ImageRoutingPath.INTERPRETER.value,
+        ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
+    }:
+        if raw_path == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value:
+            if provider_ready_image_payload_present:
+                return ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value, None
+            return (
+                None,
+                TraceSnapshotAbsenceReason
+                .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value,
+            )
+        return ImageRoutingPath.INTERPRETER.value, None
+
+    if provider_ready_image_payload_present and vision_support_state is True:
+        return ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value, None
+
+    if vision_support_state is True:
+        return (
+            None,
+            TraceSnapshotAbsenceReason
+            .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value,
+        )
+
+    return (
+        None,
+        _image_routing_absence_reason(
+            image_attachment_count=image_attachment_count,
+            image_routing_path=raw_path or None,
+            provider=provider,
+            requested_model=requested_model,
+            resolved_model=model,
+            settings=settings,
+        ),
+    )
 
 
 def build_sanitized_payload_summary(
@@ -2699,32 +2774,6 @@ async def build_messages_for_llm(
     image_attachment_count = len(
         _image_attachments_from_meta(latest_user_attachment_meta)
     )
-    image_routing_path = None
-    image_routing_absence_reason = None
-    if isinstance(trace, dict):
-        image_routing_path = trace.get("image_routing_path")
-        if (
-            isinstance(image_routing_path, str)
-            and image_routing_path.strip().lower() == "none"
-        ):
-            image_routing_path = None
-        trace["image_routing_path"] = image_routing_path
-        trace["image_attachment_count"] = image_attachment_count
-        if image_attachment_count <= 0:
-            image_routing_absence_reason = (
-                TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
-            )
-        elif (
-            trace.get("image_routing_absence_reason") is None
-            and image_routing_path is None
-        ):
-            image_routing_absence_reason = (
-                TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
-            )
-        else:
-            image_routing_absence_reason = trace.get("image_routing_absence_reason")
-        trace["image_routing_absence_reason"] = image_routing_absence_reason
-
     retrieval_policy = None
     retrieval_executed = None
     retrieval_absence_reason = None
@@ -2781,10 +2830,10 @@ async def build_messages_for_llm(
                             if isinstance(item, dict)
                         ]
                     )
-        if retained_result_count <= 0:
-            retrieval_absence_reason = (
-                TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
-            )
+    if retained_result_count <= 0:
+        retrieval_absence_reason = (
+            TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
+        )
 
     if isinstance(trace, dict):
         trace["retrieval_policy"] = retrieval_policy
@@ -2792,17 +2841,11 @@ async def build_messages_for_llm(
         trace["retrieval_suppression"] = dict(retrieval_suppression)
         trace["retrieval_executed"] = retrieval_executed
         trace["retrieval_absence_reason"] = retrieval_absence_reason
-        trace["image_routing_path"] = image_routing_path
-        trace["image_routing_absence_reason"] = image_routing_absence_reason
     payload_summary["retrieval_policy"] = retrieval_policy
     payload_summary["retrieval_provenance"] = retrieval_provenance
     payload_summary["retrieval_suppression"] = dict(retrieval_suppression)
     payload_summary["retrieval_executed"] = retrieval_executed
     payload_summary["retrieval_absence_reason"] = retrieval_absence_reason
-    payload_summary["image_routing_path"] = image_routing_path
-    payload_summary["image_routing_absence_reason"] = (
-        image_routing_absence_reason
-    )
 
     messages_for_llm.extend(retrieved_context_messages)
     messages_for_llm.extend(context)
@@ -3170,6 +3213,19 @@ def run_chat_completion_task(
         settings=settings,
     )
     routing_debug_metadata = _task_routing_debug_metadata(task)
+    image_routing_path = None
+    image_routing_absence_reason = None
+    if isinstance(trace, dict):
+        image_routing_path, image_routing_absence_reason = (
+            _resolve_image_routing_trace(
+                messages_for_llm=messages_for_llm,
+                routing_meta=routing_meta,
+                provider=provider,
+                model=model,
+                requested_model=getattr(task, "requested_model", None),
+                settings=settings,
+            )
+        )
 
     payload_summary = build_sanitized_payload_summary(
         messages_for_llm,
@@ -3180,19 +3236,8 @@ def run_chat_completion_task(
     )
     payload_summary.update(
         {
-            "image_routing_path": routing_meta.get("image_routing_path"),
-            "image_routing_absence_reason": (
-                _image_routing_absence_reason(
-                    image_attachment_count=routing_meta.get(
-                        "image_attachment_count", 0
-                    ),
-                    image_routing_path=routing_meta.get("image_routing_path"),
-                    provider=provider,
-                    requested_model=getattr(task, "requested_model", None),
-                    resolved_model=model,
-                    settings=settings,
-                )
-            ),
+            "image_routing_path": image_routing_path,
+            "image_routing_absence_reason": image_routing_absence_reason,
             "image_attachment_count": routing_meta.get(
                 "image_attachment_count", 0
             ),
@@ -3204,22 +3249,11 @@ def run_chat_completion_task(
     payload_summary.update(routing_debug_metadata)
     if isinstance(trace, dict):
         trace = dict(trace)
-        trace["image_routing_path"] = routing_meta.get("image_routing_path")
+        trace["image_routing_path"] = image_routing_path
         trace["image_attachment_count"] = routing_meta.get(
             "image_attachment_count", 0
         )
-        trace["image_routing_absence_reason"] = payload_summary.get(
-            "image_routing_absence_reason"
-        ) or _image_routing_absence_reason(
-            image_attachment_count=routing_meta.get(
-                "image_attachment_count", 0
-            ),
-            image_routing_path=routing_meta.get("image_routing_path"),
-            provider=provider,
-            requested_model=getattr(task, "requested_model", None),
-            resolved_model=model,
-            settings=settings,
-        )
+        trace["image_routing_absence_reason"] = image_routing_absence_reason
     trace_source_mode = (
         trace.get("source_mode") if isinstance(trace, dict) else None
     )
