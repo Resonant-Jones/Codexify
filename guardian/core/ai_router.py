@@ -1157,6 +1157,15 @@ def resolve_local_execution_model(
         resolved,
         requested_model=requested_model,
     )
+    substitution_reason = None
+    if strict and requested:
+        configured_preview = candidates[0][0] if candidates else ""
+        if configured_preview and requested != configured_preview:
+            substitution_reason = (
+                f"requested model '{requested}' was overridden by "
+                f"configured local chat model '{configured_preview}' from "
+                "LOCAL_CHAT_MODEL"
+            )
     if not candidates:
         source_name = "LOCAL_CHAT_MODEL" if strict else "local_model"
         return LocalModelResolution(
@@ -1194,16 +1203,19 @@ def resolve_local_execution_model(
             if normalized
         }
         if strict and configured_model not in available_models:
+            message = (
+                f"Configured local chat model '{configured_model}' from "
+                f"{source} is not advertised by the reachable local runtime"
+            )
+            if substitution_reason:
+                message = f"{message} {substitution_reason}"
             return LocalModelResolution(
                 model=configured_model,
                 source=source,
                 strict=strict,
                 requested_model=requested or None,
                 failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
-                message=(
-                    f"Configured local chat model '{configured_model}' from "
-                    f"{source} is not advertised by the reachable local runtime"
-                ),
+                message=message,
                 endpoint_resolution=resolved_endpoint,
             )
         if not strict:
@@ -1234,6 +1246,7 @@ def resolve_local_execution_model(
         source=source,
         strict=strict,
         requested_model=requested or None,
+        message=substitution_reason,
         endpoint_resolution=resolved_endpoint,
     )
 

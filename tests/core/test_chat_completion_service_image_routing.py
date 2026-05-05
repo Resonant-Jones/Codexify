@@ -33,7 +33,16 @@ def _seed_common(monkeypatch: pytest.MonkeyPatch, *, provider: str, model: str):
         def __init__(self, *args, **kwargs):
             pass
 
-        async def assemble(self, thread_id, query, depth_mode, user_id):
+        async def assemble(
+            self,
+            thread_id,
+            query,
+            depth_mode,
+            user_id,
+            retrieval_policy=None,
+            **kwargs,
+        ):
+            _ = (retrieval_policy, kwargs)
             return {}, None
 
     settings = SimpleNamespace(
@@ -98,7 +107,7 @@ def _seed_common(monkeypatch: pytest.MonkeyPatch, *, provider: str, model: str):
         raising=False,
     )
 
-    return mock_chatlog_db
+    return mock_chatlog_db, settings
 
 
 def test_image_routing_vlm_builds_multimodal_payload(
@@ -313,7 +322,11 @@ def test_image_routing_local_model_substitution_is_machine_readable(
         strict = True
         requested_model = "medgemma:4b-it-q8_0"
         failure_kind = None
-        message = "configured local chat model selected from LOCAL_CHAT_MODEL"
+        message = (
+            "requested model 'medgemma:4b-it-q8_0' was overridden by "
+            "configured local chat model 'library2/ministral-3:8b' from "
+            "LOCAL_CHAT_MODEL"
+        )
         endpoint_resolution = None
 
         def as_dict(self):
@@ -353,7 +366,9 @@ def test_image_routing_local_model_substitution_is_machine_readable(
     assert summary["final_model"] == "library2/ministral-3:8b"
     assert summary["selection_source"] == "LOCAL_CHAT_MODEL"
     assert summary["fallback_reason"] == (
-        "configured local chat model selected from LOCAL_CHAT_MODEL"
+        "requested model 'medgemma:4b-it-q8_0' was overridden by "
+        "configured local chat model 'library2/ministral-3:8b' from "
+        "LOCAL_CHAT_MODEL"
     )
     assert summary["model_selection"]["requested_model"] == (
         "medgemma:4b-it-q8_0"
@@ -364,6 +379,87 @@ def test_image_routing_local_model_substitution_is_machine_readable(
     assert summary["model_selection"]["policy_reason"] == "LOCAL_CHAT_MODEL"
     assert summary["model_selection"]["model_resolution"]["source"] == (
         "LOCAL_CHAT_MODEL"
+    )
+
+
+def test_image_routing_local_only_reports_requested_override_reason(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _, settings = _seed_common(
+        monkeypatch, provider="local", model="library2/ministral-3:8b"
+    )
+    settings.CODEXIFY_LOCAL_ONLY_MODE = True
+    settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
+    settings.LOCAL_CHAT_MODEL = "library2/ministral-3:8b"
+    settings.DEFAULT_LOCAL_MODEL = "library2/ministral-3:8b"
+    settings.LLM_MODEL = "library2/ministral-3:8b"
+
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "ENABLE_BLIP_MODEL",
+        True,
+        raising=False,
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_caption_image_with_local_blip",
+        lambda _src: "a green hill with clouds",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_caption_image_with_groq_vision",
+        lambda *args, **kwargs: pytest.fail(
+            "cloud fallback should not be used when local BLIP is available"
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def _capture_stream(messages, model, **kwargs):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        return "yes, I do see the image of green hills and floating clouds."
+
+    monkeypatch.setattr(chat_completion_service, "stream_local", _capture_stream)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: pytest.fail(
+            "local caption fallback should use stream_local, not chat_with_ai"
+        ),
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="medgemma:4b-it-q8_0",
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    summary = result["payload_summary"]
+    assert summary["requested_model"] == "medgemma:4b-it-q8_0"
+    assert summary["final_model"] == "library2/ministral-3:8b"
+    assert summary["selection_source"] == "LOCAL_CHAT_MODEL"
+    assert summary["fallback_reason"] == (
+        "requested model 'medgemma:4b-it-q8_0' was overridden by "
+        "configured local chat model 'library2/ministral-3:8b' from "
+        "LOCAL_CHAT_MODEL"
+    )
+    assert summary["model_selection"]["requested_model"] == (
+        "medgemma:4b-it-q8_0"
+    )
+    assert summary["model_selection"]["final_model"] == (
+        "library2/ministral-3:8b"
+    )
+    assert summary["model_selection"]["policy_reason"] == "LOCAL_CHAT_MODEL"
+    assert summary["model_selection"]["model_resolution"]["message"] == (
+        summary["fallback_reason"]
     )
 
 

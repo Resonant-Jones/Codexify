@@ -238,11 +238,21 @@ def test_rag_trace_promotes_eval_snapshot_truth_from_real_row_shape(monkeypatch)
                     "requested_model": "medgemma:4b-it-q8_0",
                     "final_model": "library2/ministral-3:8b",
                     "selection_source": "LOCAL_CHAT_MODEL",
+                    "fallback_reason": (
+                        "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                        "configured local chat model 'library2/ministral-3:8b' from "
+                        "LOCAL_CHAT_MODEL"
+                    ),
                     "model_resolution": {
                         "requested_model": "medgemma:4b-it-q8_0",
                         "model": "library2/ministral-3:8b",
                         "source": "LOCAL_CHAT_MODEL",
                         "strict": False,
+                        "message": (
+                            "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                            "configured local chat model 'library2/ministral-3:8b' from "
+                            "LOCAL_CHAT_MODEL"
+                        ),
                     },
                     "retrieval_provenance": {
                         "requested_source_mode": "project",
@@ -287,6 +297,11 @@ def test_rag_trace_promotes_eval_snapshot_truth_from_real_row_shape(monkeypatch)
     assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
     assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
     assert trace["completion"]["selection_source"] == "LOCAL_CHAT_MODEL"
+    assert trace["completion"]["fallback_reason"] == (
+        "requested model 'medgemma:4b-it-q8_0' was overridden by "
+        "configured local chat model 'library2/ministral-3:8b' from "
+        "LOCAL_CHAT_MODEL"
+    )
     assert trace["model_selection"]["policy_reason"] == "LOCAL_CHAT_MODEL"
     assert "trace_unavailable_reason" not in trace
 
@@ -312,12 +327,21 @@ def test_rag_trace_exposes_completion_metadata(monkeypatch):
         "final_provider": "local",
         "final_model": "library2/ministral-3:8b",
         "selection_source": "LOCAL_LLM_MODEL",
-        "fallback_reason": None,
+        "fallback_reason": (
+            "requested model 'medgemma:4b-it-q8_0' was overridden by "
+            "configured local chat model 'library2/ministral-3:8b' from "
+            "LOCAL_CHAT_MODEL"
+        ),
         "model_resolution": {
             "requested_model": "medgemma:4b-it-q8_0",
             "model": "library2/ministral-3:8b",
             "source": "LOCAL_LLM_MODEL",
             "strict": False,
+            "message": (
+                "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                "configured local chat model 'library2/ministral-3:8b' from "
+                "LOCAL_CHAT_MODEL"
+            ),
         },
         "model_selection": {
             "requested_provider": "local",
@@ -330,11 +354,21 @@ def test_rag_trace_exposes_completion_metadata(monkeypatch):
             "final_model": "library2/ministral-3:8b",
             "selection_source": "LOCAL_LLM_MODEL",
             "policy_reason": "LOCAL_LLM_MODEL",
+            "fallback_reason": (
+                "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                "configured local chat model 'library2/ministral-3:8b' from "
+                "LOCAL_CHAT_MODEL"
+            ),
             "model_resolution": {
                 "requested_model": "medgemma:4b-it-q8_0",
                 "model": "library2/ministral-3:8b",
                 "source": "LOCAL_LLM_MODEL",
                 "strict": False,
+                "message": (
+                    "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                    "configured local chat model 'library2/ministral-3:8b' from "
+                    "LOCAL_CHAT_MODEL"
+                ),
             },
         },
         "retrieval_provenance": {
@@ -381,6 +415,11 @@ def test_rag_trace_exposes_completion_metadata(monkeypatch):
     assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
     assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
     assert trace["completion"]["selection_source"] == "LOCAL_LLM_MODEL"
+    assert trace["completion"]["fallback_reason"] == (
+        "requested model 'medgemma:4b-it-q8_0' was overridden by "
+        "configured local chat model 'library2/ministral-3:8b' from "
+        "LOCAL_CHAT_MODEL"
+    )
     assert trace["completion"]["model_resolution"]["source"] == (
         "LOCAL_LLM_MODEL"
     )

@@ -258,6 +258,12 @@ PY
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
 ### Remediation Note
+- The live runtime blocker that produced the previous failed rerun was a context-assembly `NameError` at `_normalize_source_mode`; the completion service now calls the imported `normalize_source_mode` helper directly.
+- The local model-selection path now emits a machine-readable substitution reason when strict local-only policy overrides an explicit requested model in favor of `LOCAL_CHAT_MODEL`.
+- The trace/debug route and the promoted eval snapshot shape remain unchanged by this task; the proof should be rerun against a refreshed runtime so the updated completion path can repopulate the live trace lanes.
+- This task makes the live image-turn containment proof ready to rerun, but it does not convert the earlier FAIL sections into PASS.
+
+### Remediation Note
 - The live trace blocker was the route reading the wrong eval snapshot shape; the backend now promotes `trace`, `payload_summary`, `retrieval_summary`, and `metadata` from the latest persisted eval snapshot into the public debug RAG trace surface.
 - The model-selection truth is already machine-readable in the live task/eval lanes as requested versus final model plus `selection_source` and `policy_reason`; the route now mirrors that truth when the snapshot exists.
 - This task makes the containment proof ready to rerun on the live supported path, but it does not rewrite the earlier FAIL result and it does not resolve the separate Compose migrator issue.
