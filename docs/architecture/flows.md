@@ -70,6 +70,12 @@ Acceptance semantics:
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
 
+Debug trace note:
+- The live `/api/chat/debug/rag-trace/{thread_id}/latest` route may surface sanitized trace availability, effective policy, retrieval summary/provenance, and image-routing metadata when a real trace exists.
+- Treat that route as diagnostic/operator evidence only; do not treat it as durable release proof.
+- Durable eval snapshots remain the stronger persistence-backed proof surface.
+- The debug route must not expose raw image or document content, hidden prompts, chain-of-thought, or secrets.
+
 Conceptual state split:
 - The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
 - Provider runtime state answers whether the selected provider lane is reachable, warming, ready, or otherwise degraded.
