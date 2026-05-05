@@ -52,8 +52,10 @@ from guardian.context.retrieval_router_policy import (
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
     build_openai_vision_content,
+    _image_turn_vision_unsupported_detail,
     chat_with_ai,
     normalize_completion_output,
+    resolve_model_vision_capability_state,
     stream_local,
 )
 from guardian.core.candidate_trace_store import store_candidate_trace
@@ -69,13 +71,13 @@ from guardian.core.config import (
 from guardian.core.llm_catalog import first_enabled_provider
 from guardian.core.provider_registry import (
     default_model_for_provider,
-    model_supports_capability,
     normalize_model_id,
     normalize_provider,
     resolve_provider_for_model,
 )
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
+    ErrorCode,
     LoopStopReason,
     ToolLoopStopReason,
     ToolTurnState,
@@ -1455,8 +1457,10 @@ def _apply_image_attachment_routing(
     if not image_attachments:
         return messages, routing_meta
 
-    supports_vision = model_supports_capability(
-        provider, model, "vision", settings
+    vision_support_state = resolve_model_vision_capability_state(
+        provider,
+        model,
+        settings,
     )
     last_user_index = _find_last_message_index(messages, "user")
     if last_user_index < 0:
@@ -1467,7 +1471,18 @@ def _apply_image_attachment_routing(
         for message in messages
     ]
 
-    if supports_vision:
+    if vision_support_state is False:
+        raise HTTPException(
+            status_code=400,
+            detail=_image_turn_vision_unsupported_detail(
+                provider=provider,
+                model=model,
+                image_attachment_count=image_attachment_count,
+                capability_state="unsupported",
+            ),
+        )
+
+    if vision_support_state is True:
         image_urls = [
             str(item.get("src") or "").strip() for item in image_attachments
         ]
@@ -1475,10 +1490,17 @@ def _apply_image_attachment_routing(
         if not image_urls:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    "Image attachments are missing source URLs; "
-                    "unable to route to a vision-capable model."
-                ),
+                detail={
+                    "error": "provider_request_failed",
+                    "error_code": ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value,
+                    "provider": provider,
+                    "model": model,
+                    "message": (
+                        "Image attachments are missing source URLs; "
+                        "unable to route to a vision-capable model."
+                    ),
+                    "image_attachment_count": image_attachment_count,
+                },
             )
         text = ""
         if isinstance(latest_user_meta, dict):
