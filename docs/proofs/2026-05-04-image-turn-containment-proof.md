@@ -55,3 +55,18 @@ PASS
 - This rerun passes on containment evidence.
 - The trace fix exposed a live eval snapshot and valid task-event-backed trace row shape.
 - The minimal rag-trace route still does not surface retrieval provenance or image-routing metadata on this run; the richer evidence lived in the task payload and eval snapshot instead.
+
+## Remediation note — trace content completeness fix
+
+- The completion and worker paths now populate containment-grade trace fields directly into the completed snapshot, including:
+  - `retrieval_policy`
+  - `retrieval_provenance`
+  - `retrieval_suppression`
+  - `retrieval_executed`
+  - `retrieval_absence_reason`
+  - `image_routing_path`
+  - `image_routing_absence_reason`
+  - `model_selection`
+- The debug rag-trace route can now promote those fields from the persisted snapshot instead of depending on an empty shell.
+- The image-turn containment proof is ready to rerun against the refreshed live path.
+- This note does not rewrite or replace earlier proof results; it only records the content-completeness remediation.

@@ -155,6 +155,14 @@ class EmbeddingLifecycleStatus(str, Enum):
     FAILED = "failed"
 
 
+class TraceSnapshotAbsenceReason(str, Enum):
+    TRACE_SOURCE_UNAVAILABLE = "trace_source_unavailable"
+    TRACE_SNAPSHOT_MISSING = "trace_snapshot_missing"
+    IMAGE_ROUTING_NOT_EVALUATED = "image_routing_not_evaluated"
+    RETRIEVAL_NOT_EXECUTED = "retrieval_not_executed"
+    RETRIEVAL_NO_CANDIDATES = "retrieval_no_candidates"
+
+
 ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in AcceptanceStatus}
 )
@@ -223,6 +231,9 @@ ERROR_CODES: frozenset[str] = frozenset(
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
+TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in TraceSnapshotAbsenceReason}
+)
 
 __all__ = [
     "AcceptanceStatus",
@@ -244,6 +255,7 @@ __all__ = [
     "DelegationEventType",
     "ErrorCode",
     "EmbeddingLifecycleStatus",
+    "TraceSnapshotAbsenceReason",
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
@@ -264,4 +276,5 @@ __all__ = [
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "TRACE_SNAPSHOT_ABSENCE_REASONS",
 ]

@@ -34,8 +34,10 @@ from guardian.protocol_tokens import (
     ExecutorReleasePosture,
     LoopStopReason,
     TaskEventType,
+    TraceSnapshotAbsenceReason,
     ToolLoopStopReason,
     ToolTurnState,
+    TRACE_SNAPSHOT_ABSENCE_REASONS,
 )
 
 
@@ -48,6 +50,31 @@ def test_acceptance_status_tokens() -> None:
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
+
+
+def test_trace_snapshot_absence_reason_tokens() -> None:
+    assert TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value == (
+        "trace_source_unavailable"
+    )
+    assert TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value == (
+        "trace_snapshot_missing"
+    )
+    assert TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value == (
+        "image_routing_not_evaluated"
+    )
+    assert TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value == (
+        "retrieval_not_executed"
+    )
+    assert TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value == (
+        "retrieval_no_candidates"
+    )
+    assert TRACE_SNAPSHOT_ABSENCE_REASONS == {
+        "trace_source_unavailable",
+        "trace_snapshot_missing",
+        "image_routing_not_evaluated",
+        "retrieval_not_executed",
+        "retrieval_no_candidates",
+    }
 
 
 def test_tool_turn_protocol_tokens() -> None:

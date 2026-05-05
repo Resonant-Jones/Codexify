@@ -297,3 +297,88 @@ def test_image_routing_fails_without_path(monkeypatch: pytest.MonkeyPatch):
         )
 
     assert "Image attachments present" in str(excinfo.value)
+
+
+def test_image_routing_snapshot_carries_containment_fields(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+
+    class _TracefulBroker:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def assemble(self, thread_id, query, depth_mode, user_id):
+            bundle = {
+                "semantic": [
+                    {
+                        "content": "I can't view the image.",
+                        "source_type": "semantic_context",
+                        "role": "assistant",
+                        "thread_id": thread_id,
+                        "project_id": 42,
+                        "retrieval_lane": "semantic",
+                        "score": 0.12,
+                        "policy_reason": (
+                            "assistant_vision_refusal_on_image_turn"
+                        ),
+                    }
+                ],
+                "docs": {"project": [], "thread": [], "global": []},
+                "graph": [],
+            }
+            trace = {
+                "effective_policy": {
+                    "source_mode": "project",
+                    "widening_enabled": True,
+                    "identity_scope": "project",
+                },
+                "retrieval_plan": {
+                    "retrieval_needed": True,
+                    "user_depth": "normal",
+                },
+                "source_mode": "project",
+                "widen_reason": "none",
+            }
+            return bundle, trace
+
+    monkeypatch.setattr(chat_completion_service, "ContextBroker", _TracefulBroker)
+
+    captured: dict[str, object] = {}
+
+    def _capture(messages, **kwargs):
+        captured["messages"] = messages
+        return "ok"
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
+
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["retrieval_policy"] == {
+        "source_mode": "project",
+        "widening_enabled": True,
+        "identity_scope": "project",
+    }
+    assert trace["retrieval_executed"] is True
+    assert trace["retrieval_absence_reason"] == "retrieval_no_candidates"
+    assert trace["retrieval_suppression"]["summary"] == {
+        "total_suppressed": 1,
+        "assistant_vision_refusal_on_image_turn": 1,
+    }
+    assert trace["retrieval_suppression"]["items"][0][
+        "suppression_reason"
+    ] == "assistant_vision_refusal_on_image_turn"
+    assert trace["image_routing_path"] == "vlm"
+    assert trace["image_routing_absence_reason"] is None
+    assert trace["model_selection"]["requested_provider"] == "openai"
+    assert trace["model_selection"]["requested_model"] == "gpt-4o"
+    assert trace["model_selection"]["final_provider"] == "openai"
+    assert trace["model_selection"]["final_model"] == "gpt-4o"
+    assert result["payload_summary"]["model_selection"] == trace["model_selection"]
