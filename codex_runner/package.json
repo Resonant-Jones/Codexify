@@ -9,8 +9,5 @@
     "compile": "node src/agent-wrapper.js compile",
     "task": "node src/agent-wrapper.js task"
   },
-  "dependencies": {
-    "@mariozechner/pi-coding-agent": "file:/Users/resonant_jones/.nvm/versions/node/v22.17.0/lib/node_modules/@mariozechner/pi-coding-agent",
-    "@mariozechner/pi-ai": "file:/Users/resonant_jones/.nvm/versions/node/v22.17.0/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai"
-  }
+  "dependencies": {}
 }

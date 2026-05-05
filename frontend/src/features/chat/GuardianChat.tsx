@@ -41,7 +41,7 @@ import api, {
   formatThreadIdResolutionDiagnostics,
   getInFlightCompletionTurnId,
   hasRequestAuthCredential,
-  invokeCommandBus,
+  dispatchGuardianIntent,
   moveChatThread,
   resolveBackendThreadIdFromResponse,
   type ThreadIdResolutionDiagnostics,
@@ -2222,39 +2222,90 @@ export function GuardianChat({
     async (threadId: number, profileId: string): Promise<boolean> => {
       setProfileSwitching(true);
       try {
-        const response = await invokeCommandBus({
-          invoke_version: "1.0",
-          command_id: PROFILE_SWITCH_COMMAND_ID,
+        const projectId =
+          activeThread.projectId != null ? Number(activeThread.projectId) : null;
+        const response = await dispatchGuardianIntent({
           actor: {
             kind: "human",
             id: COMMAND_BUS_ACTOR_ID,
           },
-          arguments: {
-            path_params: {
-              thread_id: threadId,
-            },
-            body: {
-              profile_id: profileId,
+          source_surface: "chat",
+          intent_kind: "command_bus.invoke",
+          target: {
+            command_id: PROFILE_SWITCH_COMMAND_ID,
+            idempotency_key: `chat-profile-switch:${threadId}:${profileId}`,
+            arguments: {
+              path_params: {
+                thread_id: threadId,
+              },
+              body: {
+                profile_id: profileId,
+              },
             },
           },
+          scope: {
+            thread_id: threadId,
+            project_id: Number.isFinite(projectId) ? projectId : null,
+            metadata: {
+              action: "profile_switch",
+            },
+          },
+          policy: {
+            approval_required: false,
+            allow_write_execution: true,
+            metadata: {
+              action: "profile_switch",
+            },
+          },
+          approval_state: "pending",
+          provenance_json: {
+            source: "chat.thread.actions",
+            action: "switch_profile",
+            thread_id: threadId,
+            profile_id: profileId,
+          },
+          receipt_ref: null,
         });
-        const result = (response?.inline_result ?? {}) as {
-          ok?: boolean;
-          error?: unknown;
-        };
-        if (response?.status !== "completed") {
+        const downstream = (
+          response?.downstream_result_json ?? {}
+        ) as Record<string, unknown>;
+        const downstreamInlineResult = (
+          downstream as {
+            inline_result?: unknown;
+          }
+        ).inline_result;
+        const inlineResult = (
+          downstreamInlineResult &&
+          typeof downstreamInlineResult === "object" &&
+          !Array.isArray(downstreamInlineResult)
+            ? (downstreamInlineResult as Record<string, unknown>)
+            : null
+        ) as { ok?: boolean; error?: unknown } | null;
+        if (response?.status === "blocked" || response?.status === "failed") {
           const detail =
-            typeof response?.error === "string"
-              ? response.error
-              : typeof result?.error === "string"
-                ? result.error
+            typeof response?.rejection_reason === "string"
+              ? response.rejection_reason
+              : typeof (downstream as { error?: unknown }).error === "string"
+                ? (downstream as { error?: string }).error
                 : "Profile switch failed";
           throw new Error(detail);
         }
-        if (result && result.ok === false) {
+        const downstreamStatus = String(
+          (downstream as { status?: unknown }).status ?? ""
+        )
+          .trim()
+          .toLowerCase();
+        if (downstreamStatus === "blocked" || downstreamStatus === "failed") {
           const detail =
-            typeof result.error === "string"
-              ? result.error
+            typeof (downstream as { error?: unknown }).error === "string"
+              ? (downstream as { error?: string }).error
+              : "Profile switch failed";
+          throw new Error(detail);
+        }
+        if (inlineResult && inlineResult.ok === false) {
+          const detail =
+            typeof inlineResult.error === "string"
+              ? inlineResult.error
               : "Profile switch failed";
           throw new Error(detail);
         }

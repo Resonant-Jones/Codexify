@@ -78,7 +78,12 @@ from guardian.depth import (
     resolve_depth,
 )
 from guardian.evals.spine import get_latest_eval_diagnostics
-from guardian.protocol_tokens import AcceptanceStatus, ErrorCode, TaskEventType
+from guardian.protocol_tokens import (
+    AcceptanceStatus,
+    ErrorCode,
+    TaskEventType,
+    TraceSnapshotAbsenceReason,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     QueueEnqueueError,
@@ -3839,6 +3844,7 @@ def get_latest_rag_trace(
     task_id = _thread_latest_task_id(thread_id, metadata)
     completed_payload: dict[str, Any] | None = None
     retrieval_provenance: dict[str, Any] | None = None
+    trace_unavailable_reason: str | None = None
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
         if isinstance(completed_payload, dict):
@@ -3870,6 +3876,10 @@ def get_latest_rag_trace(
                         thread_id,
                         task_id,
                         trace,
+                    )
+                else:
+                    trace_unavailable_reason = (
+                        TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value
                     )
     if isinstance(completed_payload, dict):
         payload_summary_value = completed_payload.get("payload_summary")
@@ -3948,13 +3958,25 @@ def get_latest_rag_trace(
                             retrieval_provenance_value
                         )
 
+    if trace is not None:
+        trace_unavailable_reason = None
+
     if not trace:
         trace = {"documents": [], "graph": []}
+        trace_unavailable_reason = trace_unavailable_reason or (
+            TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value
+        )
     else:
         trace["documents"] = _sanitize_rag_trace_entries(
             trace.get("documents")
         )
         trace["graph"] = _sanitize_rag_trace_entries(trace.get("graph"))
+        trace.setdefault("documents", [])
+        trace.setdefault("graph", [])
+        trace = _promote_trace_snapshot_contract(
+            trace,
+            payload_summary=payload_summary,
+        )
 
     if payload_summary is not None:
         trace["payload_summary"] = payload_summary
@@ -3990,6 +4012,8 @@ def get_latest_rag_trace(
     trace["effective_policy"] = effective_policy
     trace["retrieval_summary"] = retrieval_summary
     trace["image_routing"] = image_routing
+    if trace_unavailable_reason is not None:
+        trace["trace_unavailable_reason"] = trace_unavailable_reason
 
     if resolve_thread_system_profile and (
         profile_debug["active_profile_id"] is None
@@ -4046,7 +4070,60 @@ def _empty_eval_diagnostics(thread_id: int) -> dict[str, Any]:
         "thread_id": thread_id,
         "trace_snapshot": None,
         "verdicts": [],
+        "trace_unavailable_reason": TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value,
     }
+
+
+def _promote_trace_snapshot_contract(
+    trace: dict[str, Any],
+    *,
+    payload_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(trace, dict):
+        return {}
+
+    normalized = dict(trace)
+    payload_summary = dict(payload_summary or {})
+    nested_trace = normalized.get("trace")
+    if not isinstance(nested_trace, dict):
+        nested_trace = {}
+
+    for key in (
+        "retrieval_policy",
+        "retrieval_provenance",
+        "retrieval_suppression",
+        "retrieval_executed",
+        "retrieval_absence_reason",
+        "image_routing_path",
+        "image_routing_absence_reason",
+        "model_selection",
+    ):
+        if key not in normalized and key in payload_summary:
+            normalized[key] = payload_summary.get(key)
+        if key not in normalized and key in nested_trace:
+            normalized[key] = nested_trace.get(key)
+
+    if "retrieval_policy" not in normalized and isinstance(
+        normalized.get("effective_policy"), dict
+    ):
+        normalized["retrieval_policy"] = dict(normalized["effective_policy"])
+    if "retrieval_provenance" not in normalized:
+        retrieval_provenance = payload_summary.get("retrieval_provenance")
+        if isinstance(retrieval_provenance, dict):
+            normalized["retrieval_provenance"] = dict(retrieval_provenance)
+    if "retrieval_suppression" not in normalized:
+        retrieval_suppression = payload_summary.get("retrieval_suppression")
+        if isinstance(retrieval_suppression, dict):
+            normalized["retrieval_suppression"] = dict(retrieval_suppression)
+    if "model_selection" not in normalized:
+        model_selection = payload_summary.get("model_selection")
+        if isinstance(model_selection, dict):
+            normalized["model_selection"] = dict(model_selection)
+    if "model_selection" not in normalized:
+        model_selection = nested_trace.get("model_selection")
+        if isinstance(model_selection, dict):
+            normalized["model_selection"] = dict(model_selection)
+    return normalized
 
 
 @router.get("/{thread_id}/debug/candidate-trace/latest", tags=["Debug"])
@@ -4131,6 +4208,15 @@ def get_latest_eval_diagnostics_route(
     )
     if not diagnostics:
         return _empty_eval_diagnostics(thread_id)
+    trace_snapshot = diagnostics.get("trace_snapshot")
+    if isinstance(trace_snapshot, dict):
+        diagnostics = dict(diagnostics)
+        diagnostics["trace_snapshot"] = _promote_trace_snapshot_contract(
+            trace_snapshot,
+            payload_summary=trace_snapshot.get("payload_summary")
+            if isinstance(trace_snapshot.get("payload_summary"), dict)
+            else None,
+        )
     return diagnostics
 
 
