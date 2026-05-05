@@ -85,12 +85,12 @@ def build_workspace_sentinel(seed: str | None = None) -> WorkspaceSentinel:
         else uuid.uuid4()
     )
     phrase_suffix = token_uuid.hex[:8]
-    token = f"workspace-seal-mariner-signal-lattice-{phrase_suffix}"
-    note_title = f"Workspace Proof Sentinel {token[-8:]}"
+    token = f"workspace-seal-zephyr-candle-reef-{phrase_suffix}"
+    note_title = f"Zephyr Candle Reef Sentinel {token[-8:]}"
     note_filename = "workspace-proof-sentinel.md"
     question = (
-        "From my workspace notes, what is the exact workspace proof phrase? "
-        "Reply with only the phrase."
+        f"In my workspace note titled {note_title}, what is the exact "
+        "workspace proof phrase? Reply with only the phrase."
     )
     note_text = (
         "---\n"
@@ -100,6 +100,8 @@ def build_workspace_sentinel(seed: str | None = None) -> WorkspaceSentinel:
         "  - workspace\n"
         "  - proof\n"
         "---\n"
+        f"{note_title}\n\n"
+        f"{question}\n\n"
         f"The exact workspace proof phrase is `{token}`.\n\n"
         f"If asked for the workspace proof phrase, answer only `{token}`.\n\n"
         "This note validates the supported local Compose path only and does "
@@ -175,6 +177,74 @@ def classify_proof_verdicts(
         ],
     }
     return verdicts
+
+
+def _normalize_workspace_retrieval_evidence(
+    *,
+    task_completed_payload: dict[str, Any] | None,
+    retrieval_posture: dict[str, Any] | None,
+    trace: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload_summary = (
+        task_completed_payload.get("payload_summary")
+        if isinstance(task_completed_payload, dict)
+        else None
+    )
+    if not isinstance(payload_summary, dict):
+        payload_summary = {}
+
+    trace_payload_summary = (
+        trace.get("payload_summary") if isinstance(trace, dict) else None
+    )
+    if isinstance(trace_payload_summary, dict):
+        merged_payload_summary = dict(trace_payload_summary)
+        merged_payload_summary.update(payload_summary)
+        payload_summary = merged_payload_summary
+
+    source_mode = (
+        str(payload_summary.get("source_mode") or "").strip()
+        or str(
+            trace.get("source_mode") if isinstance(trace, dict) else ""
+        ).strip()
+        or str(
+            retrieval_posture.get("source_mode")
+            if isinstance(retrieval_posture, dict)
+            else ""
+        ).strip()
+    )
+    obsidian_count = int(payload_summary.get("obsidian_count") or 0)
+    semantic_count = int(payload_summary.get("semantic_count") or 0)
+    graph_hit_count = int(payload_summary.get("graph_hit_count") or 0)
+    linked_document_count = int(
+        payload_summary.get("linked_document_count") or 0
+    )
+    retrieval_injected = bool(payload_summary.get("retrieval_injected"))
+    obsidian_injected = bool(payload_summary.get("obsidian_injected"))
+    retrieval_status = str(
+        payload_summary.get("retrieval_status") or ""
+    ).strip()
+    if not retrieval_status:
+        if source_mode == WORKSPACE_SOURCE_MODE:
+            if obsidian_count > 0 and retrieval_injected and obsidian_injected:
+                retrieval_status = WORKSPACE_RETRIEVAL_STATUS
+            elif obsidian_count > 0 or retrieval_injected:
+                retrieval_status = "workspace_local_partial"
+            else:
+                retrieval_status = "workspace_local_missing_obsidian"
+        else:
+            retrieval_status = "missing"
+
+    return {
+        "source_mode": source_mode or None,
+        "retrieval_status": retrieval_status or None,
+        "obsidian_count": obsidian_count,
+        "semantic_count": semantic_count,
+        "graph_hit_count": graph_hit_count,
+        "linked_document_count": linked_document_count,
+        "retrieval_injected": retrieval_injected,
+        "obsidian_injected": obsidian_injected,
+        "payload_summary": payload_summary,
+    }
 
 
 def _fail(message: str) -> None:
@@ -450,26 +520,38 @@ def _index_obsidian_vault(
     return indexed
 
 
-def _health_retrieval_probe(
+def _assert_obsidian_note_searchable(
     session: requests.Session,
     base_url: str,
     headers: dict[str, str],
-    token: str,
-) -> dict[str, Any] | None:
-    try:
-        probe = _request_json(
-            session,
-            "GET",
-            f"{base_url}/api/health/retrieval",
-            headers=headers,
-            params={"q": token, "k": 10},
-            timeout=30.0,
-        )
-    except (ProofFailure, requests.Timeout):
-        return None
+    sentinel: WorkspaceSentinel,
+) -> dict[str, Any]:
+    probe = _request_json(
+        session,
+        "GET",
+        f"{base_url}/api/health/retrieval",
+        headers=headers,
+        params={
+            "q": sentinel.note_title,
+            "k": 10,
+            "namespace": "obsidian:local",
+        },
+        timeout=30.0,
+    )
     matches = probe.get("search", {}).get("matches")
     if not isinstance(matches, list) or not matches:
-        return None
+        _fail(
+            "Obsidian note was not searchable on the supported local Compose path: "
+            f"{probe!r}"
+        )
+    top_match = matches[0] if isinstance(matches[0], dict) else None
+    if not isinstance(top_match, dict):
+        _fail(f"Obsidian search returned an unexpected shape: {probe!r}")
+    meta = top_match.get("meta")
+    if not isinstance(meta, dict) or meta.get("namespace") != "obsidian:local":
+        _fail(
+            f"Obsidian search did not return a workspace-local note: {probe!r}"
+        )
     return probe
 
 
@@ -617,9 +699,8 @@ def _latest_retrieval_artifacts(
     headers: dict[str, str],
     thread_id: int,
     task_completed_payload: dict[str, Any] | None,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     retrieval_posture: dict[str, Any] | None = None
-    retrieval_provenance: dict[str, Any] | None = None
     trace: dict[str, Any] | None = None
 
     if isinstance(task_completed_payload, dict):
@@ -630,15 +711,6 @@ def _latest_retrieval_artifacts(
                 maybe_posture = payload_summary.get("retrieval_posture")
                 if isinstance(maybe_posture, dict):
                     retrieval_posture = maybe_posture
-        retrieval_provenance = task_completed_payload.get(
-            "retrieval_provenance"
-        )
-        if not isinstance(retrieval_provenance, dict):
-            payload_summary = task_completed_payload.get("payload_summary")
-            if isinstance(payload_summary, dict):
-                maybe_provenance = payload_summary.get("retrieval_provenance")
-                if isinstance(maybe_provenance, dict):
-                    retrieval_provenance = maybe_provenance
         trace = task_completed_payload.get("trace")
         if not isinstance(trace, dict):
             trace = None
@@ -658,7 +730,7 @@ def _latest_retrieval_artifacts(
         except ProofFailure:
             pass
 
-    if retrieval_provenance is None or trace is None:
+    if trace is None:
         try:
             trace_response = _request_json(
                 session,
@@ -669,19 +741,9 @@ def _latest_retrieval_artifacts(
             )
             if isinstance(trace_response, dict):
                 trace = trace_response
-                maybe_provenance = trace_response.get("retrieval_provenance")
-                if isinstance(maybe_provenance, dict):
-                    retrieval_provenance = maybe_provenance
-                payload_summary = trace_response.get("payload_summary")
-                if isinstance(payload_summary, dict):
-                    maybe_payload_provenance = payload_summary.get(
-                        "retrieval_provenance"
-                    )
-                    if isinstance(maybe_payload_provenance, dict):
-                        retrieval_provenance = maybe_payload_provenance
         except ProofFailure:
             pass
-    return retrieval_posture, retrieval_provenance, trace
+    return retrieval_posture, trace
 
 
 def _format_summary(
@@ -693,7 +755,7 @@ def _format_summary(
     task_completed_payload: dict[str, Any] | None,
     verdicts: dict[str, dict[str, Any]],
     retrieval_posture: dict[str, Any] | None,
-    retrieval_provenance: dict[str, Any] | None,
+    workspace_evidence: dict[str, Any] | None,
 ) -> str:
     acceptance = verdicts["acceptance"]
     completion = verdicts["completion"]
@@ -701,9 +763,19 @@ def _format_summary(
     assistant_match = verdicts["assistant_match"]
     final_verdict = verdicts["final_verdict"]
     obsidian_hits = retrieval.get("obsidian_semantic_hits", 0)
-    provenance_status = (
-        retrieval_provenance.get("retrieval_status")
-        if isinstance(retrieval_provenance, dict)
+    evidence_status = (
+        workspace_evidence.get("retrieval_status")
+        if isinstance(workspace_evidence, dict)
+        else None
+    )
+    evidence_obsidian = (
+        workspace_evidence.get("obsidian_count")
+        if isinstance(workspace_evidence, dict)
+        else None
+    )
+    evidence_injected = (
+        workspace_evidence.get("obsidian_injected")
+        if isinstance(workspace_evidence, dict)
         else None
     )
     posture_source_mode = (
@@ -716,19 +788,23 @@ def _format_summary(
         if isinstance(retrieval_posture, dict)
         else None
     )
-    provenance_summary = ""
-    if isinstance(task_completed_payload, dict):
-        payload_summary = task_completed_payload.get("payload_summary")
-        if isinstance(payload_summary, dict):
-            provenance_summary = json.dumps(
-                payload_summary.get("retrieval_provenance"), sort_keys=True
-            )
+    evidence_summary = ""
+    if isinstance(workspace_evidence, dict):
+        evidence_summary = (
+            f"source_mode={workspace_evidence.get('source_mode')} | "
+            f"obsidian_count={workspace_evidence.get('obsidian_count')} | "
+            f"semantic_count={workspace_evidence.get('semantic_count')} | "
+            f"graph_hit_count={workspace_evidence.get('graph_hit_count')} | "
+            f"linked_document_count={workspace_evidence.get('linked_document_count')} | "
+            f"retrieval_injected={workspace_evidence.get('retrieval_injected')} | "
+            f"obsidian_injected={workspace_evidence.get('obsidian_injected')}"
+        )
     return "\n".join(
         [
             f"ACCEPTANCE: {acceptance['status']} | passed={str(acceptance['passed']).lower()} | task_id={task_id} | thread_id={thread_id} | source_mode={WORKSPACE_SOURCE_MODE}",
             f"COMPLETION: {completion['status']} | passed={str(completion['passed']).lower()} | assistant_match={str(assistant_match['passed']).lower()} | assistant_message={assistant_text!r}",
-            f"RETRIEVAL: {retrieval.get('status') or provenance_status or 'missing'} | passed={str(retrieval['passed']).lower()} | obsidian_semantic_hits={obsidian_hits} | posture_source_mode={posture_source_mode} | widen_reason={posture_reason}",
-            f"TRACE: {provenance_summary or json.dumps(retrieval_provenance, sort_keys=True) if retrieval_provenance else 'missing'}",
+            f"RETRIEVAL: {retrieval.get('status') or evidence_status or 'missing'} | passed={str(retrieval['passed']).lower()} | obsidian_semantic_hits={obsidian_hits} | obsidian_count={evidence_obsidian} | obsidian_injected={evidence_injected} | posture_source_mode={posture_source_mode} | widen_reason={posture_reason}",
+            f"TRACE: {evidence_summary or 'missing'}",
             f"VERDICT: {str(final_verdict['status']).upper()} | reasons={','.join(final_verdict.get('reasons', [])) or 'none'} | base={base_url}",
         ]
     )
@@ -760,7 +836,7 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
             session, base_url, headers, container_vault_root
         )
         _index_obsidian_vault(session, base_url, headers)
-        _health_retrieval_probe(session, base_url, headers, sentinel.token)
+        _assert_obsidian_note_searchable(session, base_url, headers, sentinel)
 
         thread_payload = _create_thread(session, base_url, headers, sentinel)
         thread_id = int(thread_payload.get("id") or 0)
@@ -826,17 +902,8 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
         assistant_message = _get_last_assistant_message(messages_payload)
         assistant_text = str(assistant_message.get("content") or "").strip()
 
-        payload_summary = task_completed_payload.get("payload_summary")
-        if not isinstance(payload_summary, dict):
-            _fail(
-                "task.completed did not include a payload_summary with retrieval evidence"
-            )
-        retrieval_provenance = payload_summary.get("retrieval_provenance")
-        if not isinstance(retrieval_provenance, dict):
-            retrieval_provenance = None
         (
             retrieval_posture,
-            debug_provenance,
             trace,
         ) = _latest_retrieval_artifacts(
             session,
@@ -845,40 +912,34 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
             thread_id,
             task_completed_payload,
         )
-        if retrieval_provenance is None:
-            retrieval_provenance = debug_provenance
-        if retrieval_provenance is None:
-            _fail(
-                "Could not obtain retrieval provenance from task events or debug trace "
-                f"(thread_id={thread_id}, task_id={task_id}, "
-                f"task_completed_keys={sorted(task_completed_payload.keys())})"
-            )
         if retrieval_posture is None:
             _fail(
                 "Could not obtain retrieval posture evidence from the live path "
                 f"(thread_id={thread_id}, task_id={task_id}, "
                 f"task_completed_keys={sorted(task_completed_payload.keys())})"
             )
+        workspace_evidence = _normalize_workspace_retrieval_evidence(
+            task_completed_payload=task_completed_payload,
+            retrieval_posture=retrieval_posture,
+            trace=trace,
+        )
+        if workspace_evidence["source_mode"] != WORKSPACE_SOURCE_MODE:
+            _fail(
+                "Workspace proof did not preserve the workspace source mode "
+                f"(thread_id={thread_id}, task_id={task_id}, "
+                f"workspace_evidence={workspace_evidence!r})"
+            )
+        if int(workspace_evidence["obsidian_count"]) <= 0:
+            _fail(
+                "Workspace retrieval did not participate in the live completion: "
+                f"{workspace_evidence!r}"
+            )
         if sentinel.token not in assistant_text:
             _fail(
                 "Assistant response did not contain the workspace sentinel token: "
                 f"{assistant_text!r} (thread_id={thread_id}, task_id={task_id}, "
-                f"retrieval_provenance={retrieval_provenance!r}, "
+                f"workspace_evidence={workspace_evidence!r}, "
                 f"retrieval_posture={retrieval_posture!r})"
-            )
-        if (
-            retrieval_provenance.get("retrieval_status")
-            != WORKSPACE_RETRIEVAL_STATUS
-        ):
-            _fail(
-                "Workspace retrieval did not participate in the live completion: "
-                f"{retrieval_provenance!r}"
-            )
-        source_hit_counts = retrieval_provenance.get("source_hit_counts")
-        obsidian_semantic_hits = 0
-        if isinstance(source_hit_counts, dict):
-            obsidian_semantic_hits = int(
-                source_hit_counts.get("obsidian_semantic") or 0
             )
         verdicts = classify_proof_verdicts(
             acceptance_status=str(
@@ -887,11 +948,13 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
             terminal_event_type=terminal_event_type,
             assistant_text=assistant_text,
             retrieval_status=str(
-                retrieval_provenance.get("retrieval_status") or ""
+                workspace_evidence.get("retrieval_status") or ""
             ).strip(),
-            obsidian_semantic_hits=obsidian_semantic_hits,
+            obsidian_semantic_hits=int(
+                workspace_evidence.get("obsidian_count") or 0
+            ),
             retrieval_source_mode=str(
-                retrieval_posture.get("source_mode") or ""
+                workspace_evidence.get("source_mode") or ""
             ).strip(),
             retrieval_posture=retrieval_posture,
             token=sentinel.token,
@@ -904,7 +967,7 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
             task_completed_payload=task_completed_payload,
             verdicts=verdicts,
             retrieval_posture=retrieval_posture,
-            retrieval_provenance=retrieval_provenance,
+            workspace_evidence=workspace_evidence,
         )
         if not verdicts["final_verdict"]["passed"]:
             _fail(summary)

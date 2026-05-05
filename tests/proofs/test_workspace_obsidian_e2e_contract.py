@@ -34,9 +34,45 @@ def test_workspace_sentinel_shape_is_deterministic():
     assert first == second
     assert first.token.startswith("workspace-seal-")
     assert first.expected_answer == first.token
+    assert first.note_title in first.note_text
     assert first.token in first.note_text
     assert "supported local Compose path only" in first.note_text
-    assert "Reply with only the token" in first.question
+    assert "Reply with only the phrase" in first.question
+
+
+def test_workspace_evidence_normalization_prefers_obsidian_completion_counts():
+    module = _load_module()
+
+    evidence = module._normalize_workspace_retrieval_evidence(
+        task_completed_payload={
+            "payload_summary": {
+                "source_mode": "workspace",
+                "obsidian_count": 1,
+                "semantic_count": 4,
+                "graph_hit_count": 1,
+                "linked_document_count": 2,
+                "retrieval_injected": True,
+                "obsidian_injected": True,
+            }
+        },
+        retrieval_posture={
+            "source_mode": "workspace",
+            "boundary_label": "same_user_only",
+            "widen_reason": "explicit_workspace",
+        },
+        trace={
+            "source_mode": "workspace",
+            "payload_summary": {
+                "source_mode": "workspace",
+                "obsidian_count": 1,
+            },
+        },
+    )
+
+    assert evidence["retrieval_status"] == "workspace_local_success"
+    assert evidence["obsidian_count"] == 1
+    assert evidence["retrieval_injected"] is True
+    assert evidence["obsidian_injected"] is True
 
 
 def test_proof_step_order_is_stable():
@@ -84,7 +120,7 @@ def test_missing_evidence_fails_closed():
         acceptance_status="accepted",
         terminal_event_type="task.completed",
         assistant_text="workspace-seal-123",
-        retrieval_status="missing",
+        retrieval_status="workspace_local_missing_obsidian",
         obsidian_semantic_hits=0,
         retrieval_source_mode="workspace",
         retrieval_posture={
