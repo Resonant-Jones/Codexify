@@ -39,6 +39,8 @@ GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG = (
 GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG = (
     "graph_write_worker_receipt_claim_failed"
 )
+GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILURE_STATUS = "failed"
+GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILURE_MESSAGE_LIMIT = 240
 
 
 def _coerce_mapping_list(raw: Any) -> list[dict[str, Any]]:
@@ -60,6 +62,16 @@ def _coerce_warning_list(raw: Any) -> list[str]:
         if value:
             result.append(value)
     return result
+
+
+def _sanitize_adapter_failure_message(exc: Exception) -> str:
+    text = f"{type(exc).__name__}: {str(exc).strip()}".strip()
+    if (
+        len(text)
+        <= GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILURE_MESSAGE_LIMIT
+    ):
+        return text
+    return text[:GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILURE_MESSAGE_LIMIT]
 
 
 def _coerce_task_identity(
@@ -98,6 +110,9 @@ def _build_graph_write_inspection_snapshot(
     graph_write_id: str,
     idempotency_key: str,
     receipt_status: str,
+    adapter_status: str,
+    adapter_failure_kind: str,
+    adapter_failure_message: str,
     nodes: list[dict[str, Any]],
     edges: list[dict[str, Any]],
     warnings: list[str],
@@ -124,6 +139,9 @@ def _build_graph_write_inspection_snapshot(
         "graph_write_id": graph_write_id,
         "idempotency_key": idempotency_key,
         "receipt_status": receipt_status,
+        "adapter_status": adapter_status,
+        "adapter_failure_kind": adapter_failure_kind,
+        "adapter_failure_message": adapter_failure_message,
         "node_count": len(nodes),
         "edge_count": len(edges),
         "warning_count": len(warnings),
@@ -141,11 +159,11 @@ def _invoke_graph_backend_adapter(
     candidate_trace_id: str,
     graph_write_id: str,
     idempotency_key: str,
-) -> None:
+) -> dict[str, str]:
     adapter = get_graph_backend_adapter()
     try:
-        adapter.write_graph_task(task)
-    except Exception:
+        result = adapter.write_graph_task(task)
+    except Exception as exc:
         logger.exception(
             f"[graph-write] {GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG}",
             extra={
@@ -156,6 +174,17 @@ def _invoke_graph_backend_adapter(
                 "idempotency_key": idempotency_key,
             },
         )
+        return {
+            "adapter_status": GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILURE_STATUS,
+            "adapter_failure_kind": type(exc).__name__,
+            "adapter_failure_message": _sanitize_adapter_failure_message(exc),
+        }
+
+    return {
+        "adapter_status": str(getattr(result, "status", "") or "").strip(),
+        "adapter_failure_kind": "",
+        "adapter_failure_message": "",
+    }
 
 
 def process_graph_write_task(task: dict) -> None:
@@ -219,6 +248,9 @@ def process_graph_write_task(task: dict) -> None:
             graph_write_id=graph_write_id,
             idempotency_key=idempotency_key,
             receipt_status=GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
+            adapter_status="",
+            adapter_failure_kind="",
+            adapter_failure_message="",
             nodes=nodes,
             edges=edges,
             warnings=warnings,
@@ -252,6 +284,14 @@ def process_graph_write_task(task: dict) -> None:
         return
 
     receipt_status = GRAPH_WRITE_INSPECTION_STATUS_CLAIMED
+    adapter_outcome = _invoke_graph_backend_adapter(
+        task,
+        request_id=request_id,
+        thread_id=thread_id,
+        candidate_trace_id=candidate_trace_id,
+        graph_write_id=graph_write_id,
+        idempotency_key=idempotency_key,
+    )
     snapshot = _build_graph_write_inspection_snapshot(
         thread_id=thread_id,
         request_id=request_id,
@@ -259,6 +299,9 @@ def process_graph_write_task(task: dict) -> None:
         graph_write_id=graph_write_id,
         idempotency_key=idempotency_key,
         receipt_status=receipt_status,
+        adapter_status=adapter_outcome["adapter_status"],
+        adapter_failure_kind=adapter_outcome["adapter_failure_kind"],
+        adapter_failure_message=adapter_outcome["adapter_failure_message"],
         nodes=nodes,
         edges=edges,
         warnings=warnings,
@@ -277,17 +320,9 @@ def process_graph_write_task(task: dict) -> None:
                 "graph_write_id": graph_write_id,
                 "idempotency_key": idempotency_key,
                 "receipt_status": receipt_status,
+                "adapter_status": adapter_outcome["adapter_status"],
             },
         )
-
-    _invoke_graph_backend_adapter(
-        task,
-        request_id=request_id,
-        thread_id=thread_id,
-        candidate_trace_id=candidate_trace_id,
-        graph_write_id=graph_write_id,
-        idempotency_key=idempotency_key,
-    )
 
     logger.info(
         f"[graph-write] {GRAPH_WRITE_WORKER_SUMMARY_LOG}",
@@ -298,6 +333,8 @@ def process_graph_write_task(task: dict) -> None:
             "graph_write_id": graph_write_id,
             "idempotency_key": idempotency_key,
             "receipt_status": receipt_status,
+            "adapter_status": adapter_outcome["adapter_status"],
+            "adapter_failure_kind": adapter_outcome["adapter_failure_kind"],
             "node_count": len(nodes),
             "edge_count": len(edges),
             "warning_count": len(warnings),

@@ -27,6 +27,9 @@ _SNAPSHOT_FIELDS = (
     "graph_write_id",
     "idempotency_key",
     "receipt_status",
+    "adapter_status",
+    "adapter_failure_kind",
+    "adapter_failure_message",
     "node_count",
     "edge_count",
     "warning_count",
@@ -92,6 +95,13 @@ def _normalize_snapshot(
         "graph_write_id": str(payload.get("graph_write_id") or "").strip(),
         "idempotency_key": str(payload.get("idempotency_key") or "").strip(),
         "receipt_status": str(payload.get("receipt_status") or "").strip(),
+        "adapter_status": str(payload.get("adapter_status") or "").strip(),
+        "adapter_failure_kind": str(
+            payload.get("adapter_failure_kind") or ""
+        ).strip(),
+        "adapter_failure_message": str(
+            payload.get("adapter_failure_message") or ""
+        ).strip(),
         "node_count": _coerce_int(payload.get("node_count")),
         "edge_count": _coerce_int(payload.get("edge_count")),
         "warning_count": _coerce_int(payload.get("warning_count")),

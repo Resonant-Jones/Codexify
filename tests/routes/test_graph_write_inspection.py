@@ -10,9 +10,12 @@ def _seed_snapshot(
     thread_id: int,
     *,
     receipt_status: str,
+    adapter_status: str,
     graph_write_id: str,
     candidate_trace_id: str,
     request_id: str,
+    adapter_failure_kind: str = "",
+    adapter_failure_message: str = "",
 ) -> dict[str, object]:
     snapshot = {
         "thread_id": thread_id,
@@ -21,6 +24,9 @@ def _seed_snapshot(
         "graph_write_id": graph_write_id,
         "idempotency_key": f"graph-write:{candidate_trace_id}:fingerprint",
         "receipt_status": receipt_status,
+        "adapter_status": adapter_status,
+        "adapter_failure_kind": adapter_failure_kind,
+        "adapter_failure_message": adapter_failure_message,
         "node_count": 2,
         "edge_count": 1,
         "warning_count": 0,
@@ -45,6 +51,7 @@ def test_graph_write_inspection_route_returns_latest_snapshot(
     _seed_snapshot(
         1,
         receipt_status="claimed",
+        adapter_status="noop",
         graph_write_id="gwr_test_latest",
         candidate_trace_id="trace-1",
         request_id="req-1",
@@ -59,6 +66,7 @@ def test_graph_write_inspection_route_returns_latest_snapshot(
     assert snapshot["thread_id"] == 1
     assert snapshot["graph_write_id"] == "gwr_test_latest"
     assert snapshot["receipt_status"] == "claimed"
+    assert snapshot["adapter_status"] == "noop"
     assert snapshot["node_count"] == 2
     assert snapshot["edge_count"] == 1
     assert snapshot["node_types"] == ["Document", "Thread"]
@@ -90,6 +98,7 @@ def test_graph_write_inspection_route_is_thread_scoped(test_client, mock_db):
     _seed_snapshot(
         1,
         receipt_status="claimed",
+        adapter_status="noop",
         graph_write_id="gwr_thread_one",
         candidate_trace_id="trace-1",
         request_id="req-1",
@@ -97,6 +106,7 @@ def test_graph_write_inspection_route_is_thread_scoped(test_client, mock_db):
     _seed_snapshot(
         2,
         receipt_status="claimed",
+        adapter_status="noop",
         graph_write_id="gwr_thread_two",
         candidate_trace_id="trace-2",
         request_id="req-2",
@@ -125,6 +135,7 @@ def test_graph_write_inspection_route_exposes_duplicate_skipped_status(
     _seed_snapshot(
         3,
         receipt_status=GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
+        adapter_status="",
         graph_write_id="gwr_duplicate",
         candidate_trace_id="trace-3",
         request_id="req-3",
@@ -135,4 +146,60 @@ def test_graph_write_inspection_route_exposes_duplicate_skipped_status(
     body = response.json()
     assert body["graph_write_inspection"]["receipt_status"] == (
         GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED
+    )
+
+
+def test_graph_write_inspection_route_returns_adapter_failure_details(
+    test_client, mock_db
+):
+    mock_db.get_chat_thread.side_effect = lambda thread_id: {
+        "id": thread_id,
+        "user_id": "test_user",
+    }
+    _seed_snapshot(
+        4,
+        receipt_status="claimed",
+        adapter_status="failed",
+        adapter_failure_kind="RuntimeError",
+        adapter_failure_message="RuntimeError: adapter boom",
+        graph_write_id="gwr_adapter_failed",
+        candidate_trace_id="trace-4",
+        request_id="req-4",
+    )
+
+    response = test_client.get("/api/chat/4/debug/graph-write/latest")
+    assert response.status_code == 200
+    body = response.json()
+    snapshot = body["graph_write_inspection"]
+    assert body["status"] == "ok"
+    assert snapshot["receipt_status"] == "claimed"
+    assert snapshot["adapter_status"] == "failed"
+    assert snapshot["adapter_failure_kind"] == "RuntimeError"
+    assert snapshot["adapter_failure_message"] == "RuntimeError: adapter boom"
+
+
+def test_graph_write_inspection_route_compat_alias_matches_primary_route(
+    test_client, mock_db
+):
+    mock_db.get_chat_thread.side_effect = lambda thread_id: {
+        "id": thread_id,
+        "user_id": "test_user",
+    }
+    _seed_snapshot(
+        5,
+        receipt_status="claimed",
+        adapter_status="noop",
+        graph_write_id="gwr_alias",
+        candidate_trace_id="trace-5",
+        request_id="req-5",
+    )
+
+    primary = test_client.get("/chat/5/debug/graph-write/latest")
+    compat = test_client.get("/api/chat/5/debug/graph-write/latest")
+
+    assert primary.status_code == 200
+    assert compat.status_code == 200
+    assert (
+        primary.json()["graph_write_inspection"]
+        == compat.json()["graph_write_inspection"]
     )

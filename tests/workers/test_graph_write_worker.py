@@ -128,6 +128,9 @@ def test_graph_write_worker_stores_inspection_snapshot_for_first_seen_task(
     assert snapshot["thread_id"] == 7
     assert snapshot["graph_write_id"] == "gwr_test_identity"
     assert snapshot["receipt_status"] == GRAPH_WRITE_INSPECTION_STATUS_CLAIMED
+    assert snapshot["adapter_status"] == GRAPH_BACKEND_RESULT_STATUS_NOOP
+    assert snapshot["adapter_failure_kind"] == ""
+    assert snapshot["adapter_failure_message"] == ""
     assert snapshot["node_count"] == 1
     assert snapshot["edge_count"] == 1
     assert snapshot["warning_count"] == 0
@@ -192,6 +195,9 @@ def test_graph_write_worker_stores_duplicate_skipped_snapshot(
     )
     assert snapshot["thread_id"] == 7
     assert snapshot["graph_write_id"] == "gwr_test_identity"
+    assert snapshot["adapter_status"] == ""
+    assert snapshot["adapter_failure_kind"] == ""
+    assert snapshot["adapter_failure_message"] == ""
 
 
 def test_graph_write_worker_contains_snapshot_store_failure(
@@ -243,6 +249,52 @@ def test_graph_write_worker_contains_receipt_claim_failure(caplog, monkeypatch):
         for record in caplog.records
     )
     assert not any(
+        record.getMessage()
+        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+        for record in caplog.records
+    )
+
+
+def test_graph_write_worker_stores_adapter_failure_snapshot(
+    caplog, monkeypatch
+):
+    caplog.set_level(logging.INFO)
+    redis_client = _FakeReceiptRedis(results=[True])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
+    graph_backend_adapter = MagicMock(
+        write_graph_task=MagicMock(
+            side_effect=RuntimeError("adapter boom for graph writes")
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_graph_backend_adapter",
+        MagicMock(return_value=graph_backend_adapter),
+    )
+
+    graph_write_worker.process_graph_write_task(_task())
+
+    snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(7)
+    assert snapshot is not None
+    assert snapshot["receipt_status"] == GRAPH_WRITE_INSPECTION_STATUS_CLAIMED
+    assert snapshot["adapter_status"] == "failed"
+    assert snapshot["adapter_failure_kind"] == "RuntimeError"
+    assert snapshot["adapter_failure_message"] == (
+        "RuntimeError: adapter boom for graph writes"
+    )
+    assert "Traceback" not in snapshot["adapter_failure_message"]
+    assert graph_backend_adapter.write_graph_task.call_count == 1
+    assert any(
+        record.levelno >= logging.ERROR
+        and graph_write_worker.GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG
+        in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
         record.getMessage()
         == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
         for record in caplog.records
