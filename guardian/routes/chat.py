@@ -3839,12 +3839,14 @@ def get_latest_rag_trace(
         "retrieval_mode": None,
         "model_mode": None,
     }
+    trace_source_found = False
 
     # Try to get trace + profile data from task events if we have a recent task.
     task_id = _thread_latest_task_id(thread_id, metadata)
     completed_payload: dict[str, Any] | None = None
     retrieval_provenance: dict[str, Any] | None = None
     trace_unavailable_reason: str | None = None
+    promoted_eval_trace: dict[str, Any] | None = None
     if task_id:
         completed_payload = _get_task_completed_payload(task_id)
         if isinstance(completed_payload, dict):
@@ -3858,7 +3860,7 @@ def get_latest_rag_trace(
             payload_trace = completed_payload.get("trace")
             if isinstance(payload_trace, dict):
                 trace = dict(payload_trace)
-                trace_available = True
+                trace_source_found = True
                 _rag_traces[thread_id] = trace  # Cache it
                 _persist_thread_latest_rag_trace(thread_id, task_id, trace)
             elif trace is None:
@@ -3870,7 +3872,7 @@ def get_latest_rag_trace(
                 )
                 if candidate_trace is not None:
                     trace = candidate_trace
-                    trace_available = True
+                    trace_source_found = True
                     _rag_traces[thread_id] = trace
                     _persist_thread_latest_rag_trace(
                         thread_id,
@@ -3907,6 +3909,93 @@ def get_latest_rag_trace(
         ):
             profile_debug[key] = completed_payload.get(key)
 
+    trace_needs_eval_promotion = not isinstance(trace, dict) or any(
+        trace.get(key) in (None, "", [], {})
+        for key in (
+            "retrieval_policy",
+            "retrieval_provenance",
+            "retrieval_suppression",
+            "retrieval_executed",
+            "retrieval_absence_reason",
+            "image_routing_path",
+            "image_routing_absence_reason",
+            "model_selection",
+        )
+    )
+
+    if trace is None or trace_needs_eval_promotion:
+        try:
+            eval_diagnostics = get_latest_eval_diagnostics(
+                chatlog_db,
+                thread_id=thread_id,
+            )
+        except Exception as exc:
+            logger.debug(
+                "[chat] failed to read eval diagnostics for rag trace: %s",
+                exc,
+            )
+            eval_diagnostics = None
+        trace_snapshot = (
+            eval_diagnostics.get("trace_snapshot")
+            if isinstance(eval_diagnostics, dict)
+            else None
+        )
+        if isinstance(trace_snapshot, dict):
+            promoted_eval_trace = _promote_trace_snapshot_contract(
+                dict(trace_snapshot.get("trace") or {}),
+                payload_summary=trace_snapshot.get("payload_summary")
+                if isinstance(trace_snapshot.get("payload_summary"), dict)
+                else None,
+            )
+            payload_summary_value = trace_snapshot.get("payload_summary")
+            if isinstance(payload_summary_value, dict):
+                if payload_summary is None:
+                    payload_summary = dict(payload_summary_value)
+                else:
+                    merged_payload_summary = dict(payload_summary)
+                    for key, value in payload_summary_value.items():
+                        if merged_payload_summary.get(key) in (
+                            None,
+                            "",
+                            [],
+                            {},
+                        ):
+                            merged_payload_summary[key] = value
+                    payload_summary = merged_payload_summary
+                retrieval_provenance_value = payload_summary.get(
+                    "retrieval_provenance"
+                )
+                if isinstance(retrieval_provenance_value, dict):
+                    retrieval_provenance = dict(retrieval_provenance_value)
+            if trace is None:
+                trace = dict(promoted_eval_trace)
+            else:
+                merged_trace = dict(trace)
+                for key in (
+                    "retrieval_policy",
+                    "retrieval_provenance",
+                    "retrieval_suppression",
+                    "retrieval_executed",
+                    "retrieval_absence_reason",
+                    "image_routing_path",
+                    "image_routing_absence_reason",
+                    "model_selection",
+                ):
+                    current_value = merged_trace.get(key)
+                    promoted_value = promoted_eval_trace.get(key)
+                    if current_value in (None, "", [], {}) and promoted_value is not None:
+                        merged_trace[key] = promoted_value
+                if promoted_eval_trace:
+                    merged_trace.pop("trace_unavailable_reason", None)
+                trace = merged_trace
+            trace_source_found = True
+            trace_unavailable_reason = None
+            if not task_id:
+                task_id = str(trace_snapshot.get("task_id") or "").strip() or None
+            if task_id:
+                _rag_traces[thread_id] = trace
+                _persist_thread_latest_rag_trace(thread_id, task_id, trace)
+
     if trace is None:
         persisted = _thread_trace_entry(
             metadata,
@@ -3915,58 +4004,26 @@ def get_latest_rag_trace(
         )
         if persisted is not None:
             trace = persisted
-            trace_available = True
+            trace_source_found = True
 
     # Fall back to in-memory cache
     if trace is None:
         cached = _rag_traces.get(thread_id)
         if isinstance(cached, dict):
             trace = dict(cached)
-            trace_available = True
-
-    if trace is None:
-        try:
-            diagnostics = get_latest_eval_diagnostics(
-                chatlog_db,
-                thread_id=thread_id,
-            )
-        except Exception:
-            diagnostics = None
-        if isinstance(diagnostics, dict):
-            trace_snapshot = diagnostics.get("trace_snapshot")
-            if isinstance(trace_snapshot, dict):
-                snapshot_trace = trace_snapshot.get("trace")
-                if isinstance(snapshot_trace, dict):
-                    trace = dict(snapshot_trace)
-                else:
-                    trace = {}
-                trace_available = True
-                if payload_summary is None:
-                    snapshot_payload_summary = trace_snapshot.get(
-                        "payload_summary"
-                    )
-                    if isinstance(snapshot_payload_summary, dict):
-                        payload_summary = dict(snapshot_payload_summary)
-                if retrieval_provenance is None and isinstance(
-                    payload_summary, dict
-                ):
-                    retrieval_provenance_value = payload_summary.get(
-                        "retrieval_provenance"
-                    )
-                    if isinstance(retrieval_provenance_value, dict):
-                        retrieval_provenance = dict(
-                            retrieval_provenance_value
-                        )
+            trace_source_found = True
 
     if trace is not None:
         trace_unavailable_reason = None
 
-    if not trace:
+    if not trace_source_found:
         trace = {"documents": [], "graph": []}
         trace_unavailable_reason = trace_unavailable_reason or (
             TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value
         )
     else:
+        if trace is None:
+            trace = {}
         trace["documents"] = _sanitize_rag_trace_entries(
             trace.get("documents")
         )
@@ -3982,6 +4039,7 @@ def get_latest_rag_trace(
         trace["payload_summary"] = payload_summary
     trace["retrieval_provenance"] = retrieval_provenance
 
+    trace_available = trace_source_found
     if trace_available:
         effective_policy = _build_rag_trace_effective_policy(
             trace,
