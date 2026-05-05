@@ -78,3 +78,58 @@ def test_non_image_turn_context_is_left_alone() -> None:
     )
 
     assert [item["label"] for item in filtered] == ["refusal", "signal"]
+
+
+def test_image_turn_refusal_semantic_context_records_suppression_trace() -> None:
+    latest_user_meta = {
+        "attachments": [
+            {
+                "kind": "image",
+                "src": "https://example.test/image.png",
+                "name": "Test.png",
+            }
+        ]
+    }
+    semantic_items = [
+        {
+            "content": "I can't view the image.",
+            "label": "refusal",
+            "source_type": "semantic_context",
+            "role": "assistant",
+            "thread_id": 17,
+            "project_id": 8,
+            "retrieval_lane": "semantic",
+            "score": 0.12,
+            "policy_reason": "assistant_vision_refusal_on_image_turn",
+        },
+        {
+            "content": "This chart looks like a rising trend.",
+            "label": "signal",
+        },
+    ]
+    suppression_trace: dict[str, object] = {}
+
+    filtered = chat_completion_service._filter_image_refusal_semantic_context(
+        semantic_items,
+        latest_user_meta,
+        suppression_trace=suppression_trace,
+    )
+
+    assert [item["label"] for item in filtered] == ["signal"]
+    assert suppression_trace["summary"] == {
+        "total_suppressed": 1,
+        "assistant_vision_refusal_on_image_turn": 1,
+    }
+    assert suppression_trace["items"] == [
+        {
+            "suppressed": True,
+            "suppression_reason": "assistant_vision_refusal_on_image_turn",
+            "source_type": "semantic_context",
+            "role": "assistant",
+            "thread_id": 17,
+            "project_id": 8,
+            "retrieval_lane": "semantic",
+            "score": 0.12,
+            "policy_reason": "assistant_vision_refusal_on_image_turn",
+        }
+    ]

@@ -1897,11 +1897,23 @@ def _run_chat_completion_task_compat(
                 "final_provider": final_provider,
                 "final_model": final_model,
                 "selection_source": selection_source,
+                "model_selection": result.get("model_selection"),
                 "fallback_reason": fallback_reason,
                 "payload_summary": payload_summary,
                 "completion_truth": completion_truth,
                 "attempted_provider_truth": attempted_provider_truth,
                 "final_provider_truth": final_provider_truth,
+                "retrieval_policy": result.get("retrieval_policy"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
+                "retrieval_suppression": result.get("retrieval_suppression"),
+                "retrieval_executed": result.get("retrieval_executed"),
+                "retrieval_absence_reason": result.get(
+                    "retrieval_absence_reason"
+                ),
+                "image_routing_path": result.get("image_routing_path"),
+                "image_routing_absence_reason": result.get(
+                    "image_routing_absence_reason"
+                ),
                 "execution": execution,
                 **tool_loop_observability,
             },
@@ -2363,11 +2375,16 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "message_id": message_id,
                 "provider": result.get("provider"),
                 "model": result.get("model"),
+                "requested_provider": result.get("requested_provider"),
+                "requested_model": result.get("requested_model"),
+                "final_provider": result.get("final_provider"),
+                "final_model": result.get("final_model"),
                 "attempted_provider": result.get("attempted_provider"),
                 "attempted_model": result.get("attempted_model"),
                 "resolved_provider": result.get("resolved_provider"),
                 "resolved_model": result.get("resolved_model"),
                 "selection_source": result.get("selection_source"),
+                "model_selection": result.get("model_selection"),
                 "fallback_reason": result.get("fallback_reason"),
                 "upstream_status": result.get("upstream_status"),
                 "provider_error": result.get("provider_error"),
@@ -2383,6 +2400,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "attempted_provider_truth"
                 ),
                 "final_provider_truth": result.get("final_provider_truth"),
+                "retrieval_policy": result.get("retrieval_policy"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
+                "retrieval_suppression": result.get("retrieval_suppression"),
+                "retrieval_executed": result.get("retrieval_executed"),
+                "retrieval_absence_reason": result.get(
+                    "retrieval_absence_reason"
+                ),
+                "image_routing_path": result.get("image_routing_path"),
+                "image_routing_absence_reason": result.get(
+                    "image_routing_absence_reason"
+                ),
                 "execution": result.get("execution"),
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
