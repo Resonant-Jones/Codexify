@@ -34,9 +34,11 @@ from guardian.protocol_tokens import (
     ExecutorReleasePosture,
     LoopStopReason,
     TaskEventType,
+    ImageRoutingPath,
     TraceSnapshotAbsenceReason,
     ToolLoopStopReason,
     ToolTurnState,
+    IMAGE_ROUTING_PATHS,
     TRACE_SNAPSHOT_ABSENCE_REASONS,
 )
 
@@ -64,6 +66,12 @@ def test_trace_snapshot_absence_reason_tokens() -> None:
     )
     assert (
         TraceSnapshotAbsenceReason
+        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
+        .value
+        == "vision_model_selected_but_image_payload_not_routed"
+    )
+    assert (
+        TraceSnapshotAbsenceReason
         .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
         .value
         == "local_model_substitution_selected_nonvision_model"
@@ -78,9 +86,21 @@ def test_trace_snapshot_absence_reason_tokens() -> None:
         "trace_source_unavailable",
         "trace_snapshot_missing",
         "image_routing_not_evaluated",
+        "vision_model_selected_but_image_payload_not_routed",
         "local_model_substitution_selected_nonvision_model",
         "retrieval_not_executed",
         "retrieval_no_candidates",
+    }
+
+
+def test_image_routing_protocol_tokens() -> None:
+    assert ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value == (
+        "native_multimodal_vision"
+    )
+    assert ImageRoutingPath.INTERPRETER.value == "interpreter"
+    assert IMAGE_ROUTING_PATHS == {
+        "native_multimodal_vision",
+        "interpreter",
     }
 
 
