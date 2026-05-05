@@ -449,6 +449,20 @@ services:
     restart: unless-stopped
     command: ["worker-chat-embed"]
 
+  # ─────────────────────────────────────────────────────────────────
+  # WebUI Service - Docker-hosted frontend (for mobile/Tailscale access)
+  # ─────────────────────────────────────────────────────────────────
+  webui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.webui
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   pg_data:
   neo4j_data:
