@@ -74,6 +74,16 @@ Source anchors:
 - The supported profile and provider registry answer “what should be allowed and treated as supported for this beta?”
 - None of those surfaces is sufficient alone. A green health check does not prove the mounted route surface matches the supported profile, and catalog presence does not prove that a provider path is part of the supported beta contract.
 
+### Provider governance note
+
+- The supported profile file is the beta release contract. It is the posture that the runtime must satisfy, not a loose hint about preferred defaults.
+- Catalog discovery is not support. A provider can be discovered, authorized, or even executable at a runtime layer without being part of the supported beta posture.
+- Provider health is not support by itself. `/health`, `/health/chat`, and `/api/health/llm` must be read alongside `/api/llm/catalog` to understand the actual beta posture.
+- Cloud-capable configuration must always be interpreted against the active supported-profile posture. If the profile is local-only, cloud-capable env flags or credentials are drift evidence, not beta approval.
+- For release proof, `/health`, `/api/health/llm`, and `/api/llm/catalog` should agree on the supported profile, the selected provider, and whether the runtime is release-hold or aligned.
+- Operator views such as `?include=all` may still show unsupported providers for diagnosis, but that inspection surface does not widen release support.
+- Default catalog and health truth should keep discovered inventory, configured provider, egress-allowed provider, supported-profile-approved provider, and executable provider distinct so operators can see exactly where posture diverges.
+
 ### Current operator limits without a full Command Center / Observability Deck
 
 - Operators can currently infer whether the selected provider is configured, credentialed, egress-allowed, and reachable enough for the active runtime path.

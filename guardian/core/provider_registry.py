@@ -1315,6 +1315,95 @@ def provider_status(provider_id: str, settings: Settings) -> dict[str, Any]:
     }
 
 
+def provider_egress_allowed(provider_id: str, settings: Settings) -> bool:
+    provider = normalize_provider(provider_id)
+    if provider not in CLOUD_PROVIDERS:
+        return True
+    try:
+        assert_egress_allowed(provider, settings=settings)
+    except EgressDeniedError:
+        return False
+    return True
+
+
+def _cloud_capable_configuration_present(settings: Settings) -> bool:
+    if bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", False)):
+        return True
+
+    raw_allowlist = str(
+        getattr(settings, "CODEXIFY_EGRESS_ALLOWLIST", "") or ""
+    ).strip()
+    if raw_allowlist:
+        allowlisted = {
+            item.strip().lower()
+            for item in raw_allowlist.split(",")
+            if item.strip()
+        }
+        if allowlisted & CLOUD_PROVIDERS:
+            return True
+
+    cloud_env_fields = (
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "GROQ_API_KEY",
+        "GROQ_BASE_URL",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "ALIBABA_API_KEY",
+        "ALIBABA_API_BASE",
+        "MINIMAX_API_KEY",
+        "MINIMAX_API_BASE",
+    )
+    for field in cloud_env_fields:
+        if str(getattr(settings, field, "") or "").strip():
+            return True
+    return False
+
+
+def supported_profile_posture(settings: Settings) -> dict[str, Any]:
+    from guardian.core.supported_profile import (
+        get_active_supported_profile,
+        validate_supported_profile_runtime,
+    )
+
+    manifest = get_active_supported_profile()
+    selected_provider = normalize_provider(getattr(settings, "LLM_PROVIDER", None))
+    cloud_capable = _cloud_capable_configuration_present(settings)
+
+    if manifest is None:
+        return {
+            "name": None,
+            "version": None,
+            "surface": None,
+            "valid": None,
+            "mismatches": [],
+            "selected_provider": selected_provider,
+            "selected_provider_supported": None,
+            "cloud_capable_configuration_present": cloud_capable,
+            "release_hold": None,
+        }
+
+    mismatches = validate_supported_profile_runtime(manifest, settings=settings)
+    valid = len(mismatches) == 0
+    expected_provider = normalize_provider(
+        manifest.provider_contract.get("LLM_PROVIDER")
+    )
+    return {
+        "name": manifest.name,
+        "version": manifest.version,
+        "surface": manifest.surface,
+        "valid": valid,
+        "mismatches": list(mismatches),
+        "selected_provider": selected_provider,
+        "selected_provider_supported": bool(valid),
+        "cloud_capable_configuration_present": cloud_capable,
+        "release_hold": bool((not valid) or cloud_capable),
+        "expected_provider": expected_provider,
+    }
+
+
 def _static_provider_models(
     provider_id: str,
     settings: Settings,
