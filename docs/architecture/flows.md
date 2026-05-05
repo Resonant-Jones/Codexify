@@ -69,6 +69,7 @@ Acceptance semantics:
 - The route does not prove dequeue, eventual success, or UI receipt.
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
+- For the workspace proof harness on the supported local Compose path, acceptance is only the first milestone; the proof must also verify terminal task evidence, persisted assistant text, and workspace-local retrieval posture before it can pass.
 
 Debug trace note:
 - The live `/api/chat/debug/rag-trace/{thread_id}/latest` route may surface sanitized trace availability, effective policy, retrieval summary/provenance, and image-routing metadata when a real trace exists.

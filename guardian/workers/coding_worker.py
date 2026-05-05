@@ -131,10 +131,11 @@ class CodingWorker:
         """Emit task.running event."""
         try:
             task_events.publish_with_visibility(
-                task.task_id,
+                task.run_id,
                 "task.running",
                 {
                     "run_id": task.run_id,
+                    "queue_task_id": task.task_id,
                     "coding_task_id": task.coding_task_id,
                     "attempt_id": task.attempt_id,
                     "status": "running",
@@ -155,10 +156,11 @@ class CodingWorker:
         """Emit terminal task event."""
         try:
             task_events.publish_with_visibility(
-                task.task_id,
+                task.run_id,
                 f"task.{event_type}",
                 {
                     "run_id": task.run_id,
+                    "queue_task_id": task.task_id,
                     "coding_task_id": task.coding_task_id,
                     "attempt_id": task.attempt_id,
                     "status": event_type,
@@ -187,10 +189,11 @@ class CodingWorker:
         )
         try:
             task_events.publish_with_visibility(
-                task.task_id,
+                task.run_id,
                 "task.failed",
                 {
                     "run_id": task.run_id,
+                    "queue_task_id": task.task_id,
                     "coding_task_id": task.coding_task_id,
                     "attempt_id": task.attempt_id,
                     "status": "failed",
@@ -209,10 +212,11 @@ class CodingWorker:
         self.store.update_run_status(run_id=task.run_id, status="cancelled")
         try:
             task_events.publish_with_visibility(
-                task.task_id,
+                task.run_id,
                 "task.cancelled",
                 {
                     "run_id": task.run_id,
+                    "queue_task_id": task.task_id,
                     "coding_task_id": task.coding_task_id,
                     "attempt_id": task.attempt_id,
                     "status": "cancelled",

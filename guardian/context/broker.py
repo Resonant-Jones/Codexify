@@ -29,7 +29,10 @@ from guardian.context.tool_intents import (
 from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
-from guardian.protocol_tokens import PersonalFactStatus
+from guardian.protocol_tokens import (
+    PersonalFactStatus,
+    TraceSnapshotAbsenceReason,
+)
 
 logger = logging.getLogger(__name__)
 _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
@@ -402,6 +405,7 @@ class ContextBroker:
         if not resolved_user_id:
             raise ValueError("ContextBroker requires user_id")
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
+        requested_source_mode = normalize_source_mode(source_mode)
         base_policy = derive_default_retrieval_policy(source_mode)
         effective_policy = merge_retrieval_policy(
             base_policy,
@@ -899,6 +903,89 @@ class ContextBroker:
         if not widened and widen_reason != WIDEN_REASON_NONE:
             raise AssertionError("invalid_widen_reason_without_widening")
 
+        source_hit_counts = {
+            "semantic_total": len(context.get("semantic", [])),
+            "thread_semantic": len(
+                [
+                    item
+                    for item in context.get("semantic", [])
+                    if isinstance(item, dict)
+                    and str(item.get("namespace") or "").startswith(
+                        "thread:"
+                    )
+                ]
+            ),
+            "obsidian_semantic": len(
+                [
+                    item
+                    for item in context.get("semantic", [])
+                    if isinstance(item, dict)
+                    and str(item.get("namespace") or "").strip()
+                    == OBSIDIAN_NAMESPACE
+                ]
+            ),
+            "other_semantic": 0,
+            "project_documents": len(
+                [
+                    item
+                    for item in context.get("docs", {}).get("project", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "thread_documents": len(
+                [
+                    item
+                    for item in context.get("docs", {}).get("thread", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "global_documents": len(
+                [
+                    item
+                    for item in context.get("docs", {}).get("global", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "other_documents": 0,
+            "memory": len(
+                [
+                    item
+                    for item in context.get("memory", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "graph": len(
+                [
+                    item
+                    for item in context.get("graph", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+        }
+        retrieval_executed = normalized_depth != "shallow"
+        retrieval_absence_reason = None
+        if not retrieval_executed:
+            retrieval_absence_reason = (
+                TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value
+            )
+        elif not any(source_hit_counts.values()):
+            retrieval_absence_reason = (
+                TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
+            )
+
+        retrieval_provenance = {
+            "requested_source_mode": requested_source_mode,
+            "normalized_source_mode": normalized_source_mode,
+            "source_hit_counts": source_hit_counts,
+            "retrieval_status": context.get("retrieval_status")
+            or (
+                "obsidian_only_success"
+                if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY
+                and context.get("obsidian")
+                else "no_candidates"
+            ),
+        }
+
         # Keep source-boundary diagnostics stable while source_mode still
         # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
@@ -926,6 +1013,18 @@ class ContextBroker:
             ],
             "source_mode": normalized_source_mode,
             "effective_policy": effective_policy,
+            "retrieval_policy": dict(effective_policy),
+            "retrieval_provenance": retrieval_provenance,
+            "retrieval_suppression": {
+                "items": [],
+                "summary": {"total_suppressed": 0},
+            },
+            "retrieval_executed": retrieval_executed,
+            "retrieval_absence_reason": retrieval_absence_reason,
+            "image_routing_path": None,
+            "image_routing_absence_reason": (
+                TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+            ),
             "widen_reason": widen_reason,
             "graph_context": graph_trace,
             "memory_context": memory_trace,

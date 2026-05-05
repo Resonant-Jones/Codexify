@@ -130,6 +130,18 @@ Source anchors:
    - Verify the supported-profile flags are active, internal-only/quarantined routes are not exposed on the supported beta surface, provider registry posture agrees with catalog and health, and the current audit window includes fresh live proof for assistant completion plus upload -> embed -> retrieve.
    - If any of those checks fail, or if the mismatch can only be explained through unsupported/internal surfaces, record the release as `hold`.
 
+### Workspace proof harness for release evidence
+
+- Use `scripts/proofs/prove_workspace_obsidian_e2e.py` when you need live evidence that a workspace-scoped completion can be influenced by an Obsidian-backed local note on the supported local Compose path.
+- The harness stages a scratch vault under `tmp/`, indexes it through `/api/obsidian/config` and `/api/obsidian/index`, then waits on the real task-event stream and verifies the persisted assistant message plus retrieval posture.
+- It is release evidence only. It does not prove sync automation, connector UX, packaged desktop behavior, or any non-Compose install mode.
+- Exact command:
+
+```bash
+BASE=http://localhost:8888 GUARDIAN_API_KEY="$(scripts/dev/dev-key.sh)" \
+python scripts/proofs/prove_workspace_obsidian_e2e.py
+```
+
 ### Storage, media, and embeddings
 
 | Variable | Current behavior | Anchors |
