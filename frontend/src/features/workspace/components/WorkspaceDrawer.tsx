@@ -35,12 +35,6 @@ type WorkspaceDrawerProps = {
   onMoveScratchpadToComposer?: (text: string) => void;
 };
 
-const WORKSPACE_PANEL_COPY: Record<WorkspaceDrawerTab, string> = {
-  shelf: "Shelf items will appear here in a later phase.",
-  scratchpad: "Scratchpad editing lands in Phase 2 with text input and autosave.",
-  inspector: "Inspector renderers will plug into this panel in a later phase.",
-};
-
 function resolveRouteThreadIdentity(): string | null {
   if (typeof window === "undefined") return null;
   const match = window.location.pathname.match(/^\/chat\/([^/]+)/);
@@ -73,7 +67,6 @@ export default function WorkspaceDrawer({
     [onActiveTabChange]
   );
 
-  const panel = WORKSPACE_PANEL_COPY[activeTab];
   const layoutModeLabel = getWorkspaceLayoutModeLabel(layoutMode);
   const idBase = "workspace";
   const resolvedThreadIdentity =
