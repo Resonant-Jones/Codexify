@@ -730,6 +730,7 @@ def llm_catalog(include: str | None = Query(default=None)):
 
 
 @router.get("/health/chat")
+@router.get("/api/health/chat")
 def health_chat():
     """Get health status of chat subsystem."""
     # Import from core dependencies module
