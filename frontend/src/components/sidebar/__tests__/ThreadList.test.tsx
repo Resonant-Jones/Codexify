@@ -105,6 +105,18 @@ describe("ThreadList dark mode surface contract", () => {
     document.documentElement.classList.remove("dark");
   });
 
+  it("keeps thread rows compact and title-first", () => {
+    renderThreadList();
+
+    const tile = screen.getByTestId("thread-tile-thread-1");
+    expect(tile).toHaveStyle({
+      minHeight: "44px",
+      background: "var(--panel-bg)",
+    });
+    expect(within(tile).getByText("Research notes")).toBeInTheDocument();
+    expect(within(tile).queryByText("Valid content should read as content.")).toBeNull();
+  });
+
   it("keeps the light-mode thread tile on the default panel background", () => {
     renderThreadList();
 
@@ -194,6 +206,15 @@ describe("ThreadList thread actions menu", () => {
     );
 
     expect(screen.getAllByRole("button", { name: "Thread actions" })).toHaveLength(1);
+
+    const selectedTile = screen.getByTestId("thread-tile-thread-1");
+    const selectedTitle = within(selectedTile).getByText("First thread");
+    const selectedActions = screen.getByRole("button", { name: "Thread actions" });
+
+    expect(selectedTile).toHaveStyle({ minHeight: "44px" });
+    expect(
+      selectedTitle.compareDocumentPosition(selectedActions) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     await user.click(screen.getByRole("button", { name: "Thread actions" }));
 
