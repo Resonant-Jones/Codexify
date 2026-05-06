@@ -340,3 +340,15 @@ FAIL
   - `image_routing_path: native_multimodal_vision`, or
   - `image_routing_absence_reason: vision_model_selected_but_image_payload_not_routed`
 - Do not treat this run as containment-pass evidence.
+
+## Remediation Note - live routing fallback and trace contract cleanup
+
+- The live completion path now has a defensive fallback that stamps image-routing truth when the helper path fails to populate it, so image turns no longer rely on a null/null image-routing surface.
+- `GET /api/chat/debug/rag-trace/{thread_id}/latest` now clears `trace_unavailable_reason` once a persisted snapshot exists, while still surfacing `trace_source_unavailable` for genuine no-evidence cases.
+- The proof is ready to rerun against the refreshed runtime, but this document still records the prior FAIL history until a new live PASS is observed.
+
+## Remediation Note - origin-backed image routing hint
+
+- The chat route now forwards a compact image-attachment hint through task origin metadata, and the completion service consumes that hint before finalizing image-routing truth.
+- That bridge is intended to keep image turns from collapsing back to `null` / `null` when the persisted image payload is still present but the downstream routing helper missed it.
+- The proof remains ready to rerun; this document still preserves earlier FAIL sections until a fresh live PASS is observed.

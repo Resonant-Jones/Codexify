@@ -7,6 +7,7 @@ import pytest
 
 from guardian.core.dependencies import RequestUserScope
 from guardian.protocol_tokens import ImageRoutingPath
+from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.routes import chat
 
 
@@ -115,7 +116,7 @@ def test_live_rag_trace_exposes_sanitized_policy_provenance_and_image_metadata(
         "graph_hit_count": 1,
         "linked_document_count": 1,
         "obsidian_count": 0,
-        "image_routing_path": "vlm",
+        "image_routing_path": ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
         "image_attachment_count": 1,
         "derived_image_context_injected": False,
         "effective_policy": expected_effective_policy,
@@ -137,7 +138,7 @@ def test_live_rag_trace_exposes_sanitized_policy_provenance_and_image_metadata(
     trace_text = json.dumps(trace, sort_keys=True)
 
     assert trace["trace_available"] is True
-    assert trace["trace_unavailable_reason"] is None
+    assert "trace_unavailable_reason" not in trace
     assert trace["effective_policy"] == expected_effective_policy
     assert trace["retrieval_provenance"] == expected_retrieval_provenance
     assert trace["retrieval_summary"]["document_count"] == 1
@@ -160,7 +161,7 @@ def test_live_rag_trace_exposes_sanitized_policy_provenance_and_image_metadata(
         "graph": 1,
     }
     assert trace["image_routing"] == {
-        "image_routing_path": "vlm",
+        "image_routing_path": ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
         "image_attachment_count": 1,
         "derived_image_context_injected": False,
     }
@@ -315,7 +316,9 @@ def test_live_rag_trace_returns_empty_surface_without_trace(
     trace_text = json.dumps(trace, sort_keys=True)
 
     assert trace["trace_available"] is False
-    assert trace["trace_unavailable_reason"] is None
+    assert trace["trace_unavailable_reason"] == (
+        TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value
+    )
     assert trace["effective_policy"] is None
     assert trace["retrieval_summary"] is None
     assert trace["retrieval_provenance"] is None
