@@ -108,7 +108,12 @@ describe("ThreadList dark mode surface contract", () => {
   it("keeps thread rows compact and title-first", () => {
     renderThreadList();
 
+    const guide = screen.getByTestId("thread-rail-guide");
     const tile = screen.getByTestId("thread-tile-thread-1");
+
+    expect(guide).toHaveClass("bg-transparent", "shadow-none", "border-0", "rounded-none");
+    expect(guide.getAttribute("style")).toContain("background: transparent");
+    expect(guide.getAttribute("style")).toContain("box-shadow: none");
     expect(tile).toHaveStyle({
       minHeight: "44px",
       background: "var(--panel-bg)",
@@ -207,14 +212,17 @@ describe("ThreadList thread actions menu", () => {
 
     expect(screen.getAllByRole("button", { name: "Thread actions" })).toHaveLength(1);
 
-    const selectedTile = screen.getByTestId("thread-tile-thread-1");
+    const selectedRow = screen.getByTestId("thread-row-thread-1");
+    const selectedTile = within(selectedRow).getByTestId("thread-tile-thread-1");
     const selectedTitle = within(selectedTile).getByText("First thread");
-    const selectedActions = screen.getByRole("button", { name: "Thread actions" });
+    const selectedActions = within(selectedRow).getByRole("button", { name: "Thread actions" });
 
     expect(selectedTile).toHaveStyle({ minHeight: "44px" });
+    expect(selectedRow).toContainElement(selectedActions);
     expect(
       selectedTitle.compareDocumentPosition(selectedActions) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByTestId("thread-row-thread-2")?.contains(selectedActions)).toBe(false);
 
     await user.click(screen.getByRole("button", { name: "Thread actions" }));
 
@@ -257,6 +265,9 @@ describe("ThreadList thread actions menu", () => {
     await user.tab();
 
     expect(await screen.findByRole("button", { name: "Thread actions" })).toBeVisible();
+    expect(screen.getByTestId("thread-row-thread-1")).toContainElement(
+      screen.getByRole("button", { name: "Thread actions" })
+    );
   });
 });
 

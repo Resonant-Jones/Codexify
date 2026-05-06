@@ -174,80 +174,90 @@ function ThreadPreviewList({
       className={clsx("flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden", className)}
       onScroll={maybeLoadMore}
     >
-      {showHeader && (
-        <div className="flex items-center justify-between pb-2">
-          <div className="inline-flex items-center gap-1 text-xs opacity-70">
-            <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
-            <span className="font-medium">{scopeLabel ?? "—"}</span>
+      <div
+        data-testid="thread-rail-guide"
+        className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 rounded-none border-0 bg-transparent shadow-none"
+        style={{
+          background: "transparent",
+          borderColor: "transparent",
+          boxShadow: "none",
+        }}
+      >
+        {showHeader && (
+          <div className="flex items-center justify-between pb-2">
+            <div className="inline-flex items-center gap-1 text-xs opacity-70">
+              <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
+              <span className="font-medium">{scopeLabel ?? "—"}</span>
+            </div>
+            {onNewChat && (
+              <button type="button" className="icon-inline" onClick={onNewChat}>
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
           </div>
-          {onNewChat && (
-            <button type="button" className="icon-inline" onClick={onNewChat}>
-              <Plus className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      )}
-      {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
-        <div className="pb-2 px-3 min-w-0">
-          <div
-            className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
-            role="toolbar"
-            aria-label="Imported source filter"
-          >
-            <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
-              Source
-            </span>
-            <button
-              type="button"
-              className="pill-tab shrink-0 text-[11px]"
-              data-state={!provenanceFilter ? "active" : undefined}
-              aria-pressed={!provenanceFilter}
-              onClick={() => onProvenanceFilterChange(null)}
+        )}
+        {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
+          <div className="pb-2 px-3 min-w-0">
+            <div
+              className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
+              role="toolbar"
+              aria-label="Imported source filter"
             >
-              All
-            </button>
-            <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-              <div className="flex min-w-max items-center gap-1.5 pr-1">
-                {provenanceOptions.map((option) => {
-                  const active = provenanceFilter === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className="pill-tab h-8 w-8 shrink-0 p-0"
-                      data-state={active ? "active" : undefined}
-                      aria-pressed={active}
-                      aria-label={option.description ?? option.label}
-                      title={option.description ?? option.label}
-                      onClick={() => onProvenanceFilterChange(option.value)}
-                    >
-                      {option.Icon ? (
-                        <option.Icon className="h-4 w-4" aria-hidden={true} />
-                      ) : (
-                        <span className="sr-only">{option.label}</span>
-                      )}
-                    </button>
-                  );
-                })}
+              <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
+                Source
+              </span>
+              <button
+                type="button"
+                className="pill-tab shrink-0 text-[11px]"
+                data-state={!provenanceFilter ? "active" : undefined}
+                aria-pressed={!provenanceFilter}
+                onClick={() => onProvenanceFilterChange(null)}
+              >
+                All
+              </button>
+              <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+                <div className="flex min-w-max items-center gap-1.5 pr-1">
+                  {provenanceOptions.map((option) => {
+                    const active = provenanceFilter === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className="pill-tab h-8 w-8 shrink-0 p-0"
+                        data-state={active ? "active" : undefined}
+                        aria-pressed={active}
+                        aria-label={option.description ?? option.label}
+                        title={option.description ?? option.label}
+                        onClick={() => onProvenanceFilterChange(option.value)}
+                      >
+                        {option.Icon ? (
+                          <option.Icon className="h-4 w-4" aria-hidden={true} />
+                        ) : (
+                          <span className="sr-only">{option.label}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
+        )}
+        <div className="space-y-2">
+          {threads.map((t) => (
+            <ThreadTileRow
+              key={`t:${String(t.id)}`}
+              thread={t}
+              active={t.id === activeId}
+              isDarkMode={isDarkMode}
+              onSelect={onSelect}
+              rectH={rectH}
+              onRename={onRename}
+              onArchiveToggle={onArchiveToggle}
+              onDelete={onDelete}
+            />
+          ))}
         </div>
-      )}
-      <div className="space-y-2">
-        {threads.map((t) => (
-          <ThreadTileRow
-            key={`t:${String(t.id)}`}
-            thread={t}
-            active={t.id === activeId}
-            isDarkMode={isDarkMode}
-            onSelect={onSelect}
-            rectH={rectH}
-            onRename={onRename}
-            onArchiveToggle={onArchiveToggle}
-            onDelete={onDelete}
-          />
-        ))}
       </div>
       {isLoadingMore && (
         <div className="flex items-center justify-center py-3 opacity-70 text-xs">
@@ -437,6 +447,7 @@ function ThreadTileRow({
   const showActions = active || focusWithin;
   return (
     <div
+      data-testid={`thread-row-${thread.id}`}
       className={clsx("relative", className)}
       onFocusCapture={() => setFocusWithin(true)}
       onBlurCapture={(event) => {
@@ -456,7 +467,7 @@ function ThreadTileRow({
         background={tileBackground}
         style={{ minHeight: rectH }}
       >
-        <div className="flex h-full w-full items-center gap-2 px-3 py-1.5 pr-9">
+        <div className="flex h-full w-full items-center gap-2 px-3 py-1.5 pr-11">
           <div className="flex min-w-0 flex-1 items-center">
             {titleNode}
           </div>
@@ -464,23 +475,19 @@ function ThreadTileRow({
         </div>
       </TileShell>
 
-      <div className="absolute inset-y-0 right-1 z-10 flex items-center">
-        {showActions ? (
-          <button
-            ref={kebabRef}
-            className="icon-inline rounded-[var(--radius-micro)]"
-            aria-label="Thread actions"
-            onClick={(e) => { if (stop(e)) return; setMenuOpen(true); setHoveredAction(null); }}
-            onMouseDown={(e) => stop(e)}
-            type="button"
-            aria-busy={actionBusy ? true : undefined}
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
-        ) : (
-          <div aria-hidden="true" className="h-8 w-8" />
-        )}
-      </div>
+      {showActions && (
+        <button
+          ref={kebabRef}
+          className="icon-inline absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-[var(--radius-micro)]"
+          aria-label="Thread actions"
+          onClick={(e) => { if (stop(e)) return; setMenuOpen(true); setHoveredAction(null); }}
+          onMouseDown={(e) => stop(e)}
+          type="button"
+          aria-busy={actionBusy ? true : undefined}
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      )}
 
       {menuOpen && (
         <div
