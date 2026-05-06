@@ -408,3 +408,9 @@ FAIL
 - Follow-up recommendations:
   - continue investigating why the live completion path retains `image_routing_path: null` / `image_routing_absence_reason: image_routing_not_evaluated` even though the task origin now carries an image-attachment hint
   - rerun the proof only after the runtime stamps either `native_multimodal_vision` or a canonical absence reason on the live turn
+
+## Remediation Note — image-routing normalization
+
+- The completion path now normalizes known image turns from the live origin hint, trace state, and payload summary before persistence.
+- `image_routing_not_evaluated` is now reserved for genuine no-image / no-routing-evidence cases; known image turns should instead stamp either `native_multimodal_vision` or a canonical absence reason.
+- The focused regression slice is green, so the live containment proof is ready to rerun against the refreshed runtime.

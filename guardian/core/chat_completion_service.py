@@ -1713,6 +1713,141 @@ def _resolve_image_routing_trace(
     )
 
 
+def _normalize_completion_image_routing_truth(
+    *,
+    task: Any,
+    provider: str,
+    model: str,
+    settings: Any,
+    messages_for_llm: list[dict[str, Any]],
+    routing_meta: dict[str, Any] | None,
+    trace: dict[str, Any] | None = None,
+    payload_summary: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+) -> tuple[int, str | None, str | None]:
+    def _positive_int(raw: Any) -> int:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return 0
+        return value if value > 0 else 0
+
+    routing_meta = dict(routing_meta or {})
+    trace = dict(trace or {}) if isinstance(trace, dict) else {}
+    payload_summary = (
+        dict(payload_summary or {}) if isinstance(payload_summary, dict) else {}
+    )
+    result = dict(result or {}) if isinstance(result, dict) else {}
+
+    image_attachment_count = max(
+        (
+            count
+            for count in (
+                _positive_int(routing_meta.get("image_attachment_count")),
+                _positive_int(payload_summary.get("image_attachment_count")),
+                _positive_int(trace.get("image_attachment_count")),
+                _positive_int(result.get("image_attachment_count")),
+                _positive_int(
+                    _image_attachment_count_from_origin(
+                        getattr(task, "origin", None)
+                    )
+                ),
+            )
+            if count > 0
+        ),
+        default=0,
+    )
+
+    for text_candidate in (
+        result.get("retrieval_query"),
+        trace.get("latest_turn_content"),
+        trace.get("retrieval_query"),
+        payload_summary.get("retrieval_query"),
+        payload_summary.get("latest_turn_content"),
+    ):
+        text = str(text_candidate or "").strip()
+        if (
+            "Attached image:" in text
+            or "cfy-media:image:" in text
+            or "cfy-media-src:" in text
+        ):
+            image_attachment_count = max(image_attachment_count, 1)
+
+    if image_attachment_count <= 0:
+        return (
+            0,
+            None,
+            TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value,
+        )
+
+    derived_image_context_injected = any(
+        bool(candidate.get("derived_image_context_injected"))
+        for candidate in (routing_meta, payload_summary, trace, result)
+        if isinstance(candidate, dict)
+    )
+    if derived_image_context_injected:
+        return image_attachment_count, ImageRoutingPath.INTERPRETER.value, None
+
+    def _first_non_empty_path(*candidates: dict[str, Any] | None) -> str | None:
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            value = str(candidate.get("image_routing_path") or "").strip().lower()
+            if value:
+                return value
+        return None
+
+    existing_path = _first_non_empty_path(
+        result,
+        payload_summary,
+        trace,
+        routing_meta,
+    )
+
+    provider_ready_image_payload_present = messages_contain_image_payload(
+        messages_for_llm
+    )
+    vision_support_state = resolve_model_vision_capability_state(
+        provider,
+        model,
+        settings,
+    )
+    if (
+        existing_path
+        == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+        and provider_ready_image_payload_present
+        and vision_support_state is True
+    ):
+        return (
+            image_attachment_count,
+            ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
+            None,
+        )
+    if existing_path == ImageRoutingPath.INTERPRETER.value:
+        return image_attachment_count, ImageRoutingPath.INTERPRETER.value, None
+    if (
+        provider_ready_image_payload_present
+        and vision_support_state is True
+    ):
+        return (
+            image_attachment_count,
+            ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
+            None,
+        )
+    return (
+        image_attachment_count,
+        None,
+        _image_routing_absence_reason(
+            image_attachment_count=image_attachment_count,
+            image_routing_path=None,
+            provider=provider,
+            requested_model=getattr(task, "requested_model", None),
+            resolved_model=model,
+            settings=settings,
+        ),
+    )
+
+
 def build_sanitized_payload_summary(
     messages: list[dict[str, str]] | None,
     bundle: dict[str, Any] | None,
@@ -3314,44 +3449,26 @@ def run_chat_completion_task(
                 routing_meta["image_attachment_count"] = image_attachment_count
                 break
             candidate_text = str(candidate_content or "").strip()
-            if "Attached image:" in candidate_text or "cfy-media:image:" in candidate_text:
+            if (
+                "Attached image:" in candidate_text
+                or "cfy-media:image:" in candidate_text
+            ):
                 image_attachment_count = 1
                 routing_meta["image_attachment_count"] = image_attachment_count
                 break
-    image_routing_path = None
-    image_routing_absence_reason = None
-    if image_attachment_count > 0:
-        if routing_meta.get("derived_image_context_injected"):
-            image_routing_path = ImageRoutingPath.INTERPRETER.value
-        else:
-            provider_ready_image_payload_present = (
-                messages_contain_image_payload(messages_for_llm)
-            )
-            vision_support_state = resolve_model_vision_capability_state(
-                provider,
-                model,
-                settings,
-            )
-            if (
-                provider_ready_image_payload_present
-                and vision_support_state is True
-            ):
-                image_routing_path = (
-                    ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
-                )
-            else:
-                image_routing_absence_reason = _image_routing_absence_reason(
-                    image_attachment_count=image_attachment_count,
-                    image_routing_path=None,
-                    provider=provider,
-                    requested_model=getattr(task, "requested_model", None),
-                    resolved_model=model,
-                    settings=settings,
-                )
-    elif isinstance(trace, dict):
-        image_routing_absence_reason = (
-            TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+    payload_summary: dict[str, Any] = {}
+    image_attachment_count, image_routing_path, image_routing_absence_reason = (
+        _normalize_completion_image_routing_truth(
+            task=task,
+            provider=provider,
+            model=model,
+            settings=settings,
+            messages_for_llm=messages_for_llm,
+            routing_meta=routing_meta,
+            trace=trace,
+            payload_summary=payload_summary,
         )
+    )
 
     payload_summary = build_sanitized_payload_summary(
         messages_for_llm,
@@ -3430,101 +3547,48 @@ def run_chat_completion_task(
     assistant_text = str(result.get("assistant_text") or "")
     payload_summary = dict(result.get("payload_summary") or payload_summary)
     request_id = str(result.get("requestId") or _completion_request_id(task))
+    trace_result = result.get("trace") if isinstance(result.get("trace"), dict) else None
+    trace_fallback = trace_result
+    if trace_fallback is None and isinstance(trace, dict):
+        trace_fallback = dict(trace)
 
-    if isinstance(result, dict):
-        trace_result = (
-            result.get("trace") if isinstance(result.get("trace"), dict) else None
+    (
+        image_attachment_count,
+        image_routing_path,
+        image_routing_absence_reason,
+    ) = _normalize_completion_image_routing_truth(
+        task=task,
+        provider=provider,
+        model=model,
+        settings=settings,
+        messages_for_llm=messages_for_llm,
+        routing_meta=routing_meta,
+        trace=trace_fallback,
+        payload_summary=payload_summary,
+        result=result,
+    )
+    payload_summary["image_attachment_count"] = image_attachment_count
+    payload_summary["image_routing_path"] = image_routing_path
+    payload_summary["image_routing_absence_reason"] = (
+        image_routing_absence_reason
+    )
+    result["image_attachment_count"] = image_attachment_count
+    result["image_routing_path"] = image_routing_path
+    result["image_routing_absence_reason"] = image_routing_absence_reason
+    if isinstance(trace_result, dict):
+        trace_result["image_attachment_count"] = image_attachment_count
+        trace_result["image_routing_path"] = image_routing_path
+        trace_result["image_routing_absence_reason"] = (
+            image_routing_absence_reason
         )
-        if trace_result is not None:
-            image_routing_path = result.get("image_routing_path")
-            image_routing_absence_reason = result.get(
-                "image_routing_absence_reason"
-            )
-            if (
-                image_routing_path is None
-                and image_routing_absence_reason
-                in {
-                    None,
-                    TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value,
-                }
-            ):
-                inferred_image_attachment_count = int(
-                    payload_summary.get("image_attachment_count", 0) or 0
-                )
-                if inferred_image_attachment_count <= 0:
-                    retrieval_query_hint = str(
-                        result.get("retrieval_query")
-                        or trace_result.get("latest_turn_content")
-                        or ""
-                    ).strip()
-                    if (
-                        "Attached image:" in retrieval_query_hint
-                        or "cfy-media:image:" in retrieval_query_hint
-                    ):
-                        inferred_image_attachment_count = 1
-                if inferred_image_attachment_count > 0:
-                    if routing_meta.get("derived_image_context_injected"):
-                        image_routing_path = (
-                            ImageRoutingPath.INTERPRETER.value
-                        )
-                        image_routing_absence_reason = None
-                    else:
-                        provider_ready_image_payload_present = (
-                            messages_contain_image_payload(messages_for_llm)
-                        )
-                        vision_support_state = (
-                            resolve_model_vision_capability_state(
-                                provider,
-                                model,
-                                settings,
-                            )
-                        )
-                        if (
-                            provider_ready_image_payload_present
-                            and vision_support_state is True
-                        ):
-                            image_routing_path = (
-                                ImageRoutingPath
-                                .NATIVE_MULTIMODAL_VISION.value
-                            )
-                            image_routing_absence_reason = None
-                        else:
-                            image_routing_path = None
-                            image_routing_absence_reason = (
-                                _image_routing_absence_reason(
-                                    image_attachment_count=(
-                                        inferred_image_attachment_count
-                                    ),
-                                    image_routing_path=None,
-                                    provider=provider,
-                                    requested_model=getattr(
-                                        task, "requested_model", None
-                                    ),
-                                    resolved_model=model,
-                                    settings=settings,
-                                )
-                            )
-                    payload_summary["image_attachment_count"] = (
-                        inferred_image_attachment_count
-                    )
-                    payload_summary["image_routing_path"] = image_routing_path
-                    payload_summary[
-                        "image_routing_absence_reason"
-                    ] = image_routing_absence_reason
-                    result["image_attachment_count"] = (
-                        inferred_image_attachment_count
-                    )
-                    result["image_routing_path"] = image_routing_path
-                    result["image_routing_absence_reason"] = (
-                        image_routing_absence_reason
-                    )
-                    trace_result["image_attachment_count"] = (
-                        inferred_image_attachment_count
-                    )
-                    trace_result["image_routing_path"] = image_routing_path
-                    trace_result["image_routing_absence_reason"] = (
-                        image_routing_absence_reason
-                    )
+        result["trace"] = trace_result
+    elif isinstance(trace_fallback, dict):
+        trace_fallback["image_attachment_count"] = image_attachment_count
+        trace_fallback["image_routing_path"] = image_routing_path
+        trace_fallback["image_routing_absence_reason"] = (
+            image_routing_absence_reason
+        )
+        result["trace"] = trace_fallback
 
     candidate_trace = _build_candidate_trace(
         task,
@@ -3615,98 +3679,6 @@ def run_chat_completion_task(
     if isinstance(payload_summary, dict):
         result["model_selection"] = payload_summary.get("model_selection")
     result["payload_summary"] = payload_summary
-
-    if isinstance(result, dict) and isinstance(result.get("trace"), dict):
-        trace_result = dict(result["trace"])
-        current_image_routing_path = result.get("image_routing_path")
-        current_image_routing_absence_reason = result.get(
-            "image_routing_absence_reason"
-        )
-        if (
-            current_image_routing_path is None
-            and current_image_routing_absence_reason
-            in {
-                None,
-                TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value,
-            }
-        ):
-            inferred_image_attachment_count = int(
-                result.get("image_attachment_count")
-                or payload_summary.get("image_attachment_count", 0)
-                or routing_meta.get("image_attachment_count", 0)
-                or 0
-            )
-            retrieval_query_hint = str(
-                result.get("retrieval_query")
-                or trace_result.get("latest_turn_content")
-                or trace_result.get("retrieval_query")
-                or ""
-            ).strip()
-            if inferred_image_attachment_count <= 0 and (
-                "Attached image:" in retrieval_query_hint
-                or "cfy-media:image:" in retrieval_query_hint
-            ):
-                inferred_image_attachment_count = 1
-            if inferred_image_attachment_count > 0:
-                if routing_meta.get("derived_image_context_injected"):
-                    image_routing_path = ImageRoutingPath.INTERPRETER.value
-                    image_routing_absence_reason = None
-                else:
-                    provider_ready_image_payload_present = (
-                        messages_contain_image_payload(messages_for_llm)
-                    )
-                    vision_support_state = (
-                        resolve_model_vision_capability_state(
-                            provider,
-                            model,
-                            settings,
-                        )
-                    )
-                    if (
-                        provider_ready_image_payload_present
-                        and vision_support_state is True
-                    ):
-                        image_routing_path = (
-                            ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
-                        )
-                        image_routing_absence_reason = None
-                    else:
-                        image_routing_path = None
-                        image_routing_absence_reason = (
-                            _image_routing_absence_reason(
-                                image_attachment_count=(
-                                    inferred_image_attachment_count
-                                ),
-                                image_routing_path=None,
-                                provider=provider,
-                                requested_model=getattr(
-                                    task, "requested_model", None
-                                ),
-                                resolved_model=model,
-                                settings=settings,
-                            )
-                        )
-                payload_summary["image_attachment_count"] = (
-                    inferred_image_attachment_count
-                )
-                payload_summary["image_routing_path"] = image_routing_path
-                payload_summary[
-                    "image_routing_absence_reason"
-                ] = image_routing_absence_reason
-                result["image_attachment_count"] = inferred_image_attachment_count
-                result["image_routing_path"] = image_routing_path
-                result["image_routing_absence_reason"] = (
-                    image_routing_absence_reason
-                )
-                trace_result["image_attachment_count"] = (
-                    inferred_image_attachment_count
-                )
-                trace_result["image_routing_path"] = image_routing_path
-                trace_result["image_routing_absence_reason"] = (
-                    image_routing_absence_reason
-                )
-                result["trace"] = trace_result
-                result["payload_summary"] = payload_summary
 
     if not persist_assistant_message:
         return result
