@@ -13,6 +13,7 @@ from guardian.core.chat_completion_service import (
 )
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat
+from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -152,13 +153,56 @@ def test_rag_trace_exposes_retrieval_provenance(monkeypatch):
     )
 
     trace = chat.get_latest_rag_trace(781, api_key="test-key")
+    assert trace["trace_available"] is True
+    assert trace["trace_unavailable_reason"] is None
     assert (
         trace["payload_summary"]["retrieval_provenance"] == retrieval_provenance
     )
     assert trace["retrieval_provenance"] == retrieval_provenance
+    assert trace["retrieval_summary"]["document_count"] == 0
+    assert trace["retrieval_summary"]["graph_count"] == 0
 
     chat._thread_latest_task.pop(781, None)
     chat._rag_traces.pop(781, None)
+
+
+def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
+    chat._thread_latest_task[782] = "task-782"
+
+    absence_reason = (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "image_routing_path": None,
+                "image_routing_absence_reason": absence_reason,
+            },
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "image_routing_path": None,
+                "image_routing_absence_reason": absence_reason,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(782, api_key="test-key")
+    assert trace["image_routing_path"] is None
+    assert trace["image_routing_absence_reason"] == absence_reason
+    assert trace["payload_summary"]["image_routing_absence_reason"] == (
+        absence_reason
+    )
+
+    chat._thread_latest_task.pop(782, None)
+    chat._rag_traces.pop(782, None)
 
 
 def test_rag_trace_preserves_slash_intent_in_payload_summary(monkeypatch):
@@ -447,11 +491,17 @@ def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
 
     trace = chat.get_latest_rag_trace(91, api_key="test-key")
 
+    assert trace["trace_available"] is True
+    assert trace["trace_unavailable_reason"] is None
     assert trace["latest_turn_message_id"] == 12
     assert trace["latest_turn_content"] == "question B"
     assert trace["retrieval_query"] == "question B"
     assert trace["retrieval_target"] == "latest_turn"
     assert trace["retrieval_query_matches_latest_turn"] is True
+    assert trace["retrieval_summary"]["retrieval_target"] == "latest_turn"
+    assert trace["retrieval_summary"][
+        "retrieval_query_matches_latest_turn"
+    ] is True
     assert trace["queued_at"] == "2026-04-02T00:00:00+00:00"
     assert trace["awaiting_model_at"] == "2026-04-02T00:00:01+00:00"
     assert trace["awaiting_first_token_at"] == "2026-04-02T00:00:02+00:00"
@@ -509,9 +559,13 @@ def test_rag_trace_uses_persisted_candidate_for_completed_task(monkeypatch):
 
     trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
 
-    assert trace["documents"] == candidate_trace["documents"]
+    assert trace["documents"][0]["id"] == "doc-1"
+    assert trace["documents"][0]["title"] == "thread-note.md"
+    assert trace["documents"][0]["score"] == 0.92
+    assert trace["documents"][0]["snippet"] is None
     assert trace["graph"] == []
     assert trace["payload_summary"] == {"message_count": 2}
+    assert trace["trace_available"] is True
     assert promoted == [(thread_id, task_id, candidate_trace)]
     assert chat._thread_latest_task[thread_id] == task_id
 
@@ -553,6 +607,12 @@ def test_rag_trace_remains_empty_without_completed_evidence(monkeypatch):
 
     assert trace["documents"] == []
     assert trace["graph"] == []
+    assert trace["trace_available"] is False
+    assert trace["trace_unavailable_reason"] is None
+    assert trace["effective_policy"] is None
+    assert trace["retrieval_summary"] is None
+    assert trace["retrieval_provenance"] is None
+    assert trace["image_routing"] is None
     assert trace["thread_id"] == thread_id
     assert trace["project_id"] is None
     assert trace["depth_mode"] is None
@@ -650,24 +710,34 @@ def test_rag_trace_does_not_bleed_across_threads(monkeypatch):
     first = chat.get_latest_rag_trace(thread_one, api_key="test-key")
     second = chat.get_latest_rag_trace(thread_two, api_key="test-key")
 
-    assert first["documents"] == trace_one["documents"]
-    assert first["graph"] == trace_one["graph"]
+    assert first["documents"][0]["id"] == "doc-a"
+    assert first["documents"][0]["title"] == "a.md"
+    assert first["documents"][0]["score"] == 0.8
+    assert first["documents"][0]["snippet"] is None
+    assert first["graph"] == []
     assert first["slash_intent"] == trace_one["slash_intent"]
     assert first["retrieval_override"] == trace_one["retrieval_override"]
     assert first["source_mode"] == "project"
     assert first["widen_reason"] == "none"
+    assert first["trace_available"] is True
     assert first["payload_summary"]["slash_intent"] == slash_intent
     assert first["payload_summary"]["retrieval_override"] == retrieval_override
     assert first["payload_summary"]["source_mode"] == "personal_knowledge"
     assert first["payload_summary"]["effective_source_mode"] == (
         "personal_knowledge"
     )
-    assert second["documents"] == trace_two["documents"]
-    assert second["graph"] == trace_two["graph"]
+    assert second["documents"][0]["id"] == "doc-b"
+    assert second["documents"][0]["title"] == "b.md"
+    assert second["documents"][0]["score"] == 0.7
+    assert second["documents"][0]["snippet"] is None
+    assert second["graph"][0]["node_id"] == "node-b"
+    assert second["graph"][0]["kind"] == "memory"
+    assert second["graph"][0]["text"] is None
     assert second["slash_intent"] == trace_two["slash_intent"]
     assert second["retrieval_override"] == trace_two["retrieval_override"]
     assert second["source_mode"] == "personal_knowledge"
     assert second["widen_reason"] == "explicit_personal_knowledge"
+    assert second["trace_available"] is True
     assert "slash_intent" not in second["payload_summary"]
     assert "retrieval_override" not in second["payload_summary"]
 
@@ -730,7 +800,10 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
 
     trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
 
-    assert trace["documents"] == candidate_trace["documents"]
+    assert trace["documents"][0]["id"] == "doc-1"
+    assert trace["documents"][0]["title"] == "thread-note.md"
+    assert trace["documents"][0]["score"] == 0.92
+    assert trace["documents"][0]["snippet"] is None
     assert trace["thread_id"] == thread_id
     assert trace["project_id"] == 11
     assert trace["depth_mode"] == "normal"
@@ -739,6 +812,9 @@ def test_rag_trace_candidate_preserves_source_mode_and_widen_reason(
     assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
     assert trace["payload_summary"] == payload_summary
+    assert trace["trace_available"] is True
+    assert trace["retrieval_summary"]["document_count"] == 1
+    assert trace["retrieval_summary"]["graph_count"] == 0
 
     chat._thread_latest_task.pop(thread_id, None)
     chat._rag_traces.pop(thread_id, None)

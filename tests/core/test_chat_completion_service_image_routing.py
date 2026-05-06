@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.core import chat_completion_service
+from guardian.protocol_tokens import ImageRoutingPath
+from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -101,7 +103,7 @@ def _seed_common(monkeypatch: pytest.MonkeyPatch, *, provider: str, model: str):
     return mock_chatlog_db
 
 
-def test_image_routing_vlm_builds_multimodal_payload(
+def test_image_routing_native_vision_builds_multimodal_payload(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _seed_common(monkeypatch, provider="openai", model="gpt-4o")
@@ -139,7 +141,7 @@ def test_image_routing_vlm_builds_multimodal_payload(
     )
 
     summary = result["payload_summary"]
-    assert summary["image_routing_path"] == "vlm"
+    assert summary["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
     assert summary["image_attachment_count"] == 1
     assert summary["derived_image_context_injected"] is False
 
@@ -297,3 +299,214 @@ def test_image_routing_fails_without_path(monkeypatch: pytest.MonkeyPatch):
         )
 
     assert "Image attachments present" in str(excinfo.value)
+
+
+def test_image_routing_snapshot_carries_containment_fields(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+
+    class _TracefulBroker:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def assemble(self, thread_id, query, depth_mode, user_id):
+            bundle = {
+                "semantic": [
+                    {
+                        "content": "I can't view the image.",
+                        "source_type": "semantic_context",
+                        "role": "assistant",
+                        "thread_id": thread_id,
+                        "project_id": 42,
+                        "retrieval_lane": "semantic",
+                        "score": 0.12,
+                        "policy_reason": (
+                            "assistant_vision_refusal_on_image_turn"
+                        ),
+                    }
+                ],
+                "docs": {"project": [], "thread": [], "global": []},
+                "graph": [],
+            }
+            trace = {
+                "effective_policy": {
+                    "source_mode": "project",
+                    "widening_enabled": True,
+                    "identity_scope": "project",
+                },
+                "retrieval_plan": {
+                    "retrieval_needed": True,
+                    "user_depth": "normal",
+                },
+                "source_mode": "project",
+                "widen_reason": "none",
+            }
+            return bundle, trace
+
+    monkeypatch.setattr(chat_completion_service, "ContextBroker", _TracefulBroker)
+
+    captured: dict[str, object] = {}
+
+    def _capture(messages, **kwargs):
+        captured["messages"] = messages
+        return "ok"
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
+
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["retrieval_policy"] == {
+        "source_mode": "project",
+        "widening_enabled": True,
+        "identity_scope": "project",
+    }
+    assert trace["retrieval_executed"] is True
+    assert trace["retrieval_absence_reason"] == "retrieval_no_candidates"
+    assert trace["retrieval_suppression"]["summary"] == {
+        "total_suppressed": 1,
+        "assistant_vision_refusal_on_image_turn": 1,
+    }
+    assert trace["retrieval_suppression"]["items"][0][
+        "suppression_reason"
+    ] == "assistant_vision_refusal_on_image_turn"
+    assert trace["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    assert trace["image_routing_absence_reason"] is None
+    assert trace["model_selection"]["requested_provider"] == "openai"
+    assert trace["model_selection"]["requested_model"] == "gpt-4o"
+    assert trace["model_selection"]["final_provider"] == "openai"
+    assert trace["model_selection"]["final_model"] == "gpt-4o"
+    assert result["payload_summary"]["model_selection"] == trace["model_selection"]
+    assert result["payload_summary"]["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    assert result["payload_summary"]["image_routing_absence_reason"] is None
+
+
+def test_image_routing_snapshot_marks_vision_model_selected_but_payload_not_routed(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "messages_contain_image_payload",
+        lambda *_args, **_kwargs: False,
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: "ok",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["image_routing_path"] is None
+    assert trace["image_routing_absence_reason"] == (
+        TraceSnapshotAbsenceReason
+        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
+        .value
+    )
+    assert result["payload_summary"]["image_routing_path"] is None
+    assert result["payload_summary"]["image_routing_absence_reason"] == (
+        TraceSnapshotAbsenceReason
+        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
+        .value
+    )
+
+
+def test_image_routing_snapshot_marks_local_model_substitution_absence(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="local", model="library2/ministral-3:8b")
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_thread_completion_settings",
+        lambda *args, **kwargs: SimpleNamespace(
+            provider="local",
+            model="library2/ministral-3:8b",
+            source_mode="project",
+            persona_id=None,
+            temperature_override=None,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: False,
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_apply_image_attachment_routing",
+        lambda messages, **kwargs: (
+            messages,
+            {
+                "image_routing_path": None,
+                "image_attachment_count": 1,
+                "derived_image_context_injected": False,
+            },
+        ),
+    )
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "stream_local",
+        lambda *args, **kwargs: "ok",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "ok",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="medgemma:4b-it-q8_0",
+        requested_provider="local",
+        requested_model="medgemma:4b-it-q8_0",
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["model_selection"]["requested_model"] == (
+        "medgemma:4b-it-q8_0"
+    )
+    assert trace["model_selection"]["final_model"] == (
+        "library2/ministral-3:8b"
+    )
+    assert trace["image_routing_path"] is None
+    assert trace["image_routing_absence_reason"] == (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+    assert result["payload_summary"]["image_routing_absence_reason"] == (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )

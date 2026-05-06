@@ -38,13 +38,13 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 - The live backend posture still needs confirmation against the supported local-only profile before release signoff.
 - Fresh live evidence still needs to cover the supported beta path on the exact current `main` tip.
 - Any runtime mismatch between supported profile, catalog, and health surfaces remains a release hold.
-- The new coding-result ingestion path still needs live verification before it can count as release proof.
+- A live proof attempt on 2026-05-05 showed the coding worker still fails before returning a `coding_result` because `/app/codex_runner/src/agent-wrapper.js` is missing in the running worker image; the coding-result return path remains not release-ready.
 
 ## This week's priorities
 1. Re-run live supported-path proof on the current `main` tip.
 2. Confirm the backend is in the supported local-only posture.
 3. Verify chat completion, retrieval posture, and upload -> embed -> retrieve on the live stack.
-4. Exercise the coding-result return path end to end on the live stack.
+4. Repair the worker runtime artifact that provides `/app/codex_runner/src/agent-wrapper.js`, then re-exercise the coding-result return path end to end on the live stack.
 5. Re-check the provider catalog and health surfaces against the supported profile.
 6. Run the workspace-local live proof harness before treating `retrievalSource="workspace"` as release-evidenced.
 
