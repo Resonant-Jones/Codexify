@@ -352,3 +352,59 @@ FAIL
 - The chat route now forwards a compact image-attachment hint through task origin metadata, and the completion service consumes that hint before finalizing image-routing truth.
 - That bridge is intended to keep image turns from collapsing back to `null` / `null` when the persisted image payload is still present but the downstream routing helper missed it.
 - The proof remains ready to rerun; this document still preserves earlier FAIL sections until a fresh live PASS is observed.
+
+## Rerun — after aa6a76b origin-backed image-routing bridge
+
+- Result: `FAIL`
+- Environment:
+  - branch: `main`
+  - HEAD: `aa6a76b2d0b2476292db3ea6150d8bf291dd8588`
+  - runtime path: supported local Docker Compose backend/worker services refreshed with `docker compose up -d --build --no-deps backend worker-chat`
+- Health evidence summary:
+  - `GET /health` -> `200 ok`
+  - `GET /health/chat` -> `200 healthy`
+  - `GET /api/health/llm` -> `200 ok / online`
+  - `GET /api/llm/catalog` -> `200` with local catalog available
+- Thread setup:
+  - Thread A id: `55`
+  - Thread A refusal message id: `103`
+  - Thread A refusal text: `I can't view the image.`
+  - Thread B id: `56`
+  - Thread B user message id: `104`
+  - Thread B assistant message id: `105`
+  - Thread B task id: `6ff7db81-c1e6-404a-a8c0-cd47e7c6826f`
+  - Thread B turn id: `f9c63bbe-e9b2-458d-ab27-5d27221ef64f`
+- Model-selection evidence:
+  - requested provider/model: `local` / `medgemma:4b-it-q8_0`
+  - final provider/model: `local` / `library2/ministral-3:8b`
+  - `selection_source`: `explicit`
+  - `policy_reason`: `LOCAL_CHAT_MODEL`
+  - `fallback_reason`: `null`
+  - `model_resolution.message`: `requested model 'medgemma:4b-it-q8_0' was overridden by configured local chat model 'library2/ministral-3:8b' from LOCAL_CHAT_MODEL`
+- Image-routing evidence:
+  - the user turn carried a real uploaded image attachment marker and signed `src_url`
+  - assistant metadata: `image_routing_path: null`, `image_routing_absence_reason: null`
+  - task.completed payload: `image_routing_path: null`, `image_routing_absence_reason: null`
+  - persisted eval snapshot trace: `image_routing_path: null`, `image_routing_absence_reason: image_routing_not_evaluated`
+  - promoted rag-trace: `image_routing_path: null`, `image_routing_absence_reason: image_routing_not_evaluated`
+  - `assistant_vision_refusal_on_image_turn` did not appear in the persisted trace for this run
+  - the selected local model remained non-vision, but the live path still failed to stamp a canonical absence reason
+- Trace evidence summary:
+  - `retrieval_policy` present in the task.completed payload, eval snapshot, and promoted rag-trace
+  - `retrieval_provenance` present in the task.completed payload, eval snapshot, and promoted rag-trace
+  - `retrieval_suppression` present in the task.completed payload, eval snapshot, and promoted rag-trace
+  - `retrieval_executed: true`
+  - `retrieval_absence_reason: null`
+  - `trace_unavailable_reason` was absent/cleared once the persisted snapshot existed
+  - Thread A refusal text did not appear in Thread B messages, task events, trace, or eval snapshot
+- Result interpretation:
+  - containment is still not machine-readably proven
+  - the live bridge prevented a silent no-evidence shell, but image-routing truth still did not reach a canonical non-null stamp
+  - the refusal-like assistant output was not enough to prove containment, because the proof still lacks image-routing truth
+- Limitations:
+  - the trace remains transient and debug-oriented
+  - the live proof still depends on completion timing and persisted snapshot availability
+  - this rerun does not establish a durable forensic record
+- Follow-up recommendations:
+  - continue investigating why the live completion path retains `image_routing_path: null` / `image_routing_absence_reason: image_routing_not_evaluated` even though the task origin now carries an image-attachment hint
+  - rerun the proof only after the runtime stamps either `native_multimodal_vision` or a canonical absence reason on the live turn
