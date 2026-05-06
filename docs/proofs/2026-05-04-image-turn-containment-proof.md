@@ -250,3 +250,93 @@ FAIL
 - Native vision-capable image turns now stamp `image_routing_path: native_multimodal_vision` when the provider-ready payload still carries image content.
 - When the runtime cannot confirm image payload routing for a vision-capable model, it now stamps `image_routing_absence_reason: vision_model_selected_but_image_payload_not_routed`.
 - The proof is ready to rerun once the refreshed services are live.
+
+## Rerun — after 82da47b native image-routing truth
+
+FAIL
+
+### Environment
+
+- Branch: `main`
+- HEAD: `52152b59`
+- Runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- Services refreshed: `docker compose up -d --no-deps backend worker-chat`
+
+### Health evidence summary
+
+- `GET /health` returned `status: ok`.
+- `GET /health/chat` returned `status: healthy` with a fresh worker heartbeat.
+- `GET /api/health/llm` returned `status: ok` / `online`.
+- `GET /api/llm/catalog` returned `200` and the live catalog included `medgemma:4b-it-q8_0` as a vision-capable local model.
+
+### Thread setup
+
+- Thread A id: `33`
+- Thread A refusal message id: `70`
+- Thread A refusal text: `I can't view the image.`
+- Thread B id: `34`
+- Thread B user message id: `71`
+- Thread B assistant message id: `72`
+
+### Model-selection evidence
+
+- Requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- Final provider/model: `local` / `library2/ministral-3:8b`
+- `selection_source`: `explicit`
+- `policy_reason`: `LOCAL_CHAT_MODEL`
+- `fallback_reason`: `null`
+- `model_resolution.message`: `requested model 'medgemma:4b-it-q8_0' was overridden by configured local chat model 'library2/ministral-3:8b' from LOCAL_CHAT_MODEL`
+
+### Image-routing evidence
+
+- The user turn carried a real uploaded image attachment marker and a signed `src_url`.
+- The assistant response was refusal-like:
+  - `Since I can’t view images directly, I’ll need you to describe proof.png for me...`
+- `image_routing_path` in both the assistant metadata and persisted eval snapshot was `null`.
+- `image_routing_absence_reason` in both the assistant metadata and persisted eval snapshot was `null`.
+- `assistant_vision_refusal_on_image_turn` did not appear in the persisted trace for this run.
+- Native vision routing was therefore **not** machine-readably stamped on the live path.
+
+### Trace evidence summary
+
+- The task-event stream was present and ended in a terminal `task.completed` event for task id `718745d2-2892-4813-a0b6-91d3c63c940d`.
+- The terminal `task.completed` payload included:
+  - `retrieval_policy`
+  - `retrieval_provenance`
+  - `retrieval_suppression`
+  - `retrieval_executed`
+  - `retrieval_absence_reason`
+  - `model_selection`
+- The persisted eval snapshot and the promoted rag-trace response both carried the same retrieval truth:
+  - `retrieval_policy` present
+  - `retrieval_provenance` present
+  - `retrieval_suppression` present
+  - `retrieval_executed: true`
+  - `retrieval_absence_reason: null`
+  - `model_selection` present
+- `trace_unavailable_reason` was cleared / absent once the persisted snapshot existed.
+- `GET /api/chat/debug/rag-trace/34/latest` promoted the persisted snapshot and did not regress to a source-unavailable shell.
+
+### Containment check
+
+- Thread A refusal text did not appear in Thread B messages, task events, trace, or eval snapshot.
+- Containment is still **not** machine-readably proven because image-routing truth remained `null` / `null`.
+
+### Result interpretation
+
+- The supported live path now exposes the retrieval container truth and clears `trace_unavailable_reason` once a persisted snapshot exists.
+- The remaining blocker is image-routing truth: the live image turn still did not stamp either a native path or a canonical absence reason.
+- Because image-routing truth is still missing, the proof fails even though Thread A did not visibly leak into Thread B.
+
+### Limitations
+
+- This proof only shows that the live task-event, eval snapshot, and promoted rag-trace lanes are wired together.
+- It does not establish that the runtime stamped native vision routing for this turn.
+- The trace remains transient; this is not a durable forensic record.
+
+### Follow-up recommendations
+
+- Re-run the native image-routing proof only after the runtime path stamps either:
+  - `image_routing_path: native_multimodal_vision`, or
+  - `image_routing_absence_reason: vision_model_selected_but_image_payload_not_routed`
+- Do not treat this run as containment-pass evidence.
