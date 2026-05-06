@@ -154,7 +154,7 @@ def test_rag_trace_exposes_retrieval_provenance(monkeypatch):
 
     trace = chat.get_latest_rag_trace(781, api_key="test-key")
     assert trace["trace_available"] is True
-    assert trace["trace_unavailable_reason"] is None
+    assert "trace_unavailable_reason" not in trace
     assert (
         trace["payload_summary"]["retrieval_provenance"] == retrieval_provenance
     )
@@ -492,7 +492,7 @@ def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
     trace = chat.get_latest_rag_trace(91, api_key="test-key")
 
     assert trace["trace_available"] is True
-    assert trace["trace_unavailable_reason"] is None
+    assert "trace_unavailable_reason" not in trace
     assert trace["latest_turn_message_id"] == 12
     assert trace["latest_turn_content"] == "question B"
     assert trace["retrieval_query"] == "question B"
@@ -608,7 +608,9 @@ def test_rag_trace_remains_empty_without_completed_evidence(monkeypatch):
     assert trace["documents"] == []
     assert trace["graph"] == []
     assert trace["trace_available"] is False
-    assert trace["trace_unavailable_reason"] is None
+    assert trace["trace_unavailable_reason"] == (
+        TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value
+    )
     assert trace["effective_policy"] is None
     assert trace["retrieval_summary"] is None
     assert trace["retrieval_provenance"] is None

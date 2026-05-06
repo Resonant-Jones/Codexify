@@ -160,6 +160,9 @@ def resolve_model_vision_capability_state(
             if isinstance(value, bool) and value is True:
                 return True
             return None
+        heuristic = _local_model_capabilities(target_model, target_model)
+        if bool(heuristic.get("supports_vision")):
+            return True
         return None
 
     return resolve_model_capability_state_registry(
