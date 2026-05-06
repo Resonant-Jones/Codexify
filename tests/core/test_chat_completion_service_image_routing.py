@@ -146,6 +146,47 @@ def test_image_routing_native_vision_builds_multimodal_payload(
     assert summary["derived_image_context_injected"] is False
 
 
+def test_image_routing_origin_hints_preserve_absence_reason(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mock_chatlog_db = _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+    mock_chatlog_db.list_messages.return_value = [
+        {
+            "id": 1,
+            "role": "user",
+            "content": "What is in this image?",
+        }
+    ]
+
+    captured: dict[str, object] = {}
+
+    def _capture(messages, **kwargs):
+        captured["messages"] = messages
+        return "ok"
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _capture)
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="openai",
+        model="gpt-4o",
+        origin="api:chat.complete|turn_id=turn-1|source_mode=project|image_attachment_count=1",
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    summary = result["payload_summary"]
+    assert summary["image_attachment_count"] == 1
+    assert summary["image_routing_path"] is None
+    assert (
+        summary["image_routing_absence_reason"]
+        == TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
+    )
+
+
 def test_image_routing_text_only_runs_interpreter(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -388,6 +429,98 @@ def test_image_routing_snapshot_carries_containment_fields(
     assert result["payload_summary"]["image_routing_absence_reason"] is None
 
 
+def test_image_routing_snapshot_recovers_native_path_when_trace_helper_misses(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_image_routing_trace",
+        lambda **kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "messages_contain_image_payload",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: "ok",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["image_routing_path"] == (
+        ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
+    assert trace["image_routing_absence_reason"] is None
+    assert result["payload_summary"]["image_routing_path"] == (
+        ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
+    assert result["payload_summary"]["image_routing_absence_reason"] is None
+
+
+def test_image_routing_snapshot_infers_attachment_count_from_trace_text(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_apply_image_attachment_routing",
+        lambda messages, **kwargs: (
+            messages,
+            {
+                "image_routing_path": "none",
+                "image_attachment_count": 0,
+                "derived_image_context_injected": False,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_image_routing_trace",
+        lambda **kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "messages_contain_image_payload",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: "ok",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["image_routing_path"] == (
+        ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
+    assert trace["image_routing_absence_reason"] is None
+    assert result["payload_summary"]["image_routing_path"] == (
+        ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
+    assert result["payload_summary"]["image_routing_absence_reason"] is None
+
+
 def test_image_routing_snapshot_marks_vision_model_selected_but_payload_not_routed(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -452,7 +585,7 @@ def test_image_routing_snapshot_marks_local_model_substitution_absence(
     monkeypatch.setattr(
         chat_completion_service,
         "resolve_model_vision_capability_state",
-        lambda *args, **kwargs: False,
+        lambda *args, **kwargs: None,
     )
 
     monkeypatch.setattr(

@@ -50,6 +50,7 @@ from guardian.core.auth_dependencies import get_current_user_id
 from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
 )
+from guardian.core.chat_attachments import extract_attachments_and_text
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -389,6 +390,37 @@ def _retrieval_override_origin_segment(
         )
         return ""
     return f"|retrieval_override={encoded}"
+
+
+def _image_attachment_origin_segment(latest_turn: Any | None) -> str:
+    if not isinstance(latest_turn, dict):
+        return ""
+
+    content = latest_turn.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return ""
+
+    try:
+        attachments, _ = extract_attachments_and_text(content)
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to decode image attachments for origin segment",
+            exc_info=True,
+        )
+        return ""
+
+    image_attachment_count = len(
+        [
+            attachment
+            for attachment in attachments
+            if isinstance(attachment, dict)
+            and str(attachment.get("kind") or "").strip().lower() == "image"
+        ]
+    )
+    if image_attachment_count <= 0:
+        return ""
+
+    return f"|image_attachment_count={image_attachment_count}"
 
 
 def _request_id_from_request(request: Request | None) -> str | None:
@@ -2803,6 +2835,7 @@ async def chat_complete(
             f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
             f"{_slash_intent_origin_segment(body.slash_intent)}"
             f"{_retrieval_override_origin_segment(retrieval_override)}"
+            f"{_image_attachment_origin_segment(latest_turn)}"
         ),
     )
     task.turn_id = turn_id
@@ -4064,14 +4097,13 @@ def get_latest_rag_trace(
     trace.setdefault("source_mode", None)
     trace.setdefault("widen_reason", "none")
     trace["trace_available"] = trace_available
-    trace["trace_unavailable_reason"] = (
-        None if trace_available else trace_unavailable_reason
-    )
     trace["effective_policy"] = effective_policy
     trace["retrieval_summary"] = retrieval_summary
     trace["image_routing"] = image_routing
     if trace_unavailable_reason is not None:
         trace["trace_unavailable_reason"] = trace_unavailable_reason
+    elif trace_available:
+        trace.pop("trace_unavailable_reason", None)
 
     if resolve_thread_system_profile and (
         profile_debug["active_profile_id"] is None
