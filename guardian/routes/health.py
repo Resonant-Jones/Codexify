@@ -34,7 +34,10 @@ from guardian.core.provider_registry import (
     resolve_provider_capability,
     supported_profile_posture,
 )
-from guardian.core.provider_truth import build_provider_truth
+from guardian.core.provider_truth import (
+    build_provider_truth,
+    cloud_capable_configuration_present,
+)
 
 logger = logging.getLogger(__name__)
 _LLM_HEALTH_PROBE_CACHE: dict | None = None
@@ -511,6 +514,8 @@ def health(request: Request):
     from guardian.core.config import get_settings
 
     details: dict[str, object] = {}
+    settings = get_settings()
+    details["release_hold"] = cloud_capable_configuration_present(settings)
     supported_profile = getattr(request.app.state, "supported_profile", None)
     supported_profile_posture_state = supported_profile_posture(get_settings())
     if supported_profile is not None:
@@ -556,6 +561,7 @@ def health_llm():
     from guardian.guardian_api import app as guardian_app
 
     settings = get_settings()
+    release_hold = cloud_capable_configuration_present(settings)
     provider = _normalize_health_provider(settings.LLM_PROVIDER or "local")
     provider_runtime = dict(resolve_provider_capability(provider, settings))
     supported_profile_state = _sanitize_supported_profile_state(
@@ -604,6 +610,7 @@ def health_llm():
             if supported_profile_state is not None
             else supported_profile_posture_state
         ),
+        "release_hold": release_hold,
     }
     if local_model_resolution is not None:
         payload["model_resolution"] = local_model_resolution.as_dict()
@@ -614,6 +621,7 @@ def health_llm():
         envelope = build_health_response(
             "llm", normalize_health_status(status), payload
         )
+        envelope["release_hold"] = release_hold
         if http_status is None:
             return envelope
         return JSONResponse(status_code=http_status, content=envelope)
