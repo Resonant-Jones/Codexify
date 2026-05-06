@@ -414,3 +414,60 @@ FAIL
 - The completion path now normalizes known image turns from the live origin hint, trace state, and payload summary before persistence.
 - `image_routing_not_evaluated` is now reserved for genuine no-image / no-routing-evidence cases; known image turns should instead stamp either `native_multimodal_vision` or a canonical absence reason.
 - The focused regression slice is green, so the live containment proof is ready to rerun against the refreshed runtime.
+
+## Rerun — after e4d6961 image-routing normalization
+
+- Result: `FAIL`
+- Environment:
+  - branch: `main`
+  - HEAD: `e4d69614f2bc0ce8a8f9a6d6b8d88b0ce8e6f0fe`
+  - runtime path: supported local Docker Compose services refreshed with `docker compose up -d db backend worker-chat`
+  - services refreshed: `db`, `backend`, `worker-chat`
+- Health evidence summary:
+  - `GET /health` -> `200 ok`
+  - `GET /health/chat` -> `200 healthy`
+  - `GET /api/health/llm` -> `200 ok / online`
+  - `GET /api/llm/catalog` -> `200`
+- Thread setup:
+  - Thread A id: `3`
+  - Thread A refusal message id: `2`
+  - Thread B id: `4`
+  - Thread B user image message id: `3`
+  - Thread B assistant message id: `not available; completion failed before assistant persistence`
+  - task id: `99188f85-0661-4921-817d-8e728064b7f5`
+  - turn id: `8a764c3e-5efb-47fc-a560-e23f7697b8bb`
+- Requested/final model and substitution reason:
+  - requested provider/model: `local` / `medgemma:4b-it-q8_0`
+  - final provider/model: `not available; worker failed before completion settled`
+  - `selection_source`: `explicit` in the task event stream
+  - `policy_reason`: `not available`
+  - `fallback_reason`: `not available`
+  - `model_resolution.message`: `not available`
+  - task.failed payload still reported `provider: local` and `model: medgemma:4b-it-q8_0`
+- Image-routing evidence:
+  - image payload marker evidence: `<!-- cfy-media:image:2b6c264a-04dc-4ffd-91e6-2a6ccabf2f16 -->` plus signed `cfy-media-src:/media/images/20260506-43739c56--proof.png?...`
+  - image attachment count surfaced in thread metadata candidate trace: `1`
+  - assistant metadata: not available because the worker failed before assistant persistence
+  - task.completed payload: not available because the task failed instead
+  - eval snapshot image-routing fields: not available; `trace_snapshot` was `null`
+  - rag-trace image-routing fields: `image_routing: null`, `trace_unavailable_reason: trace_source_unavailable`
+  - persisted thread metadata candidate trace still showed `image_routing_path: null` and `image_routing_absence_reason: image_routing_not_evaluated`, which is the stale state the normalization fix was intended to prevent from becoming final
+- Trace evidence summary:
+  - task events observed: `task.state`, `task.running`, `task.created`, `task.failed`
+  - task.failed error: `UnboundLocalError: cannot access local variable 'retained_result_count' where it is not associated with a value`
+  - `retrieval_policy` / `retrieval_provenance` / `retrieval_suppression` did not reach a persisted completion snapshot because completion never settled
+  - `trace_unavailable_reason` remained `trace_source_unavailable` on the eval and rag-trace debug surfaces because there was no persisted snapshot
+  - Thread A refusal text did not appear in Thread B messages or task events
+- Thread A leakage check:
+  - no visible leak from Thread A into Thread B
+- Whether containment is machine-readably proven:
+  - `No`
+- Limitations:
+  - the worker crashed before completion snapshot persistence, so this rerun could not test the final image-routing normalization contract
+  - the debug surfaces therefore remained in no-snapshot mode instead of promoting containment evidence
+  - the rerun does not establish containment proof under the stricter current contract
+- Remaining blockers:
+  - the worker-side `UnboundLocalError` at `guardian/core/chat_completion_service.py:2990` prevented completion from settling
+  - because completion never settled, the proof could not reach the image-routing normalization check on the persisted trace path
+  - the separate Compose migrator issue remains outside this task
+  - the frontend Vitest resolution issue remains outside this task
