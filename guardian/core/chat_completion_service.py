@@ -2966,8 +2966,8 @@ async def build_messages_for_llm(
             "summary": {"total_suppressed": 0},
         }
 
+    retained_result_count = 0
     if retrieval_executed and retrieval_absence_reason is None:
-        retained_result_count = 0
         if isinstance(bundle, dict):
             for key in ("semantic", "memory", "graph"):
                 retained_result_count += len(

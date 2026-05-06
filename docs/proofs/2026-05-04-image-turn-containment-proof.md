@@ -469,5 +469,11 @@ FAIL
 - Remaining blockers:
   - the worker-side `UnboundLocalError` at `guardian/core/chat_completion_service.py:2990` prevented completion from settling
   - because completion never settled, the proof could not reach the image-routing normalization check on the persisted trace path
-  - the separate Compose migrator issue remains outside this task
-  - the frontend Vitest resolution issue remains outside this task
+- the separate Compose migrator issue remains outside this task
+- the frontend Vitest resolution issue remains outside this task
+
+## Remediation Note — retained result crash fix
+
+- `retained_result_count` is now initialized before the retrieval retention check in `guardian/core/chat_completion_service.py`, so the image-turn completion path can traverse the zero-retained-result branch without raising `UnboundLocalError`.
+- The prior live proof failed before assistant persistence because the worker crashed on this branch, not because the containment trace disproved the image-turn boundary.
+- The focused regression slice is green, so the live proof is ready to rerun against the refreshed runtime.
