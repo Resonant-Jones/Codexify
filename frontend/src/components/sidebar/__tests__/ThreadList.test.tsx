@@ -218,6 +218,9 @@ describe("ThreadList thread actions menu", () => {
     const selectedActions = within(selectedRow).getByRole("button", { name: "Thread actions" });
 
     expect(selectedTile).toHaveStyle({ minHeight: "44px" });
+    expect(selectedActions).toHaveStyle({
+      background: "color-mix(in oklab, var(--panel-bg) 84%, var(--text) 16%)",
+    });
     expect(selectedRow).toContainElement(selectedActions);
     expect(
       selectedTitle.compareDocumentPosition(selectedActions) & Node.DOCUMENT_POSITION_FOLLOWING

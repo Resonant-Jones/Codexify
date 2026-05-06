@@ -484,6 +484,12 @@ function ThreadTileRow({
           onMouseDown={(e) => stop(e)}
           type="button"
           aria-busy={actionBusy ? true : undefined}
+          style={{
+            background: "color-mix(in oklab, var(--panel-bg) 84%, var(--text) 16%)",
+            borderStyle: "solid",
+            borderWidth: "1px",
+            borderColor: "color-mix(in oklab, var(--panel-border) 70%, transparent)",
+          }}
         >
           <MoreVertical className="h-4 w-4" />
         </button>
