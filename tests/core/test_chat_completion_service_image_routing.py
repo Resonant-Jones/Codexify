@@ -187,6 +187,85 @@ def test_image_routing_origin_hints_preserve_absence_reason(
     )
 
 
+def test_image_routing_origin_hints_mark_local_model_substitution_absence(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mock_chatlog_db = _seed_common(
+        monkeypatch,
+        provider="local",
+        model="library2/ministral-3:8b",
+    )
+    mock_chatlog_db.list_messages.return_value = [
+        {
+            "id": 1,
+            "role": "user",
+            "content": "What is in this image?",
+        }
+    ]
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_thread_completion_settings",
+        lambda *args, **kwargs: SimpleNamespace(
+            provider="local",
+            model="library2/ministral-3:8b",
+            source_mode="project",
+            persona_id=None,
+            temperature_override=None,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: "ok",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "stream_local",
+        lambda *_args, **_kwargs: "ok",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="medgemma:4b-it-q8_0",
+        requested_provider="local",
+        requested_model="medgemma:4b-it-q8_0",
+        origin=(
+            "api:chat.complete|turn_id=turn-1|source_mode=project"
+            "|image_attachment_count=1"
+        ),
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    trace = result["trace"]
+    assert trace["image_attachment_count"] == 1
+    assert trace["image_routing_path"] is None
+    assert (
+        trace["image_routing_absence_reason"]
+        == TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+    assert result["payload_summary"]["image_attachment_count"] == 1
+    assert result["payload_summary"]["image_routing_path"] is None
+    assert (
+        result["payload_summary"]["image_routing_absence_reason"]
+        == TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+
+
 def test_image_routing_text_only_runs_interpreter(
     monkeypatch: pytest.MonkeyPatch,
 ):
