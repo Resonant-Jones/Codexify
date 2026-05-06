@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
+import TileShell from "@/components/surface/TileShell";
 import type { SidebarProvenanceOption } from "./sidebarPresentation";
 
 type ThreadListProps = {
@@ -280,6 +281,7 @@ function ThreadTileRow({
   onDelete: (threadId: string) => Promise<void>;
 }) {
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [focusWithin, setFocusWithin] = React.useState(false);
   const [actionBusy, setActionBusy] = React.useState<ThreadAction | null>(null);
   const [hoveredAction, setHoveredAction] = React.useState<ThreadAction | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
@@ -428,44 +430,56 @@ function ThreadTileRow({
       </span>
     ) : null;
 
-  const tileStyle: React.CSSProperties = { minHeight: rectH };
-  if (active) {
-    tileStyle.background = isDarkMode ? darkActiveBackground : highlightBg;
-    tileStyle.borderColor = highlightBorder;
-  } else {
-    tileStyle.background = "transparent";
-    tileStyle.borderColor = "transparent";
-  }
+  const tileBackground = active
+    ? (isDarkMode ? darkActiveBackground : highlightBg)
+    : (isDarkMode ? "var(--panel-sheet)" : "var(--panel-bg)");
 
+  const showActions = active || focusWithin;
   return (
-    <div className={clsx("relative", className)}>
-      <button
+    <div
+      className={clsx("relative", className)}
+      onFocusCapture={() => setFocusWithin(true)}
+      onBlurCapture={(event) => {
+        const nextTarget = event.relatedTarget as Node | null;
+        if (!event.currentTarget.contains(nextTarget)) {
+          setFocusWithin(false);
+        }
+      }}
+    >
+      <TileShell
+        as="button"
         type="button"
         onClick={() => onSelect(thread.id)}
         data-testid={`thread-tile-${thread.id}`}
-        className="thread-preview w-full rounded-[var(--tile-radius)] border text-left text-[var(--text)] transition-colors duration-150 ease-out hover:bg-[color-mix(in_oklab,var(--panel-bg)_88%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white"
-        style={tileStyle}
+        className="thread-preview w-full text-left text-[var(--text)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white"
+        borderColor={active ? highlightBorder : undefined}
+        background={tileBackground}
+        style={{ minHeight: rectH }}
       >
-        <div className="flex h-full w-full items-center gap-2 px-3 py-2">
+        <div className="flex h-full w-full items-center gap-3 px-3 py-2 pr-10">
           <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
             {titleNode}
           </div>
           {unreadBadge}
         </div>
-      </button>
+      </TileShell>
 
-      <div className="absolute top-1 right-1">
-        <button
-          ref={kebabRef}
-          className="icon-inline rounded-[var(--radius-micro)]"
-          aria-label="Thread actions"
-          onClick={(e) => { if (stop(e)) return; setMenuOpen(true); setHoveredAction(null); }}
-          onMouseDown={(e) => stop(e)}
-          type="button"
-          aria-busy={actionBusy ? true : undefined}
-        >
-          <MoreVertical className="h-4 w-4" />
-        </button>
+      <div className="absolute inset-y-0 right-1 flex items-center">
+        {showActions ? (
+          <button
+            ref={kebabRef}
+            className="icon-inline rounded-[var(--radius-micro)]"
+            aria-label="Thread actions"
+            onClick={(e) => { if (stop(e)) return; setMenuOpen(true); setHoveredAction(null); }}
+            onMouseDown={(e) => stop(e)}
+            type="button"
+            aria-busy={actionBusy ? true : undefined}
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+        ) : (
+          <div aria-hidden="true" className="h-8 w-8" />
+        )}
       </div>
 
       {menuOpen && (
