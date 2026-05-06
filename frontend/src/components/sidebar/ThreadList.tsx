@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
-import TileShell from "@/components/surface/TileShell";
 import type { SidebarProvenanceOption } from "./sidebarPresentation";
 
 type ThreadListProps = {
@@ -296,7 +295,6 @@ function ThreadTileRow({
     () => colorStringToRgba(accentColor, 0.45, "rgba(107,114,128,0.45)"),
     [accentColor]
   );
-  const darkTileBackground = "var(--panel-sheet)";
   const darkActiveBackground =
     "color-mix(in oklab, var(--accent) 16%, var(--panel-sheet) 84%)";
 
@@ -419,16 +417,6 @@ function ThreadTileRow({
 
   const safeTitle = (thread.title || "").trim() || "Untitled";
   const titleNode = <span key="title" className="thread-title block truncate" title={safeTitle}>{safeTitle}</span>;
-  const snippet = typeof thread.lastMessage === "string" ? thread.lastMessage.trim() : "";
-  const snippetNode = (
-    <span
-      key="snippet"
-      className="thread-snippet block truncate"
-      title={snippet || undefined}
-    >
-      {snippet || "\u00a0"}
-    </span>
-  );
   const unreadBadge =
     thread.unread > 0 ? (
       <span
@@ -443,29 +431,28 @@ function ThreadTileRow({
   const tileStyle: React.CSSProperties = { minHeight: rectH };
   if (active) {
     tileStyle.background = isDarkMode ? darkActiveBackground : highlightBg;
-  } else if (isDarkMode) {
-    tileStyle.background = darkTileBackground;
+    tileStyle.borderColor = highlightBorder;
+  } else {
+    tileStyle.background = "transparent";
+    tileStyle.borderColor = "transparent";
   }
 
   return (
     <div className={clsx("relative", className)}>
-      <TileShell
-        as="button"
+      <button
         type="button"
         onClick={() => onSelect(thread.id)}
         data-testid={`thread-tile-${thread.id}`}
-        className="thread-preview w-full text-left text-[var(--text)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white"
-        borderColor={active ? highlightBorder : undefined}
+        className="thread-preview w-full rounded-[var(--tile-radius)] border text-left text-[var(--text)] transition-colors duration-150 ease-out hover:bg-[color-mix(in_oklab,var(--panel-bg)_88%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white"
         style={tileStyle}
       >
-        <div className="flex h-full w-full items-center gap-3 px-3 py-2">
+        <div className="flex h-full w-full items-center gap-2 px-3 py-2">
           <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
             {titleNode}
-            {snippetNode}
           </div>
           {unreadBadge}
         </div>
-      </TileShell>
+      </button>
 
       <div className="absolute top-1 right-1">
         <button

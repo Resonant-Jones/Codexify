@@ -165,13 +165,8 @@ export default function WorkspaceDrawer({
             id={`${idBase}-panel-${activeTab}`}
             role="tabpanel"
             aria-labelledby={`${idBase}-tab-${activeTab}`}
-            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-              color: "var(--text)",
-            }}
+            className="mt-3 flex flex-1 min-h-0 flex-col p-4"
+            style={{ color: "var(--text)" }}
           >
             <WorkspaceScratchpadPanel
               threadIdentity={resolvedThreadIdentity}
@@ -183,13 +178,8 @@ export default function WorkspaceDrawer({
             id={`${idBase}-panel-${activeTab}`}
             role="tabpanel"
             aria-labelledby={`${idBase}-tab-${activeTab}`}
-            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-              color: "var(--text)",
-            }}
+            className="mt-3 flex flex-1 min-h-0 flex-col p-4"
+            style={{ color: "var(--text)" }}
           >
             <WorkspaceShelfPanel
               threadIdentity={resolvedThreadIdentity}
@@ -202,13 +192,8 @@ export default function WorkspaceDrawer({
             id={`${idBase}-panel-${activeTab}`}
             role="tabpanel"
             aria-labelledby={`${idBase}-tab-${activeTab}`}
-            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-              color: "var(--text)",
-            }}
+            className="mt-3 flex flex-1 min-h-0 flex-col p-4"
+            style={{ color: "var(--text)" }}
           >
             <WorkspaceInspectorPanel selectedItem={selectedItem} />
           </section>
