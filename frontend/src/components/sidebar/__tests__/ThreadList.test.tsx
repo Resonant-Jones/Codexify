@@ -104,21 +104,21 @@ describe("ThreadList dark mode surface contract", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("keeps the light-mode thread tile on the default panel background", () => {
+  it("keeps the light-mode thread row visually transparent until selected", () => {
     renderThreadList();
 
     expect(screen.getByTestId("thread-tile-thread-1")).toHaveStyle({
-      background: "var(--panel-bg)",
+      background: "transparent",
     });
   });
 
-  it("uses the darker sheet surface and white text in dark mode", () => {
+  it("keeps the unselected dark-mode thread row visually transparent and readable", () => {
     document.documentElement.classList.add("dark");
 
     renderThreadList();
 
     const tile = screen.getByTestId("thread-tile-thread-1");
-    expect(tile).toHaveStyle({ background: "var(--panel-sheet)" });
+    expect(tile).toHaveStyle({ background: "transparent" });
     expect(tile).toHaveClass("dark:text-white");
   });
 
