@@ -475,7 +475,7 @@ function ThreadTileRow({
         </div>
       </TileShell>
 
-      {showActions && (
+      {active && (
         <button
           ref={kebabRef}
           className="icon-inline absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-[var(--radius-micro)]"
@@ -500,7 +500,7 @@ function ThreadTileRow({
           ref={menuRef}
           role="menu"
           tabIndex={-1}
-          className="absolute z-[9999] right-1 top-9 min-w-[180px] rounded-[var(--tile-radius)] border p-1 shadow-xl pointer-events-auto backdrop-blur-sm"
+          className="absolute z-[9999] right-1 top-1/2 -translate-y-1/2 min-w-[180px] rounded-[var(--tile-radius)] border p-1 shadow-xl pointer-events-auto backdrop-blur-sm"
           style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}

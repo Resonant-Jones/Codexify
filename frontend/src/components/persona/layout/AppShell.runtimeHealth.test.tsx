@@ -458,6 +458,7 @@ describe("AppShell runtime health banner", () => {
 
   it("does not render banner when runtime is healthy", () => {
     render(<AppShell />);
+    expect(screen.getByText(/Provider online/i)).toBeInTheDocument();
     expect(screen.queryByText(/Runtime degraded/i)).toBeNull();
   });
 
