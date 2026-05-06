@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from guardian.core import ai_router
 from guardian.core import chat_completion_service
+from guardian.core import llm_catalog
 from guardian.protocol_tokens import ErrorCode
 from guardian.tasks.types import ChatCompletionTask
 
@@ -242,6 +243,30 @@ def test_unknown_vision_capability_preserves_existing_fallback_behavior(
     summary = result["payload_summary"]
     assert summary["image_routing_path"] == "interpreter"
     assert summary["derived_image_context_injected"] is True
+
+
+def test_local_vision_hint_model_is_classified_as_vision_capable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = SimpleNamespace(
+        LOCAL_BASE_URL="http://127.0.0.1:11434/v1",
+        LOCAL_CHAT_MODEL="medgemma:4b-it-q8_0",
+    )
+
+    monkeypatch.setattr(
+        llm_catalog,
+        "_fetch_local_models",
+        lambda _settings: ([], {}, {}),
+    )
+
+    assert (
+        llm_catalog.resolve_model_vision_capability_state(
+            "local",
+            "medgemma:4b-it-q8_0",
+            settings,
+        )
+        is True
+    )
 
 
 def test_image_payload_missing_has_distinct_error_code(
