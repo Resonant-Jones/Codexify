@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-04-27
+Last updated: 2026-05-06
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -33,6 +33,7 @@ Sequence:
 5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
 7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
+   - When `retrievalSource="workspace"`, broker-selected Obsidian-backed evidence must survive into the completion context bundle, and the trace must distinguish searchability, selection, injection, and assistant reflection.
 8. The provider call executes through `guardian/core/ai_router.py`.
    - If the provider returns plain assistant text, the existing completion path continues.
    - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
@@ -71,6 +72,7 @@ Acceptance semantics:
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
 - For the workspace proof harness on the supported local Compose path, acceptance is only the first milestone; the proof must also verify terminal task evidence, persisted assistant text, and workspace-local retrieval posture before it can pass.
+- For `retrievalSource="workspace"`, vector-store searchability alone is weaker than completion-context inclusion; the proof must show broker selection and injection for the Obsidian-backed note.
 
 Debug trace note:
 - The live `/api/chat/debug/rag-trace/{thread_id}/latest` route may surface sanitized trace availability, effective policy, retrieval summary/provenance, and image-routing metadata when a real trace exists.

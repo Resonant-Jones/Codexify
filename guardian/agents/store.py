@@ -21,6 +21,7 @@ from guardian.db.models import (
     ChatMessage,
     ChatThread,
 )
+from guardian.agents.events import build_coding_result_lineage_payload
 
 
 def _utc_now() -> datetime:
@@ -45,6 +46,23 @@ def _coerce_positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return coerced if coerced > 0 else None
+
+
+def _normalize_coding_result_status(status: Any) -> str:
+    value = str(status or "").strip().lower()
+    return value or "error"
+
+
+def _should_persist_coding_result_message(status: str) -> bool:
+    return _normalize_coding_result_status(status) in {
+        "ok",
+        "success",
+        "succeeded",
+        "completed",
+        "partial",
+        "partial_success",
+        "partial-success",
+    }
 
 
 @dataclass
@@ -826,22 +844,42 @@ class AgentStore:
         run_id: str,
         coding_task_id: str,
         attempt_id: str,
+        request_id: str | None = None,
         thread_id: int | None,
-        source_message_id: str | None,
+        source_message_id: int | None,
         result_status: str,
         result_summary: str,
+        adapter_kind: str | None = None,
+        adapter_session_ref: str | None = None,
+        files_changed: list[str] | None = None,
         artifacts: list[dict[str, Any]] | None = None,
         errors: list[str] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
     ) -> dict[str, Any]:
         """Store coding result and inject into source thread.
 
         Per ADR-020: results must return through Guardian before user-visible output.
         """
-        files_changed = [
-            a.get("path", a.get("name", ""))
-            for a in (artifacts or [])
-            if isinstance(a, dict) and a.get("path")
+        normalized_status = _normalize_coding_result_status(result_status)
+        persist_message = _should_persist_coding_result_message(
+            normalized_status
+        )
+        normalized_files_changed = [
+            str(item).strip()
+            for item in (files_changed or [])
+            if str(item).strip()
         ]
+        artifact_rows = [
+            dict(artifact) if isinstance(artifact, dict) else {"value": str(artifact)}
+            for artifact in (artifacts or [])
+        ]
+        if not normalized_files_changed:
+            normalized_files_changed = [
+                artifact.get("path", artifact.get("name", ""))
+                for artifact in artifact_rows
+                if isinstance(artifact, dict) and artifact.get("path")
+            ]
         run = self.get_run(run_id)
         deployment = None
         if run and run.get("deployment_id"):
@@ -850,6 +888,11 @@ class AgentStore:
         deployment_spec: dict[str, Any] = {}
         if isinstance(deployment, dict):
             deployment_spec = dict(deployment.get("spec_json") or {})
+        adapter_kind = (
+            str(adapter_kind or deployment_spec.get("adapter_kind") or "")
+            .strip()
+            or None
+        )
         expected_thread_id = (
             _coerce_positive_int(
                 deployment_spec.get("source_thread_id")
@@ -867,9 +910,7 @@ class AgentStore:
 
         commit_hash = None
         validation_results = None
-        for artifact in artifacts or []:
-            if not isinstance(artifact, dict):
-                continue
+        for artifact in artifact_rows:
             if commit_hash is None:
                 candidate = artifact.get("commit_hash") or artifact.get(
                     "git_commit"
@@ -883,56 +924,72 @@ class AgentStore:
             "run_id": run_id,
             "coding_task_id": coding_task_id,
             "attempt_id": attempt_id,
+            "request_id": request_id,
             "thread_id": expected_thread_id,
             "source_message_id": expected_source_message_id,
+            "adapter_kind": adapter_kind,
             "user_id": expected_user_id,
             "project_id": expected_project_id,
-            "status": result_status,
+            "status": normalized_status,
+            "coding_result_status": normalized_status,
             "summary": result_summary,
-            "files_changed": files_changed,
-            "artifacts": artifacts or [],
+            "files_changed": normalized_files_changed,
+            "artifacts": artifact_rows,
             "errors": errors or [],
+            "error_code": error_code,
+            "error_message": error_message,
             "commit_hash": commit_hash,
             "validation_results": validation_results,
+            "adapter_session_ref": adapter_session_ref,
+            "result_captured_by_guardian": True,
         }
 
         message_id = None
         delivery_reason = None
         delivery_ok = False
-        if expected_thread_id is not None and self._has_db():
+        if persist_message and expected_thread_id is not None and self._has_db():
             message_id, delivery_reason = self._inject_coding_result_into_thread(
                 thread_id=expected_thread_id,
                 run_id=run_id,
                 coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                request_id=request_id,
                 source_message_id=expected_source_message_id,
                 expected_user_id=expected_user_id,
                 expected_project_id=expected_project_id,
-                status=result_status,
+                adapter_kind=adapter_kind,
+                status=normalized_status,
                 summary=result_summary,
-                files_changed=files_changed,
-                artifacts=artifacts or [],
+                files_changed=normalized_files_changed,
+                artifacts=artifact_rows,
                 errors=errors or [],
                 commit_hash=commit_hash,
                 validation_results=validation_results,
+                adapter_session_ref=adapter_session_ref,
+                error_code=error_code,
+                error_message=error_message,
             )
             delivery_ok = message_id is not None
         elif expected_thread_id is None:
             delivery_reason = "missing_source_thread"
+        elif not persist_message:
+            delivery_reason = "result_status_not_persisted_as_assistant_message"
         else:
             delivery_reason = "delivery_database_unavailable"
 
         final_status = (
             "succeeded"
-            if result_status == "ok" and delivery_ok
+            if persist_message and delivery_ok
             else "failed"
         )
         self.update_run_status(
             run_id=run_id,
             status=final_status,
-            error=delivery_reason or (errors[0] if errors else None),
+            error=error_message or delivery_reason or (errors[0] if errors else None),
         )
 
         artifact_payload = dict(result_payload)
+        artifact_payload["message_id"] = message_id
         artifact_payload["delivery_ok"] = delivery_ok
         artifact_payload["delivery_reason"] = delivery_reason
         if self._has_db():
@@ -960,12 +1017,12 @@ class AgentStore:
         return {
             "ok": True,
             "run_id": run_id,
-            "status": result_status,
+            "status": normalized_status,
             "message_id": message_id,
             "delivery_ok": delivery_ok,
             "delivery_reason": delivery_reason,
-            "files_changed": files_changed,
-            "artifacts_count": len(artifacts) if artifacts else 0,
+            "files_changed": normalized_files_changed,
+            "artifacts_count": len(artifact_rows),
             "commit_hash": commit_hash,
             "validation_results": validation_results,
             "result_payload": result_payload,
@@ -977,9 +1034,12 @@ class AgentStore:
         thread_id: int,
         run_id: str,
         coding_task_id: str,
-        source_message_id: str | None,
+        attempt_id: str,
+        request_id: str | None,
+        source_message_id: int | None,
         expected_user_id: str | None,
         expected_project_id: int | None,
+        adapter_kind: str | None,
         status: str,
         summary: str,
         files_changed: list[str],
@@ -987,6 +1047,9 @@ class AgentStore:
         errors: list[str],
         commit_hash: str | None = None,
         validation_results: Any | None = None,
+        adapter_session_ref: str | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
     ) -> tuple[int | None, str | None]:
         if not self._has_db():
             return None, "delivery_database_unavailable"
@@ -1029,16 +1092,31 @@ class AgentStore:
                 ):
                     return None, "source_message_missing"
 
-            extra_meta = {
-                "type": "coding_result",
-                "run_id": run_id,
-                "coding_task_id": coding_task_id,
-                "source_thread_id": thread_id,
-                "source_message_id": source_message_id,
-                "user_id": expected_user_id,
-                "project_id": expected_project_id,
-                "status": status,
-            }
+            extra_meta = build_coding_result_lineage_payload(
+                run_id=run_id,
+                queue_task_id=None,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                request_id=request_id,
+                source_thread_id=thread_id,
+                source_message_id=source_message_id,
+                adapter_kind=adapter_kind,
+            )
+            extra_meta.update(
+                {
+                    "type": "coding_result",
+                    "user_id": expected_user_id,
+                    "project_id": expected_project_id,
+                    "status": status,
+                    "coding_result_status": status,
+                    "files_changed": list(files_changed),
+                    "artifacts": list(artifacts),
+                    "adapter_session_ref": adapter_session_ref,
+                    "result_captured_by_guardian": True,
+                    "error_code": error_code,
+                    "error_message": error_message,
+                }
+            )
             if commit_hash:
                 extra_meta["commit_hash"] = commit_hash
             if validation_results is not None:
@@ -1066,7 +1144,7 @@ class AgentStore:
             if artifacts:
                 content_parts.append("**Artifacts**:\n")
                 for a in artifacts:
-                    name = a.get("name", a.get("path", "unnamed"))
+                    name = a.get("name", a.get("path", a.get("value", "unnamed")))
                     content_parts.append(f"- {name}\n")
                 content_parts.append("\n")
 

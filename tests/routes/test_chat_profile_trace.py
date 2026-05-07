@@ -1105,6 +1105,82 @@ def test_retrieval_posture_canonical_snapshot_preserves_workspace_mode(
     chat._rag_traces.pop(404, None)
 
 
+def test_rag_trace_distinguishes_workspace_obsidian_participation(
+    monkeypatch,
+):
+    chat._thread_latest_task[405] = "task-405"
+
+    retrieval_provenance = {
+        "requested_source_mode": "workspace",
+        "normalized_source_mode": "workspace",
+        "source_hit_counts": {
+            "semantic_total": 1,
+            "thread_semantic": 0,
+            "obsidian_semantic": 1,
+            "other_semantic": 0,
+            "project_documents": 0,
+            "thread_documents": 0,
+            "global_documents": 0,
+            "other_documents": 0,
+            "memory": 0,
+            "graph": 0,
+        },
+        "retrieval_status": "workspace_local_success",
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [
+                    {
+                        "id": "obsidian-1",
+                        "metadata": {"namespace": "obsidian:local"},
+                    }
+                ],
+                "graph": [],
+                "source_mode": "workspace",
+                "widen_reason": "explicit_workspace",
+                "retrieval_provenance": retrieval_provenance,
+            },
+            "payload_summary": {
+                "message_count": 2,
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "semantic_count": 1,
+                "obsidian_count": 1,
+                "obsidian_injected": True,
+                "retrieval_injected": True,
+                "retrieval_provenance": retrieval_provenance,
+                "retrieval_posture": {
+                    "source_mode": "workspace",
+                    "boundary_label": "same_user_only",
+                    "retrieval_override_mode": None,
+                    "widen_reason": "explicit_workspace",
+                    "conversation_only": False,
+                },
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(405, api_key="test-key")
+
+    assert trace["payload_summary"]["obsidian_count"] == 1
+    assert trace["payload_summary"]["obsidian_injected"] is True
+    assert trace["payload_summary"]["retrieval_injected"] is True
+    assert trace["retrieval_provenance"]["source_hit_counts"][
+        "obsidian_semantic"
+    ] == 1
+    assert trace["retrieval_summary"]["obsidian_count"] == 1
+    assert trace["retrieval_summary"]["retrieval_status"] == (
+        "workspace_local_success"
+    )
+
+    chat._thread_latest_task.pop(405, None)
+    chat._rag_traces.pop(405, None)
+
+
 def test_retrieval_posture_fallback_returns_empty_when_no_source_mode(
     monkeypatch,
 ):
