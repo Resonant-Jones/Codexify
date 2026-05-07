@@ -391,6 +391,140 @@ Runtime provenance check
 - Compose migrator issue remains outside this task.
 - Frontend Vitest resolution remains outside this task.
 
+## Runtime provenance repair attempt
+
+### Result
+FAIL
+
+### Selected Expected Commit
+- selected expected commit: `0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05`
+- reason:
+  - This is the active local checkout HEAD used to build the live backend/worker containers during this repair attempt.
+  - It is a docs-only descendant of `49eefa02f80e939f709708f148a408e366fea59a`, so runtime code intent is unchanged from that local runtime lineage.
+  - The older target `2bce6aeb9416a25d77b931b4974db7573e8951b8` is present in object history but is not an ancestor of the active checkout branch in this workspace.
+
+### Lineage Evidence
+- local git HEAD: `0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05`
+- expected commit under this repair run: `0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05`
+- whether local HEAD contains `2bce6aeb9416a25d77b931b4974db7573e8951b8`: **no**
+  - `git merge-base --is-ancestor 2bce6aeb9416a25d77b931b4974db7573e8951b8 HEAD` -> exit `1`
+- worker final image-routing normalization fix in selected lineage (`2bce6aeb...` as a direct ancestor): **not proven by ancestry in this checkout**
+
+### Runtime Refresh
+- rebuild/recreate command:
+  - `docker compose up -d --build --no-deps backend worker-chat`
+
+### Provenance Helper Run
+- command:
+  - `./.venv/bin/python scripts/proofs/prove_image_turn_containment_runtime_provenance.py --expected-commit 0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05`
+- helper result: `proof_ready: false`
+
+### Human-Readable Helper Output
+```text
+Runtime provenance check
+  proof_ready: False
+  expected_commit: 0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05
+  local_git_head: 0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05
+  expected_commit_timestamp: 2026-05-07T13:40:50+00:00
+  runtime_commit_source: unavailable
+  backend:
+    container_id: 8ba6af7c9b96be33cb9eff43c2a5096cfa96d59fde16d726cedaef1bced7051d
+    container_image_id: sha256:afc90db92d00c8f6a1fc395ac8ee4ce64169a7940d0a76a577bb0ca0c15ac78d
+    container_created_at: 2026-05-07T13:49:27.759460629Z
+    runtime_commit_source: logs
+    runtime_commit: 7a6b5c4d3e2f
+    runtime_version: None
+    rebuilt_after_expected_commit_timestamp: True
+  worker:
+    container_id: ec36680a03993aea67518c47a1398c1b92c55fe6d1776d1ae3504a36aabcdfce
+    container_image_id: sha256:efe41e56af93d6b57e7581727fb7a266639d95f79c111bd14db66ba913fd9e85
+    container_created_at: 2026-05-07T13:49:29.233875046Z
+    runtime_commit_source: unavailable
+    runtime_commit: None
+    runtime_version: None
+    rebuilt_after_expected_commit_timestamp: True
+  health:
+    /health: status_code=200 status=ok
+    /health/chat: status_code=200 status=healthy
+    /api/health/llm: status_code=200 status=ok
+    /api/llm/catalog: status_code=200 status=None
+  checks:
+    - local_git_head_matches_expected: True (match)
+    - backend_health_green: True (GET /health healthy)
+    - worker_health_green: True (GET /health/chat healthy)
+    - llm_health_green: True (GET /api/health/llm healthy)
+    - catalog_available: True (GET /api/llm/catalog healthy)
+    - worker_heartbeat_fresh: True (worker heartbeat fresh)
+    - backend_container_rebuilt_after_expected_commit: True (True)
+    - worker_container_rebuilt_after_expected_commit: True (True)
+  errors:
+    - backend runtime commit 7a6b5c4d3e2f does not match expected 0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05
+```
+
+### Machine-Readable Helper Output (Captured JSON Fields)
+```json
+{
+  "proof_ready": false,
+  "expected_commit": "0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05",
+  "local_git_head": "0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05",
+  "backend": {
+    "container_id": "8ba6af7c9b96be33cb9eff43c2a5096cfa96d59fde16d726cedaef1bced7051d",
+    "container_image_id": "sha256:afc90db92d00c8f6a1fc395ac8ee4ce64169a7940d0a76a577bb0ca0c15ac78d",
+    "container_created_at": "2026-05-07T13:49:27.759460629Z",
+    "runtime_commit_source": "logs",
+    "runtime_commit": "7a6b5c4d3e2f"
+  },
+  "worker_chat": {
+    "container_id": "ec36680a03993aea67518c47a1398c1b92c55fe6d1776d1ae3504a36aabcdfce",
+    "container_image_id": "sha256:efe41e56af93d6b57e7581727fb7a266639d95f79c111bd14db66ba913fd9e85",
+    "container_created_at": "2026-05-07T13:49:29.233875046Z",
+    "runtime_commit_source": "unavailable",
+    "runtime_commit": null
+  },
+  "health": {
+    "/health": {
+      "status_code": 200,
+      "status": "ok"
+    },
+    "/health/chat": {
+      "status_code": 200,
+      "status": "healthy"
+    },
+    "/api/health/llm": {
+      "status_code": 200,
+      "status": "ok"
+    },
+    "/api/llm/catalog": {
+      "status_code": 200,
+      "status": null
+    }
+  },
+  "worker_heartbeat_status": "fresh",
+  "errors": [
+    "backend runtime commit 7a6b5c4d3e2f does not match expected 0ee170770a1bd0a7d4d3d149ecfa1bd7bfa5eb05"
+  ]
+}
+```
+
+### Health and Worker Heartbeat
+- `GET /health` -> `200`, `status: ok`
+- `GET /health/chat` -> `200`, `status: healthy`
+- `GET /api/health/llm` -> `200`, `status: ok`
+- `GET /api/llm/catalog` -> `200`
+- worker heartbeat status -> `fresh`
+
+### Proof-Readiness Decision
+- provenance gate remains **FAIL**
+- no full image-turn containment proof rerun was executed after this failed provenance gate
+
+### Remaining Blockers
+- helper fail-closed on backend runtime commit hint mismatch:
+  - backend logs expose `alembic_version=7a6b5c4d3e2f`
+  - helper interprets that as runtime commit and compares it to expected git commit SHA
+- local ancestry does not show `2bce6aeb...` as an ancestor of the active checkout lineage
+- Compose migrator issue remains outside this task
+- Vitest/frontend resolution remains outside this task
+
 ## Rerun — after 2bce6ae worker final image-routing normalization
 
 ## Provenance Remediation
