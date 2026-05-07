@@ -257,6 +257,11 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+### Remediation Note — broker syntax blocker
+- The broader regression slice was blocked by a `SyntaxError` in `guardian/context/broker.py` near line `1582`.
+- This task fixed only that broker syntax blocker (no retrieval-policy, provider-selection, queue, or image-routing behavior changes were made).
+- The live image-turn blocker from the latest provenance-valid rerun remains unresolved: known image turns still finalized with `image_routing_path: null` and `image_routing_absence_reason: null` unless fixed in a separate runtime task.
+
 ## Rerun — after provenance-passing worker normalization runtime
 
 ### 1. Result
