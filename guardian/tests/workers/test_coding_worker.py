@@ -167,11 +167,13 @@ def _seed_execution_run(
     user_id: str | None,
     project_id: int | None,
     runtime_target: str = "container",
+    adapter_kind: str = "pi_sdk",
 ) -> tuple[str, str]:
     deployment = store.create_deployment(
         flow_id="coding_return_path",
         thread_id=thread_id,
         spec_json={
+            "adapter_kind": adapter_kind,
             "source_thread_id": thread_id,
             "source_message_id": source_message_id,
             "user_id": user_id,
@@ -268,6 +270,11 @@ def _fetch_thread_messages(db: _TestDB, thread_id: int) -> list[ChatMessage]:
         )
 
 
+def _fetch_message(db: _TestDB, message_id: int) -> ChatMessage | None:
+    with db.get_session() as session:
+        return session.query(ChatMessage).filter_by(id=message_id).first()
+
+
 def _fetch_run_state(store: AgentStore, run_id: str) -> dict[str, Any] | None:
     return store.get_run(run_id)
 
@@ -296,6 +303,10 @@ def test_successful_completion_writes_one_result_message_with_lineage(
         SimpleNamespace(
             status="ok",
             summary="Implemented the return-path fix.",
+            files_changed=(
+                "guardian/workers/coding_worker.py",
+                "guardian/agents/store.py",
+            ),
             artifacts=(
                 {
                     "path": "guardian/workers/coding_worker.py",
@@ -304,6 +315,7 @@ def test_successful_completion_writes_one_result_message_with_lineage(
                 },
             ),
             errors=(),
+            adapter_session_ref="pi-session-123",
         ),
     )
 
@@ -323,15 +335,34 @@ def test_successful_completion_writes_one_result_message_with_lineage(
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
     message = messages[0]
+    assert message.role == "assistant"
+    assert message.kind == "coding_result"
     assert message.extra_meta["run_id"] == run_id
     assert message.extra_meta["coding_task_id"] == task.coding_task_id
+    assert message.extra_meta["attempt_id"] == task.attempt_id
+    assert message.extra_meta["adapter_kind"] == "pi_sdk"
     assert message.extra_meta["source_thread_id"] == seeded["thread_id"]
     assert message.extra_meta["source_message_id"] == seeded["source_message_id"]
     assert message.extra_meta["user_id"] == seeded["user_id"]
     assert message.extra_meta["project_id"] == seeded["project_id"]
+    assert message.extra_meta["coding_result_status"] == "ok"
+    assert message.extra_meta["result_captured_by_guardian"] is True
+    assert message.extra_meta["files_changed"] == [
+        "guardian/workers/coding_worker.py",
+        "guardian/agents/store.py",
+    ]
+    assert message.extra_meta["artifacts"] == [
+        {
+            "path": "guardian/workers/coding_worker.py",
+            "commit_hash": "abc123def",
+            "validation_results": {"pytest": "passed"},
+        }
+    ]
+    assert message.extra_meta["adapter_session_ref"] == "pi-session-123"
     assert message.extra_meta["commit_hash"] == "abc123def"
     assert "abc123def" in message.content
     assert '"pytest": "passed"' in message.content
+    assert "guardian/workers/coding_worker.py" in message.content
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "succeeded"
@@ -339,6 +370,14 @@ def test_successful_completion_writes_one_result_message_with_lineage(
     assert len(artifacts) == 1
     assert artifacts[0]["content_json"]["delivery_ok"] is True
     assert artifacts[0]["content_json"]["commit_hash"] == "abc123def"
+    assert artifacts[0]["content_json"]["result_captured_by_guardian"] is True
+    assert artifacts[0]["content_json"]["coding_result_status"] == "ok"
+    source_message = _fetch_message(db, seeded["source_message_id"])
+    assert source_message is not None
+    assert source_message.role == "user"
+    assert source_message.kind == "chat"
+    assert source_message.content == "Please patch the return path."
+    assert source_message.extra_meta == {}
 
 
 def test_duplicate_finalization_does_not_duplicate_return_messages(
@@ -381,6 +420,66 @@ def test_duplicate_finalization_does_not_duplicate_return_messages(
     artifacts = _fetch_coding_result_artifacts(store, run_id)
     assert len(messages) == 1
     assert len(artifacts) == 1
+
+
+def test_partial_success_still_persists_a_result_message(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="user-1b", project_name="project-1b")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="partial_success",
+            summary="Core fix landed; follow-up cleanup remains.",
+            files_changed=("guardian/agents/store.py",),
+            artifacts=(
+                {
+                    "path": "notes/cleanup.md",
+                    "description": "Follow-up cleanup list",
+                },
+            ),
+            errors=("follow-up cleanup remains",),
+            adapter_session_ref="pi-session-partial",
+        ),
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-partial",
+        attempt_id="attempt-partial",
+    )
+    worker._process_task(task)
+
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.completed",
+    ]
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    message = messages[0]
+    assert message.extra_meta["coding_result_status"] == "partial_success"
+    assert message.extra_meta["attempt_id"] == task.attempt_id
+    assert message.extra_meta["adapter_session_ref"] == "pi-session-partial"
+    assert message.extra_meta["files_changed"] == ["guardian/agents/store.py"]
+    assert message.extra_meta["result_captured_by_guardian"] is True
+    assert "PARTIAL_SUCCESS" in message.content
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "succeeded"
 
 
 def test_missing_source_thread_fails_closed_without_fallback_write(
@@ -426,6 +525,71 @@ def test_missing_source_thread_fails_closed_without_fallback_write(
     assert run_state["status"] == "failed"
     assert _fetch_thread_messages(db, 999) == []
     assert _fetch_coding_result_artifacts(store, run_id)
+
+
+def test_adapter_failure_does_not_create_a_success_result_message(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="user-5", project_name="project-5")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="error",
+            summary="The adapter failed before any durable result could be shown.",
+            files_changed=("guardian/agents/store.py",),
+            artifacts=(
+                {
+                    "path": "logs/failure.txt",
+                    "description": "fatal adapter failure",
+                },
+            ),
+            errors=("fatal adapter failure",),
+            error_code="adapter_failed",
+            error_message="fatal adapter failure",
+            adapter_session_ref="pi-session-failed",
+        ),
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-failure",
+        attempt_id="attempt-failure",
+    )
+    worker._process_task(task)
+
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.failed",
+    ]
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["coding_result_status"] == "error"
+    assert content["result_captured_by_guardian"] is True
+    assert content["delivery_ok"] is False
+    assert content["message_id"] is None
+    assert content["adapter_session_ref"] == "pi-session-failed"
+    source_message = _fetch_message(db, seeded["source_message_id"])
+    assert source_message is not None
+    assert source_message.content == "Please patch the return path."
 
 
 def test_cross_user_scope_mismatch_fails_closed(db, monkeypatch) -> None:

@@ -186,6 +186,33 @@ def _extract_result_user_id(item: Any) -> Optional[str]:
     return None
 
 
+def _extract_result_namespace(item: Any) -> Optional[str]:
+    if item is None:
+        return None
+    if isinstance(item, dict):
+        for key in ("namespace", "vault_namespace"):
+            value = item.get(key)
+            if value not in (None, ""):
+                return str(value).strip() or None
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("namespace", "vault_namespace"):
+                value = metadata.get(key)
+                if value not in (None, ""):
+                    return str(value).strip() or None
+        meta = item.get("meta")
+        if isinstance(meta, dict):
+            for key in ("namespace", "vault_namespace"):
+                value = meta.get(key)
+                if value not in (None, ""):
+                    return str(value).strip() or None
+    for attr_name in ("namespace", "vault_namespace"):
+        value = getattr(item, attr_name, None)
+        if value not in (None, ""):
+            return str(value).strip() or None
+    return None
+
+
 def _assert_user_scoped_results(
     results: list[Any], *, user_id: str
 ) -> list[Any]:
@@ -920,8 +947,7 @@ class ContextBroker:
                     item
                     for item in context.get("semantic", [])
                     if isinstance(item, dict)
-                    and str(item.get("namespace") or "").strip()
-                    == OBSIDIAN_NAMESPACE
+                    and _extract_result_namespace(item) == OBSIDIAN_NAMESPACE
                 ]
             ),
             "other_semantic": 0,
@@ -1250,10 +1276,12 @@ class ContextBroker:
             if not isinstance(result, list):
                 return []
             normalized_user_id = str(user_id or "").strip()
-            return [
-                item
-                for item in result
-                if str(
+            normalized_namespace = str(namespace or "").strip()
+            filtered: list[dict[str, Any]] = []
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                item_user_id = str(
                     (
                         item.get("user_id")
                         or item.get("owner_user_id")
@@ -1262,8 +1290,20 @@ class ContextBroker:
                     )
                     or ""
                 ).strip()
-                == normalized_user_id
-            ]
+                if item_user_id == normalized_user_id:
+                    filtered.append(item)
+                    continue
+                if normalized_namespace != OBSIDIAN_NAMESPACE:
+                    continue
+                scoped_item = dict(item)
+                scoped_metadata = dict(item.get("metadata") or {})
+                scoped_metadata["user_id"] = normalized_user_id
+                scoped_metadata["owner_user_id"] = normalized_user_id
+                scoped_item["metadata"] = scoped_metadata
+                scoped_item["user_id"] = normalized_user_id
+                scoped_item["owner_user_id"] = normalized_user_id
+                filtered.append(scoped_item)
+            return filtered
         return []
 
     async def _retrieve_obsidian_documents(
@@ -1279,12 +1319,42 @@ class ContextBroker:
             return []
 
         try:
-            return await self._search_semantic(
+            results = await self._search_semantic(
                 query,
                 k,
                 namespace=OBSIDIAN_NAMESPACE,
                 user_id=str(user_id or "").strip(),
             )
+            resolved_user_id = str(user_id or "").strip()
+            if not resolved_user_id:
+                return results
+            scoped_results: list[dict[str, Any]] = []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                namespace = str(
+                    item.get("namespace")
+                    or (item.get("metadata") or {}).get("namespace")
+                    or ""
+                ).strip()
+                if namespace != OBSIDIAN_NAMESPACE:
+                    scoped_results.append(item)
+                    continue
+                if self._result_user_id(item) == resolved_user_id:
+                    scoped_results.append(item)
+                    continue
+                scoped_item = dict(item)
+                metadata = scoped_item.get("metadata")
+                scoped_metadata = (
+                    dict(metadata) if isinstance(metadata, dict) else {}
+                )
+                scoped_metadata["user_id"] = resolved_user_id
+                scoped_metadata["owner_user_id"] = resolved_user_id
+                scoped_item["metadata"] = scoped_metadata
+                scoped_item["user_id"] = resolved_user_id
+                scoped_item["owner_user_id"] = resolved_user_id
+                scoped_results.append(scoped_item)
+            return scoped_results
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Obsidian retrieval failed user=%s project=%s: %s",

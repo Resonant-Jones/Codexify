@@ -420,6 +420,7 @@ def test_live_rag_trace_promotes_eval_snapshot_when_task_trace_missing(
         },
         "retrieval_executed": True,
         "retrieval_absence_reason": None,
+        "image_attachment_count": 1,
         "image_routing_path": None,
         "image_routing_absence_reason": (
             "local_model_substitution_selected_nonvision_model"
@@ -468,6 +469,11 @@ def test_live_rag_trace_promotes_eval_snapshot_when_task_trace_missing(
         "local_model_substitution_selected_nonvision_model"
     )
     assert trace["image_routing_path"] is None
+    assert trace["image_routing"]["image_attachment_count"] == 1
+    assert (
+        trace["image_routing_absence_reason"]
+        != TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+    )
     assert "trace_unavailable_reason" not in trace
 
     chat._thread_latest_task.pop(103, None)
@@ -547,6 +553,7 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
         },
         "retrieval_executed": True,
         "retrieval_absence_reason": None,
+        "image_attachment_count": 1,
         "image_routing_path": None,
         "image_routing_absence_reason": (
             "local_model_substitution_selected_nonvision_model"
@@ -596,6 +603,11 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
         "local_model_substitution_selected_nonvision_model"
     )
     assert trace["image_routing_path"] is None
+    assert trace["image_routing"]["image_attachment_count"] == 1
+    assert (
+        trace["image_routing_absence_reason"]
+        != TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+    )
     assert "trace_unavailable_reason" not in trace
 
     chat._thread_latest_task.pop(104, None)

@@ -168,6 +168,9 @@ SOURCE_MODE_POSTURE: dict[str, dict[str, tuple[str, ...]]] = {
         "required_sources": ("obsidian",),
     },
     SOURCE_MODE_WORKSPACE: {
+        # Workspace-local evidence is still user-bound; Obsidian hits are
+        # selected by the broker and carried through completion-time semantic
+        # injection rather than treated as a separate global retriever.
         "includes": (
             "thread_messages",
             "semantic",
