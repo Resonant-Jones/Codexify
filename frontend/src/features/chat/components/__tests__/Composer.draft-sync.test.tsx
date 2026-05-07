@@ -6,6 +6,7 @@ import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
 } from "@/features/chat/chatLane";
 import {
+  buildSlashCommandSendPayload,
   buildSlashCommandIntentPayload,
   resolveSlashCommandIntent,
 } from "@/contracts/slashCommands";
@@ -120,6 +121,61 @@ describe("Composer draft sync", () => {
       intentKind: "integration",
       retrievalHint: "none",
       rawInput: "/obsidian memory decay",
+      queryText: "memory decay",
+      contextDirectives: [
+        {
+          kind: "connector_context",
+          connectorId: "obsidian",
+          invocation: "turn_scoped",
+          queryText: "memory decay",
+        },
+      ],
+    });
+  });
+
+  describe("buildSlashCommandSendPayload", () => {
+    it("builds clean authored text and a turn-scoped Obsidian context directive", () => {
+      const payload = buildSlashCommandSendPayload("/obsidian memory decay");
+      expect(payload).toEqual({
+        messageText: "memory decay",
+        slashIntent: {
+          commandId: "obsidian",
+          intentKind: "integration",
+          retrievalHint: "none",
+          rawInput: "/obsidian memory decay",
+          queryText: "memory decay",
+          contextDirectives: [
+            {
+              kind: "connector_context",
+              connectorId: "obsidian",
+              invocation: "turn_scoped",
+              queryText: "memory decay",
+            },
+          ],
+        },
+      });
+    });
+
+    it("resolves Obsidian aliases to canonical commandId with clean authored text", () => {
+      const payload = buildSlashCommandSendPayload("/obs memory decay");
+      expect(payload).toEqual({
+        messageText: "memory decay",
+        slashIntent: {
+          commandId: "obsidian",
+          intentKind: "integration",
+          retrievalHint: "none",
+          rawInput: "/obs memory decay",
+          queryText: "memory decay",
+          contextDirectives: [
+            {
+              kind: "connector_context",
+              connectorId: "obsidian",
+              invocation: "turn_scoped",
+              queryText: "memory decay",
+            },
+          ],
+        },
+      });
     });
   });
 
@@ -395,6 +451,59 @@ describe("Composer draft sync", () => {
     expect(onSend.mock.calls[0][1]?.slashIntent).toBeUndefined();
   });
 
+  it("sends clean authored text and Obsidian context directive metadata for /obsidian context commands", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(textarea, { target: { value: "/obsidian memory decay" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: "Slash commands" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onSend).toHaveBeenCalledWith(
+      "memory decay",
+      expect.objectContaining({
+        threadIdOverride: undefined,
+        slashIntent: {
+          commandId: "obsidian",
+          intentKind: "integration",
+          retrievalHint: "none",
+          rawInput: "/obsidian memory decay",
+          queryText: "memory decay",
+          contextDirectives: [
+            {
+              kind: "connector_context",
+              connectorId: "obsidian",
+              invocation: "turn_scoped",
+              queryText: "memory decay",
+            },
+          ],
+        },
+      })
+    );
+  });
+
   it("does not attach slash intent when composer contains no recognized slash command", async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
 
@@ -523,7 +632,7 @@ describe("Composer draft sync", () => {
     expect(composerSource).not.toContain('pl-[8px]');
     expect(composerSource).not.toContain('pr-[24px]');
     expect(composerSource).toContain('from "@/contracts/slashCommands"');
-    expect(composerSource).toContain("buildSlashCommandIntentPayload");
+    expect(composerSource).toContain("buildSlashCommandSendPayload");
     expect(composerSource).toContain("resolveSlashCommandIntent");
     expect(composerSource).toContain("slashIntent");
     expect(composerSource).not.toContain('description: "Start or switch a conversation thread."');

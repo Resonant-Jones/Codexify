@@ -180,11 +180,22 @@ export type SlashCommandIntent = {
   queryText: string;
 };
 
+export type SlashCommandContextDirectiveKind = "connector_context";
+
+export type SlashCommandContextDirective = {
+  kind: SlashCommandContextDirectiveKind;
+  connectorId: "obsidian";
+  invocation: "turn_scoped";
+  queryText: string;
+};
+
 export type SlashCommandIntentPayload = {
   intentKind: SlashCommandIntentKind;
   retrievalHint?: SlashCommandRetrievalHint;
   commandId?: SlashCommandId;
   rawInput: string;
+  queryText?: string;
+  contextDirectives?: SlashCommandContextDirective[];
 };
 
 function normalizeSlashToken(value: string): string {
@@ -238,10 +249,61 @@ export function buildSlashCommandIntentPayload(
   const intent = resolveSlashCommandIntent(input);
   if (!intent) return null;
 
-  return {
+  const payload: SlashCommandIntentPayload = {
     commandId: intent.command.id,
     intentKind: intent.command.effects.intentKind,
     retrievalHint: intent.command.effects.retrievalHint,
     rawInput: input,
+  };
+
+  const trimmedQueryText = intent.queryText.trim();
+  if (intent.command.id !== "obsidian" || trimmedQueryText.length === 0) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    queryText: trimmedQueryText,
+    contextDirectives: [
+      {
+        kind: "connector_context",
+        connectorId: "obsidian",
+        invocation: "turn_scoped",
+        queryText: trimmedQueryText,
+      },
+    ],
+  };
+}
+
+export function buildSlashCommandSendPayload(input: string): {
+  messageText: string;
+  slashIntent: SlashCommandIntentPayload | null;
+} {
+  const slashIntent = buildSlashCommandIntentPayload(input);
+  if (!slashIntent) {
+    return {
+      messageText: input,
+      slashIntent: null,
+    };
+  }
+
+  if (slashIntent.commandId !== "obsidian") {
+    return {
+      messageText: input,
+      slashIntent,
+    };
+  }
+
+  const trimmedQueryText = slashIntent.queryText?.trim() ?? "";
+  if (!trimmedQueryText) {
+    return {
+      messageText: input,
+      slashIntent,
+    };
+  }
+
+  return {
+    messageText: trimmedQueryText,
+    slashIntent,
   };
 }

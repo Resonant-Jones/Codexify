@@ -23,7 +23,7 @@ import {
   type SlashCommandDefinition,
   type SlashCommandId,
   type SlashCommandIntentPayload,
-  buildSlashCommandIntentPayload,
+  buildSlashCommandSendPayload,
   resolveSlashCommandIntent,
 } from "@/contracts/slashCommands";
 import {
@@ -795,12 +795,11 @@ export function Composer({
     if (sendInFlightRef.current) return;
     if (sendTransportDisabled) return;
 
-    const bodyText = value.trim();
+    const { messageText, slashIntent } = buildSlashCommandSendPayload(value);
+    const bodyText = messageText.trim();
     const hasAttachments = draftAttachments.length > 0;
     const hasDocumentTiles = documentTiles.length > 0;
     if (!bodyText && !hasAttachments && !hasDocumentTiles) return;
-
-    const slashIntent = buildSlashCommandIntentPayload(value);
 
     sendInFlightRef.current = true;
     setInternalSending(true);
@@ -830,7 +829,6 @@ export function Composer({
       const message = hasAttachments
         ? buildChatAttachmentMessage(uploaded, bodyText)
         : bodyText;
-      const slashIntent = buildSlashCommandIntentPayload(value);
 
       if (hasAttachments && !message) {
         showToast("No attachments could be uploaded.");
