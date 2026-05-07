@@ -39,6 +39,7 @@ PROOF_STEP_ORDER = (
     "health",
     "obsidian_config",
     "obsidian_index",
+    "obsidian_search",
     "thread_create",
     "user_message",
     "completion_acceptance",
@@ -49,8 +50,11 @@ PROOF_STEP_ORDER = (
 )
 VERDICT_CATEGORIES = (
     "acceptance",
+    "substrate_searchability",
     "completion",
-    "retrieval_evidence",
+    "workspace_eligibility",
+    "broker_selection",
+    "completion_injection",
     "assistant_match",
     "final_verdict",
 )
@@ -120,46 +124,66 @@ def build_workspace_sentinel(seed: str | None = None) -> WorkspaceSentinel:
 def classify_proof_verdicts(
     *,
     acceptance_status: str | None,
+    substrate_searchable: bool,
     terminal_event_type: str | None,
     assistant_text: str | None,
     retrieval_status: str | None,
     obsidian_semantic_hits: int,
     retrieval_source_mode: str | None,
     retrieval_posture: dict[str, Any] | None,
+    obsidian_injected: bool,
     token: str,
 ) -> dict[str, dict[str, Any]]:
     """Classify the proof into the operator-facing verdict categories."""
 
     acceptance_ok = str(acceptance_status or "").strip() in ACCEPTED_STATUSES
+    substrate_searchable_ok = bool(substrate_searchable)
     completion_ok = terminal_event_type == "task.completed"
-    assistant_ok = bool(assistant_text and token in assistant_text)
-    retrieval_ok = (
+    workspace_eligible_ok = (
         str(retrieval_source_mode or "").strip() == WORKSPACE_SOURCE_MODE
-        and str(retrieval_status or "").strip() == WORKSPACE_RETRIEVAL_STATUS
-        and obsidian_semantic_hits > 0
+        and bool(retrieval_posture)
+        and str(retrieval_posture.get("source_mode") or "").strip()
+        == WORKSPACE_SOURCE_MODE
+        and str(retrieval_posture.get("boundary_label") or "").strip()
+        == "same_user_only"
+        and str(retrieval_posture.get("widen_reason") or "").strip()
+        == "explicit_workspace"
     )
-    if retrieval_posture:
-        retrieval_ok = retrieval_ok and (
-            retrieval_posture.get("source_mode") == WORKSPACE_SOURCE_MODE
-            and retrieval_posture.get("boundary_label") == "same_user_only"
-            and retrieval_posture.get("widen_reason") == "explicit_workspace"
-        )
+    broker_selected_ok = obsidian_semantic_hits > 0
+    completion_injected_ok = bool(obsidian_injected)
+    assistant_ok = bool(assistant_text and token in assistant_text)
 
     verdicts: dict[str, dict[str, Any]] = {
         "acceptance": {
             "status": acceptance_status or "missing",
             "passed": acceptance_ok,
         },
+        "substrate_searchability": {
+            "status": "searchable" if substrate_searchable_ok else "missing",
+            "passed": substrate_searchable_ok,
+        },
         "completion": {
             "status": terminal_event_type or "missing",
             "passed": completion_ok,
         },
-        "retrieval_evidence": {
-            "status": retrieval_status or "missing",
-            "passed": retrieval_ok,
+        "workspace_eligibility": {
+            "status": str(retrieval_status or "missing").strip() or "missing",
+            "passed": workspace_eligible_ok,
             "source_mode": retrieval_source_mode,
-            "obsidian_semantic_hits": obsidian_semantic_hits,
             "retrieval_posture": retrieval_posture,
+        },
+        "broker_selection": {
+            "status": (
+                "selected" if broker_selected_ok else "missing_obsidian_hits"
+            ),
+            "passed": broker_selected_ok,
+            "obsidian_semantic_hits": obsidian_semantic_hits,
+        },
+        "completion_injection": {
+            "status": "injected" if completion_injected_ok else "missing",
+            "passed": completion_injected_ok,
+            "obsidian_injected": obsidian_injected,
+            "retrieval_status": retrieval_status,
         },
         "assistant_match": {
             "status": "matched" if assistant_ok else "missing_token",
@@ -758,11 +782,14 @@ def _format_summary(
     workspace_evidence: dict[str, Any] | None,
 ) -> str:
     acceptance = verdicts["acceptance"]
+    substrate_searchability = verdicts["substrate_searchability"]
     completion = verdicts["completion"]
-    retrieval = verdicts["retrieval_evidence"]
+    workspace_eligibility = verdicts["workspace_eligibility"]
+    broker_selection = verdicts["broker_selection"]
+    completion_injection = verdicts["completion_injection"]
     assistant_match = verdicts["assistant_match"]
     final_verdict = verdicts["final_verdict"]
-    obsidian_hits = retrieval.get("obsidian_semantic_hits", 0)
+    obsidian_hits = broker_selection.get("obsidian_semantic_hits", 0)
     evidence_status = (
         workspace_evidence.get("retrieval_status")
         if isinstance(workspace_evidence, dict)
@@ -802,8 +829,11 @@ def _format_summary(
     return "\n".join(
         [
             f"ACCEPTANCE: {acceptance['status']} | passed={str(acceptance['passed']).lower()} | task_id={task_id} | thread_id={thread_id} | source_mode={WORKSPACE_SOURCE_MODE}",
+            f"SEARCHABILITY: {substrate_searchability['status']} | passed={str(substrate_searchability['passed']).lower()} | obsidian_searchable={str(substrate_searchability['passed']).lower()}",
             f"COMPLETION: {completion['status']} | passed={str(completion['passed']).lower()} | assistant_match={str(assistant_match['passed']).lower()} | assistant_message={assistant_text!r}",
-            f"RETRIEVAL: {retrieval.get('status') or evidence_status or 'missing'} | passed={str(retrieval['passed']).lower()} | obsidian_semantic_hits={obsidian_hits} | obsidian_count={evidence_obsidian} | obsidian_injected={evidence_injected} | posture_source_mode={posture_source_mode} | widen_reason={posture_reason}",
+            f"ELIGIBILITY: {workspace_eligibility.get('status') or evidence_status or 'missing'} | passed={str(workspace_eligibility['passed']).lower()} | posture_source_mode={posture_source_mode} | widen_reason={posture_reason}",
+            f"SELECTION: {broker_selection.get('status') or 'missing'} | passed={str(broker_selection['passed']).lower()} | obsidian_semantic_hits={obsidian_hits} | obsidian_count={evidence_obsidian}",
+            f"INJECTION: {completion_injection.get('status') or 'missing'} | passed={str(completion_injection['passed']).lower()} | obsidian_injected={evidence_injected}",
             f"TRACE: {evidence_summary or 'missing'}",
             f"VERDICT: {str(final_verdict['status']).upper()} | reasons={','.join(final_verdict.get('reasons', [])) or 'none'} | base={base_url}",
         ]
@@ -827,6 +857,7 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
     assistant_text = ""
     thread_id = -1
     task_id = ""
+    substrate_searchable = False
     try:
         _copy_workspace_vault_to_container(
             scratch_root, CONTAINER_PROOF_ROOT / scratch_root.name
@@ -837,6 +868,7 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
         )
         _index_obsidian_vault(session, base_url, headers)
         _assert_obsidian_note_searchable(session, base_url, headers, sentinel)
+        substrate_searchable = True
 
         thread_payload = _create_thread(session, base_url, headers, sentinel)
         thread_id = int(thread_payload.get("id") or 0)
@@ -929,22 +961,11 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
                 f"(thread_id={thread_id}, task_id={task_id}, "
                 f"workspace_evidence={workspace_evidence!r})"
             )
-        if int(workspace_evidence["obsidian_count"]) <= 0:
-            _fail(
-                "Workspace retrieval did not participate in the live completion: "
-                f"{workspace_evidence!r}"
-            )
-        if sentinel.token not in assistant_text:
-            _fail(
-                "Assistant response did not contain the workspace sentinel token: "
-                f"{assistant_text!r} (thread_id={thread_id}, task_id={task_id}, "
-                f"workspace_evidence={workspace_evidence!r}, "
-                f"retrieval_posture={retrieval_posture!r})"
-            )
         verdicts = classify_proof_verdicts(
             acceptance_status=str(
                 completion_payload.get("acceptance_status") or ""
             ).strip(),
+            substrate_searchable=substrate_searchable,
             terminal_event_type=terminal_event_type,
             assistant_text=assistant_text,
             retrieval_status=str(
@@ -957,6 +978,7 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
                 workspace_evidence.get("source_mode") or ""
             ).strip(),
             retrieval_posture=retrieval_posture,
+            obsidian_injected=bool(workspace_evidence.get("obsidian_injected")),
             token=sentinel.token,
         )
         summary = _format_summary(
