@@ -57,6 +57,7 @@ Use this note as the local map for all ADRs.
 21. [[021-Web-Agent-Boundary-and-Retrieval-Contract|ADR-021 Web Agent Boundary and Retrieval Contract]] — governed external retrieval and interaction boundary with separate search, read, extract, browser, and service-connector modes.
 22. [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]] — canonical cross-surface intent control plane for chat, voice, automations, CLI, and future plugin surfaces.
 23. [[023-workspace-e2e-proof-harness-contract|ADR-023 Workspace E2E Proof Harness Contract]] — canonical live proof harness for the supported local Compose path that validates workspace-scoped Obsidian-backed note retrieval end to end.
+24. [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]] — governing ADR for Context Commands, active connector semantics, slash-command connector invocation, and connector/tool boundary doctrine.
 
 ---
 
@@ -264,6 +265,31 @@ Primary companion notes:
   * [[canonical-token-philosophy|Canonical Token Philosophy]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
+
+* [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]] links to:
+
+  * [[003-Message-Identity-vs-Request-Identity|Message Identity vs Request Identity]]
+  * [[010-Self-Extending-Agent-Plugin-System|Self-Extending Agent Plugin System]]
+  * [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|Flow Builder Thread, Draft, and Receipts Contract]]
+  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|Guardian Mediated Coding Agent Execution Contract]]
+  * [[021-Web-Agent-Boundary-and-Retrieval-Contract|Web Agent Boundary and Retrieval Contract]]
+  * [[00-current-state]]
+  * [[system-overview|System Overview]]
+  * [[flows|Critical Flows]]
+  * [[command-bus-auth-cli-automations|Command Bus, Auth, Tool Calls, and Automations]]
+  * [[delegation-runtime|Delegation Runtime Contract]]
+  * [[persona-studio|Persona Studio Architecture]]
+
+* [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]] links to:
+
+  * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|Guardian Intent Spine and Cross-Surface Control Plane]]
+  * [[021-Web-Agent-Boundary-and-Retrieval-Contract|Web Agent Boundary and Retrieval Contract]]
+  * [[010-Self-Extending-Agent-Plugin-System|Self-Extending Agent Plugin System]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[flows|Critical Flows]]
+  * [[config-and-ops|Config and Ops]]
 ---
 
 ## Maintenance rule
