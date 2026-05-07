@@ -33,6 +33,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from pydantic import (
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -352,6 +353,47 @@ def _slash_intent_origin_segment(
         )
         return ""
     return f"|slash_intent={encoded}"
+
+
+def _normalize_context_directives(
+    context_directives: list["ContextDirectiveRequest"] | None,
+) -> list[dict[str, str]] | None:
+    if not context_directives:
+        return None
+
+    normalized: list[dict[str, str]] = []
+    for directive in context_directives:
+        normalized.append(
+            {
+                "kind": "connector_context",
+                "connector_id": "obsidian",
+                "invocation": "turn_scoped",
+                "query_text": directive.query_text.strip(),
+            }
+        )
+    return normalized or None
+
+
+def _context_directives_origin_segment(
+    context_directives: list[dict[str, str]] | None,
+) -> str:
+    if not context_directives:
+        return ""
+
+    try:
+        encoded = quote(
+            json.dumps(
+                context_directives, ensure_ascii=False, separators=(",", ":")
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode context directives origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|context_directives={encoded}"
 
 
 def _retrieval_override_from_slash_intent(
@@ -787,6 +829,13 @@ class ChatCompletionRequest(BaseModel):
     slash_intent: Optional["SlashIntentRequest"] = Field(
         default=None, alias="slashIntent"
     )
+    context_directives: Optional[List["ContextDirectiveRequest"]] = Field(
+        default=None,
+        alias="contextDirectives",
+        validation_alias=AliasChoices(
+            "context_directives", "contextDirectives"
+        ),
+    )
     depth_mode: Optional[
         str
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
@@ -801,6 +850,7 @@ SlashCommandId = Literal[
     "flow",
     "secure",
     "connect",
+    "obsidian",
     "help",
 ]
 SlashCommandIntentKind = Literal[
@@ -856,6 +906,32 @@ class SlashIntentRequest(BaseModel):
         if not (self.rawInput or self.rawToken):
             raise ValueError("slash intent requires rawInput or rawToken")
         return self
+
+
+ContextDirectiveKind = Literal["connector_context"]
+ContextDirectiveConnectorId = Literal["obsidian"]
+ContextDirectiveInvocation = Literal["turn_scoped"]
+
+
+class ContextDirectiveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    kind: ContextDirectiveKind
+    connector_id: ContextDirectiveConnectorId = Field(
+        validation_alias=AliasChoices("connector_id", "connectorId")
+    )
+    invocation: ContextDirectiveInvocation
+    query_text: StrictStr = Field(
+        validation_alias=AliasChoices("query_text", "queryText")
+    )
+
+    @field_validator("query_text")
+    @classmethod
+    def _validate_query_text(cls, value: StrictStr) -> StrictStr:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("context directive query_text cannot be blank")
+        return cleaned
 
 
 ChatCompletionRequest.model_rebuild()
@@ -2776,6 +2852,9 @@ async def chat_complete(
     retrieval_override = _retrieval_override_from_slash_intent(
         body.slash_intent
     )
+    normalized_context_directives = _normalize_context_directives(
+        body.context_directives
+    )
 
     task = ChatCompletionTask(
         user_id=account_id,
@@ -2799,8 +2878,11 @@ async def chat_complete(
         # Temporary transport bridge: carry turn_id, source_mode, and
         # bounded slash intent metadata via origin until ChatCompletionTask
         # gains typed fields for those values.
+        # TODO(ADR-024): promote context_directives to a typed task field
+        # when backend connector consumption is implemented.
         origin=(
             f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
+            f"{_context_directives_origin_segment(normalized_context_directives)}"
             f"{_slash_intent_origin_segment(body.slash_intent)}"
             f"{_retrieval_override_origin_segment(retrieval_override)}"
         ),

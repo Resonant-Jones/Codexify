@@ -2,6 +2,7 @@ import {
   getPreferredProviderSelection,
   type ProviderModelSelection,
 } from "@/lib/providerPref";
+import type { SlashCommandContextDirective } from "@/contracts/slashCommands";
 import type { ComposerInferenceMode } from "@/types/inference";
 
 const KNOWN_PROVIDER_IDS = new Set([
@@ -43,7 +44,49 @@ type ChatCompletionSelection = {
   preferredName?: string | null;
   profession?: string | null;
   guardianName?: string | null;
+  contextDirectives?: SlashCommandContextDirective[] | null;
 };
+
+type ChatCompletionContextDirectivePayload = {
+  kind: "connector_context";
+  connector_id: "obsidian";
+  invocation: "turn_scoped";
+  query_text: string;
+};
+
+function normalizeContextDirectiveQueryText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function toContextDirectivePayload(
+  directives: SlashCommandContextDirective[] | null | undefined
+): ChatCompletionContextDirectivePayload[] | undefined {
+  if (!Array.isArray(directives) || directives.length === 0) {
+    return undefined;
+  }
+
+  const normalized = directives.flatMap((directive) => {
+    if (!directive || directive.kind !== "connector_context") {
+      return [];
+    }
+    const queryText = normalizeContextDirectiveQueryText(directive.queryText);
+    if (!queryText) {
+      return [];
+    }
+    return [
+      {
+        kind: "connector_context" as const,
+        connector_id: "obsidian" as const,
+        invocation: "turn_scoped" as const,
+        query_text: queryText,
+      },
+    ];
+  });
+
+  return normalized.length > 0 ? normalized : undefined;
+}
 
 function resolveProviderModelPayload(
   activeModelId: string,
@@ -78,6 +121,7 @@ export function buildChatCompletionPayload(
   preferred_name?: string;
   profession?: string;
   guardian_name?: string;
+  context_directives?: ChatCompletionContextDirectivePayload[];
 } {
   const selection =
     typeof selectionOrModelId === "string"
@@ -116,6 +160,9 @@ export function buildChatCompletionPayload(
     selection?.guardianName,
     "Guardian"
   );
+  const contextDirectives = toContextDirectivePayload(
+    selection?.contextDirectives
+  );
   return {
     depth_mode: depthMode,
     ...providerModelPayload,
@@ -125,5 +172,8 @@ export function buildChatCompletionPayload(
     ...(preferredName ? { preferred_name: preferredName } : {}),
     ...(profession ? { profession } : {}),
     ...(guardianName ? { guardian_name: guardianName } : {}),
+    ...(contextDirectives
+      ? { context_directives: contextDirectives }
+      : {}),
   };
 }
