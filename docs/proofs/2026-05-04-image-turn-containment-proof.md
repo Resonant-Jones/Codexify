@@ -257,6 +257,140 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+## Runtime provenance gate — before next containment rerun
+
+### Result
+FAIL
+
+### Environment
+- branch: `codex/add-vision-capability-validation`
+- local HEAD: `49eefa02f80e939f709708f148a408e366fea59a`
+- expected commit under proof: `2bce6aeb9416a25d77b931b4974db7573e8951b8`
+- runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- runtime refresh command:
+  - `docker compose up -d --build --no-deps backend worker-chat`
+- provenance helper command:
+  - `./.venv/bin/python scripts/proofs/prove_image_turn_containment_runtime_provenance.py --expected-commit 2bce6aeb9416a25d77b931b4974db7573e8951b8`
+
+### Gate Preconditions
+- Local checkout ancestry requirement was not satisfied:
+  - `git merge-base --is-ancestor 2bce6aeb9416a25d77b931b4974db7573e8951b8 HEAD` -> exit `1`
+  - `git merge-base --is-ancestor 49eefa02f80e939f709708f148a408e366fea59a HEAD` -> exit `0`
+- This means the active checkout is at `49eefa02...` and is not a descendant containing `2bce6aeb...`.
+
+### Human-Readable Helper Output
+```text
+Runtime provenance check
+  proof_ready: False
+  expected_commit: 2bce6aeb9416a25d77b931b4974db7573e8951b8
+  local_git_head: 49eefa02f80e939f709708f148a408e366fea59a
+  expected_commit_timestamp: 2026-05-07T10:36:49+00:00
+  runtime_commit_source: unavailable
+  backend:
+    container_id: 92d4de08c5c9c4777684f3eccc8c3509ede6e695c3ce8a1c9fa83ace172fbe37
+    container_image_id: sha256:1e85323a74ba08f5b79f2fa4410d8db0a9a7a048efb6ace57713a437fe6f43cd
+    container_created_at: 2026-05-07T13:38:20.306458667Z
+    runtime_commit_source: logs
+    runtime_commit: 7a6b5c4d3e2f
+    runtime_version: None
+    rebuilt_after_expected_commit_timestamp: True
+  worker:
+    container_id: 8ad8f0c47d1d2209b281030523e46f6c0a4d0cc25af3c670c5777b6867ca9df4
+    container_image_id: sha256:3fabdb40d99fd2e8815fd767e35b95779c48f9760322ae4bd966a61816776dcc
+    container_created_at: 2026-05-07T13:38:21.684816751Z
+    runtime_commit_source: unavailable
+    runtime_commit: None
+    runtime_version: None
+    rebuilt_after_expected_commit_timestamp: True
+  health:
+    /health: status_code=200 status=ok
+    /health/chat: status_code=200 status=healthy
+    /api/health/llm: status_code=200 status=ok
+    /api/llm/catalog: status_code=200 status=None
+  checks:
+    - local_git_head_matches_expected: False (local HEAD 49eefa02f80e939f709708f148a408e366fea59a != expected 2bce6aeb9416a25d77b931b4974db7573e8951b8)
+    - backend_health_green: True (GET /health healthy)
+    - worker_health_green: True (GET /health/chat healthy)
+    - llm_health_green: True (GET /api/health/llm healthy)
+    - catalog_available: True (GET /api/llm/catalog healthy)
+    - worker_heartbeat_fresh: True (worker heartbeat fresh)
+    - backend_container_rebuilt_after_expected_commit: True (True)
+    - worker_container_rebuilt_after_expected_commit: True (True)
+  errors:
+    - local HEAD 49eefa02f80e939f709708f148a408e366fea59a does not match expected commit 2bce6aeb9416a25d77b931b4974db7573e8951b8
+    - backend runtime commit 7a6b5c4d3e2f does not match expected 2bce6aeb9416a25d77b931b4974db7573e8951b8
+```
+
+### Machine-Readable Helper Output (Captured JSON Fields)
+```json
+{
+  "proof_ready": false,
+  "expected_commit": "2bce6aeb9416a25d77b931b4974db7573e8951b8",
+  "local_git_head": "49eefa02f80e939f709708f148a408e366fea59a",
+  "runtime_commit_source": "unavailable",
+  "backend": {
+    "container_id": "92d4de08c5c9c4777684f3eccc8c3509ede6e695c3ce8a1c9fa83ace172fbe37",
+    "container_image_id": "sha256:1e85323a74ba08f5b79f2fa4410d8db0a9a7a048efb6ace57713a437fe6f43cd",
+    "container_created_at": "2026-05-07T13:38:20.306458667Z",
+    "runtime_commit_source": "logs",
+    "runtime_commit": "7a6b5c4d3e2f"
+  },
+  "worker_chat": {
+    "container_id": "8ad8f0c47d1d2209b281030523e46f6c0a4d0cc25af3c670c5777b6867ca9df4",
+    "container_image_id": "sha256:3fabdb40d99fd2e8815fd767e35b95779c48f9760322ae4bd966a61816776dcc",
+    "container_created_at": "2026-05-07T13:38:21.684816751Z",
+    "runtime_commit_source": "unavailable",
+    "runtime_commit": null
+  },
+  "health": {
+    "/health": {
+      "status_code": 200,
+      "status": "ok"
+    },
+    "/health/chat": {
+      "status_code": 200,
+      "status": "healthy"
+    },
+    "/api/health/llm": {
+      "status_code": 200,
+      "status": "ok"
+    },
+    "/api/llm/catalog": {
+      "status_code": 200,
+      "status": null
+    }
+  },
+  "worker_heartbeat": {
+    "status": "fresh",
+    "heartbeat_age_seconds": 2.021,
+    "reason": "ok"
+  },
+  "errors": [
+    "local HEAD 49eefa02f80e939f709708f148a408e366fea59a does not match expected commit 2bce6aeb9416a25d77b931b4974db7573e8951b8",
+    "backend runtime commit 7a6b5c4d3e2f does not match expected 2bce6aeb9416a25d77b931b4974db7573e8951b8"
+  ]
+}
+```
+
+### Health and Heartbeat Summary
+- `GET /health` -> `200`, `status: ok`
+- `GET /health/chat` -> `200`, `status: healthy`
+- `GET /api/health/llm` -> `200`, `status: ok`
+- `GET /api/llm/catalog` -> `200`
+- Worker heartbeat -> `fresh` (`heartbeat_age_seconds: 2.021`)
+
+### Proof Readiness Decision
+- `proof_ready: false`
+- The gate failed closed due to commit provenance mismatch (both local HEAD and backend runtime commit hint).
+- No new image-turn containment rerun was executed after this gate failure.
+
+### Remaining Blockers
+- Runtime provenance is not valid for interpreting a new containment rerun against `2bce6aeb...`.
+- Local checkout/head mismatch: `49eefa02...` vs expected `2bce6aeb...`.
+- Backend runtime commit hint mismatch: `7a6b5c4d3e2f` vs expected `2bce6aeb...`.
+- Compose migrator issue remains outside this task.
+- Frontend Vitest resolution remains outside this task.
+
 ## Rerun — after 2bce6ae worker final image-routing normalization
 
 ## Provenance Remediation
