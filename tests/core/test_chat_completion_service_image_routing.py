@@ -9,6 +9,7 @@ from guardian.core import chat_completion_service
 from guardian.protocol_tokens import ImageRoutingPath
 from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.tasks.types import ChatCompletionTask
+from guardian.workers import chat_worker
 
 
 def _seed_common(monkeypatch: pytest.MonkeyPatch, *, provider: str, model: str):
@@ -860,6 +861,167 @@ def test_image_turn_final_assembly_normalizes_stale_not_evaluated_reason(
     assert result["trace"]["image_routing_absence_reason"] != stale_reason
     assert result["payload_summary"]["model_selection"] == model_selection
     assert result["model_selection"] == model_selection
+
+
+def test_worker_completion_normalizes_stale_nested_image_routing_reason(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    stale_reason = TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+    canonical_reason = (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+
+    async def _fake_build_messages_for_llm_compat(task, user_id=None):
+        return (
+            [
+                {
+                    "role": "system",
+                    "content": "BASE SYSTEM",
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "What is in this image?",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "https://example.test/image.png"
+                            },
+                        },
+                    ],
+                },
+            ],
+            "local",
+            "library2/ministral-3:8b",
+            {},
+            {
+                "source_mode": "project",
+                "widen_reason": "none",
+                "image_attachment_count": 1,
+            },
+        )
+
+    monkeypatch.setattr(
+        chat_worker,
+        "_build_messages_for_llm_compat",
+        _fake_build_messages_for_llm_compat,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "_execute_bounded_tool_turn_completion",
+        lambda *args, **kwargs: {
+            "assistant_text": "ok",
+            "provider": "local",
+            "model": "library2/ministral-3:8b",
+            "payload_summary": {
+                "image_attachment_count": 1,
+                "image_routing_path": None,
+                "image_routing_absence_reason": stale_reason,
+                "model_selection": {
+                    "requested_provider": "local",
+                    "requested_model": "medgemma:4b-it-q8_0",
+                    "final_provider": "local",
+                    "final_model": "library2/ministral-3:8b",
+                    "selection_source": "explicit",
+                    "policy_reason": "LOCAL_CHAT_MODEL",
+                    "fallback_reason": None,
+                },
+            },
+            "trace": {
+                "image_attachment_count": 1,
+                "image_routing_path": None,
+                "image_routing_absence_reason": stale_reason,
+                "model_selection": {
+                    "requested_provider": "local",
+                    "requested_model": "medgemma:4b-it-q8_0",
+                    "final_provider": "local",
+                    "final_model": "library2/ministral-3:8b",
+                    "selection_source": "explicit",
+                    "policy_reason": "LOCAL_CHAT_MODEL",
+                    "fallback_reason": None,
+                },
+                "retrieval_policy": {
+                    "source_mode": "project",
+                    "widening_enabled": True,
+                    "identity_scope": "project",
+                },
+                "retrieval_provenance": {
+                    "requested_source_mode": "project",
+                    "normalized_source_mode": "project",
+                    "source_hit_counts": {
+                        "semantic_total": 0,
+                        "thread_semantic": 0,
+                        "obsidian_semantic": 0,
+                        "other_semantic": 0,
+                        "project_documents": 0,
+                        "thread_documents": 0,
+                        "global_documents": 0,
+                        "other_documents": 0,
+                        "memory": 0,
+                        "graph": 0,
+                    },
+                    "retrieval_status": "no_candidates",
+                },
+                "retrieval_suppression": {
+                    "items": [],
+                    "summary": {
+                        "total_suppressed": 0,
+                        "assistant_vision_refusal_on_image_turn": 0,
+                    },
+                },
+                "retrieval_executed": True,
+                "retrieval_absence_reason": None,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "resolve_model_vision_capability_state",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "get_settings",
+        lambda: SimpleNamespace(
+            LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+            LOCAL_BASE_URL="http://127.0.0.1:11434/v1",
+            ALLOW_CLOUD_PROVIDERS=True,
+        ),
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="medgemma:4b-it-q8_0",
+        requested_provider="local",
+        requested_model="medgemma:4b-it-q8_0",
+        selection_source="explicit",
+        origin=(
+            "api:chat.complete|turn_id=turn-1|source_mode=project"
+            "|image_attachment_count=1"
+        ),
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert result["image_attachment_count"] == 1
+    assert result["image_routing_path"] is None
+    assert result["image_routing_absence_reason"] == canonical_reason
+    assert result["image_routing_absence_reason"] != stale_reason
+    assert result["payload_summary"]["image_routing_absence_reason"] == (
+        canonical_reason
+    )
+    assert result["trace"]["image_routing_absence_reason"] == canonical_reason
+    assert result["trace"]["image_routing_absence_reason"] != stale_reason
 
 
 def test_image_turn_local_substitution_zero_retained_results_completes(

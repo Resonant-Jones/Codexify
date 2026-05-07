@@ -495,6 +495,7 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
                 "trace_unavailable_reason": "trace_source_unavailable",
                 "image_attachment_count": 1,
                 "image_routing_path": None,
+                "image_routing_absence_reason": None,
             },
             "payload_summary": {
                 "retrieval_policy": {
@@ -521,6 +522,7 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
                 },
                 "image_attachment_count": 1,
                 "image_routing_path": None,
+                "image_routing_absence_reason": None,
             },
         },
     )
@@ -602,12 +604,16 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
     assert trace["retrieval_provenance"] == snapshot_trace["retrieval_provenance"]
     assert trace["retrieval_suppression"] == snapshot_trace["retrieval_suppression"]
     assert trace["retrieval_executed"] is True
-    assert trace["retrieval_absence_reason"] is None
+    assert trace.get("retrieval_absence_reason") is None
     assert trace["image_routing_absence_reason"] == (
         "local_model_substitution_selected_nonvision_model"
     )
     assert trace["image_routing_path"] is None
+    assert trace["image_routing"]["image_routing_path"] is None
     assert trace["image_routing"]["image_attachment_count"] == 1
+    assert trace["payload_summary"]["image_routing_absence_reason"] == (
+        "local_model_substitution_selected_nonvision_model"
+    )
     assert trace["image_routing_absence_reason"] != (
         TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
     )
