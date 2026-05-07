@@ -46,6 +46,10 @@ describe("Composer draft sync", () => {
     expect(
       screen.getByRole("menuitem", { name: /Document/i })
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /Obsidian/i })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Context shell/i)).toBeInTheDocument();
   });
 
   it("refreshes slash results as more characters are typed and fuzzy matches partial input", async () => {
@@ -71,6 +75,21 @@ describe("Composer draft sync", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("fuzzy matches an Obsidian alias in the slash palette", async () => {
+    render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
+
+    const textarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(textarea, { target: { value: "/obs" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu", { name: "Slash commands" })).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("menuitem", { name: /Obsidian/i })
+    ).toBeInTheDocument();
+  });
+
   it("resolves alias tokens through the shared slash parser", () => {
     expect(resolveSlashCommandIntent("/repo scope planning")).toEqual(
       expect.objectContaining({
@@ -82,6 +101,26 @@ describe("Composer draft sync", () => {
         }),
       })
     );
+  });
+
+  it("resolves the Obsidian context command shell and preserves the canonical payload shape", () => {
+    expect(resolveSlashCommandIntent("/obsidian memory decay")).toEqual(
+      expect.objectContaining({
+        rawToken: "/obsidian",
+        queryText: "memory decay",
+        command: expect.objectContaining({
+          id: "obsidian",
+          scaffold: "/obsidian",
+        }),
+      })
+    );
+
+    expect(buildSlashCommandIntentPayload("/obsidian memory decay")).toEqual({
+      commandId: "obsidian",
+      intentKind: "integration",
+      retrievalHint: "none",
+      rawInput: "/obsidian memory decay",
+    });
   });
 
   it("surfaces semantic hint metadata for a resolved command", async () => {
@@ -120,6 +159,15 @@ describe("Composer draft sync", () => {
           rawInput: "/repo scope planning",
         })
       );
+    });
+
+    it("keeps non-Obsidian slash commands working after adding the context shell", () => {
+      expect(buildSlashCommandIntentPayload("/doc query text")).toEqual({
+        commandId: "doc",
+        intentKind: "knowledge",
+        retrievalHint: "personal_knowledge",
+        rawInput: "/doc query text",
+      });
     });
 
     it("produces null for non-slash input", () => {
