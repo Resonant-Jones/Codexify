@@ -82,6 +82,7 @@ def test_proof_step_order_is_stable():
         "health",
         "obsidian_config",
         "obsidian_index",
+        "obsidian_search",
         "thread_create",
         "user_message",
         "completion_acceptance",
@@ -97,6 +98,7 @@ def test_required_verdict_categories_are_present():
 
     verdicts = module.classify_proof_verdicts(
         acceptance_status="accepted",
+        substrate_searchable=True,
         terminal_event_type="task.completed",
         assistant_text="workspace-seal-123",
         retrieval_status="workspace_local_success",
@@ -107,6 +109,7 @@ def test_required_verdict_categories_are_present():
             "boundary_label": "same_user_only",
             "widen_reason": "explicit_workspace",
         },
+        obsidian_injected=True,
         token="workspace-seal-123",
     )
 
@@ -118,6 +121,7 @@ def test_missing_evidence_fails_closed():
 
     verdicts = module.classify_proof_verdicts(
         acceptance_status="accepted",
+        substrate_searchable=True,
         terminal_event_type="task.completed",
         assistant_text="workspace-seal-123",
         retrieval_status="workspace_local_missing_obsidian",
@@ -128,14 +132,21 @@ def test_missing_evidence_fails_closed():
             "boundary_label": "same_user_only",
             "widen_reason": "explicit_workspace",
         },
+        obsidian_injected=False,
         token="workspace-seal-123",
     )
 
     assert verdicts["acceptance"]["passed"] is True
+    assert verdicts["substrate_searchability"]["passed"] is True
     assert verdicts["completion"]["passed"] is True
-    assert verdicts["retrieval_evidence"]["passed"] is False
+    assert verdicts["workspace_eligibility"]["passed"] is True
+    assert verdicts["broker_selection"]["passed"] is False
+    assert verdicts["completion_injection"]["passed"] is False
     assert verdicts["final_verdict"]["passed"] is False
-    assert "retrieval_evidence" in verdicts["final_verdict"]["reasons"]
+    assert set(verdicts["final_verdict"]["reasons"]) == {
+        "broker_selection",
+        "completion_injection",
+    }
 
 
 def test_acceptance_alone_is_not_success():
@@ -143,22 +154,30 @@ def test_acceptance_alone_is_not_success():
 
     verdicts = module.classify_proof_verdicts(
         acceptance_status="accepted",
+        substrate_searchable=False,
         terminal_event_type=None,
         assistant_text=None,
         retrieval_status=None,
         obsidian_semantic_hits=0,
         retrieval_source_mode="workspace",
         retrieval_posture=None,
+        obsidian_injected=False,
         token="workspace-seal-123",
     )
 
     assert verdicts["acceptance"]["passed"] is True
+    assert verdicts["substrate_searchability"]["passed"] is False
     assert verdicts["completion"]["passed"] is False
-    assert verdicts["retrieval_evidence"]["passed"] is False
+    assert verdicts["workspace_eligibility"]["passed"] is False
+    assert verdicts["broker_selection"]["passed"] is False
+    assert verdicts["completion_injection"]["passed"] is False
     assert verdicts["assistant_match"]["passed"] is False
     assert verdicts["final_verdict"]["passed"] is False
     assert set(verdicts["final_verdict"]["reasons"]) == {
+        "substrate_searchability",
         "completion",
-        "retrieval_evidence",
+        "workspace_eligibility",
+        "broker_selection",
+        "completion_injection",
         "assistant_match",
     }

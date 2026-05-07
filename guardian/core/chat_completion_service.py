@@ -90,6 +90,12 @@ from guardian.queue.redis_queue import (
     get_redis_connection,
 )
 from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
+from guardian.vector.store import VectorStore
+
+try:  # pragma: no cover - import is runtime-scoped for workspace freshness
+    from backend.rag.embedder import Embedder as _WorkspaceVectorEmbedder
+except Exception:  # pragma: no cover - fallback when embedder import fails
+    _WorkspaceVectorEmbedder = None
 
 logger = logging.getLogger(__name__)
 RETRIEVAL_PLAN_TRACE_KEY = "retrieval_plan"
@@ -688,6 +694,26 @@ def _attach_tool_loop_metadata(
     payload_summary["tool_turn_id"] = tool_loop.get("toolTurnId")
     payload_summary["request_id"] = request_id
     payload_summary["message_id"] = tool_loop.get("messageId")
+
+
+def _workspace_completion_vector_store() -> VectorStore:
+    """Build a fresh vector-store handle for workspace-scoped completions."""
+    store = VectorStore()
+    if _WorkspaceVectorEmbedder is None:
+        return store
+    try:
+        store.embedder = _WorkspaceVectorEmbedder(
+            store=store.store,
+            chroma_path=store.chroma_path,
+            collection=store.collection,
+        )
+        store._embedder_factory_token = id(_WorkspaceVectorEmbedder)
+    except Exception:
+        logger.debug(
+            "[chat-completion] fresh workspace vector store rebuild failed",
+            exc_info=True,
+        )
+    return store
     payload_summary["requestId"] = request_id
     payload_summary["messageId"] = tool_loop.get("messageId")
 
@@ -1946,13 +1972,21 @@ def build_sanitized_payload_summary(
     )
     linked_document_injected = bool(docs_meta.get("injected"))
 
-    obsidian_count = (
-        len((bundle or {}).get("obsidian") or [])
-        if isinstance(bundle, dict)
-        else 0
+    obsidian_context_meta = retrieval_meta.get("obsidian")
+    obsidian_context_count = 0
+    obsidian_context_injected = False
+    if isinstance(obsidian_context_meta, dict):
+        obsidian_context_count = int(obsidian_context_meta.get("count") or 0)
+        obsidian_context_injected = bool(obsidian_context_meta.get("injected"))
+
+    obsidian_count = len(_obsidian_semantic_hits_from_bundle(bundle))
+    if obsidian_context_count > obsidian_count:
+        obsidian_count = obsidian_context_count
+    # Obsidian entries are injected through the semantic context block, so the
+    # count only becomes meaningful when semantic injection actually happened.
+    obsidian_injected = bool(
+        obsidian_context_injected or (obsidian_count and semantic_injected)
     )
-    # Obsidian entries are injected via the semantic context block.
-    obsidian_injected = bool(obsidian_count and semantic_injected)
     verified_personal_facts_injected = bool(
         verified_personal_facts_meta.get("injected")
     )
@@ -2085,6 +2119,28 @@ def _count_items_with_prefix(
     )
 
 
+def _obsidian_semantic_hits_from_bundle(
+    bundle: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(bundle, dict):
+        return []
+
+    obsidian_hits = [
+        item for item in (bundle.get("obsidian") or []) if isinstance(item, dict)
+    ]
+    if obsidian_hits:
+        return obsidian_hits
+
+    semantic_hits = [
+        item for item in (bundle.get("semantic") or []) if isinstance(item, dict)
+    ]
+    return [
+        item
+        for item in semantic_hits
+        if _namespace_from_hit(item) == OBSIDIAN_NAMESPACE
+    ]
+
+
 def _build_retrieval_provenance(
     *,
     requested_source_mode: str | None,
@@ -2099,10 +2155,14 @@ def _build_retrieval_provenance(
             if isinstance(item, dict)
         ]
     thread_semantic_count = _count_items_with_prefix(semantic_hits, "thread:")
-    obsidian_semantic_count = _count_items_with_namespace(
-        semantic_hits,
-        OBSIDIAN_NAMESPACE,
-    )
+    obsidian_semantic_hits = [
+        item
+        for item in semantic_hits
+        if _namespace_from_hit(item) == OBSIDIAN_NAMESPACE
+    ]
+    if not obsidian_semantic_hits:
+        obsidian_semantic_hits = _obsidian_semantic_hits_from_bundle(bundle)
+    obsidian_semantic_count = len(obsidian_semantic_hits)
     other_semantic_count = max(
         len(semantic_hits) - thread_semantic_count - obsidian_semantic_count,
         0,
@@ -2170,6 +2230,8 @@ def _build_retrieval_provenance(
         local_result_count = (
             len(semantic_hits) + project_document_count + thread_document_count
         )
+        if local_result_count <= 0 and obsidian_semantic_count > 0:
+            local_result_count = obsidian_semantic_count
         retrieval_status = (
             "workspace_local_success"
             if local_result_count > 0
@@ -2706,8 +2768,12 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     task_user_id = str(user_id or getattr(task, "user_id", "") or "").strip()
-    user_for_context = (thread_info or {}).get("user_id", "default")
-    context_user_id = task_user_id or user_for_context
+    user_for_context = str(
+        (thread_info or {}).get("user_id")
+        or dependencies.get_single_user_id()
+        or "default"
+    ).strip() or "default"
+    context_user_id = user_for_context or task_user_id
     source_mode = effective_source_mode
 
     project_id_for_prompt: int | None = None
@@ -2723,9 +2789,12 @@ async def build_messages_for_llm(
     trace: dict[str, Any] | None = None
     trace_candidate: dict[str, Any] | None = None
     try:
+        broker_vector_store = dependencies._vector_store
+        if source_mode in {SOURCE_MODE_WORKSPACE, SOURCE_MODE_OBSIDIAN_ONLY}:
+            broker_vector_store = _workspace_completion_vector_store()
         broker = ContextBroker(
             dependencies.chatlog_db,
-            dependencies._vector_store,
+            broker_vector_store,
             dependencies._memory_store,
             dependencies._sensors,
             settings=settings,
@@ -2854,6 +2923,18 @@ async def build_messages_for_llm(
     context_message, context_meta = build_context_system_message_with_meta(
         bundle
     )
+    if isinstance(context_meta, dict):
+        obsidian_hits = _obsidian_semantic_hits_from_bundle(
+            bundle if isinstance(bundle, dict) else None
+        )
+        semantic_meta = context_meta.get("semantic")
+        semantic_injected = bool(
+            semantic_meta.get("injected") if isinstance(semantic_meta, dict) else False
+        )
+        context_meta["obsidian"] = {
+            "count": len(obsidian_hits),
+            "injected": bool(obsidian_hits and semantic_injected),
+        }
     if context_message:
         retrieved_context_messages.append(
             {"role": "system", "content": context_message}
@@ -2969,7 +3050,7 @@ async def build_messages_for_llm(
     retained_result_count = 0
     if retrieval_executed and retrieval_absence_reason is None:
         if isinstance(bundle, dict):
-            for key in ("semantic", "memory", "graph"):
+            for key in ("semantic", "obsidian", "memory", "graph"):
                 retained_result_count += len(
                     [
                         item
