@@ -539,3 +539,69 @@ FAIL
 - The completion path now re-applies image-routing normalization at the final result-assembly boundary, after payload-summary and trace merges have settled.
 - Known image turns should no longer finalize as `image_routing_not_evaluated`; that token remains reserved for genuine no-image / no-routing-evidence cases.
 - The live proof is ready to rerun once the refreshed runtime is picked up.
+
+## Rerun — after 7b80beb final image-routing normalization
+Result: FAIL
+
+Environment:
+- branch: `main`
+- HEAD: `7b80beb9445e8455813cc45a4b20c2b5f220906e`
+- runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- services refreshed: `docker compose up -d --build --no-deps backend worker-chat`
+
+Health evidence summary:
+- `GET /health` returned `200 ok`
+- `GET /health/chat` returned `200 healthy`
+- `GET /api/health/llm` returned `200 ok / online`
+- `GET /api/llm/catalog` returned `200` and the local catalog included `medgemma:4b-it-q8_0`
+
+Thread setup:
+- Thread A id: `18`
+- Thread A refusal message id: `29`
+- Thread B id: `19`
+- Thread B user image message id: `30`
+- Thread B assistant message id: `31`
+- task id: `bdd7152b-2a9f-41b0-8a96-90834c4eb06e`
+- turn id: `31d542d8-adae-48eb-9c6b-e287ca4cb764`
+
+Requested/final model and substitution reason:
+- requested provider/model: `local / medgemma:4b-it-q8_0`
+- final provider/model: `local / library2/ministral-3:8b`
+- `selection_source: explicit`
+- `policy_reason: LOCAL_CHAT_MODEL`
+- `fallback_reason: null`
+- `model_resolution.message: requested model 'medgemma:4b-it-q8_0' was overridden by configured local chat model 'library2/ministral-3:8b' from LOCAL_CHAT_MODEL`
+
+Image-routing evidence:
+- image payload marker evidence: `<!-- cfy-media:image:58494361-dd98-46f5-b887-3e70f812c719 -->` plus signed `<!-- cfy-media-src:/media/images/20260507-499a439a--proof.png?sig=nZZm2hKgqilU24SoVxlGnfahComEvYlbN7cLrxm2J_A -->` and `<!-- cfy-media-name:proof.png -->`
+- image attachment count: `1`
+- assistant metadata image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: null`
+- task.completed top-level payload image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: null`
+- task.completed nested trace image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: image_routing_not_evaluated`
+- eval snapshot image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: image_routing_not_evaluated`
+- rag-trace image-routing fields: top-level `image_routing_path: null`, `image_routing_absence_reason: null`; promoted `image_routing` object present with `image_attachment_count: 1`
+- `assistant_vision_refusal_on_image_turn` did not appear in the persisted trace for this run
+
+Trace evidence summary:
+- retrieval policy was present and resolved to `{"identity_scope":"project","source_mode":"project","widening_enabled":true}`
+- retrieval provenance was present and reported `requested_source_mode: project`, `normalized_source_mode: project`, `retrieval_status: no_obsidian_results`
+- retrieval suppression was present with an empty list and `total_suppressed: 0`
+- retrieval execution was `true`
+- retrieval absence reason was `null`
+- `trace_unavailable_reason` was cleared/null on the promoted public debug surfaces once the persisted snapshot existed
+
+Thread A leakage check:
+- Thread A refusal text did not appear in Thread B messages, task evidence, eval snapshot, or rag-trace output
+- The Thread B assistant response was refusal-like, but it was not the seeded Thread A refusal text
+
+Whether containment is machine-readably proven:
+- No
+
+Limitations:
+- The worker completed and the live debug surfaces were readable, but the final nested trace still carried `image_routing_absence_reason: image_routing_not_evaluated`
+- The public rag-trace surface still exposed null/null image-routing truth at the top level instead of a canonical image-routing absence reason for this known image turn
+
+Remaining blockers:
+- Another runtime change is still needed to normalize the final image-routing truth into the nested trace that reaches eval snapshot persistence
+- The separate Compose migrator issue remains outside this task
+- The frontend Vitest resolution issue remains outside this task
