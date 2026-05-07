@@ -2363,6 +2363,39 @@ def _build_retrieval_posture(
     }
 
 
+def _preserve_workspace_evidence_fields(
+    target: dict[str, Any],
+    source: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(target, dict) or not isinstance(source, dict):
+        return target
+
+    def _positive_int(raw: Any) -> int:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return 0
+        return value if value > 0 else 0
+
+    for key in ("semantic_count", "obsidian_count"):
+        source_count = _positive_int(source.get(key))
+        if source_count <= 0:
+            continue
+        target_count = _positive_int(target.get(key))
+        if source_count > target_count:
+            target[key] = source_count
+
+    for key in (
+        "semantic_injected",
+        "obsidian_injected",
+        "retrieval_injected",
+    ):
+        if bool(source.get(key)):
+            target[key] = True
+
+    return target
+
+
 def _embed_message(
     thread_id: int, role: str, content: str, message_id: int
 ) -> None:
@@ -3178,7 +3211,13 @@ def _execute_bounded_tool_turn_completion(
             "normalized_source_mode",
             "requested_source_mode",
             "effective_policy",
+            "retrieval_posture",
             "retrieval_provenance",
+            "semantic_count",
+            "obsidian_count",
+            "semantic_injected",
+            "obsidian_injected",
+            "retrieval_injected",
             "image_routing_path",
             "image_routing_absence_reason",
             "image_attachment_count",
@@ -3186,6 +3225,10 @@ def _execute_bounded_tool_turn_completion(
         ):
             if key in base_payload_summary:
                 payload_summary[key] = base_payload_summary[key]
+        _preserve_workspace_evidence_fields(
+            payload_summary,
+            base_payload_summary,
+        )
         payload_summary.update(
             {
                 "messageId": latest_turn_message_id,
@@ -3626,7 +3669,27 @@ def run_chat_completion_task(
         cancel_check=cancel_check,
     )
     assistant_text = str(result.get("assistant_text") or "")
-    payload_summary = dict(result.get("payload_summary") or payload_summary)
+    result_payload_summary = result.get("payload_summary")
+    merged_payload_summary = dict(payload_summary or {})
+    if isinstance(result_payload_summary, dict):
+        merged_payload_summary.update(result_payload_summary)
+    base_retrieval_posture = (
+        payload_summary.get("retrieval_posture")
+        if isinstance(payload_summary, dict)
+        else None
+    )
+    if (
+        merged_payload_summary.get("retrieval_posture") is None
+        and isinstance(base_retrieval_posture, dict)
+    ):
+        merged_payload_summary["retrieval_posture"] = dict(
+            base_retrieval_posture
+        )
+    _preserve_workspace_evidence_fields(
+        merged_payload_summary,
+        payload_summary,
+    )
+    payload_summary = merged_payload_summary
     request_id = str(result.get("requestId") or _completion_request_id(task))
     trace_result = result.get("trace") if isinstance(result.get("trace"), dict) else None
     trace_fallback = trace_result

@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-06
+2026-05-07
 
 ## Interpretation rule
 This file is authoritative for:
@@ -28,6 +28,7 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 - Current release evidence still treats live health, provider posture, and fresh runtime proof as required signoff inputs.
 - A canonical workspace-local live proof harness now exists at `scripts/proofs/prove_workspace_obsidian_e2e.py`; it validates the supported local Compose path only and does not widen the release promise to other install modes.
 - Workspace-local proof now treats searchability, broker selection, completion-context injection, and assistant reflection as separate evidence steps; vector-store searchability alone is weaker than proving the note influenced completion.
+- Worker-visible completion payloads now preserve the executed retrieval posture snapshot and workspace-local Obsidian evidence counts for completion turns instead of dropping back to a debug-only reconstruction.
 
 - Do not assume any unmerged branch work is shipped.
 - Do not assume the public webUI bundle replaces the local Compose path.
@@ -55,8 +56,8 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 - [ ] Chat, retrieval, and upload/embedding behavior are proven on the live stack.
 - [ ] Coding results return through Guardian into the source thread without duplicate delivery.
 - [ ] Catalog, health, and provider posture agree with the supported profile.
-- [ ] The workspace-local live proof harness passes on the supported local Compose path.
-- [ ] Workspace-local proof evidence shows broker selection and completion-context injection, not just vector-store searchability.
+- [x] The workspace-local live proof harness passes on the supported local Compose path.
+- [x] Workspace-local proof evidence shows broker selection and completion-context injection, not just vector-store searchability.
 - [ ] No internal-only or quarantined surface is part of the release claim.
 
 ## How to read the rest of the KB

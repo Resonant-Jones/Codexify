@@ -209,44 +209,25 @@ def _normalize_workspace_retrieval_evidence(
     retrieval_posture: dict[str, Any] | None,
     trace: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    payload_summary = (
+    worker_payload_summary = (
         task_completed_payload.get("payload_summary")
         if isinstance(task_completed_payload, dict)
         else None
     )
-    if not isinstance(payload_summary, dict):
-        payload_summary = {}
-
     trace_payload_summary = (
         trace.get("payload_summary") if isinstance(trace, dict) else None
     )
-    if isinstance(trace_payload_summary, dict):
-        merged_payload_summary = dict(trace_payload_summary)
-        merged_payload_summary.update(payload_summary)
-        payload_summary = merged_payload_summary
+    worker_snapshot = _workspace_evidence_snapshot(worker_payload_summary)
+    trace_snapshot = _workspace_evidence_snapshot(trace_payload_summary)
 
-    source_mode = (
-        str(payload_summary.get("source_mode") or "").strip()
-        or str(
-            trace.get("source_mode") if isinstance(trace, dict) else ""
-        ).strip()
-        or str(
-            retrieval_posture.get("source_mode")
-            if isinstance(retrieval_posture, dict)
-            else ""
-        ).strip()
-    )
-    obsidian_count = int(payload_summary.get("obsidian_count") or 0)
-    semantic_count = int(payload_summary.get("semantic_count") or 0)
-    graph_hit_count = int(payload_summary.get("graph_hit_count") or 0)
-    linked_document_count = int(
-        payload_summary.get("linked_document_count") or 0
-    )
-    retrieval_injected = bool(payload_summary.get("retrieval_injected"))
-    obsidian_injected = bool(payload_summary.get("obsidian_injected"))
-    retrieval_status = str(
-        payload_summary.get("retrieval_status") or ""
-    ).strip()
+    source_mode = worker_snapshot["source_mode"]
+    obsidian_count = worker_snapshot["obsidian_count"]
+    semantic_count = worker_snapshot["semantic_count"]
+    graph_hit_count = worker_snapshot["graph_hit_count"]
+    linked_document_count = worker_snapshot["linked_document_count"]
+    retrieval_injected = worker_snapshot["retrieval_injected"]
+    obsidian_injected = worker_snapshot["obsidian_injected"]
+    retrieval_status = str(worker_snapshot["retrieval_status"] or "").strip()
     if not retrieval_status:
         if source_mode == WORKSPACE_SOURCE_MODE:
             if obsidian_count > 0 and retrieval_injected and obsidian_injected:
@@ -267,7 +248,18 @@ def _normalize_workspace_retrieval_evidence(
         "linked_document_count": linked_document_count,
         "retrieval_injected": retrieval_injected,
         "obsidian_injected": obsidian_injected,
-        "payload_summary": payload_summary,
+        "worker_payload_obsidian_count": worker_snapshot["obsidian_count"],
+        "worker_payload_obsidian_injected": worker_snapshot[
+            "obsidian_injected"
+        ],
+        "worker_payload_retrieval_injected": worker_snapshot[
+            "retrieval_injected"
+        ],
+        "trace_obsidian_count": trace_snapshot["obsidian_count"],
+        "trace_obsidian_injected": trace_snapshot["obsidian_injected"],
+        "trace_retrieval_injected": trace_snapshot["retrieval_injected"],
+        "payload_summary": worker_payload_summary or {},
+        "trace_payload_summary": trace_payload_summary or {},
     }
 
 
@@ -724,35 +716,22 @@ def _latest_retrieval_artifacts(
     thread_id: int,
     task_completed_payload: dict[str, Any] | None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    retrieval_posture: dict[str, Any] | None = None
+    worker_payload_retrieval_posture: dict[str, Any] | None = None
     trace: dict[str, Any] | None = None
 
     if isinstance(task_completed_payload, dict):
-        retrieval_posture = task_completed_payload.get("retrieval_posture")
-        if not isinstance(retrieval_posture, dict):
+        worker_payload_retrieval_posture = task_completed_payload.get(
+            "retrieval_posture"
+        )
+        if not isinstance(worker_payload_retrieval_posture, dict):
             payload_summary = task_completed_payload.get("payload_summary")
             if isinstance(payload_summary, dict):
                 maybe_posture = payload_summary.get("retrieval_posture")
                 if isinstance(maybe_posture, dict):
-                    retrieval_posture = maybe_posture
+                    worker_payload_retrieval_posture = maybe_posture
         trace = task_completed_payload.get("trace")
         if not isinstance(trace, dict):
             trace = None
-
-    if retrieval_posture is None:
-        try:
-            posture_response = _request_json(
-                session,
-                "GET",
-                f"{base_url}/api/chat/debug/retrieval-posture/{thread_id}/latest",
-                headers=headers,
-                timeout=10.0,
-            )
-            maybe_posture = posture_response.get("retrieval_posture")
-            if isinstance(maybe_posture, dict):
-                retrieval_posture = maybe_posture
-        except ProofFailure:
-            pass
 
     if trace is None:
         try:
@@ -767,7 +746,42 @@ def _latest_retrieval_artifacts(
                 trace = trace_response
         except ProofFailure:
             pass
-    return retrieval_posture, trace
+    return worker_payload_retrieval_posture, trace
+
+
+def _workspace_evidence_snapshot(
+    payload_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(payload_summary, dict):
+        return {
+            "source_mode": None,
+            "retrieval_status": None,
+            "obsidian_count": 0,
+            "semantic_count": 0,
+            "graph_hit_count": 0,
+            "linked_document_count": 0,
+            "retrieval_injected": False,
+            "obsidian_injected": False,
+        }
+
+    return {
+        "source_mode": (
+            str(payload_summary.get("source_mode") or "").strip() or None
+        ),
+        "retrieval_status": (
+            str(payload_summary.get("retrieval_status") or "").strip() or None
+        ),
+        "obsidian_count": int(payload_summary.get("obsidian_count") or 0),
+        "semantic_count": int(payload_summary.get("semantic_count") or 0),
+        "graph_hit_count": int(payload_summary.get("graph_hit_count") or 0),
+        "linked_document_count": int(
+            payload_summary.get("linked_document_count") or 0
+        ),
+        "retrieval_injected": bool(
+            payload_summary.get("retrieval_injected")
+        ),
+        "obsidian_injected": bool(payload_summary.get("obsidian_injected")),
+    }
 
 
 def _format_summary(
@@ -800,8 +814,28 @@ def _format_summary(
         if isinstance(workspace_evidence, dict)
         else None
     )
+    worker_obsidian = (
+        workspace_evidence.get("worker_payload_obsidian_count")
+        if isinstance(workspace_evidence, dict)
+        else None
+    )
+    trace_obsidian = (
+        workspace_evidence.get("trace_obsidian_count")
+        if isinstance(workspace_evidence, dict)
+        else None
+    )
     evidence_injected = (
         workspace_evidence.get("obsidian_injected")
+        if isinstance(workspace_evidence, dict)
+        else None
+    )
+    worker_injected = (
+        workspace_evidence.get("worker_payload_obsidian_injected")
+        if isinstance(workspace_evidence, dict)
+        else None
+    )
+    trace_injected = (
+        workspace_evidence.get("trace_obsidian_injected")
         if isinstance(workspace_evidence, dict)
         else None
     )
@@ -819,11 +853,15 @@ def _format_summary(
     if isinstance(workspace_evidence, dict):
         evidence_summary = (
             f"source_mode={workspace_evidence.get('source_mode')} | "
+            f"worker_obsidian_count={worker_obsidian} | "
+            f"trace_obsidian_count={trace_obsidian} | "
             f"obsidian_count={workspace_evidence.get('obsidian_count')} | "
             f"semantic_count={workspace_evidence.get('semantic_count')} | "
             f"graph_hit_count={workspace_evidence.get('graph_hit_count')} | "
             f"linked_document_count={workspace_evidence.get('linked_document_count')} | "
             f"retrieval_injected={workspace_evidence.get('retrieval_injected')} | "
+            f"worker_obsidian_injected={worker_injected} | "
+            f"trace_obsidian_injected={trace_injected} | "
             f"obsidian_injected={workspace_evidence.get('obsidian_injected')}"
         )
     return "\n".join(
@@ -946,7 +984,8 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
         )
         if retrieval_posture is None:
             _fail(
-                "Could not obtain retrieval posture evidence from the live path "
+                "Worker task.completed payload did not carry retrieval posture "
+                f"evidence for the executed attempt "
                 f"(thread_id={thread_id}, task_id={task_id}, "
                 f"task_completed_keys={sorted(task_completed_payload.keys())})"
             )
@@ -955,6 +994,35 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
             retrieval_posture=retrieval_posture,
             trace=trace,
         )
+        trace_payload_summary = (
+            trace.get("payload_summary") if isinstance(trace, dict) else None
+        )
+        if isinstance(trace_payload_summary, dict):
+            worker_snapshot = _workspace_evidence_snapshot(
+                task_completed_payload.get("payload_summary")
+                if isinstance(task_completed_payload, dict)
+                else None
+            )
+            trace_snapshot = _workspace_evidence_snapshot(
+                trace_payload_summary
+            )
+            if any(
+                worker_snapshot[key] != trace_snapshot[key]
+                for key in (
+                    "source_mode",
+                    "retrieval_status",
+                    "obsidian_count",
+                    "obsidian_injected",
+                    "retrieval_injected",
+                )
+            ):
+                _fail(
+                    "Worker task.completed payload did not match the debug "
+                    "trace evidence for the executed workspace attempt "
+                    f"(thread_id={thread_id}, task_id={task_id}, "
+                    f"worker_snapshot={worker_snapshot!r}, "
+                    f"trace_snapshot={trace_snapshot!r})"
+                )
         if workspace_evidence["source_mode"] != WORKSPACE_SOURCE_MODE:
             _fail(
                 "Workspace proof did not preserve the workspace source mode "
