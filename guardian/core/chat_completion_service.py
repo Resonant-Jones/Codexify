@@ -3761,6 +3761,44 @@ def run_chat_completion_task(
         result["model_selection"] = payload_summary.get("model_selection")
     result["payload_summary"] = payload_summary
 
+    # Final assembly boundary: re-normalize image-routing truth after all
+    # result and payload-summary merges have settled, so persistence and task
+    # events cannot retain stale "image_routing_not_evaluated" values for
+    # known image turns.
+    final_trace = result.get("trace")
+    if not isinstance(final_trace, dict) and isinstance(trace, dict):
+        final_trace = dict(trace)
+    (
+        image_attachment_count,
+        image_routing_path,
+        image_routing_absence_reason,
+    ) = _normalize_completion_image_routing_truth(
+        task=task,
+        provider=provider,
+        model=model,
+        settings=settings,
+        messages_for_llm=messages_for_llm,
+        routing_meta=routing_meta,
+        trace=final_trace,
+        payload_summary=payload_summary,
+        result=result,
+    )
+    payload_summary["image_attachment_count"] = image_attachment_count
+    payload_summary["image_routing_path"] = image_routing_path
+    payload_summary["image_routing_absence_reason"] = (
+        image_routing_absence_reason
+    )
+    result["image_attachment_count"] = image_attachment_count
+    result["image_routing_path"] = image_routing_path
+    result["image_routing_absence_reason"] = image_routing_absence_reason
+    if isinstance(final_trace, dict):
+        final_trace["image_attachment_count"] = image_attachment_count
+        final_trace["image_routing_path"] = image_routing_path
+        final_trace["image_routing_absence_reason"] = (
+            image_routing_absence_reason
+        )
+        result["trace"] = final_trace
+
     if not persist_assistant_message:
         return result
 

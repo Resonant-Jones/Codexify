@@ -724,6 +724,144 @@ def test_image_routing_snapshot_marks_local_model_substitution_absence(
     )
 
 
+def test_image_turn_final_assembly_normalizes_stale_not_evaluated_reason(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mock_chatlog_db = _seed_common(
+        monkeypatch,
+        provider="local",
+        model="library2/ministral-3:8b",
+    )
+
+    stale_reason = TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+    canonical_reason = (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+    )
+    model_selection = {
+        "requested_provider": "local",
+        "requested_model": "medgemma:4b-it-q8_0",
+        "final_provider": "local",
+        "final_model": "library2/ministral-3:8b",
+        "selection_source": "explicit",
+        "policy_reason": "LOCAL_CHAT_MODEL",
+        "fallback_reason": None,
+        "model_resolution": {
+            "source": "LOCAL_CHAT_MODEL",
+            "message": (
+                "requested model 'medgemma:4b-it-q8_0' was overridden "
+                "by configured local chat model 'library2/ministral-3:8b' "
+                "from LOCAL_CHAT_MODEL"
+            ),
+        },
+    }
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_execute_bounded_tool_turn_completion",
+        lambda *args, **kwargs: {
+            "assistant_text": "ok",
+            "provider": "local",
+            "model": "library2/ministral-3:8b",
+            "payload_summary": {
+                "image_attachment_count": 1,
+                "image_routing_path": None,
+                "image_routing_absence_reason": stale_reason,
+                "model_selection": dict(model_selection),
+            },
+            "trace": {
+                "image_attachment_count": 1,
+                "image_routing_path": None,
+                "image_routing_absence_reason": stale_reason,
+                "retrieval_policy": {
+                    "source_mode": "project",
+                    "widening_enabled": True,
+                    "identity_scope": "project",
+                },
+                "retrieval_provenance": {
+                    "requested_source_mode": "project",
+                    "normalized_source_mode": "project",
+                    "source_hit_counts": {
+                        "semantic_total": 0,
+                        "thread_semantic": 0,
+                        "obsidian_semantic": 0,
+                        "other_semantic": 0,
+                        "project_documents": 0,
+                        "thread_documents": 0,
+                        "global_documents": 0,
+                        "other_documents": 0,
+                        "memory": 0,
+                        "graph": 0,
+                    },
+                    "retrieval_status": "no_candidates",
+                },
+                "retrieval_suppression": {
+                    "items": [],
+                    "summary": {
+                        "total_suppressed": 0,
+                        "assistant_vision_refusal_on_image_turn": 0,
+                    },
+                },
+                "retrieval_executed": True,
+                "retrieval_absence_reason": None,
+                "model_selection": dict(model_selection),
+            },
+        },
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_apply_image_attachment_routing",
+        lambda messages, **kwargs: (
+            messages,
+            {
+                "image_attachment_count": 1,
+                "image_routing_path": None,
+                "derived_image_context_injected": False,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: "ok",
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="library2/ministral-3:8b",
+        requested_provider="local",
+        requested_model="medgemma:4b-it-q8_0",
+        selection_source="explicit",
+        origin=(
+            "api:chat.complete|turn_id=turn-1|source_mode=project"
+            "|image_attachment_count=1"
+        ),
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert result["image_attachment_count"] == 1
+    assert result["image_routing_path"] is None
+    assert result["image_routing_absence_reason"] == canonical_reason
+    assert result["image_routing_absence_reason"] != stale_reason
+    assert result["payload_summary"]["image_attachment_count"] == 1
+    assert result["payload_summary"]["image_routing_path"] is None
+    assert result["payload_summary"]["image_routing_absence_reason"] == (
+        canonical_reason
+    )
+    assert result["trace"]["image_attachment_count"] == 1
+    assert result["trace"]["image_routing_path"] is None
+    assert result["trace"]["image_routing_absence_reason"] == canonical_reason
+    assert result["trace"]["image_routing_absence_reason"] != stale_reason
+    assert result["payload_summary"]["model_selection"] == model_selection
+    assert result["model_selection"] == model_selection
+
+
 def test_image_turn_local_substitution_zero_retained_results_completes(
     monkeypatch: pytest.MonkeyPatch,
 ):

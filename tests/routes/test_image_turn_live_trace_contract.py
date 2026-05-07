@@ -493,6 +493,8 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
                 "documents": [],
                 "graph": [],
                 "trace_unavailable_reason": "trace_source_unavailable",
+                "image_attachment_count": 1,
+                "image_routing_path": None,
             },
             "payload_summary": {
                 "retrieval_policy": {
@@ -517,6 +519,8 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
                     },
                     "retrieval_status": "no_obsidian_results",
                 },
+                "image_attachment_count": 1,
+                "image_routing_path": None,
             },
         },
     )
@@ -604,9 +608,8 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
     )
     assert trace["image_routing_path"] is None
     assert trace["image_routing"]["image_attachment_count"] == 1
-    assert (
-        trace["image_routing_absence_reason"]
-        != TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+    assert trace["image_routing_absence_reason"] != (
+        TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
     )
     assert "trace_unavailable_reason" not in trace
 

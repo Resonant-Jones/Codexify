@@ -533,3 +533,9 @@ FAIL
   - image-routing normalization still does not stamp a canonical non-null native path or absence reason for this known image turn
   - the separate Compose migrator issue remains outside this task
   - the frontend Vitest resolution issue remains outside this task
+
+## Remediation Note — final image-routing normalization boundary
+
+- The completion path now re-applies image-routing normalization at the final result-assembly boundary, after payload-summary and trace merges have settled.
+- Known image turns should no longer finalize as `image_routing_not_evaluated`; that token remains reserved for genuine no-image / no-routing-evidence cases.
+- The live proof is ready to rerun once the refreshed runtime is picked up.
