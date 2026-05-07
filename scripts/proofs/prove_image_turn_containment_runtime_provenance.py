@@ -22,12 +22,39 @@ import requests
 FRESH_HEARTBEAT_THRESHOLD_SECONDS = 10.0
 DEAD_HEARTBEAT_THRESHOLD_SECONDS = 60.0
 
+REQUIRED_IMAGE_ROUTING_FIX_COMMIT = (
+    "2bce6aeb9416a25d77b931b4974db7573e8951b8"
+)
+
+RUNTIME_COMMIT_SOURCE_AUTHORITATIVE = "authoritative_runtime_commit"
+RUNTIME_COMMIT_SOURCE_BUILD_METADATA = "build_metadata_commit"
+RUNTIME_COMMIT_SOURCE_LOG_HINT = "log_hint_commit"
+RUNTIME_COMMIT_SOURCE_UNAVAILABLE = "unavailable"
+RUNTIME_COMMIT_SOURCE_UNTRUSTED = "untrusted"
+
+_RUNTIME_SOURCE_PRIORITY = {
+    RUNTIME_COMMIT_SOURCE_UNAVAILABLE: 0,
+    RUNTIME_COMMIT_SOURCE_UNTRUSTED: 1,
+    RUNTIME_COMMIT_SOURCE_LOG_HINT: 2,
+    RUNTIME_COMMIT_SOURCE_BUILD_METADATA: 3,
+    RUNTIME_COMMIT_SOURCE_AUTHORITATIVE: 4,
+}
+
 _MARKER_KEY_RE = re.compile(r"(commit|sha|version|revision)", re.IGNORECASE)
+_UNTRUSTED_LOG_MARKER_RE = re.compile(
+    r"(alembic[_-]?version|migration[_-]?revision)",
+    re.IGNORECASE,
+)
+_LOG_KEYED_HASH_RE = re.compile(
+    r"(?P<key>commit|sha|revision|alembic[_-]?version)\s*[:=]\s*(?P<value>[0-9a-f]{7,40})",
+    re.IGNORECASE,
+)
+_LOG_KEYED_VERSION_RE = re.compile(
+    r"(?P<key>version|revision)\s*[:=]\s*(?P<value>[0-9A-Za-z._-]+)",
+    re.IGNORECASE,
+)
 _HASH_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 _HASH_EXTRACT_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
-_VERSION_EXTRACT_RE = re.compile(
-    r"\b\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z._-]+)?\b"
-)
 
 
 def _run_command(
@@ -184,6 +211,53 @@ def _git_head(
     )
 
 
+def _git_is_ancestor(
+    repo_root: Path,
+    ancestor: str,
+    descendant: str,
+    *,
+    run_command: Callable[..., subprocess.CompletedProcess[str]],
+    errors: list[str] | None = None,
+) -> bool | None:
+    command = ["git", "merge-base", "--is-ancestor", ancestor, descendant]
+    try:
+        run_command(
+            command,
+            cwd=repo_root,
+            timeout=30,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return True
+    except subprocess.CalledProcessError as exc:
+        if exc.returncode == 1:
+            return False
+        if errors is not None:
+            errors.append(
+                f"{' '.join(command)} failed: CalledProcessError: {exc}"
+            )
+        return None
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        if errors is not None:
+            errors.append(f"{' '.join(command)} failed: {type(exc).__name__}: {exc}")
+        return None
+
+
+def _combined_runtime_commit_source(services: list[dict[str, Any]]) -> str:
+    best_source = RUNTIME_COMMIT_SOURCE_UNAVAILABLE
+    best_priority = _RUNTIME_SOURCE_PRIORITY[best_source]
+    for service in services:
+        source = str(service.get("runtime_commit_source") or "")
+        priority = _RUNTIME_SOURCE_PRIORITY.get(
+            source, _RUNTIME_SOURCE_PRIORITY[RUNTIME_COMMIT_SOURCE_UNAVAILABLE]
+        )
+        if priority > best_priority:
+            best_priority = priority
+            best_source = source
+    return best_source
+
+
 def _inspect_compose_container(
     service: str,
     *,
@@ -204,11 +278,14 @@ def _inspect_compose_container(
             "container_id": None,
             "container_image_id": None,
             "container_created_at": None,
-            "runtime_commit_source": "unavailable",
+            "runtime_commit_source": RUNTIME_COMMIT_SOURCE_UNAVAILABLE,
             "runtime_commit": None,
             "runtime_version": None,
             "runtime_commit_candidates": [],
             "runtime_version_candidates": [],
+            "build_metadata_commit": None,
+            "build_metadata_version": None,
+            "build_metadata_candidates": [],
             "container_rebuilt_after_expected_commit_timestamp": None,
         }
 
@@ -232,27 +309,60 @@ def _inspect_compose_container(
             "container_id": container_id,
             "container_image_id": None,
             "container_created_at": None,
-            "runtime_commit_source": "unavailable",
+            "runtime_commit_source": RUNTIME_COMMIT_SOURCE_UNAVAILABLE,
             "runtime_commit": None,
             "runtime_version": None,
             "runtime_commit_candidates": [],
             "runtime_version_candidates": [],
+            "build_metadata_commit": None,
+            "build_metadata_version": None,
+            "build_metadata_candidates": [],
             "container_rebuilt_after_expected_commit_timestamp": None,
         }
     container = inspect_payload[0]
     image_id = str(container.get("Image") or "")
     created_at = str(container.get("Created") or "")
+    labels = container.get("Config", {}).get("Labels", {}) or {}
+    build_metadata_candidates: list[dict[str, str]] = []
+    for key, value in labels.items():
+        value_text = str(value)
+        key_text = str(key)
+        lower_key = key_text.lower()
+        marker_path = f"container.labels.{key_text}"
+        if _MARKER_KEY_RE.search(lower_key):
+            build_metadata_candidates.append(
+                {"path": marker_path, "key": key_text, "value": value_text}
+            )
+
+    build_metadata_commit = None
+    build_metadata_version = None
+    for marker in build_metadata_candidates:
+        key = marker.get("key", "").lower()
+        value = marker.get("value", "")
+        if ("commit" in key or "sha" in key) and _HASH_RE.match(value):
+            build_metadata_commit = value
+            break
+    if build_metadata_commit is None:
+        for marker in build_metadata_candidates:
+            key = marker.get("key", "").lower()
+            value = marker.get("value", "")
+            if "version" in key or "revision" in key:
+                build_metadata_version = value
+                break
 
     return {
         "service": service,
         "container_id": str(container.get("Id") or container_id),
         "container_image_id": image_id or None,
         "container_created_at": created_at or None,
-        "runtime_commit_source": "unavailable",
+        "runtime_commit_source": RUNTIME_COMMIT_SOURCE_UNAVAILABLE,
         "runtime_commit": None,
         "runtime_version": None,
         "runtime_commit_candidates": [],
         "runtime_version_candidates": [],
+        "build_metadata_commit": build_metadata_commit,
+        "build_metadata_version": build_metadata_version,
+        "build_metadata_candidates": build_metadata_candidates,
         "container_rebuilt_after_expected_commit_timestamp": None,
     }
 
@@ -283,93 +393,118 @@ def _walk_markers(
     return markers
 
 
-def _extract_runtime_identity(
-    payloads: list[dict[str, Any]],
-    logs: str | None,
-) -> dict[str, Any]:
-    endpoint_markers: list[dict[str, str]] = []
-    for payload in payloads:
-        endpoint_markers.extend(_walk_markers(payload))
+def _extract_log_markers(logs: str | None) -> list[dict[str, str]]:
+    markers: list[dict[str, str]] = []
+    if not logs:
+        return markers
 
-    log_markers: list[dict[str, str]] = []
-    if logs:
-        for line in logs.splitlines():
-            lowered = line.lower()
-            if not _MARKER_KEY_RE.search(lowered):
-                continue
-            matches = _HASH_EXTRACT_RE.findall(line)
-            if matches:
-                for match in matches:
-                    log_markers.append(
-                        {
-                            "path": "logs",
-                            "key": "commit",
-                            "value": match,
-                        }
-                    )
-            else:
-                version_matches = _VERSION_EXTRACT_RE.findall(line)
-                if version_matches:
-                    for match in version_matches:
-                        log_markers.append(
-                            {
-                                "path": "logs",
-                                "key": "version",
-                                "value": match,
-                            }
-                        )
+    for line in logs.splitlines():
+        lowered = line.lower()
+        if not _MARKER_KEY_RE.search(lowered):
+            continue
 
-    def pick_commit(markers: list[dict[str, str]]) -> str | None:
-        for marker in markers:
-            value = marker.get("value", "")
-            key = marker.get("key", "").lower()
-            if ("commit" in key or "sha" in key) and _HASH_RE.match(value):
-                return value
-        return None
+        keyed_hash_matches = list(_LOG_KEYED_HASH_RE.finditer(line))
+        if keyed_hash_matches:
+            for match in keyed_hash_matches:
+                key = match.group("key")
+                value = match.group("value")
+                source_class = (
+                    RUNTIME_COMMIT_SOURCE_UNTRUSTED
+                    if _UNTRUSTED_LOG_MARKER_RE.search(key)
+                    else RUNTIME_COMMIT_SOURCE_LOG_HINT
+                )
+                markers.append(
+                    {
+                        "path": "logs",
+                        "key": key,
+                        "value": value,
+                        "source_class": source_class,
+                    }
+                )
+            continue
 
-    def pick_version(markers: list[dict[str, str]]) -> str | None:
-        for marker in markers:
-            value = marker.get("value", "")
-            key = marker.get("key", "").lower()
-            if "version" in key or "revision" in key:
-                return value
-        return None
+        keyed_version_matches = list(_LOG_KEYED_VERSION_RE.finditer(line))
+        if keyed_version_matches:
+            for match in keyed_version_matches:
+                markers.append(
+                    {
+                        "path": "logs",
+                        "key": match.group("key"),
+                        "value": match.group("value"),
+                        "source_class": RUNTIME_COMMIT_SOURCE_UNTRUSTED,
+                    }
+                )
+            continue
 
-    endpoint_commit = pick_commit(endpoint_markers)
-    endpoint_version = pick_version(endpoint_markers)
-    log_commit = pick_commit(log_markers)
-    log_version = pick_version(log_markers)
+        for hash_match in _HASH_EXTRACT_RE.findall(line):
+            markers.append(
+                {
+                    "path": "logs",
+                    "key": "hash_hint",
+                    "value": hash_match,
+                    "source_class": RUNTIME_COMMIT_SOURCE_UNTRUSTED,
+                }
+            )
 
-    runtime_commit_source = "unavailable"
-    runtime_commit = None
-    runtime_version = None
-    runtime_commit_candidates = endpoint_markers if endpoint_markers else []
-    runtime_version_candidates = endpoint_markers if endpoint_markers else []
+    return markers
 
-    if endpoint_commit:
-        runtime_commit_source = "endpoint"
-        runtime_commit = endpoint_commit
-    elif endpoint_version:
-        runtime_commit_source = "endpoint"
-        runtime_version = endpoint_version
-    elif log_commit:
-        runtime_commit_source = "logs"
-        runtime_commit = log_commit
-    elif log_version:
-        runtime_commit_source = "logs"
-        runtime_version = log_version
 
-    return {
-        "runtime_commit_source": runtime_commit_source,
-        "runtime_commit": runtime_commit,
-        "runtime_version": runtime_version,
-        "runtime_commit_candidates": endpoint_markers + log_markers,
-        "runtime_version_candidates": endpoint_markers + log_markers,
-        "endpoint_commit": endpoint_commit,
-        "endpoint_version": endpoint_version,
-        "log_commit": log_commit,
-        "log_version": log_version,
-    }
+def _pick_authoritative_endpoint_commit(
+    endpoint_markers: list[dict[str, str]],
+) -> tuple[str | None, dict[str, str] | None]:
+    for marker in endpoint_markers:
+        value = marker.get("value", "")
+        key = marker.get("key", "").lower()
+        if ("commit" in key or "sha" in key) and _HASH_RE.match(value):
+            return value, marker
+    return None, None
+
+
+def _pick_endpoint_build_metadata(
+    endpoint_markers: list[dict[str, str]],
+) -> tuple[str | None, str | None]:
+    build_commit = None
+    build_version = None
+    for marker in endpoint_markers:
+        value = marker.get("value", "")
+        key = marker.get("key", "").lower()
+        if build_commit is None and (
+            ("revision" in key or "version" in key) and _HASH_RE.match(value)
+        ):
+            build_commit = value
+        if build_version is None and (
+            ("version" in key or "revision" in key)
+            and ("build" in key or "runtime" in key or "image" in key)
+        ):
+            build_version = value
+        if build_commit is not None and build_version is not None:
+            break
+    return build_commit, build_version
+
+
+def _pick_log_runtime_hints(
+    log_markers: list[dict[str, str]],
+) -> tuple[str | None, str | None]:
+    log_hint_commit = None
+    untrusted_commit = None
+    for marker in log_markers:
+        value = marker.get("value", "")
+        source_class = marker.get("source_class")
+        if not _HASH_RE.match(value):
+            continue
+        if (
+            log_hint_commit is None
+            and source_class == RUNTIME_COMMIT_SOURCE_LOG_HINT
+        ):
+            log_hint_commit = value
+        if (
+            untrusted_commit is None
+            and source_class == RUNTIME_COMMIT_SOURCE_UNTRUSTED
+        ):
+            untrusted_commit = value
+        if log_hint_commit is not None and untrusted_commit is not None:
+            break
+    return log_hint_commit, untrusted_commit
 
 
 def _collect_service_provenance(
@@ -390,7 +525,76 @@ def _collect_service_provenance(
         run_command=run_command,
         errors=errors,
     )
-    runtime_identity = _extract_runtime_identity(endpoint_payloads, logs)
+    endpoint_markers: list[dict[str, str]] = []
+    for payload in endpoint_payloads:
+        endpoint_markers.extend(_walk_markers(payload))
+    log_markers = _extract_log_markers(logs)
+    build_metadata_candidates = list(
+        service_info.get("build_metadata_candidates") or []
+    )
+
+    authoritative_runtime_commit, authoritative_runtime_marker = (
+        _pick_authoritative_endpoint_commit(endpoint_markers)
+    )
+    endpoint_build_metadata_commit, endpoint_build_metadata_version = (
+        _pick_endpoint_build_metadata(endpoint_markers)
+    )
+    build_metadata_commit = service_info.get("build_metadata_commit")
+    if not build_metadata_commit:
+        build_metadata_commit = endpoint_build_metadata_commit
+    build_metadata_version = service_info.get("build_metadata_version")
+    if not build_metadata_version:
+        build_metadata_version = endpoint_build_metadata_version
+
+    log_hint_commit, untrusted_log_commit = _pick_log_runtime_hints(log_markers)
+
+    runtime_commit_source = RUNTIME_COMMIT_SOURCE_UNAVAILABLE
+    runtime_commit = None
+    runtime_version = None
+
+    if authoritative_runtime_commit:
+        runtime_commit_source = RUNTIME_COMMIT_SOURCE_AUTHORITATIVE
+        runtime_commit = authoritative_runtime_commit
+    elif build_metadata_commit:
+        runtime_commit_source = RUNTIME_COMMIT_SOURCE_BUILD_METADATA
+        runtime_commit = str(build_metadata_commit)
+    elif log_hint_commit:
+        runtime_commit_source = RUNTIME_COMMIT_SOURCE_LOG_HINT
+        runtime_commit = log_hint_commit
+    elif untrusted_log_commit:
+        runtime_commit_source = RUNTIME_COMMIT_SOURCE_UNTRUSTED
+        runtime_commit = untrusted_log_commit
+    elif log_markers:
+        runtime_commit_source = RUNTIME_COMMIT_SOURCE_UNTRUSTED
+
+    if runtime_version is None:
+        if build_metadata_version:
+            runtime_version = str(build_metadata_version)
+        else:
+            for marker in endpoint_markers + log_markers:
+                key = marker.get("key", "").lower()
+                value = marker.get("value", "")
+                if "version" in key or "revision" in key:
+                    runtime_version = value
+                    break
+
+    runtime_identity = {
+        "runtime_commit_source": runtime_commit_source,
+        "runtime_commit": runtime_commit,
+        "runtime_version": runtime_version,
+        "runtime_commit_candidates": endpoint_markers
+        + build_metadata_candidates
+        + log_markers,
+        "runtime_version_candidates": endpoint_markers
+        + build_metadata_candidates
+        + log_markers,
+        "authoritative_runtime_commit": authoritative_runtime_commit,
+        "authoritative_runtime_commit_marker": authoritative_runtime_marker,
+        "build_metadata_commit": build_metadata_commit,
+        "build_metadata_version": build_metadata_version,
+        "log_hint_commit": log_hint_commit,
+        "untrusted_log_hint_commit": untrusted_log_commit,
+    }
     created_at = _parse_datetime(service_info.get("container_created_at"))
 
     container_rebuilt_after_expected_commit_timestamp = None
@@ -452,6 +656,7 @@ def collect_runtime_provenance(
     worker_service: str = "worker-chat",
     compose_file: str | None = None,
     compose_project: str | None = None,
+    required_lineage_commit: str | None = REQUIRED_IMAGE_ROUTING_FIX_COMMIT,
     repo_root: Path | None = None,
     run_command: Callable[..., subprocess.CompletedProcess[str]] | None = None,
     http_get: Callable[..., Any] | None = None,
@@ -465,6 +670,7 @@ def collect_runtime_provenance(
     )
 
     errors: list[str] = []
+    warnings: list[str] = []
     health_paths = ["/health", "/health/chat", "/api/health/llm", "/api/llm/catalog"]
     health_payloads: dict[str, dict[str, Any]] = {
         path: _json_response(
@@ -491,6 +697,23 @@ def collect_runtime_provenance(
         run_command=run_command,
         errors=errors,
     )
+    required_lineage_commit_resolved = None
+    local_head_contains_required_lineage_commit: bool | None = None
+    if required_lineage_commit:
+        required_lineage_commit_resolved = _git_rev_parse(
+            repo_root,
+            required_lineage_commit,
+            run_command=run_command,
+            errors=errors,
+        )
+        if required_lineage_commit_resolved:
+            local_head_contains_required_lineage_commit = _git_is_ancestor(
+                repo_root,
+                required_lineage_commit_resolved,
+                local_head,
+                run_command=run_command,
+                errors=errors,
+            )
 
     backend_endpoint_payloads = [
         health_payloads["/health"],
@@ -536,13 +759,7 @@ def collect_runtime_provenance(
         expected_commit_timestamp=expected_commit_timestamp,
     )
 
-    # Top-level runtime_commit_source is endpoint-based only.
-    runtime_commit_source = (
-        "endpoint"
-        if backend.get("runtime_commit_source") == "endpoint"
-        or worker.get("runtime_commit_source") == "endpoint"
-        else "unavailable"
-    )
+    runtime_commit_source = _combined_runtime_commit_source([backend, worker])
 
     backend_health_ok, backend_health_reason = _health_ok(
         "GET /health", health_payloads["/health"], required_status="ok"
@@ -571,6 +788,18 @@ def collect_runtime_provenance(
         errors.append(
             f"local HEAD {local_head} does not match expected commit {expected_commit_resolved}"
         )
+    if required_lineage_commit and required_lineage_commit_resolved:
+        if local_head_contains_required_lineage_commit is False:
+            errors.append(
+                "local HEAD "
+                f"{local_head} does not contain required lineage commit "
+                f"{required_lineage_commit_resolved}"
+            )
+        elif local_head_contains_required_lineage_commit is None:
+            errors.append(
+                "unable to verify required lineage commit containment: "
+                f"{required_lineage_commit_resolved}"
+            )
     if not backend_health_ok:
         errors.append(backend_health_reason)
     if not worker_health_ok:
@@ -603,14 +832,31 @@ def collect_runtime_provenance(
         (backend_service, backend),
         (worker_service, worker),
     ):
+        runtime_commit_source_class = service_info.get("runtime_commit_source")
         runtime_commit = service_info.get("runtime_commit")
         if (
-            isinstance(runtime_commit, str)
+            runtime_commit_source_class == RUNTIME_COMMIT_SOURCE_AUTHORITATIVE
+            and isinstance(runtime_commit, str)
             and _HASH_RE.match(runtime_commit)
             and runtime_commit != expected_commit_resolved
         ):
             errors.append(
-                f"{service_name} runtime commit {runtime_commit} does not match expected {expected_commit_resolved}"
+                f"{service_name} authoritative runtime commit {runtime_commit} does not match expected {expected_commit_resolved}"
+            )
+        elif (
+            isinstance(runtime_commit, str)
+            and _HASH_RE.match(runtime_commit)
+            and runtime_commit != expected_commit_resolved
+            and runtime_commit_source_class
+            in (
+                RUNTIME_COMMIT_SOURCE_BUILD_METADATA,
+                RUNTIME_COMMIT_SOURCE_LOG_HINT,
+                RUNTIME_COMMIT_SOURCE_UNTRUSTED,
+            )
+        ):
+            warnings.append(
+                f"{service_name} runtime commit hint {runtime_commit} "
+                f"({runtime_commit_source_class}) does not match expected {expected_commit_resolved}"
             )
 
     checks.extend(
@@ -622,6 +868,27 @@ def collect_runtime_provenance(
                     "match"
                     if local_head == expected_commit_resolved
                     else f"local HEAD {local_head} != expected {expected_commit_resolved}"
+                ),
+            },
+            {
+                "name": "local_head_contains_required_lineage_commit",
+                "ok": (
+                    local_head_contains_required_lineage_commit is True
+                    if required_lineage_commit_resolved
+                    else True
+                ),
+                "detail": (
+                    "required lineage check disabled"
+                    if not required_lineage_commit
+                    else (
+                        "required fix commit present in local HEAD"
+                        if local_head_contains_required_lineage_commit is True
+                        else (
+                            f"local HEAD {local_head} does not contain {required_lineage_commit_resolved}"
+                            if local_head_contains_required_lineage_commit is False
+                            else "required lineage check unavailable"
+                        )
+                    )
                 ),
             },
             {
@@ -685,11 +952,17 @@ def collect_runtime_provenance(
         ),
         "local_git_head": local_head,
         "local_git_head_short": local_head[:8] if local_head else None,
+        "required_lineage_commit": required_lineage_commit,
+        "required_lineage_commit_resolved": required_lineage_commit_resolved,
+        "local_head_contains_required_lineage_commit": (
+            local_head_contains_required_lineage_commit
+        ),
         "runtime_commit_source": runtime_commit_source,
         "backend": backend,
         "worker": worker,
         "health": health_payloads,
         "checks": checks,
+        "warnings": warnings,
         "errors": errors,
     }
     return report
@@ -701,6 +974,14 @@ def _format_human_report(report: dict[str, Any]) -> str:
     lines.append(f"  proof_ready: {report.get('proof_ready')}")
     lines.append(f"  expected_commit: {report.get('expected_commit')}")
     lines.append(f"  local_git_head: {report.get('local_git_head')}")
+    lines.append(
+        "  required_lineage_commit: "
+        f"{report.get('required_lineage_commit') or 'disabled'}"
+    )
+    lines.append(
+        "  local_head_contains_required_lineage_commit: "
+        f"{report.get('local_head_contains_required_lineage_commit')}"
+    )
     lines.append(
         "  expected_commit_timestamp: "
         f"{report.get('expected_commit_timestamp') or 'unavailable'}"
@@ -723,6 +1004,22 @@ def _format_human_report(report: dict[str, Any]) -> str:
             f"{service.get('runtime_commit_source')}"
         )
         lines.append(f"    runtime_commit: {service.get('runtime_commit')}")
+        lines.append(
+            "    authoritative_runtime_commit: "
+            f"{service.get('authoritative_runtime_commit')}"
+        )
+        lines.append(
+            "    build_metadata_commit: "
+            f"{service.get('build_metadata_commit')}"
+        )
+        lines.append(
+            "    log_hint_commit: "
+            f"{service.get('log_hint_commit')}"
+        )
+        lines.append(
+            "    untrusted_log_hint_commit: "
+            f"{service.get('untrusted_log_hint_commit')}"
+        )
         lines.append(f"    runtime_version: {service.get('runtime_version')}")
         lines.append(
             "    rebuilt_after_expected_commit_timestamp: "
@@ -741,6 +1038,10 @@ def _format_human_report(report: dict[str, Any]) -> str:
             lines.append(
                 f"    - {check.get('name')}: {check.get('ok')} ({check.get('detail')})"
             )
+    if report.get("warnings"):
+        lines.append("  warnings:")
+        for warning in report["warnings"]:
+            lines.append(f"    - {warning}")
     if report.get("errors"):
         lines.append("  errors:")
         for error in report["errors"]:
@@ -790,6 +1091,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=os.getenv("COMPOSE_PROJECT_NAME"),
         help="Optional compose project name for the live services.",
     )
+    parser.add_argument(
+        "--required-lineage-commit",
+        default=REQUIRED_IMAGE_ROUTING_FIX_COMMIT,
+        help=(
+            "Commit that local HEAD must contain before proof-ready can be true. "
+            "Set empty string to disable."
+        ),
+    )
     return parser
 
 
@@ -803,6 +1112,7 @@ def main(argv: list[str] | None = None) -> int:
         worker_service=args.worker_service,
         compose_file=args.compose_file,
         compose_project=args.compose_project,
+        required_lineage_commit=args.required_lineage_commit or None,
     )
     emit_report(report)
     return 0 if report.get("proof_ready") else 1

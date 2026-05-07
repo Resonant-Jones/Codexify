@@ -257,6 +257,27 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+### Remediation Note — runtime commit provenance classification
+- Investigation confirmed the prior backend runtime commit hint `7a6b5c4d3e2f` came from startup migration logging, not from an authoritative runtime git-commit surface:
+  - `docker compose logs --no-color backend | rg -n "alembic_version|Verifying required tables"`
+  - `[Backend] Verifying required tables + alembic_version`
+  - `[Backend] OK: alembic_version=7a6b5c4d3e2f`
+- The provenance helper now classifies commit signals by trust class:
+  - `authoritative_runtime_commit`
+  - `build_metadata_commit`
+  - `log_hint_commit`
+  - `unavailable`
+  - `untrusted`
+- The helper now fails closed on authoritative commit mismatch, but does **not** fail solely on untrusted/log-hint mismatch when stronger evidence is otherwise valid.
+- The helper now requires local-head lineage containment of the required worker image-routing fix commit (`2bce6aeb9416a25d77b931b4974db7573e8951b8`) before proof-ready can be true.
+- Current gate run after the classification fix still reports `proof_ready: false` because:
+  - local `HEAD` does not contain required lineage commit `2bce6aeb...`
+  - backend and worker containers were created before the selected expected commit timestamp
+- Trusted provenance source going forward:
+  - local git head equality + required-fix lineage check + container creation-time freshness + worker heartbeat + green health surfaces
+  - authoritative runtime commit (if surfaced) remains a hard mismatch gate
+- Containment rerun status: **not ready yet** (provenance gate still fail-closed on lineage/freshness checks).
+
 ## Runtime provenance gate — before next containment rerun
 
 ### Result
