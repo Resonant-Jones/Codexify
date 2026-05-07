@@ -40,6 +40,25 @@ def provider_configured(provider_id: str | None, settings: Settings) -> bool:
     return False
 
 
+def _cloud_capable_configuration_present(settings: Settings) -> bool:
+    """Return true only when a real cloud provider configuration is present.
+
+    Bundled base URL defaults alone do not count as cloud-capable because they
+    are part of the local configuration baseline, not an explicit cloud intent.
+    """
+
+    return any(
+        provider_configured(provider_id, settings)
+        for provider_id in ("openai", "groq", "alibaba", "minimax")
+    )
+
+
+def cloud_capable_configuration_present(settings: Settings) -> bool:
+    """Public alias for the cloud-capability predicate."""
+
+    return _cloud_capable_configuration_present(settings)
+
+
 def build_provider_truth(
     provider_id: str | None,
     settings: Settings,

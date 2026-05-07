@@ -94,7 +94,7 @@ export default function ThreadList({
       activeId={activeId}
       onSelect={onSelect}
       className={className}
-      rectH={60}
+      rectH={44}
       showHeader
       scopeLabel={scopeLabel}
       provenanceFilter={provenanceFilter}
@@ -174,80 +174,90 @@ function ThreadPreviewList({
       className={clsx("flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden", className)}
       onScroll={maybeLoadMore}
     >
-      {showHeader && (
-        <div className="flex items-center justify-between pb-2">
-          <div className="inline-flex items-center gap-1 text-xs opacity-70">
-            <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
-            <span className="font-medium">{scopeLabel ?? "—"}</span>
+      <div
+        data-testid="thread-rail-guide"
+        className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 rounded-none border-0 bg-transparent shadow-none"
+        style={{
+          background: "transparent",
+          borderColor: "transparent",
+          boxShadow: "none",
+        }}
+      >
+        {showHeader && (
+          <div className="flex items-center justify-between pb-2">
+            <div className="inline-flex items-center gap-1 text-xs opacity-70">
+              <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
+              <span className="font-medium">{scopeLabel ?? "—"}</span>
+            </div>
+            {onNewChat && (
+              <button type="button" className="icon-inline" onClick={onNewChat}>
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
           </div>
-          {onNewChat && (
-            <button type="button" className="icon-inline" onClick={onNewChat}>
-              <Plus className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      )}
-      {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
-        <div className="pb-2 px-3 min-w-0">
-          <div
-            className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
-            role="toolbar"
-            aria-label="Imported source filter"
-          >
-            <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
-              Source
-            </span>
-            <button
-              type="button"
-              className="pill-tab shrink-0 text-[11px]"
-              data-state={!provenanceFilter ? "active" : undefined}
-              aria-pressed={!provenanceFilter}
-              onClick={() => onProvenanceFilterChange(null)}
+        )}
+        {showHeader && onProvenanceFilterChange && provenanceOptions.length > 0 && (
+          <div className="pb-2 px-3 min-w-0">
+            <div
+              className="glass-pill flex w-full max-w-full min-w-0 overflow-hidden px-1 py-1"
+              role="toolbar"
+              aria-label="Imported source filter"
             >
-              All
-            </button>
-            <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-              <div className="flex min-w-max items-center gap-1.5 pr-1">
-                {provenanceOptions.map((option) => {
-                  const active = provenanceFilter === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className="pill-tab h-8 w-8 shrink-0 p-0"
-                      data-state={active ? "active" : undefined}
-                      aria-pressed={active}
-                      aria-label={option.description ?? option.label}
-                      title={option.description ?? option.label}
-                      onClick={() => onProvenanceFilterChange(option.value)}
-                    >
-                      {option.Icon ? (
-                        <option.Icon className="h-4 w-4" aria-hidden={true} />
-                      ) : (
-                        <span className="sr-only">{option.label}</span>
-                      )}
-                    </button>
-                  );
-                })}
+              <span className="shrink-0 pl-2 pr-1 text-[11px] uppercase tracking-[0.16em] opacity-60">
+                Source
+              </span>
+              <button
+                type="button"
+                className="pill-tab shrink-0 text-[11px]"
+                data-state={!provenanceFilter ? "active" : undefined}
+                aria-pressed={!provenanceFilter}
+                onClick={() => onProvenanceFilterChange(null)}
+              >
+                All
+              </button>
+              <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+                <div className="flex min-w-max items-center gap-1.5 pr-1">
+                  {provenanceOptions.map((option) => {
+                    const active = provenanceFilter === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className="pill-tab h-8 w-8 shrink-0 p-0"
+                        data-state={active ? "active" : undefined}
+                        aria-pressed={active}
+                        aria-label={option.description ?? option.label}
+                        title={option.description ?? option.label}
+                        onClick={() => onProvenanceFilterChange(option.value)}
+                      >
+                        {option.Icon ? (
+                          <option.Icon className="h-4 w-4" aria-hidden={true} />
+                        ) : (
+                          <span className="sr-only">{option.label}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
+        )}
+        <div className="space-y-2">
+          {threads.map((t) => (
+            <ThreadTileRow
+              key={`t:${String(t.id)}`}
+              thread={t}
+              active={t.id === activeId}
+              isDarkMode={isDarkMode}
+              onSelect={onSelect}
+              rectH={rectH}
+              onRename={onRename}
+              onArchiveToggle={onArchiveToggle}
+              onDelete={onDelete}
+            />
+          ))}
         </div>
-      )}
-      <div className="space-y-2">
-        {threads.map((t) => (
-          <ThreadTileRow
-            key={`t:${String(t.id)}`}
-            thread={t}
-            active={t.id === activeId}
-            isDarkMode={isDarkMode}
-            onSelect={onSelect}
-            rectH={rectH}
-            onRename={onRename}
-            onArchiveToggle={onArchiveToggle}
-            onDelete={onDelete}
-          />
-        ))}
       </div>
       {isLoadingMore && (
         <div className="flex items-center justify-center py-3 opacity-70 text-xs">
@@ -264,7 +274,7 @@ function ThreadTileRow({
   active,
   isDarkMode,
   onSelect,
-  rectH = 60,
+  rectH = 44,
   className,
   onRename,
   onArchiveToggle,
@@ -281,6 +291,7 @@ function ThreadTileRow({
   onDelete: (threadId: string) => Promise<void>;
 }) {
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [focusWithin, setFocusWithin] = React.useState(false);
   const [actionBusy, setActionBusy] = React.useState<ThreadAction | null>(null);
   const [hoveredAction, setHoveredAction] = React.useState<ThreadAction | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
@@ -296,7 +307,6 @@ function ThreadTileRow({
     () => colorStringToRgba(accentColor, 0.45, "rgba(107,114,128,0.45)"),
     [accentColor]
   );
-  const darkTileBackground = "var(--panel-sheet)";
   const darkActiveBackground =
     "color-mix(in oklab, var(--accent) 16%, var(--panel-sheet) 84%)";
 
@@ -419,36 +429,34 @@ function ThreadTileRow({
 
   const safeTitle = (thread.title || "").trim() || "Untitled";
   const titleNode = <span key="title" className="thread-title block truncate" title={safeTitle}>{safeTitle}</span>;
-  const snippet = typeof thread.lastMessage === "string" ? thread.lastMessage.trim() : "";
-  const snippetNode = (
-    <span
-      key="snippet"
-      className="thread-snippet block truncate"
-      title={snippet || undefined}
-    >
-      {snippet || "\u00a0"}
-    </span>
-  );
   const unreadBadge =
     thread.unread > 0 ? (
       <span
         key="badge"
-        className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-2 text-xs font-semibold"
+        className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-2 text-[11px] font-semibold"
         style={{ background: "var(--accent-strong)", color: "#fff" }}
       >
         {thread.unread}
       </span>
     ) : null;
 
-  const tileStyle: React.CSSProperties = { minHeight: rectH };
-  if (active) {
-    tileStyle.background = isDarkMode ? darkActiveBackground : highlightBg;
-  } else if (isDarkMode) {
-    tileStyle.background = darkTileBackground;
-  }
+  const tileBackground = active
+    ? (isDarkMode ? darkActiveBackground : highlightBg)
+    : (isDarkMode ? "var(--panel-sheet)" : "var(--panel-bg)");
 
+  const showActions = active || focusWithin;
   return (
-    <div className={clsx("relative", className)}>
+    <div
+      data-testid={`thread-row-${thread.id}`}
+      className={clsx("relative", className)}
+      onFocusCapture={() => setFocusWithin(true)}
+      onBlurCapture={(event) => {
+        const nextTarget = event.relatedTarget as Node | null;
+        if (!event.currentTarget.contains(nextTarget)) {
+          setFocusWithin(false);
+        }
+      }}
+    >
       <TileShell
         as="button"
         type="button"
@@ -456,37 +464,43 @@ function ThreadTileRow({
         data-testid={`thread-tile-${thread.id}`}
         className="thread-preview w-full text-left text-[var(--text)] transition-transform duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] dark:text-white"
         borderColor={active ? highlightBorder : undefined}
-        style={tileStyle}
+        background={tileBackground}
+        style={{ minHeight: rectH }}
       >
-        <div className="flex h-full w-full items-center gap-3 px-3 py-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+        <div className="flex h-full w-full items-center gap-2 px-3 py-1.5 pr-11">
+          <div className="flex min-w-0 flex-1 items-center">
             {titleNode}
-            {snippetNode}
           </div>
           {unreadBadge}
         </div>
       </TileShell>
 
-      <div className="absolute top-1 right-1">
+      {active && (
         <button
           ref={kebabRef}
-          className="icon-inline rounded-[var(--radius-micro)]"
+          className="icon-inline absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-[var(--radius-micro)]"
           aria-label="Thread actions"
           onClick={(e) => { if (stop(e)) return; setMenuOpen(true); setHoveredAction(null); }}
           onMouseDown={(e) => stop(e)}
           type="button"
           aria-busy={actionBusy ? true : undefined}
+          style={{
+            background: "color-mix(in oklab, var(--panel-bg) 84%, var(--text) 16%)",
+            borderStyle: "solid",
+            borderWidth: "1px",
+            borderColor: "color-mix(in oklab, var(--panel-border) 70%, transparent)",
+          }}
         >
           <MoreVertical className="h-4 w-4" />
         </button>
-      </div>
+      )}
 
       {menuOpen && (
         <div
           ref={menuRef}
           role="menu"
           tabIndex={-1}
-          className="absolute z-[9999] right-1 top-9 min-w-[180px] rounded-[var(--tile-radius)] border p-1 shadow-xl pointer-events-auto backdrop-blur-sm"
+          className="absolute z-[9999] right-1 top-1/2 -translate-y-1/2 min-w-[180px] rounded-[var(--tile-radius)] border p-1 shadow-xl pointer-events-auto backdrop-blur-sm"
           style={{ background: "var(--panel-bg)", borderColor: "var(--panel-border)" }}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}

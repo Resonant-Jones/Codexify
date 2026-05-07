@@ -19,6 +19,7 @@ from guardian.protocol_tokens import (
     TASK_EVENT_TYPES,
     TOOL_LOOP_STOP_REASONS,
     TOOL_TURN_STATES,
+    TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -34,9 +35,12 @@ from guardian.protocol_tokens import (
     ExecutorReleasePosture,
     LoopStopReason,
     TaskEventType,
+    ImageRoutingPath,
     TraceSnapshotAbsenceReason,
     ToolLoopStopReason,
     ToolTurnState,
+    TraceSuppressionReason,
+    IMAGE_ROUTING_PATHS,
     TRACE_SNAPSHOT_ABSENCE_REASONS,
 )
 
@@ -52,6 +56,13 @@ def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
 
 
+def test_trace_suppression_tokens() -> None:
+    assert (
+        TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
+        == "assistant_vision_refusal_on_image_turn"
+    )
+    assert TRACE_SUPPRESSION_REASONS == {
+        "assistant_vision_refusal_on_image_turn",
 def test_trace_snapshot_absence_reason_tokens() -> None:
     assert TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value == (
         "trace_source_unavailable"
@@ -61,6 +72,18 @@ def test_trace_snapshot_absence_reason_tokens() -> None:
     )
     assert TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value == (
         "image_routing_not_evaluated"
+    )
+    assert (
+        TraceSnapshotAbsenceReason
+        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
+        .value
+        == "vision_model_selected_but_image_payload_not_routed"
+    )
+    assert (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+        == "local_model_substitution_selected_nonvision_model"
     )
     assert TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value == (
         "retrieval_not_executed"
@@ -72,8 +95,21 @@ def test_trace_snapshot_absence_reason_tokens() -> None:
         "trace_source_unavailable",
         "trace_snapshot_missing",
         "image_routing_not_evaluated",
+        "vision_model_selected_but_image_payload_not_routed",
+        "local_model_substitution_selected_nonvision_model",
         "retrieval_not_executed",
         "retrieval_no_candidates",
+    }
+
+
+def test_image_routing_protocol_tokens() -> None:
+    assert ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value == (
+        "native_multimodal_vision"
+    )
+    assert ImageRoutingPath.INTERPRETER.value == "interpreter"
+    assert IMAGE_ROUTING_PATHS == {
+        "native_multimodal_vision",
+        "interpreter",
     }
 
 

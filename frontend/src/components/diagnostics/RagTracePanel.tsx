@@ -8,15 +8,83 @@
 import React, { useEffect, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { useRagTrace } from "@/hooks/useRagTrace";
-import { RagDocument, RagGraphNode } from "@/types/rag";
+import {
+  RagDocument,
+  RagGraphNode,
+  RagSuppressionItem,
+  RagSuppressionSummary,
+} from "@/types/rag";
 
 interface RagTracePanelProps {
   threadId: number | null;
 }
 
+function formatTraceValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (typeof value === "boolean") {
+    return value ? "yes" : "no";
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map(formatTraceValue)
+      .filter((part): part is string => Boolean(part));
+    return parts.length ? parts.join(", ") : null;
+  }
+  return String(value);
+}
+
+function metadataChip({
+  label,
+  value,
+}: {
+  label: string;
+  value: unknown;
+}) {
+  const formatted = formatTraceValue(value);
+  if (!formatted) return null;
+  return (
+    <span
+      className="rounded-full border px-2 py-1 text-xs"
+      style={{
+        borderColor: "var(--panel-border)",
+        color: "var(--muted)",
+      }}
+    >
+      {label}: {formatted}
+    </span>
+  );
+}
+
+function suppressionSummaryLabel(summary: RagSuppressionSummary | null): string | null {
+  if (!summary) return null;
+  if (typeof summary.count === "number" && summary.count > 0) {
+    return `${summary.count} suppressed`;
+  }
+  const count = summary.items?.length ?? 0;
+  return count > 0 ? `${count} suppressed` : null;
+}
+
 export function RagTracePanel({ threadId }: RagTracePanelProps) {
   const { trace, loading, error, fetchTrace } = useRagTrace(threadId);
   const [autoFetched, setAutoFetched] = useState(false);
+  const retrievalPolicy = trace?.retrieval_policy ?? null;
+  const retrievalProvenance = trace?.retrieval_provenance ?? null;
+  const suppressionSummary = trace?.retrieval_suppression ?? null;
+  const hasSuppression =
+    Boolean(suppressionSummary?.items?.length) ||
+    Boolean(
+      suppressionSummary?.counts_by_reason &&
+        Object.keys(suppressionSummary.counts_by_reason).length > 0
+    );
+  const hasVisibleContent =
+    Boolean(trace?.documents?.length) ||
+    Boolean(trace?.graph?.length) ||
+    hasSuppression;
 
   // Auto-fetch trace when threadId changes
   useEffect(() => {
@@ -136,6 +204,68 @@ export function RagTracePanel({ threadId }: RagTracePanelProps) {
       )}
 
       {/* Documents Section */}
+      {retrievalPolicy && (
+        <div>
+          <h4
+            className="text-xs font-semibold mb-2 uppercase tracking-wide"
+            style={{ color: "var(--muted)" }}
+          >
+            Retrieval Policy
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {metadataChip({
+              label: "Source mode",
+              value: retrievalPolicy.source_mode,
+            })}
+            {metadataChip({
+              label: "Boundary",
+              value: retrievalPolicy.boundary_label,
+            })}
+            {metadataChip({
+              label: "Thread docs",
+              value: retrievalPolicy.allow_thread_docs,
+            })}
+            {metadataChip({
+              label: "Project docs",
+              value: retrievalPolicy.allow_project_docs,
+            })}
+            {metadataChip({
+              label: "Semantic widening",
+              value: retrievalPolicy.allow_semantic_widening,
+            })}
+            {metadataChip({
+              label: "Global widening",
+              value: retrievalPolicy.allow_global_widening,
+            })}
+          </div>
+        </div>
+      )}
+
+      {retrievalProvenance && (
+        <div>
+          <h4
+            className="text-xs font-semibold mb-2 uppercase tracking-wide"
+            style={{ color: "var(--muted)" }}
+          >
+            Retrieval Provenance
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {metadataChip({
+              label: "Requested",
+              value: retrievalProvenance.requested_source_mode,
+            })}
+            {metadataChip({
+              label: "Normalized",
+              value: retrievalProvenance.normalized_source_mode,
+            })}
+            {metadataChip({
+              label: "Status",
+              value: retrievalProvenance.retrieval_status,
+            })}
+          </div>
+        </div>
+      )}
+
       {trace && trace.documents && trace.documents.length > 0 && (
         <div>
           <h4
@@ -169,21 +299,60 @@ export function RagTracePanel({ threadId }: RagTracePanelProps) {
         </div>
       )}
 
+      {hasSuppression && suppressionSummary && (
+        <div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h4
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: "var(--muted)" }}
+            >
+              Suppressed Context
+            </h4>
+            <span
+              className="rounded-full border px-2 py-1 text-xs"
+              style={{
+                borderColor: "var(--panel-border)",
+                color: "var(--muted)",
+              }}
+            >
+              {suppressionSummaryLabel(suppressionSummary)}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {Object.entries(suppressionSummary.counts_by_reason || {}).map(
+              ([reason, count]) => (
+                <span
+                  key={reason}
+                  className="rounded-full border px-2 py-1 text-xs"
+                  style={{
+                    borderColor: "var(--panel-border)",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {reason}: {count}
+                </span>
+              )
+            )}
+          </div>
+          <div className="space-y-2">
+            {(suppressionSummary.items || []).map((item) => (
+              <SuppressedItemCard key={`${item.id ?? item.suppression_reason ?? "suppressed"}`} item={item} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Empty Trace */}
-      {trace &&
-        trace.documents &&
-        trace.documents.length === 0 &&
-        trace.graph &&
-        trace.graph.length === 0 && (
+      {trace && !hasVisibleContent && (
           <div className="text-center py-4">
             <p
               className="text-sm"
               style={{ color: "var(--muted)" }}
             >
-              No documents or graph nodes retrieved.
+              No documents, graph nodes, or suppressed context recorded.
             </p>
           </div>
-        )}
+      )}
     </div>
   );
 }
@@ -196,11 +365,11 @@ function DocumentCard({ doc }: { doc: RagDocument }) {
         borderColor: "var(--panel-border)",
         backgroundColor: "var(--panel-bg)",
       }}
-    >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1 min-w-0">
-          <h5
-            className="text-xs font-medium truncate"
+      >
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex-1 min-w-0">
+            <h5
+              className="text-xs font-medium truncate"
             style={{ color: "var(--text)" }}
           >
             {doc.title}
@@ -218,6 +387,14 @@ function DocumentCard({ doc }: { doc: RagDocument }) {
           </div>
         )}
       </div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {metadataChip({ label: "Source type", value: doc.source_type })}
+        {metadataChip({ label: "Role", value: doc.role })}
+        {metadataChip({ label: "Lane", value: doc.retrieval_lane })}
+        {metadataChip({ label: "Thread", value: doc.thread_id })}
+        {metadataChip({ label: "Project", value: doc.project_id })}
+        {metadataChip({ label: "Policy", value: doc.policy_reason })}
+      </div>
       {doc.snippet && (
         <p
           className="text-xs line-clamp-2"
@@ -226,6 +403,48 @@ function DocumentCard({ doc }: { doc: RagDocument }) {
           {doc.snippet}
         </p>
       )}
+    </div>
+  );
+}
+
+function SuppressedItemCard({ item }: { item: RagSuppressionItem }) {
+  return (
+    <div
+      className="p-3 border rounded-lg transition"
+      style={{
+        borderColor: "var(--panel-border)",
+        backgroundColor: "var(--panel-bg)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <h5
+            className="text-xs font-medium truncate"
+            style={{ color: "var(--text)" }}
+          >
+            {item.id || item.suppression_reason || "suppressed item"}
+          </h5>
+        </div>
+        {item.suppression_reason && (
+          <div
+            className="text-xs font-semibold px-2 py-1 rounded-full flex-shrink-0"
+            style={{
+              backgroundColor: "rgba(239, 68, 68, 0.15)",
+              color: "rgb(239, 68, 68)",
+            }}
+          >
+            {item.suppression_reason}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {metadataChip({ label: "Source type", value: item.source_type })}
+        {metadataChip({ label: "Role", value: item.role })}
+        {metadataChip({ label: "Lane", value: item.retrieval_lane })}
+        {metadataChip({ label: "Thread", value: item.thread_id })}
+        {metadataChip({ label: "Project", value: item.project_id })}
+        {metadataChip({ label: "Policy", value: item.policy_reason })}
+      </div>
     </div>
   );
 }
