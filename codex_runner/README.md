@@ -1,22 +1,28 @@
 # Codexify Campaign Runner (Deterministic v2)
 
-Canonical runtime: `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner`
+Canonical runtime: `codex_runner/`
 
 Legacy package note:
-- `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/tools/codex-runner` is frozen/deprecated.
+- `tools/codex-runner` is frozen/deprecated.
+
+Pi wrapper note:
+- `src/agent-wrapper.js` is an optional Pi-backed path.
+- It ships with a vendored Pi SDK tree under `codex_runner/vendor/pi-coding-agent`, so the normal path does not require a separate Pi install.
+- It reuses the shared Pi auth store at `~/.pi/agent/auth.json`, so an existing Pi login or API-key setup on the same user account is visible automatically.
+- If the vendored tree is missing or incomplete, the wrapper fails closed with repair guidance rather than resolving a machine-specific absolute path.
 
 ## Interactive TUI (command-first)
 
 Running with no arguments opens the TUI in interactive terminals:
 
 ```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
+python codex_runner/runner.py
 ```
 
 Force TUI mode:
 
 ```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --tui
+python codex_runner/runner.py --tui
 ```
 
 Non-interactive behavior:
@@ -131,7 +137,7 @@ Additional provider traceability in `run_meta.json`:
 Required:
 
 ```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py \
+python codex_runner/runner.py \
   --repo-root /absolute/path/to/repo \
   --audit-prompt-file /path/to/mega_audit.md \
   --audit-schema-file /path/to/mega_audit_output.schema.json \

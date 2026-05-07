@@ -40,6 +40,15 @@ inline literals.
 
 - Trace suppression reasons:
   `assistant_vision_refusal_on_image_turn`
+- Trace snapshot absence reasons:
+  `trace_source_unavailable`, `trace_snapshot_missing`,
+  `image_routing_not_evaluated`,
+  `vision_model_selected_but_image_payload_not_routed`,
+  `local_model_substitution_selected_nonvision_model`,
+  `retrieval_not_executed`, `retrieval_no_candidates`
+
+- Image routing paths:
+  `native_multimodal_vision`, `interpreter`
 
 - Bounded tool-loop states:
   `idle`, `decision_received`, `command_dispatched`,

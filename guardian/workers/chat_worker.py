@@ -1544,6 +1544,22 @@ def _run_chat_completion_task_compat(
     payload_summary["source_mode"] = trace_source_mode
     payload_summary["effective_source_mode"] = trace_source_mode
     payload_summary["effective_policy"] = effective_policy
+    retrieval_posture = _chat_completion_service._build_retrieval_posture(
+        source_mode=trace_source_mode,
+        retrieval_override=(
+            trace.get("retrieval_override")
+            if isinstance(trace, dict)
+            else None
+        ),
+        widen_reason=(
+            trace.get("widen_reason") if isinstance(trace, dict) else None
+        ),
+    )
+    if retrieval_posture is not None:
+        payload_summary["retrieval_posture"] = retrieval_posture
+        if isinstance(trace, dict):
+            trace = dict(trace)
+            trace["retrieval_posture"] = retrieval_posture
     if callable(state_callback):
         state_callback(
             TaskLifecycleState.AWAITING_MODEL,
@@ -1894,6 +1910,44 @@ def _run_chat_completion_task_compat(
                 result[key] = value
         if completion_result.get("execution") is not None:
             result["execution"] = completion_result.get("execution")
+
+    # Final assembly boundary: re-normalize image-routing truth after the
+    # worker has merged the completion payload, payload summary, and nested
+    # trace, so persisted snapshots cannot retain stale
+    # "image_routing_not_evaluated" values for known image turns.
+    final_trace = result.get("trace")
+    if not isinstance(final_trace, dict) and isinstance(trace_fallback, dict):
+        final_trace = dict(trace_fallback)
+    (
+        image_attachment_count,
+        image_routing_path,
+        image_routing_absence_reason,
+    ) = _chat_completion_service._normalize_completion_image_routing_truth(
+        task=task,
+        provider=final_provider,
+        model=final_model,
+        settings=settings,
+        messages_for_llm=messages_for_llm,
+        routing_meta=None,
+        trace=final_trace,
+        payload_summary=payload_summary,
+        result=result,
+    )
+    payload_summary["image_attachment_count"] = image_attachment_count
+    payload_summary["image_routing_path"] = image_routing_path
+    payload_summary["image_routing_absence_reason"] = (
+        image_routing_absence_reason
+    )
+    result["image_attachment_count"] = image_attachment_count
+    result["image_routing_path"] = image_routing_path
+    result["image_routing_absence_reason"] = image_routing_absence_reason
+    if isinstance(final_trace, dict):
+        final_trace["image_attachment_count"] = image_attachment_count
+        final_trace["image_routing_path"] = image_routing_path
+        final_trace["image_routing_absence_reason"] = (
+            image_routing_absence_reason
+        )
+        result["trace"] = final_trace
     _sanitize_assistant_result_payload(result)
 
     if not persist_assistant_message:
@@ -1969,11 +2023,24 @@ def _run_chat_completion_task_compat(
                 "final_provider": final_provider,
                 "final_model": final_model,
                 "selection_source": selection_source,
+                "model_selection": result.get("model_selection"),
                 "fallback_reason": fallback_reason,
                 "payload_summary": payload_summary,
                 "completion_truth": completion_truth,
                 "attempted_provider_truth": attempted_provider_truth,
                 "final_provider_truth": final_provider_truth,
+                "retrieval_policy": result.get("retrieval_policy"),
+                "retrieval_posture": result.get("retrieval_posture"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
+                "retrieval_suppression": result.get("retrieval_suppression"),
+                "retrieval_executed": result.get("retrieval_executed"),
+                "retrieval_absence_reason": result.get(
+                    "retrieval_absence_reason"
+                ),
+                "image_routing_path": result.get("image_routing_path"),
+                "image_routing_absence_reason": result.get(
+                    "image_routing_absence_reason"
+                ),
                 "execution": execution,
                 **tool_loop_observability,
             },
@@ -2252,11 +2319,36 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             lifecycle_timings
         )
         result.update(lifecycle_timings_payload)
+        result_retrieval_posture = result.get("retrieval_posture")
+        if not isinstance(result_retrieval_posture, dict):
+            helper_payload_summary = result.get("payload_summary")
+            if isinstance(helper_payload_summary, dict):
+                maybe_posture = helper_payload_summary.get("retrieval_posture")
+                if isinstance(maybe_posture, dict):
+                    result_retrieval_posture = dict(maybe_posture)
+                    result["retrieval_posture"] = result_retrieval_posture
+        if not isinstance(result_retrieval_posture, dict):
+            trace_retrieval_posture = (
+                result_trace.get("retrieval_posture")
+                if isinstance(result_trace, dict)
+                else None
+            )
+            if isinstance(trace_retrieval_posture, dict):
+                result_retrieval_posture = dict(trace_retrieval_posture)
+                result["retrieval_posture"] = result_retrieval_posture
         if isinstance(result_trace, dict):
             result_trace = dict(result_trace)
             result_trace.update(lifecycle_timings_payload)
+            if isinstance(result_retrieval_posture, dict):
+                result_trace.setdefault(
+                    "retrieval_posture", dict(result_retrieval_posture)
+                )
         else:
             result_trace = dict(lifecycle_timings_payload)
+            if isinstance(result_retrieval_posture, dict):
+                result_trace["retrieval_posture"] = dict(
+                    result_retrieval_posture
+                )
         result["trace"] = result_trace
         message_id = _coerce_message_id(result.get("message_id"))
         if message_id is None:
@@ -2437,11 +2529,14 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "model": result.get("model"),
                 "requested_provider": result.get("requested_provider"),
                 "requested_model": result.get("requested_model"),
+                "final_provider": result.get("final_provider"),
+                "final_model": result.get("final_model"),
                 "attempted_provider": result.get("attempted_provider"),
                 "attempted_model": result.get("attempted_model"),
                 "resolved_provider": result.get("resolved_provider"),
                 "resolved_model": result.get("resolved_model"),
                 "selection_source": result.get("selection_source"),
+                "model_selection": result.get("model_selection"),
                 "fallback_reason": result.get("fallback_reason"),
                 "model_selection": result.get("model_selection"),
                 "upstream_status": result.get("upstream_status"),
@@ -2458,6 +2553,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "attempted_provider_truth"
                 ),
                 "final_provider_truth": result.get("final_provider_truth"),
+                "retrieval_policy": result.get("retrieval_policy"),
+                "retrieval_posture": result.get("retrieval_posture"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
+                "retrieval_suppression": result.get("retrieval_suppression"),
+                "retrieval_executed": result.get("retrieval_executed"),
+                "retrieval_absence_reason": result.get(
+                    "retrieval_absence_reason"
+                ),
+                "image_routing_path": result.get("image_routing_path"),
+                "image_routing_absence_reason": result.get(
+                    "image_routing_absence_reason"
+                ),
                 "execution": result.get("execution"),
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),

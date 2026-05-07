@@ -107,6 +107,14 @@ introduces live retrieval behavior changes in this task.
 - Any widening beyond thread scope must set an explicit `widen_reason` in the trace payload.
 - `source_mode` and `widen_reason` must remain truthful and stable after assembly; the trace cannot silently widen later.
 
+## External Web Search Relation
+
+Future Search-as-RAG adapter execution may sit behind an existing explicit broadened retrieval posture such as `explicit_global_search`.
+
+This task does not add runtime behavior and does not introduce new intent tokens. The router remains the decision seam, while provider adapters remain the execution seam for external indexed retrieval.
+
+Any future runtime adoption must keep that separation intact.
+
 ## Design Rules
 
 - Retrieval is optional.

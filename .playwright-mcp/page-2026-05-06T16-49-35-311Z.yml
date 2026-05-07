@@ -1,0 +1,10 @@
+- generic [ref=e4]:
+  - generic [ref=e6]: Local runtime
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - heading "Waiting for the backend" [level=1] [ref=e9]
+      - paragraph [ref=e10]: The frontend is ready, but the local API has not answered yet. This usually clears itself after Docker finishes restarting.
+      - paragraph [ref=e11]: Checking the runtime now.
+    - generic [ref=e12]:
+      - button "Checking..." [disabled]
+      - generic [ref=e13]: Automatic retries stay on until the backend is reachable.

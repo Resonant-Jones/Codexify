@@ -161,6 +161,25 @@ class EmbeddingLifecycleStatus(str, Enum):
     FAILED = "failed"
 
 
+class TraceSnapshotAbsenceReason(str, Enum):
+    TRACE_SOURCE_UNAVAILABLE = "trace_source_unavailable"
+    TRACE_SNAPSHOT_MISSING = "trace_snapshot_missing"
+    IMAGE_ROUTING_NOT_EVALUATED = "image_routing_not_evaluated"
+    VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED = (
+        "vision_model_selected_but_image_payload_not_routed"
+    )
+    LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL = (
+        "local_model_substitution_selected_nonvision_model"
+    )
+    RETRIEVAL_NOT_EXECUTED = "retrieval_not_executed"
+    RETRIEVAL_NO_CANDIDATES = "retrieval_no_candidates"
+
+
+class ImageRoutingPath(str, Enum):
+    NATIVE_MULTIMODAL_VISION = "native_multimodal_vision"
+    INTERPRETER = "interpreter"
+
+
 ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in AcceptanceStatus}
 )
@@ -232,6 +251,12 @@ ERROR_CODES: frozenset[str] = frozenset(
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
+TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in TraceSnapshotAbsenceReason}
+)
+IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
+    {path.value for path in ImageRoutingPath}
+)
 
 __all__ = [
     "AcceptanceStatus",
@@ -254,6 +279,8 @@ __all__ = [
     "DelegationEventType",
     "ErrorCode",
     "EmbeddingLifecycleStatus",
+    "ImageRoutingPath",
+    "TraceSnapshotAbsenceReason",
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
@@ -275,4 +302,6 @@ __all__ = [
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "IMAGE_ROUTING_PATHS",
+    "TRACE_SNAPSHOT_ABSENCE_REASONS",
 ]
