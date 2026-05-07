@@ -4178,6 +4178,9 @@ def _promote_trace_snapshot_contract(
     if not isinstance(nested_trace, dict):
         nested_trace = {}
 
+    def _missing_contract_value(value: Any) -> bool:
+        return value in (None, "", [], {})
+
     for key in (
         "retrieval_policy",
         "retrieval_provenance",
@@ -4188,28 +4191,33 @@ def _promote_trace_snapshot_contract(
         "image_routing_absence_reason",
         "model_selection",
     ):
-        if key not in normalized and key in payload_summary:
-            normalized[key] = payload_summary.get(key)
-        if key not in normalized and key in nested_trace:
-            normalized[key] = nested_trace.get(key)
+        current_value = normalized.get(key)
+        if _missing_contract_value(current_value):
+            candidate_value = payload_summary.get(key)
+            if not _missing_contract_value(candidate_value):
+                normalized[key] = candidate_value
+                continue
+            candidate_value = nested_trace.get(key)
+            if not _missing_contract_value(candidate_value):
+                normalized[key] = candidate_value
 
-    if "retrieval_policy" not in normalized and isinstance(
+    if _missing_contract_value(normalized.get("retrieval_policy")) and isinstance(
         normalized.get("effective_policy"), dict
     ):
         normalized["retrieval_policy"] = dict(normalized["effective_policy"])
-    if "retrieval_provenance" not in normalized:
+    if _missing_contract_value(normalized.get("retrieval_provenance")):
         retrieval_provenance = payload_summary.get("retrieval_provenance")
         if isinstance(retrieval_provenance, dict):
             normalized["retrieval_provenance"] = dict(retrieval_provenance)
-    if "retrieval_suppression" not in normalized:
+    if _missing_contract_value(normalized.get("retrieval_suppression")):
         retrieval_suppression = payload_summary.get("retrieval_suppression")
         if isinstance(retrieval_suppression, dict):
             normalized["retrieval_suppression"] = dict(retrieval_suppression)
-    if "model_selection" not in normalized:
+    if _missing_contract_value(normalized.get("model_selection")):
         model_selection = payload_summary.get("model_selection")
         if isinstance(model_selection, dict):
             normalized["model_selection"] = dict(model_selection)
-    if "model_selection" not in normalized:
+    if _missing_contract_value(normalized.get("model_selection")):
         model_selection = nested_trace.get("model_selection")
         if isinstance(model_selection, dict):
             normalized["model_selection"] = dict(model_selection)

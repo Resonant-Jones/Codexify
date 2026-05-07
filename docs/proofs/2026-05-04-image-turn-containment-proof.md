@@ -605,3 +605,10 @@ Remaining blockers:
 - Another runtime change is still needed to normalize the final image-routing truth into the nested trace that reaches eval snapshot persistence
 - The separate Compose migrator issue remains outside this task
 - The frontend Vitest resolution issue remains outside this task
+
+## Remediation Note — persisted nested-trace image-routing normalization
+
+- The live-path worker now reapplies image-routing normalization at the final result-assembly boundary before assistant persistence, task events, and eval snapshot creation.
+- The rag-trace promotion path now treats null image-routing fields as promotable gaps, so the persisted normalized nested trace can surface the canonical absence reason instead of leaving `image_routing_not_evaluated` in place.
+- Known image turns should no longer persist `image_routing_not_evaluated` in the eval snapshot path.
+- The proof is ready to rerun against the refreshed runtime.
