@@ -41,10 +41,24 @@ def _configure_chat_complete_route(mock_db, monkeypatch) -> dict[str, object]:
 
 def _decode_context_directives_from_origin(origin: str) -> list[dict[str, str]]:
     context_raw = origin.split("|context_directives=", 1)[1]
-    for delimiter in ("|slash_intent=", "|retrieval_override="):
+    for delimiter in (
+        "|context_request_plans=",
+        "|slash_intent=",
+        "|retrieval_override=",
+    ):
         if delimiter in context_raw:
             context_raw = context_raw.split(delimiter, 1)[0]
     return json.loads(unquote(context_raw))
+
+
+def _decode_context_request_plans_from_origin(
+    origin: str,
+) -> list[dict[str, object]]:
+    plans_raw = origin.split("|context_request_plans=", 1)[1]
+    for delimiter in ("|slash_intent=", "|retrieval_override="):
+        if delimiter in plans_raw:
+            plans_raw = plans_raw.split(delimiter, 1)[0]
+    return json.loads(unquote(plans_raw))
 
 
 def test_chat_complete_accepts_valid_context_directive_snake_case(
@@ -70,12 +84,23 @@ def test_chat_complete_accepts_valid_context_directive_snake_case(
     assert response.status_code == 200
     origin = getattr(captured["task"], "origin")
     assert "|context_directives=" in origin
+    assert "|context_request_plans=" in origin
     assert _decode_context_directives_from_origin(origin) == [
         {
             "kind": "connector_context",
             "connector_id": "obsidian",
             "invocation": "turn_scoped",
             "query_text": "memory decay",
+        }
+    ]
+    assert _decode_context_request_plans_from_origin(origin) == [
+        {
+            "request_kind": "read_only_context_request",
+            "connector_id": "obsidian",
+            "invocation": "turn_scoped",
+            "query_text": "memory decay",
+            "status": "accepted_not_executed",
+            "execution_required": False,
         }
     ]
 
@@ -103,12 +128,23 @@ def test_chat_complete_accepts_valid_context_directive_camel_case(
     assert response.status_code == 200
     origin = getattr(captured["task"], "origin")
     assert "|context_directives=" in origin
+    assert "|context_request_plans=" in origin
     assert _decode_context_directives_from_origin(origin) == [
         {
             "kind": "connector_context",
             "connector_id": "obsidian",
             "invocation": "turn_scoped",
             "query_text": "vault summary",
+        }
+    ]
+    assert _decode_context_request_plans_from_origin(origin) == [
+        {
+            "request_kind": "read_only_context_request",
+            "connector_id": "obsidian",
+            "invocation": "turn_scoped",
+            "query_text": "vault summary",
+            "status": "accepted_not_executed",
+            "execution_required": False,
         }
     ]
 
@@ -218,6 +254,41 @@ def test_chat_complete_rejects_unsupported_context_directive_kind(
     assert response.status_code == 422
 
 
+def test_chat_complete_rejects_unsupported_directive_before_enqueue(
+    test_client, mock_db, monkeypatch
+):
+    expected_user_id = get_test_user_id()
+    mock_db.get_chat_thread.return_value = {
+        "id": 1,
+        "user_id": expected_user_id,
+        "project_id": 7,
+        "archived_at": None,
+    }
+    mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
+
+    def _enqueue_should_not_run(*_args, **_kwargs):
+        raise AssertionError("enqueue should not run for unsupported directives")
+
+    monkeypatch.setattr("guardian.routes.chat.enqueue", _enqueue_should_not_run)
+
+    response = test_client.post(
+        "/chat/1/complete",
+        json={
+            "depth_mode": "normal",
+            "context_directives": [
+                {
+                    "kind": "connector_context",
+                    "connector_id": "discord",
+                    "invocation": "turn_scoped",
+                    "query_text": "server status",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_chat_complete_without_context_directives_remains_accepted(
     test_client, mock_db, monkeypatch
 ):
@@ -228,6 +299,49 @@ def test_chat_complete_without_context_directives_remains_accepted(
     assert response.status_code == 200
     origin = getattr(captured["task"], "origin")
     assert "|context_directives=" not in origin
+    assert "|context_request_plans=" not in origin
+
+
+def test_chat_complete_returns_400_when_resolver_plan_classification_fails(
+    test_client, mock_db, monkeypatch
+):
+    expected_user_id = get_test_user_id()
+    mock_db.get_chat_thread.return_value = {
+        "id": 1,
+        "user_id": expected_user_id,
+        "project_id": 7,
+        "archived_at": None,
+    }
+    mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
+
+    def _enqueue_should_not_run(*_args, **_kwargs):
+        raise AssertionError("enqueue should not run when resolver fails")
+
+    monkeypatch.setattr("guardian.routes.chat.enqueue", _enqueue_should_not_run)
+    monkeypatch.setattr(
+        "guardian.routes.chat.resolve_context_request_plans",
+        lambda _directives: (_ for _ in ()).throw(
+            ValueError("resolver exploded")
+        ),
+    )
+
+    response = test_client.post(
+        "/chat/1/complete",
+        json={
+            "depth_mode": "normal",
+            "context_directives": [
+                {
+                    "kind": "connector_context",
+                    "connector_id": "obsidian",
+                    "invocation": "turn_scoped",
+                    "query_text": "memory decay",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_context_directive_plan"
 
 
 def test_chat_complete_context_directive_validation_does_not_execute_completion_service(
