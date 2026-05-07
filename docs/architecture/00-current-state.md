@@ -15,7 +15,7 @@ This file is authoritative for:
 ## Current phase
 Codexify is in late beta hardening on `main`. The codebase now carries the local Docker Compose path, packaged tester-facing delivery surfaces, and a coding-result return path that routes assistant results back through Guardian into the source thread. Release truth still depends on the live runtime matching the supported local-first posture, not just on docs or build artifacts.
 
-Fresh live proof on 2026-05-05 now confirms the supported local-first posture on the current tip, including provider/catalog/health alignment, upload -> embed -> retrieve, image-turn containment, coding-result return, and runtime-target normalization. That proof is evidence of the supported path, not release signoff.
+Fresh live proof on 2026-05-05 now confirms the supported local-first posture on the current tip, including provider/catalog/health alignment, upload -> embed -> retrieve, image-turn containment, coding-result return, and runtime-target normalization. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. That proof is evidence of the supported path, not release signoff.
 
 - Coding worker results now ingest back through Guardian with lineage and idempotency guards.
 - Public webUI beta handoff docs and the GHCR pullability note remain on `main`.
@@ -29,6 +29,7 @@ Fresh live proof on 2026-05-05 now confirms the supported local-first posture on
 - Coding results now return through Guardian before user-visible output.
 - Current release evidence now has fresh live proof for health, provider posture, and runtime path on the current tip.
 - A canonical workspace-local live proof harness now exists at `scripts/proofs/prove_workspace_obsidian_e2e.py`; it validates the supported local Compose path only and does not widen the release promise to other install modes.
+- The workspace-local Obsidian E2E proof harness passed on the supported local Compose path for commit `a5d6239ef26105ab45125e9f43d22fd2078d9584`, and the durable proof artifact is `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`.
 - Workspace-local proof now treats searchability, broker selection, completion-context injection, and assistant reflection as separate evidence steps; vector-store searchability alone is weaker than proving the note influenced completion.
 - Worker-visible completion payloads now preserve the executed retrieval posture snapshot and workspace-local Obsidian evidence counts for completion turns instead of dropping back to a debug-only reconstruction.
 
@@ -66,7 +67,7 @@ Fresh live proof on 2026-05-05 now confirms the supported local-first posture on
 3. Verify chat completion, retrieval posture, and upload -> embed -> retrieve on the live stack.
 4. Repair the worker runtime artifact that provides `/app/codex_runner/src/agent-wrapper.js`, then re-exercise the coding-result return path end to end on the live stack.
 5. Re-check the provider catalog and health surfaces against the supported profile.
-6. Run the workspace-local live proof harness before treating `retrievalSource="workspace"` as release-evidenced, and require broker selection plus completion-context injection rather than searchability alone.
+6. Keep the workspace-local proof artifact synchronized with future runtime changes, and continue to require broker selection plus completion-context injection rather than searchability alone.
 
 ## Release definition right now
 - [ ] Supported-profile flags match the beta contract on the live runtime.

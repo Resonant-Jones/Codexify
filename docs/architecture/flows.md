@@ -34,14 +34,14 @@ Sequence:
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
 7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
    - When `retrievalSource="workspace"`, broker-selected Obsidian-backed evidence must survive into the completion context bundle, and the trace must distinguish searchability, selection, injection, and assistant reflection.
-   - The worker-visible completion payload preserves that executed posture snapshot and workspace-local Obsidian evidence counts so persisted task evidence matches the actual attempt instead of a stale or debug-only reconstruction.
+   - The worker-visible completion payload preserves that executed posture snapshot and workspace-local Obsidian evidence counts so persisted task evidence matches the actual attempt instead of a stale or debug-only reconstruction. That worker-visible payload is the canonical proof surface for the workspace seam.
 8. The provider call executes through `guardian/core/ai_router.py`.
    - If the provider returns plain assistant text, the existing completion path continues.
    - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
    - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
-   - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and the canonical retrieval posture records that workspace widening occurred.
+   - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and can inject that evidence into the executed turn while the worker-visible completion payload remains the canonical proof surface.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
    - The snapshot is expected to carry containment-grade retrieval policy, provenance, suppression, and image-routing truth when available, including explicit absence reasons rather than silent nulls.
