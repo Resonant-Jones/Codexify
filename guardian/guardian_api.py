@@ -494,6 +494,8 @@ def _retrieval_proof_state(
     )
 
 
+from backend import llm_overrides
+
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
@@ -524,6 +526,7 @@ from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
 from guardian.routes.imprint import router as imprint_router
 from guardian.routes.imprint import system_docs_router, system_prompt_router
+from guardian.routes.intents import router as intents_router
 from guardian.routes.media import router as media_router
 from guardian.routes.memory import EPHEMERAL_MEMORY  # re-export for tests
 from guardian.routes.obsidian import router as obsidian_router
@@ -536,7 +539,6 @@ from guardian.routes.voice import router as voice_router
 from guardian.voice.config import get_voice_runtime_config
 from guardian.voice.runtime import SUPPORTED_INPUT_MIME
 from guardian.voice.service import validate_voice_runtime_dependencies
-from backend import llm_overrides
 
 # =========================
 # Application Lifespan Management
@@ -1205,6 +1207,12 @@ _include_router(
     label="command_bus",
     flag_name="CODEXIFY_ENABLE_COMMAND_BUS_ROUTES",
     include_fn=lambda: app.include_router(command_bus_routes.router),
+)
+_include_router(
+    label="intent_spine",
+    flag_name="CODEXIFY_ENABLE_INTENT_ROUTES",
+    include_fn=lambda: app.include_router(intents_router),
+    core_surface=True,
 )
 _include_router(
     label="delegations",

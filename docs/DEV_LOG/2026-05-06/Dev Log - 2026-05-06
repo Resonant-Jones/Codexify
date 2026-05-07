@@ -1,0 +1,94 @@
+
+Dev Log - 2026-05-06
+
+Summary
+
+contract hardening and UI truthfulness day
+
+Today was mostly about tightening the system at the boundaries: making Guardian surfaces less visually noisy, making graph-write failures land at the store boundary instead of leaking upward, and keeping the image-routing / coding-result proof trail honest. The work was not flashy. It made the system easier to trust because more of the important behavior is now explicit instead of implied.
+
+The day also carried a lot of proof maintenance. Several docs were refreshed to reflect the current runtime story, especially around image-turn containment, native image routing truth, and the coding-result return path. That matters because the release posture is still gated by live runtime reality, not by optimistic documentation.
+
+What I completed
+
+Thread contract hardening
+
+Bound graph-write adapter failures at the store boundary so the failure mode is more explicit and less likely to collapse into a vague upstream error.
+This tightened the contract around where write errors are handled, which makes debugging and operator interpretation more direct.
+Guardian surface cleanup
+
+Removed the nested card layer from Guardian surfaces.
+Finished the Guardian thread rail visual cleanup and restored compact thread rail tiles after the regression work.
+The result is a flatter, more legible shell that better reflects the actual structure of the conversation surface.
+Runtime truth and proof updates
+
+Stamped and propagated native image routing truth on live turns.
+Promoted containment trace and image routing absence into the runtime evidence trail.
+Reran the image-turn containment proof after the routing and promotion fixes.
+Captured coding-result return path proof status in the docs.
+These changes did not widen the product claim; they narrowed the gap between what the runtime does and what the docs say it does.
+Release-context maintenance
+
+Updated the current-state / proof trail around supported-path behavior and beta release truth.
+Excluded default cloud bases from release-hold checks so the hold logic stays aligned with the intended supported posture.
+This kept the release story anchored to the actual supported local-first path instead of letting unrelated defaults distort it.
+Important outcome
+
+The system is no longer pretending at the edges. Graph-write failures now have a clearer home, image routing is represented more truthfully in the runtime evidence, and the Guardian UI stopped carrying extra visual structure that wasn’t helping the conversation.
+
+More importantly, the proof trail is starting to behave like a real operational record instead of a loose collection of notes. The runtime story and the docs are closer together, which reduces drift and makes the remaining release gaps easier to see.
+
+Commits
+
+e20f3aacd0f01126ff33c77ed524b477fad11ba8 - Remove nested card layer from Guardian surfaces
+39077c784321d5e2781b6ee938f0f2381938eb5a - Bound graph-write adapter failure messages at store boundary
+18908e99ba600f8de2b91981571a81cc24c6fc7c - docs: rerun image-turn containment proof after origin bridge
+cd7521264c30e5c707d9c3e93d105757587ef089 - Finish Guardian thread rail visual cleanup
+aa6a76b2d0b2476292db3ea6150d8bf291dd8588 - runtime: propagate image routing truth on live turns
+1e53ba27649a620738527e6bb0ac92f60ca97885 - Repair Guardian thread rail tile regression
+0334761d700ed8c4f55f33166db6a4ca7bd7763e - Restore compact Guardian thread rail tiles
+1d9fc88f800954cb2c4a26228027fd81a153bb22 - runtime: promote containment trace and image routing absence
+dec45fb563e78f6ed4f4e3ceddd8fbb2b48a74ef - docs: rerun image-turn containment proof after promotion fix
+be0f09f6624fa90a40e6640d04aca0169e81ba23 - docs(proof): capture coding-result return path proof status
+a10c11b5eb85d51d664f6d744adee16083e248cd - runtime: stamp native image routing truth
+ee3f2adf02e5fb03a05f9fcecf3012dfa9c3119a - Exclude default cloud bases from release-hold checks
+1174a32c5e597df60a347757fdcec5a208ef4f48 - docs: rerun image-turn containment proof after native routing truth
+Notes
+
+This was still mostly code/test-level and docs-level evidence, not live runtime proof for every claim.
+The release posture remains held by the live stack, so documentation updates should be read as alignment work, not signoff.
+The coding-result return path is better documented and better bounded, but the proof trail still matters more than the implementation narrative.
+Some of the day’s work was cleanup from earlier thread-rail regressions, so the net effect is both repair and simplification.
+Next likely moves
+
+Re-run the supported-path live proof on the exact current main tip.
+Confirm the backend posture still matches the supported local-first profile.
+Re-check chat, retrieval, and upload/embed behavior on the live stack.
+Continue closing the gap on the coding-result return path with terminal evidence.
+Keep trimming UI layers only where they add no structural value.
+Closing thought
+
+Today was about removing ambiguity in places that matter: failure boundaries, routing truth, and visual structure. The system did not become bigger. It became easier to trust, which is the more important shift at this stage.
+
+Narrative Log - 2026-05-06
+
+This was a day of reducing slack in the system.
+
+The visible part was the Guardian shell. A nested card layer came out, the thread rail cleanup was finished, and the compact tiles were restored after the regression. On the surface that sounds cosmetic, but it matters because the chat shell is one of the places where structural confusion becomes user confusion very quickly. The goal was not decoration. It was to make the interface stop implying depth and grouping that were not actually helping the conversation flow.
+
+Underneath that, the more important work was boundary hardening. Graph-write adapter failures were bound at the store boundary, which is the right place for them to become legible. That shifts the system away from vague upstream collapse and toward explicit failure handling. When a write path fails, it should fail where the responsibility lives. That is a small change with real operational value because it gives us a cleaner place to reason about retries, diagnostics, and future recovery behavior.
+
+The runtime proof work continued in parallel. Image routing truth was stamped and propagated through live turns, then the containment trace and image-routing absence were promoted into the evidence trail. The related proof docs were rerun and updated accordingly. This is the kind of work that does not add flash, but it removes drift. It keeps the documentation from outrunning the runtime and makes the release story harder to fake. That is especially important here because beta truth still depends on the live stack matching the supported path, not just on the existence of polished docs.
+
+There was also a smaller but meaningful release-context cleanup around default cloud bases and release-hold checks. That kept the gating logic focused on the supported local-first posture instead of letting unrelated defaults muddy the signal. In a system like this, the dangerous failure mode is not always a crash. Sometimes it is a misleading sense of readiness. Today’s work pushed back against that.
+
+The shape of the day, then, was not feature growth. It was truth alignment. The UI became flatter and more honest, the runtime routing story became more explicit, and the proof record got closer to the system it describes. That leaves us in a better place for the next round of live validation, because the remaining gaps are clearer and the false ones are smaller.
+
+What this makes possible next is straightforward: re-run the live supported-path proof against the exact current tip, verify the backend posture again, and keep tightening the coding-result return path until the evidence is live rather than just structural.
+
+
+
+
+
+Wednesday 9:19 PM
+

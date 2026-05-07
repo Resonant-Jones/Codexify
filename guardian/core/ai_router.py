@@ -861,6 +861,11 @@ def _messages_contain_image_payload(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
+def messages_contain_image_payload(messages: list[dict[str, Any]]) -> bool:
+    """Return True when provider-ready messages still contain image payloads."""
+    return _messages_contain_image_payload(messages)
+
+
 def _transform_messages_for_ollama_vision(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:

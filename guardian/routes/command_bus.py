@@ -49,6 +49,11 @@ def configure_db(db: Any | None) -> None:
     _activation_resolver = EffectiveCapabilityResolver(_extension_store)
 
 
+def get_store() -> CommandBusStore:
+    """Return the active command-bus store."""
+    return _store
+
+
 @router.get("/manifest")
 async def get_manifest(request: Request) -> dict[str, Any]:
     manifest = build_manifest(request.app)

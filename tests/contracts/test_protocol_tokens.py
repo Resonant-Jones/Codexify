@@ -35,9 +35,13 @@ from guardian.protocol_tokens import (
     ExecutorReleasePosture,
     LoopStopReason,
     TaskEventType,
+    ImageRoutingPath,
+    TraceSnapshotAbsenceReason,
     ToolLoopStopReason,
     ToolTurnState,
     TraceSuppressionReason,
+    IMAGE_ROUTING_PATHS,
+    TRACE_SNAPSHOT_ABSENCE_REASONS,
 )
 
 
@@ -59,6 +63,53 @@ def test_trace_suppression_tokens() -> None:
     )
     assert TRACE_SUPPRESSION_REASONS == {
         "assistant_vision_refusal_on_image_turn",
+def test_trace_snapshot_absence_reason_tokens() -> None:
+    assert TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value == (
+        "trace_source_unavailable"
+    )
+    assert TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value == (
+        "trace_snapshot_missing"
+    )
+    assert TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value == (
+        "image_routing_not_evaluated"
+    )
+    assert (
+        TraceSnapshotAbsenceReason
+        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
+        .value
+        == "vision_model_selected_but_image_payload_not_routed"
+    )
+    assert (
+        TraceSnapshotAbsenceReason
+        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
+        .value
+        == "local_model_substitution_selected_nonvision_model"
+    )
+    assert TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value == (
+        "retrieval_not_executed"
+    )
+    assert TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value == (
+        "retrieval_no_candidates"
+    )
+    assert TRACE_SNAPSHOT_ABSENCE_REASONS == {
+        "trace_source_unavailable",
+        "trace_snapshot_missing",
+        "image_routing_not_evaluated",
+        "vision_model_selected_but_image_payload_not_routed",
+        "local_model_substitution_selected_nonvision_model",
+        "retrieval_not_executed",
+        "retrieval_no_candidates",
+    }
+
+
+def test_image_routing_protocol_tokens() -> None:
+    assert ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value == (
+        "native_multimodal_vision"
+    )
+    assert ImageRoutingPath.INTERPRETER.value == "interpreter"
+    assert IMAGE_ROUTING_PATHS == {
+        "native_multimodal_vision",
+        "interpreter",
     }
 
 

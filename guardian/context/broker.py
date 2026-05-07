@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
+import requests
+
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_CONVERSATION,
     SOURCE_MODE_OBSIDIAN_ONLY,
@@ -30,13 +32,20 @@ from guardian.context.tool_intents import (
 from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
-from guardian.protocol_tokens import PersonalFactStatus
+from guardian.protocol_tokens import (
+    PersonalFactStatus,
+    TraceSnapshotAbsenceReason,
+)
 
 logger = logging.getLogger(__name__)
 _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
 _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
 _THREAD_CANDIDATE_LIMIT = 500
 _PERSONAL_FACT_LIMIT = 12
+_WORKSPACE_RETRIEVAL_PROBE_TIMEOUT_SECONDS = 5.0
+_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV = (
+    "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE"
+)
 
 
 class EffectiveRetrievalPolicy(TypedDict):
@@ -192,6 +201,11 @@ def _build_policy_suppression_summary(
             "allow_global_widening": allow_global_widening,
         },
     }
+def _workspace_retrieval_probe_base_url() -> str | None:
+    base_url = str(
+        os.getenv(_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV) or ""
+    ).strip()
+    return base_url.rstrip("/") or None
 
 
 def _thread_namespace(thread_id: int) -> str:
@@ -335,6 +349,33 @@ def _extract_result_user_id(item: Any) -> Optional[str]:
     return None
 
 
+def _extract_result_namespace(item: Any) -> Optional[str]:
+    if item is None:
+        return None
+    if isinstance(item, dict):
+        for key in ("namespace", "vault_namespace"):
+            value = item.get(key)
+            if value not in (None, ""):
+                return str(value).strip() or None
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("namespace", "vault_namespace"):
+                value = metadata.get(key)
+                if value not in (None, ""):
+                    return str(value).strip() or None
+        meta = item.get("meta")
+        if isinstance(meta, dict):
+            for key in ("namespace", "vault_namespace"):
+                value = meta.get(key)
+                if value not in (None, ""):
+                    return str(value).strip() or None
+    for attr_name in ("namespace", "vault_namespace"):
+        value = getattr(item, attr_name, None)
+        if value not in (None, ""):
+            return str(value).strip() or None
+    return None
+
+
 def _assert_user_scoped_results(
     results: list[Any], *, user_id: str
 ) -> list[Any]:
@@ -359,6 +400,88 @@ def _assert_user_scoped_results(
     ):
         raise AssertionError("retrieval_user_isolation_violation")
     return filtered
+
+
+def _workspace_backend_obsidian_results(
+    *,
+    query: str,
+    user_id: str,
+    k: int,
+) -> list[dict[str, Any]]:
+    base_url = _workspace_retrieval_probe_base_url()
+    if not base_url:
+        return []
+
+    api_key = str(
+        getattr(get_settings(), "GUARDIAN_API_KEY", None)
+        or os.getenv("GUARDIAN_API_KEY")
+        or ""
+    ).strip()
+    headers = {"X-API-Key": api_key} if api_key else None
+    search_url = f"{base_url}/api/health/retrieval"
+    try:
+        response = requests.get(
+            search_url,
+            headers=headers,
+            params={
+                "q": query,
+                "k": k,
+                "namespace": OBSIDIAN_NAMESPACE,
+            },
+            timeout=_WORKSPACE_RETRIEVAL_PROBE_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        logger.debug(
+            "[ContextBroker] workspace backend retrieval probe failed base=%s: %s",
+            base_url,
+            exc,
+        )
+        return []
+
+    search_payload = payload.get("search")
+    if not isinstance(search_payload, dict):
+        return []
+    matches = search_payload.get("matches")
+    if not isinstance(matches, list):
+        return []
+
+    normalized_user_id = str(user_id or "").strip()
+    normalized_results: list[dict[str, Any]] = []
+    for item in matches:
+        if not isinstance(item, dict):
+            continue
+        namespace = _extract_result_namespace(item)
+        if namespace != OBSIDIAN_NAMESPACE:
+            continue
+        item_user_id = _extract_result_user_id(item)
+        if normalized_user_id and item_user_id not in {
+            normalized_user_id,
+            None,
+        }:
+            continue
+        scoped_item = dict(item)
+        scoped_metadata = dict(item.get("metadata") or {})
+        scoped_metadata["namespace"] = OBSIDIAN_NAMESPACE
+        if normalized_user_id:
+            scoped_metadata["user_id"] = normalized_user_id
+            scoped_metadata["owner_user_id"] = normalized_user_id
+            scoped_item["user_id"] = normalized_user_id
+            scoped_item["owner_user_id"] = normalized_user_id
+        scoped_item["metadata"] = scoped_metadata
+        scoped_item["meta"] = dict(scoped_metadata)
+        normalized_results.append(scoped_item)
+        if len(normalized_results) >= k:
+            break
+
+    if normalized_results:
+        logger.info(
+            "[ContextBroker] workspace backend retrieval probe selected obsidian=%s base=%s",
+            len(normalized_results),
+            base_url,
+        )
+    return normalized_results
 
 
 def _looks_like_json(text: str) -> bool:
@@ -555,6 +678,7 @@ class ContextBroker:
         if not resolved_user_id:
             raise ValueError("ContextBroker requires user_id")
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
+        requested_source_mode = normalize_source_mode(source_mode)
         base_policy = derive_default_retrieval_policy(source_mode)
         effective_policy = merge_retrieval_policy(
             base_policy,
@@ -1097,6 +1221,88 @@ class ContextBroker:
         if not widened and widen_reason != WIDEN_REASON_NONE:
             raise AssertionError("invalid_widen_reason_without_widening")
 
+        source_hit_counts = {
+            "semantic_total": len(context.get("semantic", [])),
+            "thread_semantic": len(
+                [
+                    item
+                    for item in context.get("semantic", [])
+                    if isinstance(item, dict)
+                    and str(item.get("namespace") or "").startswith(
+                        "thread:"
+                    )
+                ]
+            ),
+            "obsidian_semantic": len(
+                [
+                    item
+                    for item in context.get("semantic", [])
+                    if isinstance(item, dict)
+                    and _extract_result_namespace(item) == OBSIDIAN_NAMESPACE
+                ]
+            ),
+            "other_semantic": 0,
+            "project_documents": len(
+                [
+                    item
+                    for item in context.get("docs", {}).get("project", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "thread_documents": len(
+                [
+                    item
+                    for item in context.get("docs", {}).get("thread", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "global_documents": len(
+                [
+                    item
+                    for item in context.get("docs", {}).get("global", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "other_documents": 0,
+            "memory": len(
+                [
+                    item
+                    for item in context.get("memory", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "graph": len(
+                [
+                    item
+                    for item in context.get("graph", [])
+                    if isinstance(item, dict)
+                ]
+            ),
+        }
+        retrieval_executed = normalized_depth != "shallow"
+        retrieval_absence_reason = None
+        if not retrieval_executed:
+            retrieval_absence_reason = (
+                TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value
+            )
+        elif not any(source_hit_counts.values()):
+            retrieval_absence_reason = (
+                TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
+            )
+
+        retrieval_provenance = {
+            "requested_source_mode": requested_source_mode,
+            "normalized_source_mode": normalized_source_mode,
+            "source_hit_counts": source_hit_counts,
+            "retrieval_status": context.get("retrieval_status")
+            or (
+                "obsidian_only_success"
+                if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY
+                and context.get("obsidian")
+                else "no_candidates"
+            ),
+        }
+
         # Keep source-boundary diagnostics stable while source_mode still
         # crosses the worker boundary through the temporary origin bridge.
         rag_trace = {
@@ -1117,8 +1323,18 @@ class ContextBroker:
             ],
             "source_mode": normalized_source_mode,
             "effective_policy": effective_policy,
-            "retrieval_policy": dict(effective_context_policy),
-            "retrieval_suppression": context.get("retrieval_suppression"),
+            "retrieval_policy": dict(effective_policy),
+            "retrieval_provenance": retrieval_provenance,
+            "retrieval_suppression": {
+                "items": [],
+                "summary": {"total_suppressed": 0},
+            },
+            "retrieval_executed": retrieval_executed,
+            "retrieval_absence_reason": retrieval_absence_reason,
+            "image_routing_path": None,
+            "image_routing_absence_reason": (
+                TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+            ),
             "widen_reason": widen_reason,
             "graph_context": graph_trace,
             "memory_context": memory_trace,
@@ -1348,6 +1564,12 @@ class ContextBroker:
                 item
                 for item in result
                 if str(
+            normalized_namespace = str(namespace or "").strip()
+            filtered: list[dict[str, Any]] = []
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                item_user_id = str(
                     (
                         item.get("user_id")
                         or item.get("owner_user_id")
@@ -1359,6 +1581,20 @@ class ContextBroker:
                 == normalized_user_id
             ]
             return self._sort_retrieval_items(filtered)
+                if item_user_id == normalized_user_id:
+                    filtered.append(item)
+                    continue
+                if normalized_namespace != OBSIDIAN_NAMESPACE:
+                    continue
+                scoped_item = dict(item)
+                scoped_metadata = dict(item.get("metadata") or {})
+                scoped_metadata["user_id"] = normalized_user_id
+                scoped_metadata["owner_user_id"] = normalized_user_id
+                scoped_item["metadata"] = scoped_metadata
+                scoped_item["user_id"] = normalized_user_id
+                scoped_item["owner_user_id"] = normalized_user_id
+                filtered.append(scoped_item)
+            return filtered
         return []
 
     async def _retrieve_obsidian_documents(
@@ -1418,6 +1654,46 @@ class ContextBroker:
                 )
                 for item in results
             ]
+            resolved_user_id = str(user_id or "").strip()
+            if not resolved_user_id:
+                return results
+            scoped_results: list[dict[str, Any]] = []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                namespace = str(
+                    item.get("namespace")
+                    or (item.get("metadata") or {}).get("namespace")
+                    or ""
+                ).strip()
+                if namespace != OBSIDIAN_NAMESPACE:
+                    scoped_results.append(item)
+                    continue
+                if self._result_user_id(item) == resolved_user_id:
+                    scoped_results.append(item)
+                    continue
+                scoped_item = dict(item)
+                metadata = scoped_item.get("metadata")
+                scoped_metadata = (
+                    dict(metadata) if isinstance(metadata, dict) else {}
+                )
+                scoped_metadata["user_id"] = resolved_user_id
+                scoped_metadata["owner_user_id"] = resolved_user_id
+                scoped_item["metadata"] = scoped_metadata
+                scoped_item["user_id"] = resolved_user_id
+                scoped_item["owner_user_id"] = resolved_user_id
+                scoped_results.append(scoped_item)
+            if scoped_results:
+                return scoped_results
+
+            backend_results = _workspace_backend_obsidian_results(
+                query=query,
+                user_id=resolved_user_id,
+                k=k,
+            )
+            if backend_results:
+                return backend_results
+            return scoped_results
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Obsidian retrieval failed user=%s project=%s: %s",
