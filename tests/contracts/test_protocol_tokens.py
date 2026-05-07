@@ -19,6 +19,7 @@ from guardian.protocol_tokens import (
     TASK_EVENT_TYPES,
     TOOL_LOOP_STOP_REASONS,
     TOOL_TURN_STATES,
+    TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -38,6 +39,7 @@ from guardian.protocol_tokens import (
     TraceSnapshotAbsenceReason,
     ToolLoopStopReason,
     ToolTurnState,
+    TraceSuppressionReason,
     IMAGE_ROUTING_PATHS,
     TRACE_SNAPSHOT_ABSENCE_REASONS,
 )
@@ -54,6 +56,13 @@ def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
 
 
+def test_trace_suppression_tokens() -> None:
+    assert (
+        TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
+        == "assistant_vision_refusal_on_image_turn"
+    )
+    assert TRACE_SUPPRESSION_REASONS == {
+        "assistant_vision_refusal_on_image_turn",
 def test_trace_snapshot_absence_reason_tokens() -> None:
     assert TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value == (
         "trace_source_unavailable"
