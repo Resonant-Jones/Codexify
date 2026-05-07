@@ -257,6 +257,85 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+## Rerun — after 2bce6ae worker final image-routing normalization
+
+### Result
+FAIL
+
+### Environment
+- branch: `codex/add-vision-capability-validation`
+- HEAD: `c088cf59` (`docs: note live trace snapshot persistence verification`)
+- runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- services refreshed: `backend`, `worker-chat`
+- refresh command: `docker compose up -d --build --no-deps backend worker-chat`
+
+### Health Evidence Summary
+- `GET /health` returned `200 ok`
+- `GET /health/chat` returned `200 healthy` with a fresh worker heartbeat
+- `GET /api/health/llm` returned `200 ok / online`
+- `GET /api/llm/catalog` returned `200` and still listed `medgemma:4b-it-q8_0` as vision-capable
+
+### Thread Setup
+- Thread A id: `24`
+- Thread A refusal message id: `40`
+- Thread B id: `25`
+- Thread B user image message id: `41`
+- Thread B assistant message id: `42`
+- task id: `5c59b221-d7aa-4b1c-8d8a-4b0b43fefdc1`
+- turn id: `91b94bce-bba2-45cf-8861-55e1d7cda573`
+
+### Requested / Final Model
+- requested provider/model: `local` / `medgemma:4b-it-q8_0`
+- final provider/model: `local` / `library2/ministral-3:8b`
+- `selection_source`: `LOCAL_CHAT_MODEL`
+- `policy_reason`: `LOCAL_CHAT_MODEL`
+- `fallback_reason`: `null`
+- `model_resolution.message`: `requested model 'medgemma:4b-it-q8_0' was overridden by configured local chat model 'library2/ministral-3:8b' from LOCAL_CHAT_MODEL`
+- note: the terminal task event carried `model: library2/ministral-3:8b`, while the completion payload summary still exposed the stale attempted-model slot in its nested `final_model` field
+
+### Image-Routing Evidence
+- Thread B user content carried the supported `cfy-media` attachment markers:
+  - `<!-- cfy-media:image:58494361-dd98-46f5-b887-3e70f812c719 -->`
+  - `<!-- cfy-media-src:/media/images/20260507-499a439a--proof.png?sig=nZZm2hKgqilU24SoVxlGnfahComEvYlbN7cLrxm2J_A -->`
+  - `<!-- cfy-media-name:proof.png -->`
+- `image_attachment_count` did not surface in the assistant metadata, task.completed payload, eval snapshot, or promoted rag-trace object for this run
+- assistant metadata image-routing fields: absent
+- task.completed top-level image-routing fields: absent
+- task.completed nested trace image-routing fields: absent
+- eval snapshot image-routing fields: absent
+- public rag-trace top-level image-routing fields:
+  - `image_routing_path: null`
+  - `image_attachment_count: null`
+  - no canonical `image_routing_absence_reason` surfaced
+- public rag-trace promoted `image_routing` object: absent
+- `assistant_vision_refusal_on_image_turn` did not appear in the persisted trace for this run
+
+### Trace Evidence Summary
+- retrieval policy was present in the nested task.completed trace, eval snapshot trace, and public rag-trace
+- retrieval suppression was present in the nested task.completed trace, eval snapshot trace, and public rag-trace
+- retrieval provenance was not surfaced on the task.completed top-level payload, nested trace, eval snapshot trace, or rag-trace response for this run
+- retrieval execution was not surfaced as a stable machine-readable field on the persisted surfaces for this run
+- `trace_unavailable_reason` was absent / cleared once the persisted snapshot existed
+- `retrieval_query_matches_latest_turn: true` on the persisted trace path
+
+### Thread A Leakage Check
+- Thread A refusal text did not appear in Thread B messages, task evidence, eval snapshot, or rag-trace output
+- Thread B assistant text was refusal-like, but it was not the seeded Thread A refusal text
+
+### Containment
+- No
+- containment is not machine-readably proven
+
+### Limitations
+- This live rerun still did not surface the canonical image-routing truth on the persisted surfaces for a known image turn
+- The current checkout/head for the rerun remained `c088cf59`, so the live runtime did not exhibit the expected final-normalization behavior in this proof pass
+- The terminal task event and payload summary still showed model-selection truth, but the image-routing fields were absent rather than normalized into a canonical path or absence reason
+
+### Remaining Blockers
+- The live image-turn path still does not expose machine-readable image-routing truth on the persisted/eval/rag-trace surfaces
+- The separate Compose migrator issue remains outside this task
+- The frontend Vitest resolution issue remains outside this task
+
 ### Remediation Note
 - Live follow-up verification showed the worker did persist an `eval_trace_snapshots` row for thread `21`, and `GET /api/chat/debug/evals/21/latest` plus `GET /api/chat/debug/rag-trace/21/latest` both returned the snapshot once the completion had settled.
 - That means the remaining failure mode was proof timing, not a missing persistence path.
