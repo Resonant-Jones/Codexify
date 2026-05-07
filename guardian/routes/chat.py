@@ -45,6 +45,10 @@ from pydantic import (
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.context.context_directive_resolver import (
+    resolve_context_request_plans,
+    serialize_context_request_plans,
+)
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id
@@ -394,6 +398,30 @@ def _context_directives_origin_segment(
         )
         return ""
     return f"|context_directives={encoded}"
+
+
+def _context_request_plans_origin_segment(
+    context_request_plans: list[dict[str, Any]] | None,
+) -> str:
+    if not context_request_plans:
+        return ""
+
+    try:
+        encoded = quote(
+            json.dumps(
+                context_request_plans,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode context request plans origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|context_request_plans={encoded}"
 
 
 def _retrieval_override_from_slash_intent(
@@ -2855,6 +2883,23 @@ async def chat_complete(
     normalized_context_directives = _normalize_context_directives(
         body.context_directives
     )
+    serialized_context_request_plans: list[dict[str, Any]] | None = None
+    if normalized_context_directives:
+        try:
+            context_request_plans = resolve_context_request_plans(
+                normalized_context_directives
+            )
+            serialized_context_request_plans = serialize_context_request_plans(
+                context_request_plans
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_context_directive_plan",
+                    "reason": str(exc),
+                },
+            ) from exc
 
     task = ChatCompletionTask(
         user_id=account_id,
@@ -2883,6 +2928,7 @@ async def chat_complete(
         origin=(
             f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
             f"{_context_directives_origin_segment(normalized_context_directives)}"
+            f"{_context_request_plans_origin_segment(serialized_context_request_plans)}"
             f"{_slash_intent_origin_segment(body.slash_intent)}"
             f"{_retrieval_override_origin_segment(retrieval_override)}"
         ),
