@@ -1560,10 +1560,6 @@ class ContextBroker:
             if not isinstance(result, list):
                 return []
             normalized_user_id = str(user_id or "").strip()
-            filtered = [
-                item
-                for item in result
-                if str(
             normalized_namespace = str(namespace or "").strip()
             filtered: list[dict[str, Any]] = []
             for item in result:
@@ -1578,9 +1574,6 @@ class ContextBroker:
                     )
                     or ""
                 ).strip()
-                == normalized_user_id
-            ]
-            return self._sort_retrieval_items(filtered)
                 if item_user_id == normalized_user_id:
                     filtered.append(item)
                     continue
