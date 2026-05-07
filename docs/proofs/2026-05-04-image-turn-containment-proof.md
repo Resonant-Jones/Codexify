@@ -259,6 +259,13 @@ PY
 
 ## Rerun — after 2bce6ae worker final image-routing normalization
 
+## Provenance Remediation
+- The most recent rerun was executed while the local checkout HEAD was `c088cf59`, not `2bce6aeb9416a25d77b931b4974db7573e8951b8`.
+- That makes the rerun a stale-runtime evidence sample, not a valid validation or invalidation of the intended worker normalization fix.
+- Before any future image-turn containment rerun is interpreted, the runtime provenance helper must pass first:
+  - `scripts/proofs/prove_image_turn_containment_runtime_provenance.py --expected-commit 2bce6aeb9416a25d77b931b4974db7573e8951b8`
+- Until provenance validation passes, the image-turn containment proof remains blocked on runtime freshness rather than containment semantics.
+
 ### Result
 FAIL
 
