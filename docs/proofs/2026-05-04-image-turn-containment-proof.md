@@ -477,3 +477,59 @@ FAIL
 - `retained_result_count` is now initialized before the retrieval retention check in `guardian/core/chat_completion_service.py`, so the image-turn completion path can traverse the zero-retained-result branch without raising `UnboundLocalError`.
 - The prior live proof failed before assistant persistence because the worker crashed on this branch, not because the containment trace disproved the image-turn boundary.
 - The focused regression slice is green, so the live proof is ready to rerun against the refreshed runtime.
+
+## Rerun — after 1622126 retained-result crash fix
+
+- Result: `FAIL`
+- Environment:
+  - branch: `main`
+  - HEAD: `bf191f3e39fdd0da517cc3a801833ccc026ce479`
+  - runtime path: `/Volumes/Dev_SSD/Codexify-main`
+  - services refreshed: `docker compose up -d db backend worker-chat`
+- Health evidence summary:
+  - `GET /health` -> `200 ok`
+  - `GET /health/chat` -> `200 healthy` with provider `local` and model `library2/ministral-3:8b`
+  - `GET /api/health/llm` -> `200 ok / online` with the same local provider/model
+  - `GET /api/llm/catalog` -> `200` and included `medgemma:4b-it-q8_0` as vision-capable
+- Thread setup:
+  - Thread A id: `14`
+  - Thread A refusal message id: `21`
+  - Thread B id: `15`
+  - Thread B user image message id: `22`
+  - Thread B assistant message id: `23`
+  - task id: `4303f05b-de09-4b09-90ca-4bd8c3e46091`
+  - turn id: `8dde2123-68f8-4cbb-9d53-66587ce550e5`
+- Requested/final model and substitution reason:
+  - requested provider/model: `local` / `medgemma:4b-it-q8_0`
+  - final provider/model: `local` / `library2/ministral-3:8b`
+  - `selection_source`: `explicit`
+  - `policy_reason`: `LOCAL_CHAT_MODEL`
+  - `fallback_reason`: `null`
+  - `model_resolution.message`: `requested model 'medgemma:4b-it-q8_0' was overridden by configured local chat model 'library2/ministral-3:8b' from LOCAL_CHAT_MODEL`
+- Image-routing evidence:
+  - image payload marker evidence: `<!-- cfy-media:image:0ec971e1-71e8-47dd-a02d-3cc9c990e230 -->` plus signed `cfy-media-src:/media/images/20260507-d014edc0--proof.png?sig=-hGykLongCitoour2Pxf_h21ZyYHtxg6_JU1KZBxt9Q`
+  - `image_attachment_count`: `1`
+  - assistant metadata image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: null`
+  - task.completed payload image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: null`
+  - persisted eval snapshot image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: image_routing_not_evaluated`
+  - promoted rag-trace image-routing fields: `image_routing_path: null`, `image_routing_absence_reason: image_routing_not_evaluated`
+  - `assistant_vision_refusal_on_image_turn` did not appear in the persisted trace for this run
+- Trace evidence summary:
+  - the task event stream reached a terminal `task.completed` event and the terminal-state helper returned event id `1778144829955-0`
+  - the terminal payload captured `completion_truth.accepted: true`, `execution.final_model: library2/ministral-3:8b`, and `image_attachment_count: 1`
+  - the live eval snapshot was available and promoted the persisted trace snapshot
+  - retrieval policy, provenance, suppression, and execution fields were present in the persisted snapshot and promoted rag-trace
+  - `trace_unavailable_reason` was absent / cleared once the persisted snapshot existed
+- Thread A leakage check:
+  - Thread A refusal text did not appear in Thread B messages, task event evidence, eval snapshot, or rag-trace output
+  - the Thread B response was refusal-like, but it was not the seeded Thread A refusal text
+- Whether containment is machine-readably proven:
+  - `No`
+- Limitations:
+  - the worker completed successfully, but the known image turn still finalized with `image_routing_absence_reason: image_routing_not_evaluated`
+  - the live proof therefore still fails the stricter current contract even though the completion and snapshot surfaces are now readable
+  - the proof remains debug-oriented and does not establish a durable forensic store
+- Remaining blockers:
+  - image-routing normalization still does not stamp a canonical non-null native path or absence reason for this known image turn
+  - the separate Compose migrator issue remains outside this task
+  - the frontend Vitest resolution issue remains outside this task
