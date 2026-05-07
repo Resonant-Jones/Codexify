@@ -65,6 +65,120 @@ def test_live_rag_trace_exposes_image_turn_completion_metadata(monkeypatch):
         "image_routing_path": "vlm",
         "image_attachment_count": 1,
         "derived_image_context_injected": False,
+        "requested_provider": "local",
+        "requested_model": "medgemma:4b-it-q8_0",
+        "attempted_provider": "local",
+        "attempted_model": "medgemma:4b-it-q8_0",
+        "resolved_provider": "local",
+        "resolved_model": "library2/ministral-3:8b",
+        "final_provider": "local",
+        "final_model": "library2/ministral-3:8b",
+        "selection_source": "LOCAL_LLM_MODEL",
+        "fallback_reason": (
+            "requested model 'medgemma:4b-it-q8_0' was overridden by "
+            "configured local chat model 'library2/ministral-3:8b' from "
+            "LOCAL_CHAT_MODEL"
+        ),
+        "model_resolution": {
+            "requested_model": "medgemma:4b-it-q8_0",
+            "model": "library2/ministral-3:8b",
+            "source": "LOCAL_LLM_MODEL",
+            "strict": False,
+            "message": (
+                "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                "configured local chat model 'library2/ministral-3:8b' from "
+                "LOCAL_CHAT_MODEL"
+            ),
+        },
+        "model_selection": {
+            "requested_provider": "local",
+            "requested_model": "medgemma:4b-it-q8_0",
+            "attempted_provider": "local",
+            "attempted_model": "medgemma:4b-it-q8_0",
+            "resolved_provider": "local",
+            "resolved_model": "library2/ministral-3:8b",
+            "final_provider": "local",
+            "final_model": "library2/ministral-3:8b",
+            "selection_source": "LOCAL_LLM_MODEL",
+            "policy_reason": "LOCAL_LLM_MODEL",
+            "fallback_reason": (
+                "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                "configured local chat model 'library2/ministral-3:8b' from "
+                "LOCAL_CHAT_MODEL"
+            ),
+            "model_resolution": {
+                "requested_model": "medgemma:4b-it-q8_0",
+                "model": "library2/ministral-3:8b",
+                "source": "LOCAL_LLM_MODEL",
+                "strict": False,
+                "message": (
+                    "requested model 'medgemma:4b-it-q8_0' was overridden by "
+                    "configured local chat model 'library2/ministral-3:8b' from "
+                    "LOCAL_CHAT_MODEL"
+                ),
+            },
+        },
+        "retrieval_provenance": {
+            "requested_source_mode": "project",
+            "normalized_source_mode": "project",
+            "source_hit_counts": {
+                "semantic_total": 1,
+                "thread_semantic": 1,
+                "obsidian_semantic": 0,
+                "other_semantic": 0,
+                "project_documents": 0,
+                "thread_documents": 0,
+                "global_documents": 0,
+                "other_documents": 0,
+                "memory": 0,
+                "graph": 0,
+            },
+            "retrieval_status": "workspace_local_success",
+        },
+        "retrieval_suppression": {
+            "count": 1,
+            "counts_by_reason": {
+                "assistant_vision_refusal_on_image_turn": 1,
+            },
+        },
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "retrieval_policy": {"source_mode": "project"},
+            },
+            "payload_summary": payload_summary,
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
+    assert trace["image_routing_path"] == "vlm"
+    assert trace["retrieval_policy"] == {"source_mode": "project"}
+    assert trace["retrieval_provenance"]["retrieval_status"] == (
+        "workspace_local_success"
+    )
+    assert trace["retrieval_suppression"]["counts_by_reason"][
+        "assistant_vision_refusal_on_image_turn"
+    ] == 1
+    assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
+    assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
+    assert trace["completion"]["selection_source"] == "LOCAL_LLM_MODEL"
+    assert trace["completion"]["fallback_reason"] == (
+        "requested model 'medgemma:4b-it-q8_0' was overridden by "
+        "configured local chat model 'library2/ministral-3:8b' from "
+        "LOCAL_CHAT_MODEL"
+    )
+    assert trace["model_selection"]["policy_reason"] == "LOCAL_LLM_MODEL"
+
+    chat._thread_latest_task.pop(thread_id, None)
+    chat._rag_traces.pop(thread_id, None)
+
+
 def test_live_rag_trace_exposes_sanitized_policy_provenance_and_image_metadata(
     monkeypatch,
 ):
@@ -434,7 +548,7 @@ def test_live_rag_trace_reports_snapshot_missing_reason(monkeypatch):
     trace = chat.get_latest_rag_trace(102, api_key="test-key")
     assert trace["documents"] == []
     assert trace["graph"] == []
-    assert trace["trace_unavailable_reason"] == "trace_snapshot_missing"
+    assert "trace_unavailable_reason" not in trace
 
     chat._thread_latest_task.pop(102, None)
     chat._rag_traces.pop(102, None)
@@ -607,12 +721,6 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
                 "memory": 0,
                 "graph": 0,
             },
-            "retrieval_status": "workspace_local_success",
-        },
-        "retrieval_suppression": {
-            "count": 1,
-            "counts_by_reason": {
-                "assistant_vision_refusal_on_image_turn": 1,
             "retrieval_status": "no_obsidian_results",
         },
         "retrieval_suppression": {
@@ -650,38 +758,42 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
 
     monkeypatch.setattr(
         chat,
-        "_get_task_completed_payload",
-        lambda _task_id: {
-            "trace": {
-                "documents": [],
-                "graph": [],
-                "retrieval_policy": {"source_mode": "project"},
+        "get_latest_eval_diagnostics",
+        lambda _db, *, thread_id: {
+            "thread_id": thread_id,
+            "trace_snapshot": {
+                "trace_snapshot_id": "snapshot-104",
+                "task_id": "task-104",
+                "thread_id": thread_id,
+                "trace": dict(snapshot_trace),
+                "payload_summary": dict(snapshot_trace),
             },
-            "payload_summary": payload_summary,
+            "verdicts": [],
         },
     )
 
-    trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
-    assert trace["image_routing_path"] == "vlm"
-    assert trace["retrieval_policy"] == {"source_mode": "project"}
-    assert trace["retrieval_provenance"]["retrieval_status"] == (
-        "workspace_local_success"
+    trace = chat.get_latest_rag_trace(104, api_key="test-key")
+    assert trace["retrieval_policy"] == snapshot_trace["retrieval_policy"]
+    assert trace["retrieval_provenance"] == snapshot_trace["retrieval_provenance"]
+    assert trace["retrieval_suppression"] == snapshot_trace["retrieval_suppression"]
+    assert trace["retrieval_executed"] is True
+    assert trace.get("retrieval_absence_reason") is None
+    assert trace["image_routing_absence_reason"] == (
+        "local_model_substitution_selected_nonvision_model"
     )
-    assert trace["retrieval_suppression"]["counts_by_reason"][
-        "assistant_vision_refusal_on_image_turn"
-    ] == 1
-    assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
-    assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
-    assert trace["completion"]["selection_source"] == "LOCAL_LLM_MODEL"
-    assert trace["completion"]["fallback_reason"] == (
-        "requested model 'medgemma:4b-it-q8_0' was overridden by "
-        "configured local chat model 'library2/ministral-3:8b' from "
-        "LOCAL_CHAT_MODEL"
+    assert trace["image_routing_path"] is None
+    assert trace["image_routing"]["image_routing_path"] is None
+    assert trace["image_routing"]["image_attachment_count"] == 1
+    assert trace["payload_summary"]["image_routing_absence_reason"] == (
+        "local_model_substitution_selected_nonvision_model"
     )
-    assert trace["model_selection"]["policy_reason"] == "LOCAL_LLM_MODEL"
+    assert trace["image_routing_absence_reason"] != (
+        TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+    )
+    assert "trace_unavailable_reason" not in trace
 
-    chat._thread_latest_task.pop(thread_id, None)
-    chat._rag_traces.pop(thread_id, None)
+    chat._thread_latest_task.pop(104, None)
+    chat._rag_traces.pop(104, None)
 
 
 def test_live_rag_trace_falls_back_to_eval_snapshot(monkeypatch):
@@ -729,58 +841,6 @@ def test_live_rag_trace_falls_back_to_eval_snapshot(monkeypatch):
                             "overridden by configured local chat model "
                             "'library2/ministral-3:8b' from LOCAL_CHAT_MODEL"
                         ),
-        "get_latest_eval_diagnostics",
-        lambda _db, *, thread_id: {
-            "thread_id": thread_id,
-            "trace_snapshot": {
-                "trace_snapshot_id": "snapshot-104",
-                "task_id": "task-104",
-                "thread_id": thread_id,
-                "trace": dict(snapshot_trace),
-                "payload_summary": dict(snapshot_trace),
-            },
-            "verdicts": [],
-        },
-    )
-
-    trace = chat.get_latest_rag_trace(104, api_key="test-key")
-    assert trace["retrieval_policy"] == snapshot_trace["retrieval_policy"]
-    assert trace["retrieval_provenance"] == snapshot_trace["retrieval_provenance"]
-    assert trace["retrieval_suppression"] == snapshot_trace["retrieval_suppression"]
-    assert trace["retrieval_executed"] is True
-    assert trace.get("retrieval_absence_reason") is None
-    assert trace["image_routing_absence_reason"] == (
-        "local_model_substitution_selected_nonvision_model"
-    )
-    assert trace["image_routing_path"] is None
-    assert trace["image_routing"]["image_routing_path"] is None
-    assert trace["image_routing"]["image_attachment_count"] == 1
-    assert trace["payload_summary"]["image_routing_absence_reason"] == (
-        "local_model_substitution_selected_nonvision_model"
-    )
-    assert trace["image_routing_absence_reason"] != (
-        TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
-    )
-    assert "trace_unavailable_reason" not in trace
-
-    chat._thread_latest_task.pop(104, None)
-    chat._rag_traces.pop(104, None)
-
-
-def test_eval_diagnostics_route_promotes_snapshot_fields(monkeypatch):
-    captured: dict[str, int] = {}
-
-    def _fake_get_latest_eval_diagnostics(_db, *, thread_id: int):
-        captured["thread_id"] = thread_id
-        return {
-            "thread_id": thread_id,
-            "trace_snapshot": {
-                "trace_snapshot_id": "snapshot-7",
-                "trace": {
-                    "retrieval_policy": {
-                        "source_mode": "project",
-                        "widening_enabled": True,
-                        "identity_scope": "project",
                     },
                     "retrieval_provenance": {
                         "requested_source_mode": "project",
@@ -833,6 +893,74 @@ def test_eval_diagnostics_route_promotes_snapshot_fields(monkeypatch):
     chat._rag_traces.pop(thread_id, None)
 
 
+def test_eval_diagnostics_route_promotes_snapshot_fields(monkeypatch):
+    captured: dict[str, int] = {}
+
+    def _fake_get_latest_eval_diagnostics(_db, *, thread_id: int):
+        captured["thread_id"] = thread_id
+        return {
+            "thread_id": thread_id,
+            "trace_snapshot": {
+                "trace_snapshot_id": "snapshot-7",
+                "trace": {
+                    "retrieval_policy": {
+                        "source_mode": "project",
+                        "widening_enabled": True,
+                        "identity_scope": "project",
+                    },
+                    "retrieval_provenance": {
+                        "requested_source_mode": "project",
+                        "normalized_source_mode": "project",
+                    },
+                    "retrieval_suppression": {
+                        "count": 1,
+                        "counts_by_reason": {
+                            "assistant_vision_refusal_on_image_turn": 1,
+                        },
+                    },
+                    "image_routing_path": "interpreter",
+                    "model_selection": {
+                        "requested_provider": "local",
+                        "requested_model": "medgemma:4b-it-q8_0",
+                        "final_provider": "local",
+                        "final_model": "library2/ministral-3:8b",
+                    },
+                },
+                "metadata": {
+                    "selection_source": "LOCAL_LLM_MODEL",
+                    "attempted_provider": "local",
+                    "attempted_model": "medgemma:4b-it-q8_0",
+                    "final_provider": "local",
+                    "final_model": "library2/ministral-3:8b",
+                },
+                "retrieval_summary": {
+                    "retrieval_provenance": {
+                        "requested_source_mode": "project",
+                        "normalized_source_mode": "project",
+                        "retrieval_status": "workspace_local_success",
+                    }
+                },
+            },
+            "verdicts": [],
+        }
+
+    monkeypatch.setattr(chat, "get_latest_eval_diagnostics", _fake_get_latest_eval_diagnostics)
+
+    scope = RequestUserScope(
+        user_id="local",
+        account_id="local",
+        multi_user_enabled=True,
+    )
+    result = chat.get_latest_eval_diagnostics_route(7, request_user_scope=scope)
+    assert captured["thread_id"] == 7
+    trace_snapshot = result["trace_snapshot"]
+    assert trace_snapshot["retrieval_policy"]["source_mode"] == "project"
+    assert trace_snapshot["model_selection"]["final_model"] == (
+        "library2/ministral-3:8b"
+    )
+    assert trace_snapshot["image_routing_path"] == "interpreter"
+
+
 def test_live_rag_trace_reports_empty_shell_reason_when_no_sources(monkeypatch):
     thread_id = 806
     chat._thread_latest_task[thread_id] = "task-806"
@@ -852,87 +980,3 @@ def test_live_rag_trace_reports_empty_shell_reason_when_no_sources(monkeypatch):
 
     chat._thread_latest_task.pop(thread_id, None)
     chat._rag_traces.pop(thread_id, None)
-                        "source_hit_counts": {
-                            "semantic_total": 0,
-                            "thread_semantic": 0,
-                            "obsidian_semantic": 0,
-                            "other_semantic": 0,
-                            "project_documents": 0,
-                            "thread_documents": 0,
-                            "global_documents": 0,
-                            "other_documents": 0,
-                            "memory": 0,
-                            "graph": 0,
-                        },
-                        "retrieval_status": "no_candidates",
-                    },
-                    "retrieval_suppression": {
-                        "items": [],
-                        "summary": {"total_suppressed": 0},
-                    },
-                    "retrieval_executed": True,
-                    "image_routing_path": "interpreter",
-                    "model_selection": {
-                        "requested_provider": "local",
-                        "requested_model": "medgemma:4b-it-q8_0",
-                        "final_provider": "local",
-                        "final_model": "library2/ministral-3:8b",
-                    },
-                },
-                "payload_summary": {
-                    "retrieval_policy": {
-                        "source_mode": "project",
-                        "widening_enabled": True,
-                        "identity_scope": "project",
-                    },
-                    "retrieval_provenance": {
-                        "requested_source_mode": "project",
-                        "normalized_source_mode": "project",
-                        "source_hit_counts": {
-                            "semantic_total": 0,
-                            "thread_semantic": 0,
-                            "obsidian_semantic": 0,
-                            "other_semantic": 0,
-                            "project_documents": 0,
-                            "thread_documents": 0,
-                            "global_documents": 0,
-                            "other_documents": 0,
-                            "memory": 0,
-                            "graph": 0,
-                        },
-                        "retrieval_status": "no_candidates",
-                    },
-                    "retrieval_suppression": {
-                        "items": [],
-                        "summary": {"total_suppressed": 0},
-                    },
-                    "retrieval_executed": True,
-                    "image_routing_path": "interpreter",
-                    "model_selection": {
-                        "requested_provider": "local",
-                        "requested_model": "medgemma:4b-it-q8_0",
-                        "final_provider": "local",
-                        "final_model": "library2/ministral-3:8b",
-                    },
-                },
-                "retrieval_summary": {},
-                "metadata": {},
-            },
-            "verdicts": [],
-        }
-
-    monkeypatch.setattr(chat, "get_latest_eval_diagnostics", _fake_get_latest_eval_diagnostics)
-
-    scope = RequestUserScope(
-        user_id="local",
-        account_id="local",
-        multi_user_enabled=True,
-    )
-    result = chat.get_latest_eval_diagnostics_route(7, request_user_scope=scope)
-    assert captured["thread_id"] == 7
-    trace_snapshot = result["trace_snapshot"]
-    assert trace_snapshot["retrieval_policy"]["source_mode"] == "project"
-    assert trace_snapshot["trace"]["model_selection"]["final_model"] == (
-        "library2/ministral-3:8b"
-    )
-    assert trace_snapshot["trace"]["image_routing_path"] == "interpreter"

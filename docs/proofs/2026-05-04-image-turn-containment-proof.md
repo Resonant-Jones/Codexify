@@ -257,6 +257,28 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+## Remediation note — syntax regression gate repair
+
+- Repaired remaining Python syntax/collection blockers in:
+  - `guardian/core/chat_completion_service.py`
+  - `tests/context/test_retrieval_trace_provenance.py`
+  - `tests/routes/test_image_turn_live_trace_contract.py`
+  - `tests/contracts/test_protocol_tokens.py`
+  - `tests/routes/test_chat_profile_trace.py`
+  - plus one additional discovered syntax blocker in `guardian/routes/chat.py` needed for collection.
+- This task repaired syntax/collection validity only and did not change image-routing behavior policy.
+- The live image-turn blocker remains unresolved: known image turns can still persist `image_routing_path: null` and `image_routing_absence_reason: null` on the live proof path unless addressed by a separate runtime behavior fix task.
+
+### Remediation Note — syntax gate blockers (2026-05-07)
+- The remaining Python syntax/collection blockers were repaired for:
+  - `guardian/core/chat_completion_service.py`
+  - `tests/context/test_retrieval_trace_provenance.py`
+  - `tests/routes/test_image_turn_live_trace_contract.py`
+  - `tests/contracts/test_protocol_tokens.py`
+  - `tests/routes/test_chat_profile_trace.py`
+- This remediation pass was scoped to syntax/collection validity only; it did not attempt to resolve live image-routing behavior.
+- The live image-turn blocker remains unresolved: known image turns can still end with `image_routing_path: null` and `image_routing_absence_reason: null` unless fixed in a separate runtime behavior task.
+
 ### Remediation Note — broker syntax blocker
 - The broader regression slice was blocked by a `SyntaxError` in `guardian/context/broker.py` near line `1582`.
 - This task fixed only that broker syntax blocker (no retrieval-policy, provider-selection, queue, or image-routing behavior changes were made).

@@ -63,6 +63,9 @@ def test_trace_suppression_tokens() -> None:
     )
     assert TRACE_SUPPRESSION_REASONS == {
         "assistant_vision_refusal_on_image_turn",
+    }
+
+
 def test_trace_snapshot_absence_reason_tokens() -> None:
     assert TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value == (
         "trace_source_unavailable"
