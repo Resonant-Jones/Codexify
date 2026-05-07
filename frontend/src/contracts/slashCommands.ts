@@ -7,6 +7,7 @@ export type SlashCommandId =
   | "flow"
   | "secure"
   | "connect"
+  | "obsidian"
   | "help";
 
 export type SlashCommandIntentKind =
@@ -131,6 +132,18 @@ export const SLASH_COMMANDS = [
     aliases: ["sync", "attach"],
     keywords: ["bridge", "federate"],
     scaffold: "/connect",
+    effects: {
+      intentKind: "integration",
+      retrievalHint: "none",
+    },
+  },
+  {
+    id: "obsidian",
+    label: "Obsidian",
+    description: "Pull relevant notes from an active Obsidian connector for this turn.",
+    aliases: ["obs", "vault", "notes"],
+    keywords: ["connector", "context", "knowledge", "markdown"],
+    scaffold: "/obsidian",
     effects: {
       intentKind: "integration",
       retrievalHint: "none",
