@@ -38,6 +38,8 @@ inline literals.
   `CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED`,
   `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING`
 
+- Trace suppression reasons:
+  `assistant_vision_refusal_on_image_turn`
 - Trace snapshot absence reasons:
   `trace_source_unavailable`, `trace_snapshot_missing`,
   `image_routing_not_evaluated`,

@@ -19,6 +19,7 @@ from guardian.context.retrieval_router_policy import (
     WIDEN_REASON_NONE,
     normalize_source_mode,
     normalize_widen_reason,
+    resolve_context_assembly_policy,
     source_mode_boundary_label,
 )
 from guardian.context.tool_intents import (
@@ -117,6 +118,89 @@ def _append_retrieval_warning(context: Dict[str, Any], warning: str) -> None:
     context["retrieval_warnings"] = warnings
 
 
+def _build_policy_suppression_summary(
+    *,
+    thread_id: int,
+    project_id: Optional[int],
+    retrieval_policy: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(retrieval_policy, dict):
+        return None
+
+    source_mode = str(retrieval_policy.get("source_mode") or "").strip().lower()
+    if not source_mode:
+        return None
+
+    boundary_label = str(
+        retrieval_policy.get("boundary_label")
+        or source_mode_boundary_label(source_mode)
+    ).strip()
+    allow_semantic_widening = bool(
+        retrieval_policy.get("allow_semantic_widening", True)
+    )
+    allow_thread_docs = bool(retrieval_policy.get("allow_thread_docs", True))
+    allow_project_docs = bool(retrieval_policy.get("allow_project_docs", True))
+    allow_global_widening = bool(
+        retrieval_policy.get("allow_global_widening", True)
+    )
+
+    counts_by_reason: dict[str, int] = {}
+    items: list[dict[str, Any]] = []
+
+    blocked_scopes: list[tuple[str, str, bool]] = [
+        (
+            "thread_semantic",
+            "thread_semantic_excluded_by_policy",
+            allow_semantic_widening,
+        ),
+        ("thread_docs", "thread_docs_excluded_by_policy", allow_thread_docs),
+        (
+            "project_docs",
+            "project_docs_excluded_by_policy",
+            allow_project_docs,
+        ),
+        (
+            "global_search",
+            "global_search_excluded_by_policy",
+            allow_global_widening,
+        ),
+    ]
+    for lane, reason, allowed in blocked_scopes:
+        if allowed:
+            continue
+        counts_by_reason[reason] = counts_by_reason.get(reason, 0) + 1
+        items.append(
+            {
+                "id": f"policy:{lane}",
+                "source_type": "policy",
+                "role": "policy",
+                "thread_id": thread_id,
+                "project_id": project_id,
+                "retrieval_lane": lane,
+                "score": None,
+                "policy_reason": boundary_label or source_mode,
+                "retrieval_policy": dict(retrieval_policy),
+                "suppressed": True,
+                "suppression_reason": reason,
+                "count": 1,
+            }
+        )
+
+    if not counts_by_reason:
+        return None
+
+    return {
+        "items": items,
+        "counts_by_reason": counts_by_reason,
+        "policy": {
+            "source_mode": source_mode,
+            "boundary_label": boundary_label,
+            "allow_semantic_widening": allow_semantic_widening,
+            "allow_thread_docs": allow_thread_docs,
+            "allow_project_docs": allow_project_docs,
+            "allow_global_widening": allow_global_widening,
+        },
+    }
 def _workspace_retrieval_probe_base_url() -> str | None:
     base_url = str(
         os.getenv(_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV) or ""
@@ -176,6 +260,72 @@ def _coerce_graph_value(value: Any) -> Any:
             pass
 
     return str(value)
+
+
+def _annotate_retrieval_item(item: Any, **fields: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+
+    annotated = dict(item)
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if key not in annotated or annotated.get(key) in (None, ""):
+            annotated[key] = value
+    return annotated
+
+
+def _serialize_rag_trace_document(item: Any) -> dict[str, Any]:
+    metadata = item.get("metadata") if isinstance(item, dict) else None
+    if not isinstance(metadata, dict):
+        metadata = {}
+    score = 0.0
+    if isinstance(item, dict):
+        try:
+            raw_score = item.get("score")
+            if raw_score is not None:
+                score = float(raw_score)
+        except (TypeError, ValueError):
+            score = 0.0
+    return {
+        "id": str(item.get("id", "")) if isinstance(item, dict) else "",
+        "title": str(
+            metadata.get("filename", "unknown") if isinstance(item, dict) else "unknown"
+        ),
+        "score": score,
+        "snippet": (
+            str(item.get("text", ""))[:100] + "..."
+            if isinstance(item, dict)
+            else "..."
+        ),
+        "source_type": str(
+            item.get("source_type") or metadata.get("source_type") or ""
+        ).strip()
+        or None,
+        "role": str(
+            item.get("role") or metadata.get("role") or ""
+        ).strip()
+        or None,
+        "thread_id": _coerce_int(
+            item.get("thread_id") or metadata.get("thread_id")
+        )
+        if isinstance(item, dict)
+        else None,
+        "project_id": _coerce_int(
+            item.get("project_id") or metadata.get("project_id")
+        )
+        if isinstance(item, dict)
+        else None,
+        "retrieval_lane": str(item.get("retrieval_lane") or "").strip()
+        if isinstance(item, dict)
+        else None,
+        "policy_reason": str(item.get("policy_reason") or "").strip()
+        if isinstance(item, dict)
+        else None,
+        "retrieval_policy": dict(item.get("retrieval_policy") or {})
+        if isinstance(item, dict)
+        else {},
+    }
 
 
 def _extract_result_user_id(item: Any) -> Optional[str]:
@@ -487,6 +637,7 @@ class ContextBroker:
         user_id: Optional[str] = None,
         source_mode: str = SOURCE_MODE_PROJECT,
         retrieval_override: Optional[dict[str, Any]] = None,
+        retrieval_policy: Optional[dict[str, Any]] = None,
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Assemble a context bundle for the given thread and query.
 
@@ -533,23 +684,58 @@ class ContextBroker:
             base_policy,
             retrieval_override,
         )
+        policy_source_mode = str(
+            effective_policy.get("source_mode") or source_mode
+        ).strip().lower()
+        if policy_source_mode == "thread":
+            policy_source_mode = SOURCE_MODE_CONVERSATION
+        effective_source_mode = normalize_source_mode(policy_source_mode)
+        resolved_project_id = await self._resolve_project_id(
+            thread_id=thread_id, project_id=project_id
+        )
+        if retrieval_policy is None:
+            effective_context_policy = resolve_context_assembly_policy(
+                query,
+                normalized_depth,
+                source_mode=effective_source_mode,
+                retrieval_override=retrieval_override,
+                active_thread_id=thread_id,
+                active_project_id=resolved_project_id,
+                active_persona=None,
+            ).as_dict()
+        else:
+            effective_context_policy = dict(retrieval_policy)
         policy_source_mode = (
-            str(effective_policy.get("source_mode") or SOURCE_MODE_PROJECT)
+            str(
+                effective_context_policy.get("source_mode")
+                or effective_source_mode
+            )
             .strip()
             .lower()
         )
-        normalized_source_mode = (
-            SOURCE_MODE_CONVERSATION
-            if policy_source_mode == "thread"
-            else normalize_source_mode(policy_source_mode)
+        if policy_source_mode == "thread":
+            normalized_source_mode = SOURCE_MODE_CONVERSATION
+            widening_source_mode = SOURCE_MODE_CONVERSATION
+        else:
+            normalized_source_mode = normalize_source_mode(policy_source_mode)
+            widening_source_mode = normalize_source_mode(
+                str(
+                    effective_context_policy.get("widening_source_mode")
+                    or policy_source_mode
+                )
+            )
+        widening_enabled = bool(
+            effective_context_policy.get("allow_semantic_widening", True)
         )
-        widening_enabled = bool(effective_policy.get("widening_enabled", True))
+        allow_project_docs = bool(
+            effective_context_policy.get("allow_project_docs", True)
+        )
+        allow_thread_docs = bool(
+            effective_context_policy.get("allow_thread_docs", True)
+        )
         conversation_only = normalized_source_mode == SOURCE_MODE_CONVERSATION
         source_mode_boundary = source_mode_boundary_label(
             normalized_source_mode
-        )
-        resolved_project_id = await self._resolve_project_id(
-            thread_id=thread_id, project_id=project_id
         )
 
         context: Dict[str, Any] = {}
@@ -559,6 +745,14 @@ class ContextBroker:
             if normalized_source_mode == SOURCE_MODE_WORKSPACE
             else WIDEN_REASON_NONE
         )
+        context["retrieval_policy"] = dict(effective_context_policy)
+        policy_suppression_summary = _build_policy_suppression_summary(
+            thread_id=thread_id,
+            project_id=resolved_project_id,
+            retrieval_policy=effective_context_policy,
+        )
+        if policy_suppression_summary is not None:
+            context["retrieval_suppression"] = policy_suppression_summary
 
         # Always include recent messages
         try:
@@ -584,6 +778,7 @@ class ContextBroker:
                 user_id=resolved_user_id,
                 project_scope=resolved_project_id,
                 k=k_semantic,
+                retrieval_policy=effective_context_policy,
             )
             context.update(
                 {
@@ -605,19 +800,14 @@ class ContextBroker:
                 "project_id": resolved_project_id,
                 "depth_mode": normalized_depth,
                 "documents": [
-                    {
-                        "id": str(item.get("id", "")),
-                        "title": str(
-                            item.get("metadata", {}).get("filename", "unknown")
-                        ),
-                        "score": float(item.get("score", 0.0)),
-                        "snippet": str(item.get("text", ""))[:100] + "...",
-                    }
+                    _serialize_rag_trace_document(item)
                     for item in obsidian_docs
                 ],
                 "graph": [],
                 "source_mode": normalized_source_mode,
                 "effective_policy": effective_policy,
+                "retrieval_policy": dict(effective_context_policy),
+                "retrieval_suppression": context.get("retrieval_suppression"),
                 "widen_reason": WIDEN_REASON_NONE,
                 "graph_context": {
                     "attempted": False,
@@ -687,9 +877,10 @@ class ContextBroker:
                     thread_id=thread_id,
                     user_id=resolved_user_id,
                     project_id=resolved_project_id,
-                    source_mode=normalized_source_mode,
+                    source_mode=widening_source_mode,
                     widening_enabled=widening_enabled,
                     search_fn=self._search_semantic,
+                    retrieval_policy=effective_context_policy,
                 )
                 widened = widened or semantic_widen_reason != WIDEN_REASON_NONE
                 widen_reason = self._merge_widen_reason(
@@ -706,6 +897,7 @@ class ContextBroker:
                         user_id=resolved_user_id,
                         project_scope=resolved_project_id,
                         k=k_semantic,
+                        retrieval_policy=effective_context_policy,
                     )
                     if (
                         not semantic_obsidian
@@ -765,6 +957,9 @@ class ContextBroker:
                     k_project_docs=k_project_docs,
                     k_thread_docs=k_thread_docs,
                     doc_excerpt_chars=doc_excerpt_chars,
+                    include_project_docs=allow_project_docs,
+                    include_thread_docs=allow_thread_docs,
+                    retrieval_policy=effective_context_policy,
                 )
                 context["docs"] = scoped_docs
             except Exception as e:
@@ -911,6 +1106,7 @@ class ContextBroker:
                         source_mode=normalized_source_mode,
                         widening_enabled=widening_enabled,
                         search_fn=self._search_memory,
+                        retrieval_policy=effective_context_policy,
                     )
                     widened = (
                         widened or memory_widen_reason != WIDEN_REASON_NONE
@@ -1114,14 +1310,7 @@ class ContextBroker:
             "project_id": resolved_project_id,
             "depth_mode": normalized_depth,
             "documents": [
-                {
-                    "id": str(item.get("id", "")),
-                    "title": str(
-                        item.get("metadata", {}).get("filename", "unknown")
-                    ),
-                    "score": float(item.get("score", 0.0)),
-                    "snippet": str(item.get("text", ""))[:100] + "...",
-                }
+                _serialize_rag_trace_document(item)
                 for item in context.get("semantic", [])
             ],
             "graph": [
@@ -1371,6 +1560,10 @@ class ContextBroker:
             if not isinstance(result, list):
                 return []
             normalized_user_id = str(user_id or "").strip()
+            filtered = [
+                item
+                for item in result
+                if str(
             normalized_namespace = str(namespace or "").strip()
             filtered: list[dict[str, Any]] = []
             for item in result:
@@ -1385,6 +1578,9 @@ class ContextBroker:
                     )
                     or ""
                 ).strip()
+                == normalized_user_id
+            ]
+            return self._sort_retrieval_items(filtered)
                 if item_user_id == normalized_user_id:
                     filtered.append(item)
                     continue
@@ -1408,6 +1604,7 @@ class ContextBroker:
         user_id: Optional[str],
         project_scope: Optional[int],
         k: int,
+        retrieval_policy: dict[str, Any] | None = None,
     ) -> List[Dict[str, Any]]:
         """Fetch Obsidian-backed documents from the shared vector corpus."""
         if k <= 0:
@@ -1420,6 +1617,43 @@ class ContextBroker:
                 namespace=OBSIDIAN_NAMESPACE,
                 user_id=str(user_id or "").strip(),
             )
+            normalized_source_mode = normalize_source_mode(
+                (retrieval_policy or {}).get("source_mode")
+            )
+            policy_reason = (
+                "personal_knowledge"
+                if normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE
+                else "workspace"
+            )
+            return [
+                _annotate_retrieval_item(
+                    item,
+                    source_type=str(
+                        item.get("source_type")
+                        or item.get("metadata", {}).get("source_type")
+                        or "obsidian"
+                    ).strip()
+                    or "obsidian",
+                    role=str(
+                        item.get("role")
+                        or item.get("metadata", {}).get("role")
+                        or "document"
+                    ).strip()
+                    or "document",
+                    thread_id=_coerce_int(
+                        item.get("thread_id")
+                        or item.get("metadata", {}).get("thread_id")
+                    ),
+                    project_id=_coerce_int(
+                        item.get("project_id")
+                        or item.get("metadata", {}).get("project_id")
+                    ),
+                    retrieval_lane="obsidian_semantic",
+                    policy_reason=policy_reason,
+                    retrieval_policy=dict(retrieval_policy or {}),
+                )
+                for item in results
+            ]
             resolved_user_id = str(user_id or "").strip()
             if not resolved_user_id:
                 return results
@@ -1661,6 +1895,66 @@ class ContextBroker:
             return result, {}
         return [], {}
 
+    @staticmethod
+    def _retrieval_trust_rank(item: Any) -> int:
+        if not isinstance(item, dict):
+            return 1
+
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = item.get("meta")
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        role = str(
+            item.get("role")
+            or metadata.get("role")
+            or metadata.get("author_role")
+            or metadata.get("speaker_role")
+            or metadata.get("source_role")
+            or ""
+        ).strip().lower()
+        scope = str(
+            item.get("scope")
+            or metadata.get("scope")
+            or item.get("source")
+            or metadata.get("source")
+            or metadata.get("document_scope")
+            or ""
+        ).strip().lower()
+        if role == "assistant":
+            return 2
+        if role == "user":
+            return 0
+        if scope in {
+            "document",
+            "project",
+            "thread",
+            "project_document",
+            "thread_document",
+            "uploaded_document",
+            "generated_document",
+        }:
+            return 0
+        return 1
+
+    @classmethod
+    def _sort_retrieval_items(
+        cls, items: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        decorated: list[tuple[int, float, int, Dict[str, Any]]] = []
+        for index, item in enumerate(items):
+            raw_score = item.get("score", 0.0)
+            try:
+                score = float(raw_score)
+            except (TypeError, ValueError):
+                score = 0.0
+            decorated.append(
+                (cls._retrieval_trust_rank(item), -score, index, item)
+            )
+        decorated.sort()
+        return [item for *_prefix, item in decorated]
+
     async def _search_with_widening(
         self,
         *,
@@ -1672,6 +1966,7 @@ class ContextBroker:
         source_mode: str,
         search_fn: Any,
         widening_enabled: bool = True,
+        retrieval_policy: dict[str, Any] | None = None,
     ) -> tuple[List[Dict[str, Any]], str, Dict[str, Any]]:
         normalized_source_mode = normalize_source_mode(source_mode)
         diagnostics: Dict[str, Any] = {
@@ -1723,6 +2018,69 @@ class ContextBroker:
             return [], WIDEN_REASON_NONE, diagnostics
 
         widen_reason = self._determine_widen_reason(primary_hits, k)
+        is_memory_search = getattr(search_fn, "__name__", "") == "_search_memory"
+        primary_lane = "memory" if is_memory_search else "thread_semantic"
+        primary_policy_reason = search_trace.get("reason") or "local_hits"
+
+        def _annotate_hits(
+            hits: list[dict[str, Any]],
+            *,
+            retrieval_lane: str,
+            policy_reason: str,
+            source_thread_id: int,
+        ) -> list[dict[str, Any]]:
+            source_type = "memory" if is_memory_search else "retrieval"
+            annotated: list[dict[str, Any]] = []
+            for item in hits:
+                score_value: float | None = None
+                try:
+                    raw_score = item.get("score")
+                    if raw_score is not None:
+                        score_value = float(raw_score)
+                except (TypeError, ValueError):
+                    score_value = None
+                annotated.append(
+                    _annotate_retrieval_item(
+                        item,
+                        source_type=str(
+                            item.get("source_type")
+                            or item.get("metadata", {}).get("source_type")
+                            or source_type
+                        ).strip()
+                        or source_type,
+                        role=str(
+                            item.get("role")
+                            or item.get("metadata", {}).get("role")
+                            or item.get("metadata", {}).get("author_role")
+                            or item.get("metadata", {}).get("speaker_role")
+                            or (
+                                "memory"
+                                if is_memory_search
+                                else "retrieval"
+                            )
+                        ).strip()
+                        or (
+                            "memory"
+                            if is_memory_search
+                            else "retrieval"
+                        ),
+                        thread_id=source_thread_id,
+                        project_id=project_id,
+                        retrieval_lane=retrieval_lane,
+                        score=score_value,
+                        policy_reason=policy_reason,
+                        retrieval_policy=dict(retrieval_policy or {}),
+                    )
+                )
+            return annotated
+
+        primary_annotated_hits = _annotate_hits(
+            primary_hits[:k],
+            retrieval_lane=primary_lane,
+            policy_reason=primary_policy_reason,
+            source_thread_id=thread_id,
+        )
+
         if not widening_enabled:
             diagnostics.update(
                 status="contributed" if primary_hits else "attempted_no_hits",
@@ -1731,11 +2089,15 @@ class ContextBroker:
                     if primary_hits
                     else search_trace.get("reason", "no_hits")
                 ),
-                result_count=len(primary_hits[:k]),
+                result_count=len(primary_annotated_hits),
                 candidate_thread_count=0,
                 widened=False,
             )
-            return primary_hits[:k], WIDEN_REASON_NONE, diagnostics
+            return (
+                self._sort_retrieval_items(primary_annotated_hits),
+                WIDEN_REASON_NONE,
+                diagnostics,
+            )
         if widen_reason == WIDEN_REASON_NONE:
             diagnostics.update(
                 status="contributed" if primary_hits else "attempted_no_hits",
@@ -1744,11 +2106,15 @@ class ContextBroker:
                     if primary_hits
                     else search_trace.get("reason", "no_hits")
                 ),
-                result_count=len(primary_hits[:k]),
+                result_count=len(primary_annotated_hits),
                 candidate_thread_count=0,
                 widened=False,
             )
-            return primary_hits[:k], WIDEN_REASON_NONE, diagnostics
+            return (
+                self._sort_retrieval_items(primary_annotated_hits),
+                WIDEN_REASON_NONE,
+                diagnostics,
+            )
 
         candidate_threads = await self._list_widening_threads(
             thread_id=thread_id,
@@ -1762,7 +2128,7 @@ class ContextBroker:
                 diagnostics.update(
                     status="contributed",
                     reason="local_hits",
-                    result_count=len(primary_hits[:k]),
+                    result_count=len(primary_annotated_hits),
                     widened=False,
                 )
             else:
@@ -1786,10 +2152,14 @@ class ContextBroker:
                         else "no_eligible_candidates"
                     ),
                 )
-            return primary_hits[:k], WIDEN_REASON_NONE, diagnostics
+            return (
+                self._sort_retrieval_items(primary_annotated_hits),
+                WIDEN_REASON_NONE,
+                diagnostics,
+            )
 
         merged_hits = self._seed_thread_hits_for_widening(
-            primary_hits,
+            primary_annotated_hits,
             target_count=k,
             widen_reason=widen_reason,
         )
@@ -1826,13 +2196,29 @@ class ContextBroker:
                 continue
             widened_executed = True
             candidate_hit_count += len(hits)
-            merged_hits = self._dedupe_retrieval_items([*merged_hits, *hits])[
+            candidate_hits = _annotate_hits(
+                hits,
+                retrieval_lane=(
+                    "memory"
+                    if is_memory_search
+                    else "candidate_thread_semantic"
+                ),
+                policy_reason=widen_reason or "widened_by_policy",
+                source_thread_id=candidate_id,
+            )
+            merged_hits = self._dedupe_retrieval_items(
+                [*merged_hits, *candidate_hits]
+            )[
                 :k
             ]
             if len(merged_hits) >= k:
                 break
 
-        final_hits = merged_hits[:k] if widened_executed else primary_hits[:k]
+        final_hits = (
+            self._sort_retrieval_items(merged_hits)[:k]
+            if widened_executed
+            else self._sort_retrieval_items(primary_annotated_hits)
+        )
         effective_widen_reason = (
             WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE
             if widened_executed
@@ -2058,6 +2444,9 @@ class ContextBroker:
         k_project_docs: int = 4,
         k_thread_docs: int = 4,
         doc_excerpt_chars: int = 420,
+        include_project_docs: bool = True,
+        include_thread_docs: bool = True,
+        retrieval_policy: dict[str, Any] | None = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Fetch scoped document excerpts for RAG with project-first priority."""
         resolved_project_id = await self._resolve_project_id(
@@ -2070,6 +2459,9 @@ class ContextBroker:
             k_project_docs=k_project_docs,
             k_thread_docs=k_thread_docs,
             doc_excerpt_chars=doc_excerpt_chars,
+            include_project_docs=include_project_docs,
+            include_thread_docs=include_thread_docs,
+            retrieval_policy=retrieval_policy,
         )
 
     async def _resolve_project_id(
@@ -2106,6 +2498,9 @@ class ContextBroker:
         k_project_docs: int,
         k_thread_docs: int,
         doc_excerpt_chars: int,
+        include_project_docs: bool,
+        include_thread_docs: bool,
+        retrieval_policy: dict[str, Any] | None = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         docs: Dict[str, List[Dict[str, Any]]] = {
             "project": [],
@@ -2136,48 +2531,56 @@ class ContextBroker:
             session = session_provider()
             if hasattr(session, "__enter__") and hasattr(session, "__exit__"):
                 with session as managed_session:
-                    docs["project"] = self._query_project_docs(
-                        managed_session,
-                        project_id=project_id,
-                        user_id=user_id,
-                        k_docs=k_project_docs,
-                        doc_excerpt_chars=doc_excerpt_chars,
-                        generated_model=GeneratedDocument,
-                        uploaded_model=UploadedDocument,
-                        project_link_model=ProjectDocumentLink,
-                    )
-                    docs["thread"] = self._query_thread_docs(
-                        managed_session,
-                        thread_id=thread_id,
-                        user_id=user_id,
-                        k_docs=k_thread_docs,
-                        doc_excerpt_chars=doc_excerpt_chars,
-                        generated_model=GeneratedDocument,
-                        uploaded_model=UploadedDocument,
-                        thread_link_model=ThreadDocument,
-                    )
+                    if include_project_docs:
+                        docs["project"] = self._query_project_docs(
+                            managed_session,
+                            project_id=project_id,
+                            user_id=user_id,
+                            k_docs=k_project_docs,
+                            doc_excerpt_chars=doc_excerpt_chars,
+                            generated_model=GeneratedDocument,
+                            uploaded_model=UploadedDocument,
+                            project_link_model=ProjectDocumentLink,
+                            retrieval_policy=retrieval_policy,
+                        )
+                    if include_thread_docs:
+                        docs["thread"] = self._query_thread_docs(
+                            managed_session,
+                            thread_id=thread_id,
+                            user_id=user_id,
+                            k_docs=k_thread_docs,
+                            doc_excerpt_chars=doc_excerpt_chars,
+                            generated_model=GeneratedDocument,
+                            uploaded_model=UploadedDocument,
+                            thread_link_model=ThreadDocument,
+                            retrieval_policy=retrieval_policy,
+                        )
                 return docs
 
-            docs["project"] = self._query_project_docs(
-                session,
-                project_id=project_id,
-                user_id=user_id,
-                k_docs=k_project_docs,
-                doc_excerpt_chars=doc_excerpt_chars,
-                generated_model=GeneratedDocument,
-                uploaded_model=UploadedDocument,
-                project_link_model=ProjectDocumentLink,
-            )
-            docs["thread"] = self._query_thread_docs(
-                session,
-                thread_id=thread_id,
-                user_id=user_id,
-                k_docs=k_thread_docs,
-                doc_excerpt_chars=doc_excerpt_chars,
-                generated_model=GeneratedDocument,
-                uploaded_model=UploadedDocument,
-                thread_link_model=ThreadDocument,
-            )
+            if include_project_docs:
+                docs["project"] = self._query_project_docs(
+                    session,
+                    project_id=project_id,
+                    user_id=user_id,
+                    k_docs=k_project_docs,
+                    doc_excerpt_chars=doc_excerpt_chars,
+                    generated_model=GeneratedDocument,
+                    uploaded_model=UploadedDocument,
+                    project_link_model=ProjectDocumentLink,
+                    retrieval_policy=retrieval_policy,
+                )
+            if include_thread_docs:
+                docs["thread"] = self._query_thread_docs(
+                    session,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    k_docs=k_thread_docs,
+                    doc_excerpt_chars=doc_excerpt_chars,
+                    generated_model=GeneratedDocument,
+                    uploaded_model=UploadedDocument,
+                    thread_link_model=ThreadDocument,
+                    retrieval_policy=retrieval_policy,
+                )
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Scoped document retrieval failed thread=%s project=%s err=%s",
@@ -2205,6 +2608,7 @@ class ContextBroker:
         generated_model: Any,
         uploaded_model: Any,
         project_link_model: Any,
+        retrieval_policy: dict[str, Any] | None = None,
     ) -> List[Dict[str, Any]]:
         if project_id is None or k_docs <= 0:
             return []
@@ -2251,6 +2655,7 @@ class ContextBroker:
                     relation="project_library",
                     attached_at=getattr(link, "attached_at", None),
                     attached_by=getattr(link, "attached_by", None),
+                    retrieval_policy=retrieval_policy,
                 )
             )
             if len(docs) >= k_docs:
@@ -2268,6 +2673,7 @@ class ContextBroker:
         generated_model: Any,
         uploaded_model: Any,
         thread_link_model: Any,
+        retrieval_policy: dict[str, Any] | None = None,
     ) -> List[Dict[str, Any]]:
         if k_docs <= 0:
             return []
@@ -2310,6 +2716,7 @@ class ContextBroker:
                     ),
                     attached_at=getattr(link, "created_at", None),
                     attached_by=None,
+                    retrieval_policy=retrieval_policy,
                 )
             )
             if len(docs) >= k_docs:
@@ -2394,6 +2801,7 @@ class ContextBroker:
         relation: str,
         attached_at: Any,
         attached_by: Any,
+        retrieval_policy: dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         if doc_type == "generated":
             title = str(
@@ -2414,6 +2822,7 @@ class ContextBroker:
             )
             source_table = "uploaded_documents"
 
+        scope_lane = f"{scope}_docs"
         return {
             "id": str(getattr(row, "id", "")),
             "title": title,
@@ -2422,10 +2831,15 @@ class ContextBroker:
             "document_type": doc_type,
             "source_table": source_table,
             "source": source,
+            "source_type": doc_type,
+            "role": "document",
             "project_id": _coerce_int(getattr(row, "project_id", None)),
             "thread_id": _coerce_int(getattr(row, "thread_id", None)),
             "user_id": getattr(row, "user_id", None),
             "created_at": self._to_iso(getattr(row, "created_at", None)),
+            "retrieval_lane": scope_lane,
+            "policy_reason": relation,
+            "retrieval_policy": dict(retrieval_policy or {}),
             "provenance": {
                 "relation": relation,
                 "attached_at": self._to_iso(attached_at),

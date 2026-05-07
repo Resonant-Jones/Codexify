@@ -65,6 +65,12 @@ class PersonalFactStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class TraceSuppressionReason(str, Enum):
+    ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN = (
+        "assistant_vision_refusal_on_image_turn"
+    )
+
+
 DELEGATION_SUMMARY_OUTCOME_TYPE = "task_summary"
 
 
@@ -195,6 +201,9 @@ DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
 PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in PersonalFactStatus}
 )
+TRACE_SUPPRESSION_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in TraceSuppressionReason}
+)
 DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
 )
@@ -257,6 +266,7 @@ __all__ = [
     "ToolLoopStopReason",
     "DelegationJobStatus",
     "PersonalFactStatus",
+    "TraceSuppressionReason",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
     "ExecutorId",
@@ -278,6 +288,7 @@ __all__ = [
     "TOOL_LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
+    "TRACE_SUPPRESSION_REASONS",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",
     "EXECUTOR_RELEASE_POSTURES",

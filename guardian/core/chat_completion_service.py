@@ -46,7 +46,7 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_WORKSPACE,
     normalize_retrieval_override_mode,
     normalize_source_mode,
-    resolve_retrieval_plan,
+    resolve_context_assembly_policy,
     source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
@@ -55,6 +55,7 @@ from guardian.core.ai_router import (
     _image_turn_vision_unsupported_detail,
     chat_with_ai,
     normalize_completion_output,
+    resolve_local_execution_model,
     resolve_model_vision_capability_state,
     messages_contain_image_payload,
     stream_local,
@@ -83,6 +84,7 @@ from guardian.protocol_tokens import (
     LoopStopReason,
     ToolLoopStopReason,
     ToolTurnState,
+    TraceSuppressionReason,
     TraceSnapshotAbsenceReason,
 )
 from guardian.queue.redis_queue import (
@@ -563,7 +565,7 @@ def _resolve_effective_source_mode_for_assembly(
     source_mode: Any,
     retrieval_override: Any,
 ) -> str:
-    normalized_source_mode = _normalize_source_mode(source_mode)
+    normalized_source_mode = normalize_source_mode(source_mode)
     if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY:
         return normalized_source_mode
     override_mode = _retrieval_override_mode(retrieval_override)
@@ -1035,6 +1037,7 @@ async def _assemble_context_bundle(
     project_id: int | None,
     source_mode: str,
     retrieval_override: dict[str, Any] | None = None,
+    retrieval_policy: dict[str, Any] | None = None,
     request_user_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     _ = request_user_id
@@ -1047,33 +1050,48 @@ async def _assemble_context_bundle(
             project_id=project_id,
             source_mode=source_mode,
             retrieval_override=retrieval_override,
+            retrieval_policy=retrieval_policy,
         )
     except TypeError as exc:
         error_text = str(exc)
         retrieval_override_error = "retrieval_override" in error_text
+        retrieval_policy_error = "retrieval_policy" in error_text
         source_mode_error = "source_mode" in error_text
         project_id_error = "project_id" in error_text
         if not (
-            retrieval_override_error or source_mode_error or project_id_error
+            retrieval_override_error
+            or retrieval_policy_error
+            or source_mode_error
+            or project_id_error
         ):
             raise
         if retrieval_override_error and not (
-            source_mode_error or project_id_error
+            retrieval_policy_error
+            or source_mode_error
+            or project_id_error
         ):
-            return await broker.assemble(
-                thread_id,
+            assemble_kwargs = dict(
+                thread_id=thread_id,
                 query=query,
                 depth_mode=depth_mode,
                 user_id=user_id,
                 project_id=project_id,
                 source_mode=source_mode,
             )
-        return await broker.assemble(
-            thread_id,
+            if not retrieval_policy_error:
+                assemble_kwargs["retrieval_policy"] = retrieval_policy
+            return await broker.assemble(
+                **assemble_kwargs,
+            )
+        assemble_kwargs = dict(
+            thread_id=thread_id,
             query=query,
             depth_mode=depth_mode,
             user_id=user_id,
         )
+        if not retrieval_policy_error:
+            assemble_kwargs["retrieval_policy"] = retrieval_policy
+        return await broker.assemble(**assemble_kwargs)
 
 
 def _find_last_message_index(messages: list[dict[str, Any]], role: str) -> int:
@@ -1249,6 +1267,93 @@ def _semantic_context_item_text(item: Any) -> str:
     ).strip()
 
 
+def _build_retrieval_suppression_item(
+    item: dict[str, Any],
+    *,
+    suppression_reason: str,
+    policy_reason: str,
+    retrieval_lane: str,
+    thread_id: int | None,
+    project_id: int | None,
+    retrieval_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    metadata = item.get("metadata") if isinstance(item, dict) else None
+    if not isinstance(metadata, dict):
+        metadata = {}
+    score_value: float | None = None
+    try:
+        raw_score = item.get("score")
+        if raw_score is not None and not isinstance(raw_score, bool):
+            score_value = float(raw_score)
+    except (TypeError, ValueError):
+        score_value = None
+    item_thread_id = item.get("thread_id")
+    if item_thread_id in (None, ""):
+        item_thread_id = thread_id
+    item_project_id = item.get("project_id")
+    if item_project_id in (None, ""):
+        item_project_id = project_id
+    return {
+        "id": str(item.get("id") or metadata.get("id") or ""),
+        "source_type": str(
+            item.get("source_type")
+            or metadata.get("source_type")
+            or "retrieval"
+        ).strip()
+        or "retrieval",
+        "role": str(
+            item.get("role")
+            or metadata.get("role")
+            or metadata.get("author_role")
+            or metadata.get("speaker_role")
+            or "retrieval"
+        ).strip()
+        or "retrieval",
+        "thread_id": item_thread_id,
+        "project_id": item_project_id,
+        "retrieval_lane": str(item.get("retrieval_lane") or retrieval_lane),
+        "score": score_value,
+        "policy_reason": policy_reason,
+        "retrieval_policy": dict(retrieval_policy or {}),
+        "suppressed": True,
+        "suppression_reason": suppression_reason,
+    }
+
+
+def _merge_retrieval_suppression_summaries(
+    *summaries: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    merged_items: list[dict[str, Any]] = []
+    counts_by_reason: dict[str, int] = {}
+    for summary in summaries:
+        if not isinstance(summary, dict):
+            continue
+        items = summary.get("items")
+        if isinstance(items, list):
+            merged_items.extend(
+                [item for item in items if isinstance(item, dict)]
+            )
+        counts = summary.get("counts_by_reason")
+        if isinstance(counts, dict):
+            for reason, count in counts.items():
+                reason_text = str(reason or "").strip()
+                if not reason_text:
+                    continue
+                try:
+                    numeric_count = int(count)
+                except (TypeError, ValueError):
+                    continue
+                if numeric_count <= 0:
+                    continue
+                counts_by_reason[reason_text] = (
+                    counts_by_reason.get(reason_text, 0) + numeric_count
+                )
+    if not merged_items and not counts_by_reason:
+        return None
+    return {
+        "count": len(merged_items) if merged_items else sum(counts_by_reason.values()),
+        "items": merged_items,
+        "counts_by_reason": counts_by_reason,
 def _semantic_suppression_trace_item(
     item: dict[str, Any],
     *,
@@ -1270,6 +1375,11 @@ def _semantic_suppression_trace_item(
 def _filter_image_refusal_semantic_context(
     semantic_items: Any,
     latest_user_meta: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if not _image_attachments_from_meta(latest_user_meta):
+        return [item for item in semantic_items or [] if isinstance(item, dict)], None
+    filtered: list[dict[str, Any]] = []
+    suppressed_items: list[dict[str, Any]] = []
     *,
     suppression_trace: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -1285,6 +1395,19 @@ def _filter_image_refusal_semantic_context(
         if not isinstance(item, dict):
             continue
         if _assistant_image_refusal_message(_semantic_context_item_text(item)):
+            suppressed_items.append(
+                _build_retrieval_suppression_item(
+                    item,
+                    suppression_reason=TraceSuppressionReason
+                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
+                    policy_reason=TraceSuppressionReason
+                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
+                    retrieval_lane=str(item.get("retrieval_lane") or "thread_semantic"),
+                    thread_id=item.get("thread_id"),
+                    project_id=item.get("project_id"),
+                    retrieval_policy=item.get("retrieval_policy")
+                    if isinstance(item.get("retrieval_policy"), dict)
+                    else None,
             suppressed.append(
                 _semantic_suppression_trace_item(
                     item,
@@ -1295,6 +1418,21 @@ def _filter_image_refusal_semantic_context(
             )
             continue
         filtered.append(item)
+    suppression_summary = _merge_retrieval_suppression_summaries(
+        None
+        if not suppressed_items
+        else {
+            "count": len(suppressed_items),
+            "items": suppressed_items,
+            "counts_by_reason": {
+                TraceSuppressionReason
+                .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value: len(
+                    suppressed_items
+                )
+            },
+        }
+    )
+    return filtered, suppression_summary
     if isinstance(suppression_trace, dict):
         suppression_trace["items"] = suppressed
         suppression_trace["summary"] = {
@@ -1880,6 +2018,8 @@ def build_sanitized_payload_summary(
     *,
     provider: str | None,
     model: str | None,
+    requested_provider: str | None = None,
+    requested_model: str | None = None,
     requested_source_mode: str | None = None,
 ) -> dict[str, Any]:
     """Build a minimal, non-sensitive summary of the outbound provider payload.
@@ -2031,6 +2171,16 @@ def build_sanitized_payload_summary(
         ),
         "resolved_provider": (provider or "").strip() or None,
         "resolved_model": (model or "").strip() or None,
+        "requested_provider": (
+            str(requested_provider).strip() or None
+            if requested_provider is not None
+            else None
+        ),
+        "requested_model": (
+            str(requested_model).strip() or None
+            if requested_model is not None
+            else None
+        ),
         "source_mode": None,
         "effective_source_mode": None,
         "requested_source_mode": (
@@ -2270,16 +2420,100 @@ def _build_retrieval_provenance(
     }
 
 
+def _build_model_selection_metadata(
 def _build_model_selection_trace(
     *,
     requested_provider: str | None,
     requested_model: str | None,
     attempted_provider: str | None,
     attempted_model: str | None,
+    resolved_provider: str | None,
+    resolved_model: str | None,
     final_provider: str | None,
     final_model: str | None,
     selection_source: str | None,
     fallback_reason: str | None,
+    model_resolution: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "requested_provider": (
+            str(requested_provider).strip() or None
+            if requested_provider is not None
+            else None
+        ),
+        "requested_model": (
+            str(requested_model).strip() or None
+            if requested_model is not None
+            else None
+        ),
+        "attempted_provider": (
+            str(attempted_provider).strip() or None
+            if attempted_provider is not None
+            else None
+        ),
+        "attempted_model": (
+            str(attempted_model).strip() or None
+            if attempted_model is not None
+            else None
+        ),
+        "resolved_provider": (
+            str(resolved_provider).strip() or None
+            if resolved_provider is not None
+            else None
+        ),
+        "resolved_model": (
+            str(resolved_model).strip() or None
+            if resolved_model is not None
+            else None
+        ),
+        "final_provider": (
+            str(final_provider).strip() or None
+            if final_provider is not None
+            else None
+        ),
+        "final_model": (
+            str(final_model).strip() or None
+            if final_model is not None
+            else None
+        ),
+        "selection_source": (
+            str(selection_source).strip() or None
+            if selection_source is not None
+            else None
+        ),
+        "fallback_reason": (
+            str(fallback_reason).strip() or None
+            if fallback_reason is not None
+            else None
+        ),
+    }
+    if isinstance(model_resolution, dict):
+        payload["model_resolution"] = dict(model_resolution)
+        source = str(model_resolution.get("source") or "").strip()
+        if source:
+            payload["policy_reason"] = source
+        failure_kind = str(model_resolution.get("failure_kind") or "").strip()
+        if failure_kind:
+            payload["model_resolution_failure_kind"] = failure_kind
+        message = str(model_resolution.get("message") or "").strip()
+        if message:
+            payload["model_resolution_message"] = message
+    if not payload.get("policy_reason"):
+        if fallback_reason:
+            payload["policy_reason"] = fallback_reason
+        elif (
+            payload.get("requested_model")
+            and payload.get("final_model")
+            and payload["requested_model"] != payload["final_model"]
+        ):
+            payload["policy_reason"] = "requested_model_not_selected"
+        elif (
+            payload.get("requested_provider")
+            and payload.get("final_provider")
+            and payload["requested_provider"] != payload["final_provider"]
+        ):
+            payload["policy_reason"] = "requested_provider_not_selected"
+    return {key: value for key, value in payload.items() if value is not None}
 ) -> dict[str, Any]:
     settings = get_settings()
     normalized_requested_provider = (
@@ -2821,7 +3055,25 @@ async def build_messages_for_llm(
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
     trace_candidate: dict[str, Any] | None = None
+    retrieval_policy_obj: Any | None = None
+    retrieval_policy: dict[str, Any] | None = None
     try:
+        effective_source_mode = _resolve_effective_source_mode_for_assembly(
+            source_mode,
+            routing_debug_metadata.get("retrieval_override"),
+        )
+        retrieval_policy_obj = resolve_context_assembly_policy(
+            retrieval_query,
+            depth,
+            source_mode=effective_source_mode,
+            retrieval_override=routing_debug_metadata.get(
+                "retrieval_override"
+            ),
+            active_thread_id=thread_id,
+            active_project_id=project_id_for_prompt,
+            active_persona=None,
+        )
+        retrieval_policy = retrieval_policy_obj.as_dict()
         broker_vector_store = dependencies._vector_store
         if source_mode in {SOURCE_MODE_WORKSPACE, SOURCE_MODE_OBSIDIAN_ONLY}:
             broker_vector_store = _workspace_completion_vector_store()
@@ -2842,6 +3094,7 @@ async def build_messages_for_llm(
             project_id=project_id_for_prompt,
             source_mode=source_mode,
             retrieval_override=routing_debug_metadata.get("retrieval_override"),
+            retrieval_policy=retrieval_policy,
         )
         if thread_execution.persona_id:
             # Thread config personaId is request-scoped input, not actor
@@ -3007,28 +3260,36 @@ async def build_messages_for_llm(
         trace.update(routing_debug_metadata)
         trace.setdefault("source_mode", effective_source_mode)
 
-    try:
-        retrieval_plan = resolve_retrieval_plan(
-            retrieval_query,
-            depth,
-            active_thread_id=thread_id,
-            active_project_id=project_id_for_prompt,
-            active_persona=_active_persona_context_from_prompt_meta(
-                prompt_meta
-            ),
-        )
-        if isinstance(trace, dict):
+    if retrieval_policy_obj is not None and isinstance(trace, dict):
+        try:
             trace = dict(trace)
             trace[RETRIEVAL_PLAN_TRACE_KEY] = _serialize_retrieval_plan_trace(
-                plan=retrieval_plan,
+                plan=retrieval_policy_obj.plan,
                 user_depth=depth,
             )
-    except Exception as exc:
-        logger.warning(
-            "[chat-completion] retrieval plan resolution failed depth=%s err=%s",
-            depth,
-            exc,
+            trace["retrieval_policy"] = retrieval_policy_obj.as_dict()
+        except Exception as exc:
+            logger.warning(
+                "[chat-completion] retrieval policy serialization failed depth=%s err=%s",
+                depth,
+                exc,
+            )
+
+    if isinstance(bundle, dict):
+        semantic_items, image_suppression = _filter_image_refusal_semantic_context(
+            bundle.get("semantic"),
+            latest_user_meta,
         )
+        bundle["semantic"] = semantic_items
+        merged_suppression = _merge_retrieval_suppression_summaries(
+            bundle.get("retrieval_suppression"),
+            image_suppression,
+        )
+        if merged_suppression is not None:
+            bundle["retrieval_suppression"] = merged_suppression
+            if isinstance(trace, dict):
+                trace = dict(trace)
+                trace["retrieval_suppression"] = merged_suppression
 
     if isinstance(trace_candidate, dict):
         _persist_thread_trace_candidate(task, trace)
@@ -3213,6 +3474,7 @@ def _execute_bounded_tool_turn_completion(
             "effective_policy",
             "retrieval_posture",
             "retrieval_provenance",
+            "retrieval_suppression",
             "semantic_count",
             "obsidian_count",
             "semantic_injected",
@@ -3486,6 +3748,14 @@ def run_chat_completion_task(
     requested_source_mode = (
         str(getattr(task, "requested_source_mode", "") or "").strip() or None
     )
+    requested_provider = (
+        normalize_provider(getattr(task, "requested_provider", None))
+        or normalize_provider(getattr(task, "provider", None))
+    )
+    requested_model = (
+        normalize_model_id(getattr(task, "requested_model", None))
+        or normalize_model_id(getattr(task, "model", None))
+    )
     messages_for_llm, routing_meta = _apply_image_attachment_routing(
         messages_for_llm,
         bundle=bundle,
@@ -3599,6 +3869,8 @@ def run_chat_completion_task(
         bundle,
         provider=provider,
         model=model,
+        requested_provider=requested_provider,
+        requested_model=requested_model,
         requested_source_mode=requested_source_mode,
     )
     payload_summary.update(
@@ -3627,12 +3899,66 @@ def run_chat_completion_task(
     payload_summary["effective_source_mode"] = trace_source_mode
     payload_summary["normalized_source_mode"] = trace_source_mode
     payload_summary["effective_policy"] = effective_policy
+    if isinstance(trace, dict) and trace.get("retrieval_policy") is not None:
+        payload_summary["retrieval_policy"] = trace.get("retrieval_policy")
+    model_resolution = None
+    if provider == "local":
+        try:
+            local_model_resolution = resolve_local_execution_model(
+                settings=settings,
+                requested_model=requested_model or model,
+            )
+            model_resolution = local_model_resolution.as_dict()
+        except Exception:
+            model_resolution = None
+    selection_source = (
+        str(getattr(task, "selection_source", "") or "").strip() or None
+    )
+    if isinstance(model_resolution, dict):
+        resolution_source = str(model_resolution.get("source") or "").strip()
+        if resolution_source:
+            selection_source = resolution_source
+    if not selection_source:
+        selection_source = (
+            "explicit" if (requested_provider or requested_model) else "default"
+        )
+    attempted_provider = requested_provider or provider
+    attempted_model = requested_model or model
+    resolved_provider = provider
+    resolved_model = model
+    final_provider = provider
+    final_model = (
+        str(model_resolution.get("model") or "").strip()
+        if isinstance(model_resolution, dict)
+        else ""
+    ) or model
+    fallback_reason = None
+    if isinstance(model_resolution, dict):
+        fallback_reason = (
+            str(model_resolution.get("message") or "").strip() or None
+        )
+    payload_summary["requested_provider"] = requested_provider
+    payload_summary["requested_model"] = requested_model
+    payload_summary["attempted_provider"] = attempted_provider
+    payload_summary["attempted_model"] = attempted_model
+    payload_summary["resolved_provider"] = resolved_provider
+    payload_summary["resolved_model"] = resolved_model
+    payload_summary["final_provider"] = final_provider
+    payload_summary["final_model"] = final_model
+    payload_summary["selection_source"] = selection_source
+    payload_summary["fallback_reason"] = fallback_reason
+    if isinstance(model_resolution, dict):
+        payload_summary["model_resolution"] = model_resolution
     retrieval_provenance = _build_retrieval_provenance(
         requested_source_mode=requested_source_mode,
         normalized_source_mode=trace_source_mode,
         bundle=bundle if isinstance(bundle, dict) else None,
     )
     payload_summary["retrieval_provenance"] = retrieval_provenance
+    if isinstance(trace, dict) and trace.get("retrieval_suppression") is not None:
+        payload_summary["retrieval_suppression"] = trace.get(
+            "retrieval_suppression"
+        )
     retrieval_posture = _build_retrieval_posture(
         source_mode=trace_source_mode,
         retrieval_override=routing_debug_metadata.get("retrieval_override"),
@@ -3645,6 +3971,25 @@ def run_chat_completion_task(
         if isinstance(trace, dict):
             trace = dict(trace)
             trace["retrieval_posture"] = retrieval_posture
+    model_selection = _build_model_selection_metadata(
+        requested_provider=requested_provider,
+        requested_model=requested_model,
+        attempted_provider=attempted_provider,
+        attempted_model=attempted_model,
+        resolved_provider=resolved_provider,
+        resolved_model=resolved_model,
+        final_provider=final_provider,
+        final_model=final_model,
+        selection_source=selection_source,
+        fallback_reason=fallback_reason,
+        model_resolution=model_resolution,
+    )
+    payload_summary["model_selection"] = model_selection
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace["model_selection"] = model_selection
+        trace.setdefault("requested_provider", requested_provider)
+        trace.setdefault("requested_model", requested_model)
     if isinstance(bundle, dict):
         prompt_meta = dict(bundle.get("_prompt_meta") or {})
         prompt_meta["images"] = {
@@ -3669,6 +4014,20 @@ def run_chat_completion_task(
         cancel_check=cancel_check,
     )
     assistant_text = str(result.get("assistant_text") or "")
+    payload_summary = dict(result.get("payload_summary") or payload_summary)
+    payload_summary["requested_provider"] = requested_provider
+    payload_summary["requested_model"] = requested_model
+    payload_summary["attempted_provider"] = attempted_provider
+    payload_summary["attempted_model"] = attempted_model
+    payload_summary["resolved_provider"] = resolved_provider
+    payload_summary["resolved_model"] = resolved_model
+    payload_summary["final_provider"] = final_provider
+    payload_summary["final_model"] = final_model
+    payload_summary["selection_source"] = selection_source
+    payload_summary["fallback_reason"] = fallback_reason
+    if isinstance(model_resolution, dict):
+        payload_summary["model_resolution"] = model_resolution
+    payload_summary["model_selection"] = model_selection
     result_payload_summary = result.get("payload_summary")
     merged_payload_summary = dict(payload_summary or {})
     if isinstance(result_payload_summary, dict):
@@ -3784,6 +4143,16 @@ def run_chat_completion_task(
         "assistant_text": assistant_text,
         "provider": provider,
         "model": model,
+        "requested_provider": requested_provider,
+        "requested_model": requested_model,
+        "attempted_provider": attempted_provider,
+        "attempted_model": attempted_model,
+        "resolved_provider": resolved_provider,
+        "resolved_model": resolved_model,
+        "final_provider": final_provider,
+        "final_model": final_model,
+        "selection_source": selection_source,
+        "fallback_reason": fallback_reason,
         "requested_provider": getattr(task, "requested_provider", None),
         "requested_model": getattr(task, "requested_model", None),
         "final_provider": provider,
@@ -3793,6 +4162,8 @@ def run_chat_completion_task(
         "thread_id": task.thread_id,
         "payload_summary": payload_summary,
         "retrieval_provenance": retrieval_provenance,
+        "retrieval_suppression": payload_summary.get("retrieval_suppression"),
+        "model_selection": model_selection,
         "messageId": payload_summary.get("message_id"),
         "requestId": request_id,
         "toolTurnId": payload_summary.get("tool_turn_id"),
