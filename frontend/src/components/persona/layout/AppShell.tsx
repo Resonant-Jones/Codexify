@@ -726,6 +726,31 @@ function writeSessionOverride(v: Resolved | null) {
   }
 }
 
+function resolveProviderRuntimeState(
+  runtimeHealth: {
+    backendReachable: boolean | null;
+    failureKind: RuntimeHealthFailureKindToken | null;
+    status: RuntimeHealthStatusToken;
+    diagnostics: { hydrationState: "pending" | "ready" | "failed" };
+  }
+): ProviderRuntimeState {
+  if (runtimeHealth.diagnostics.hydrationState === "pending") {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (runtimeHealth.status === RUNTIME_HEALTH_STATUSES.HEALTHY) {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (
+    runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE
+  ) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  if (runtimeHealth.backendReachable === false) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  return PROVIDER_RUNTIME_STATES.DEGRADED;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    🎨 SECTION: AppShell Main Function
    This is the root shell for the app, handling theme, persistent state,
@@ -2470,12 +2495,7 @@ export default function AppShell({
       ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
       : [];
 
-  const providerRuntimeState: ProviderRuntimeState =
-    runtimeHydrationState === "pending"
-      ? PROVIDER_RUNTIME_STATES.ONLINE
-      : runtimeHealth.backendReachable === false
-      ? PROVIDER_RUNTIME_STATES.OFFLINE
-      : PROVIDER_RUNTIME_STATES.DEGRADED;
+  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
 
   const runtimePresentation = describeProviderState(providerRuntimeState);
 

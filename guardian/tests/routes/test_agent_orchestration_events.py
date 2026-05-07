@@ -410,6 +410,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     deployment = local_store.get_deployment(result["deployment_id"])
     assert deployment is not None
     assert deployment["thread_id"] == 42
+    assert deployment["spec_json"]["adapter_kind"] == "pi_sdk"
     assert deployment["spec_json"]["source_thread_id"] == 42
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"

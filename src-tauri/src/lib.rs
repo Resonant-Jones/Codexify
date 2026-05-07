@@ -32,6 +32,7 @@ pub fn run() {
             commands::desktop_set_api_key,
             commands::desktop_clear_api_key,
             commands::desktop_open_external,
+            commands::desktop_open_webui,
             commands::desktop_open_docker_desktop,
             commands::desktop_runtime_preflight_check,
             commands::desktop_run_setup_cli,

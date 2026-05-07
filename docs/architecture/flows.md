@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-04-27
+Last updated: 2026-05-07
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -33,16 +33,23 @@ Sequence:
 5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
 7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
+   - When `retrievalSource="workspace"`, broker-selected Obsidian-backed evidence must survive into the completion context bundle, and the trace must distinguish searchability, selection, injection, and assistant reflection.
+   - The worker-visible completion payload preserves that executed posture snapshot and workspace-local Obsidian evidence counts so persisted task evidence matches the actual attempt instead of a stale or debug-only reconstruction.
 8. The provider call executes through `guardian/core/ai_router.py`.
    - If the provider returns plain assistant text, the existing completion path continues.
    - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
+   - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
    - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and the canonical retrieval posture records that workspace widening occurred.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
+   - The snapshot is expected to carry containment-grade retrieval policy, provenance, suppression, and image-routing truth when available, including explicit absence reasons rather than silent nulls.
+   - For workspace-local completions, the terminal task payload and persisted snapshot keep the executed retrieval posture and evidence counts aligned with the worker attempt.
+   - For workspace-local proof, the worker-visible task payload is the canonical evidence surface; the debug trace remains diagnostic and must not backfill missing workspace evidence.
 11. The eval worker later reads the snapshot, produces attempt-scoped verdict rows, and stores them in Postgres without affecting chat completion success.
 12. The worker publishes terminal task events and releases the turn lock in `finally`.
+13. The live debug RAG trace endpoint promotes completion metadata from the latest task event payload when available, and can fall back to the latest eval snapshot to expose retrieval policy, provenance, suppression summaries, image-routing decisions, and model-selection truth for operator diagnosis.
 
 Outputs:
 - Immediate HTTP response with `task_id`, `turn_id`, `messages_url`, and `trace_url`
@@ -70,6 +77,8 @@ Acceptance semantics:
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
 - For the workspace proof harness on the supported local Compose path, acceptance is only the first milestone; the proof must also verify terminal task evidence, persisted assistant text, and workspace-local retrieval posture before it can pass.
+- For `retrievalSource="workspace"`, vector-store searchability alone is weaker than completion-context inclusion; the proof must show broker selection and injection for the Obsidian-backed note.
+- For `retrievalSource="workspace"`, the proof harness must read the worker-visible completion payload as the success source of truth and treat the debug trace as a comparison surface only.
 
 Debug trace note:
 - The live `/api/chat/debug/rag-trace/{thread_id}/latest` route may surface sanitized trace availability, effective policy, retrieval summary/provenance, and image-routing metadata when a real trace exists.
@@ -131,21 +140,25 @@ Trigger:
 Sequence:
 1. Load recent thread messages from chat storage.
 2. Use the latest user utterance as the semantic retrieval query.
-3. `ContextBroker.assemble()` gathers:
+3. `ContextBroker.assemble()` first resolves a retrieval policy, then gathers:
    - recent messages
    - verified active personal facts scoped to the resolved user
    - semantic vector matches unless depth is `shallow`
-   - linked project/thread documents
+   - thread-local semantic matches before any broader local widening
+   - linked project/thread documents under the same scope boundary
    - memory retrieval for `deep` and `diagnostic`
    - graph context when `GUARDIAN_ENABLE_GRAPH_CONTEXT=true`
    - sensor diagnostics and optional federated context when requested
    - workspace-local retrieval, which keeps the same-user boundary but can widen beyond the thread into the local working set, including Obsidian-backed notes
+   - selected-item provenance plus suppression summaries so operator traces can show what was included, what was filtered, and why
 4. `build_guardian_system_prompt()` and context rendering functions produce the system-side prompt block, including a bounded verified-personal-facts section when eligible facts exist.
 5. The final LLM input is the system/context block plus conversation messages.
+6. The live RAG trace/debug payload preserves the retrieval policy and, when surfaced by the completion path, the completion model-selection and image-routing metadata needed to explain why a turn was included, suppressed, widened, or captioned.
 
 Outputs:
 - Provider-ready message array
 - `rag_trace` payload for debugging and UI inspection
+- `rag_trace` retains transient provenance and suppression metadata for diagnosis, but it is still not a durable forensic store
 - Effective retrieval depth and document context metadata
 
 Failure modes:

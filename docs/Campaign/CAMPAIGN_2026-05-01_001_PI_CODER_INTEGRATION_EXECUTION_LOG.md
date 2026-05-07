@@ -94,3 +94,34 @@ Per ADR-020 contract:
 7fdb0c63d TASK-2026-05-01-002: Wire adapter into agent orchestration routes
 207c850ab TASK-2026-05-01-001_pi_adapter.md: Pi adapter skeleton (task file)
 ```
+
+## Live Compose Proof Results
+
+- Proof artifact: `docs/architecture/2026-05-05-coding-result-return-path-live-proof.md`
+- Date/time: 2026-05-05 15:47:14 EDT
+- HEAD commit: `809395304f1fce95ef06e5a6bc0d08f263b131f6`
+- Overall result: `Release-ready for this path: no`
+
+### 9-Target Matrix
+
+| # | Target | Status | Evidence | Notes |
+| - | ------ | ------ | -------- | ----- |
+| 1 | Services network | ✅ PASS | Backend reached `redis` and `db`; `backend`, `db`, `redis`, and `worker-coding` were on the same Compose network. | Container-local DNS and connectivity were healthy. |
+| 2 | Real source thread | ✅ PASS | Thread `30` with source message `63` existed in Postgres. | Source thread was real and user-authored. |
+| 3 | POST enqueues | ✅ PASS | POST returned `ok: true` and queue depth moved `0 -> 1`. | Enqueue was observed before restart. |
+| 4 | Worker dequeues | ✅ PASS | Queue depth returned to `0` and run stream emitted `task.running`. | Worker consumed the task. |
+| 5 | Run reaches terminal | ⚠️ PARTIAL | Stream emitted `task.failed`, but `agent_runs.status` stayed `queued`. | Durable terminal state was not reached. |
+| 6 | Event lifecycle | ✅ PASS | `created`, `task.running`, `task.failed` appeared on the live run stream. | Actual lifecycle evidence. |
+| 7 | Exactly one `coding_result` message | ❌ FAIL | `SELECT count(*) ... kind = 'coding_result'` returned `0`. | No returned coding result landed. |
+| 8 | Idempotency | ❌ FAIL | Could not be exercised on the actual return path. | No `coding_result` existed to deduplicate. |
+| 9 | Failures bounded | ⚠️ PARTIAL | The failure surfaced as a missing-module error in the run stream. | Failure was visible, but not bounded into a returned source-thread result. |
+
+### Release-Readiness Conclusion
+
+No. The live run failed before a returned `coding_result` reached the source thread, so the coding-result return path is not release-ready.
+
+### Follow-up Tasks
+
+- Restore the missing worker runtime artifact or image layer that provides `/app/codex_runner/src/agent-wrapper.js`.
+- Re-run the live Compose proof after that blocker is fixed.
+- Re-check durable terminal run state, single `coding_result` delivery, and idempotency on the real return path.

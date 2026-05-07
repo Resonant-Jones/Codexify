@@ -34,9 +34,45 @@ def test_workspace_sentinel_shape_is_deterministic():
     assert first == second
     assert first.token.startswith("workspace-seal-")
     assert first.expected_answer == first.token
+    assert first.note_title in first.note_text
     assert first.token in first.note_text
     assert "supported local Compose path only" in first.note_text
-    assert "Reply with only the token" in first.question
+    assert "Reply with only the phrase" in first.question
+
+
+def test_workspace_evidence_normalization_prefers_obsidian_completion_counts():
+    module = _load_module()
+
+    evidence = module._normalize_workspace_retrieval_evidence(
+        task_completed_payload={
+            "payload_summary": {
+                "source_mode": "workspace",
+                "obsidian_count": 1,
+                "semantic_count": 4,
+                "graph_hit_count": 1,
+                "linked_document_count": 2,
+                "retrieval_injected": True,
+                "obsidian_injected": True,
+            }
+        },
+        retrieval_posture={
+            "source_mode": "workspace",
+            "boundary_label": "same_user_only",
+            "widen_reason": "explicit_workspace",
+        },
+        trace={
+            "source_mode": "workspace",
+            "payload_summary": {
+                "source_mode": "workspace",
+                "obsidian_count": 1,
+            },
+        },
+    )
+
+    assert evidence["retrieval_status"] == "workspace_local_success"
+    assert evidence["obsidian_count"] == 1
+    assert evidence["retrieval_injected"] is True
+    assert evidence["obsidian_injected"] is True
 
 
 def test_proof_step_order_is_stable():
@@ -46,6 +82,7 @@ def test_proof_step_order_is_stable():
         "health",
         "obsidian_config",
         "obsidian_index",
+        "obsidian_search",
         "thread_create",
         "user_message",
         "completion_acceptance",
@@ -61,6 +98,7 @@ def test_required_verdict_categories_are_present():
 
     verdicts = module.classify_proof_verdicts(
         acceptance_status="accepted",
+        substrate_searchable=True,
         terminal_event_type="task.completed",
         assistant_text="workspace-seal-123",
         retrieval_status="workspace_local_success",
@@ -71,6 +109,7 @@ def test_required_verdict_categories_are_present():
             "boundary_label": "same_user_only",
             "widen_reason": "explicit_workspace",
         },
+        obsidian_injected=True,
         token="workspace-seal-123",
     )
 
@@ -82,9 +121,10 @@ def test_missing_evidence_fails_closed():
 
     verdicts = module.classify_proof_verdicts(
         acceptance_status="accepted",
+        substrate_searchable=True,
         terminal_event_type="task.completed",
         assistant_text="workspace-seal-123",
-        retrieval_status="missing",
+        retrieval_status="workspace_local_missing_obsidian",
         obsidian_semantic_hits=0,
         retrieval_source_mode="workspace",
         retrieval_posture={
@@ -92,14 +132,134 @@ def test_missing_evidence_fails_closed():
             "boundary_label": "same_user_only",
             "widen_reason": "explicit_workspace",
         },
+        obsidian_injected=False,
         token="workspace-seal-123",
     )
 
     assert verdicts["acceptance"]["passed"] is True
+    assert verdicts["substrate_searchability"]["passed"] is True
     assert verdicts["completion"]["passed"] is True
-    assert verdicts["retrieval_evidence"]["passed"] is False
+    assert verdicts["workspace_eligibility"]["passed"] is True
+    assert verdicts["broker_selection"]["passed"] is False
+    assert verdicts["completion_injection"]["passed"] is False
     assert verdicts["final_verdict"]["passed"] is False
-    assert "retrieval_evidence" in verdicts["final_verdict"]["reasons"]
+    assert set(verdicts["final_verdict"]["reasons"]) == {
+        "broker_selection",
+        "completion_injection",
+    }
+
+
+def test_worker_payload_evidence_is_not_backfilled_from_debug_trace():
+    module = _load_module()
+
+    evidence = module._normalize_workspace_retrieval_evidence(
+        task_completed_payload={
+            "payload_summary": {
+                "message_count": 2,
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "semantic_count": 1,
+                "obsidian_count": 0,
+                "retrieval_injected": False,
+                "obsidian_injected": False,
+            }
+        },
+        retrieval_posture={
+            "source_mode": "workspace",
+            "boundary_label": "same_user_only",
+            "retrieval_override_mode": None,
+            "widen_reason": "explicit_workspace",
+            "conversation_only": False,
+        },
+        trace={
+            "source_mode": "workspace",
+            "payload_summary": {
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "semantic_count": 1,
+                "obsidian_count": 1,
+                "retrieval_injected": True,
+                "obsidian_injected": True,
+            },
+        },
+    )
+
+    assert evidence["source_mode"] == "workspace"
+    assert evidence["obsidian_count"] == 0
+    assert evidence["worker_payload_obsidian_count"] == 0
+    assert evidence["trace_obsidian_count"] == 1
+    assert evidence["obsidian_injected"] is False
+    assert evidence["worker_payload_obsidian_injected"] is False
+    assert evidence["trace_obsidian_injected"] is True
+
+    verdicts = module.classify_proof_verdicts(
+        acceptance_status="accepted",
+        substrate_searchable=True,
+        terminal_event_type="task.completed",
+        assistant_text="workspace-seal-123",
+        retrieval_status=evidence["retrieval_status"],
+        obsidian_semantic_hits=evidence["obsidian_count"],
+        retrieval_source_mode=evidence["source_mode"],
+        retrieval_posture={
+            "source_mode": "workspace",
+            "boundary_label": "same_user_only",
+            "retrieval_override_mode": None,
+            "widen_reason": "explicit_workspace",
+            "conversation_only": False,
+        },
+        obsidian_injected=evidence["obsidian_injected"],
+        token="workspace-seal-123",
+    )
+
+    assert verdicts["broker_selection"]["passed"] is False
+    assert verdicts["completion_injection"]["passed"] is False
+    assert verdicts["final_verdict"]["passed"] is False
+
+
+def test_worker_payload_posture_is_not_backfilled_from_debug_trace(monkeypatch):
+    module = _load_module()
+
+    def _fake_request_json(_session, _method, url, **_kwargs):
+        if "rag-trace" in url:
+            return {
+                "trace": {
+                    "source_mode": "workspace",
+                    "widen_reason": "explicit_workspace",
+                },
+                "payload_summary": {
+                    "source_mode": "workspace",
+                    "effective_source_mode": "workspace",
+                    "retrieval_posture": {
+                        "source_mode": "workspace",
+                        "boundary_label": "same_user_only",
+                        "retrieval_override_mode": None,
+                        "widen_reason": "explicit_workspace",
+                        "conversation_only": False,
+                    },
+                },
+            }
+        raise AssertionError(f"unexpected request: {url}")
+
+    monkeypatch.setattr(module, "_request_json", _fake_request_json)
+
+    worker_posture, trace = module._latest_retrieval_artifacts(
+        object(),
+        "http://example.test",
+        {},
+        1,
+        {
+            "payload_summary": {
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+            }
+        },
+    )
+
+    assert worker_posture is None
+    assert isinstance(trace, dict)
+    assert trace["payload_summary"]["retrieval_posture"]["source_mode"] == (
+        "workspace"
+    )
 
 
 def test_acceptance_alone_is_not_success():
@@ -107,22 +267,30 @@ def test_acceptance_alone_is_not_success():
 
     verdicts = module.classify_proof_verdicts(
         acceptance_status="accepted",
+        substrate_searchable=False,
         terminal_event_type=None,
         assistant_text=None,
         retrieval_status=None,
         obsidian_semantic_hits=0,
         retrieval_source_mode="workspace",
         retrieval_posture=None,
+        obsidian_injected=False,
         token="workspace-seal-123",
     )
 
     assert verdicts["acceptance"]["passed"] is True
+    assert verdicts["substrate_searchability"]["passed"] is False
     assert verdicts["completion"]["passed"] is False
-    assert verdicts["retrieval_evidence"]["passed"] is False
+    assert verdicts["workspace_eligibility"]["passed"] is False
+    assert verdicts["broker_selection"]["passed"] is False
+    assert verdicts["completion_injection"]["passed"] is False
     assert verdicts["assistant_match"]["passed"] is False
     assert verdicts["final_verdict"]["passed"] is False
     assert set(verdicts["final_verdict"]["reasons"]) == {
+        "substrate_searchability",
         "completion",
-        "retrieval_evidence",
+        "workspace_eligibility",
+        "broker_selection",
+        "completion_injection",
         "assistant_match",
     }
