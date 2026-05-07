@@ -257,6 +257,126 @@ PY
 2. Confirm whether the image turn is still being routed through the nonvision local model because of policy selection or an unresolved adapter path.
 3. Rerun the same proof only after the live trace route exposes `retrieval_policy`, `retrieval_provenance`, `retrieval_suppression`, and `image_routing_path` for the supported path.
 
+## Rerun — after provenance-passing worker normalization runtime
+
+### 1. Result
+FAIL
+
+### 2. Provenance Precondition
+- provenance gate result before this rerun: PASS
+- expected commit used by the passing provenance gate: `1b9b287431348f96ca9525321db3a07fa442d2ce`
+- required fix commit under proof lineage: `2bce6aeb9416a25d77b931b4974db7573e8951b8`
+- local HEAD used by runtime in that passing gate run: `1b9b287431348f96ca9525321db3a07fa442d2ce`
+- backend container evidence summary:
+  - container id: `691c9287a402788965a78149ff6a130196767605a0c320dd4de991c426130807`
+  - image id: `sha256:caf0e2cc9f2e21727ff909b3d58ae89beebd03e0ec741af49a103c564cbc8db0`
+  - created: `2026-05-07T15:15:55.645584503Z`
+  - runtime commit evidence classification: `untrusted` (Alembic log hint `7a6b5c4d3e2f`)
+- worker-chat container evidence summary:
+  - container id: `e5cbcdce8e0f2e6f58b5665d95290046d7ac4d8bd856e6939ca6d01b6d606593`
+  - image id: `sha256:b63bf018aa1a1224ce6027be798bff430712a862f15f1004df94beb092cd5944`
+  - created: `2026-05-07T15:15:57.039977962Z`
+  - runtime commit evidence classification: `unavailable`
+
+### 3. Environment
+- branch: `codex/add-vision-capability-validation`
+- HEAD at rerun time: `6fd1c2aa0a821d8fd980a6d36942551021d444f8`
+- runtime path: `/Volumes/Dev_SSD/Codexify-main`
+- services reused from provenance-pass runtime (no additional rebuild/recreate in this rerun):
+  - `backend`
+  - `worker-chat`
+
+### 4. Health Evidence Summary
+- `GET /health` -> `200`, `status: ok`
+- `GET /health/chat` -> `200`, `status: healthy`, `worker.status: fresh`
+- `GET /api/health/llm` -> `200`, `status: ok`, `details.status: online`
+- `GET /api/llm/catalog` -> `200` (local catalog available; includes vision-capable `medgemma:4b-it-q8_0`)
+
+### 5. Thread Setup
+- Thread A id: `26`
+- Thread A refusal message id: `44`
+- Thread B id: `27`
+- Thread B user image message id: `45`
+- Thread B assistant message id: `46`
+- task id: `fa79b2f4-2e8f-4020-87cd-4f45ca216a4d`
+- turn id: `b3d180c3-cb7c-4c0b-afe3-4cf0284fa295`
+
+### 6. Requested/Final Model And Substitution Reason
+- requested provider/model: `local / medgemma:4b-it-q8_0`
+- final provider/model: `local / library2/ministral-3:8b`
+- `selection_source`: `LOCAL_CHAT_MODEL`
+- `policy_reason`: `LOCAL_CHAT_MODEL`
+- `fallback_reason`: `null`
+- `model_resolution.message`: `requested model 'medgemma:4b-it-q8_0' was overridden by configured local chat model 'library2/ministral-3:8b' from LOCAL_CHAT_MODEL`
+
+### 7. Image-Routing Evidence
+- image payload marker evidence (Thread B user message):
+  - `<!-- cfy-media:image:... -->` present
+  - `<!-- cfy-media-src:... -->` present
+  - `<!-- cfy-media-name:... -->` present
+- image attachment count:
+  - not surfaced on final completion trace surfaces (`null` where inspected)
+- assistant metadata image-routing fields:
+  - `image_routing_path: null`
+  - `image_routing_absence_reason: null`
+- `task.completed` top-level image-routing fields:
+  - `image_routing_path: null`
+  - `image_routing_absence_reason: null`
+- `task.completed` nested trace image-routing fields:
+  - `image_routing_path: null`
+  - `image_routing_absence_reason: null`
+- eval snapshot (`GET /api/chat/debug/evals/27/latest`) image-routing fields:
+  - `trace_snapshot.image_routing_path: null`
+  - `trace_snapshot.image_routing_absence_reason: null`
+- rag-trace (`GET /api/chat/debug/rag-trace/27/latest`) image-routing fields:
+  - top-level `image_routing_path: null`
+  - top-level `image_routing_absence_reason: null`
+  - promoted `image_routing` object: empty (`{}`)
+
+### 8. Trace Evidence Summary
+- retrieval policy:
+  - present on rag-trace (`retrieval_policy.source_mode: project`, boundary `same_user_same_project`)
+- retrieval provenance:
+  - `null` on rag-trace and `null` in eval `trace_snapshot`
+- retrieval suppression:
+  - present on rag-trace (`count: 2`; policy suppression lanes include `thread_semantic_excluded_by_policy` and `global_search_excluded_by_policy`)
+- retrieval execution and absence fields:
+  - rag-trace `retrieval_executed: null`
+  - rag-trace `retrieval_absence_reason: null`
+  - eval `trace_snapshot.retrieval_executed: null`
+  - eval `trace_snapshot.retrieval_absence_reason: null`
+- model selection:
+  - present and machine-readable on rag-trace (`requested_model`, `final_model`, `selection_source`, `policy_reason`, `fallback_reason`, `model_resolution.message`)
+- `assistant_vision_refusal_on_image_turn`:
+  - not present in the persisted/eval/rag-trace surfaces for this run
+- `trace_unavailable_reason` behavior:
+  - cleared/absent once persisted snapshot existed (`null` on rag-trace latest)
+
+### 9. Thread A Leakage Check
+- Thread A refusal text (`I can't view the image.`) in Thread B messages: no
+- Thread A refusal text in terminal task payload: no
+- Thread A refusal text in eval latest payload: no
+- Thread A refusal text in rag-trace latest payload: no
+
+### 10. Containment Verdict
+- machine-readably proven: no
+- reason:
+  - known image turn evidence exists (canonical `cfy-media` markers on Thread B user message), but final completion surfaces still end with:
+    - `image_routing_path: null`
+    - `image_routing_absence_reason: null`
+  - under the stricter current contract, known image turns cannot finalize with null/null image-routing truth.
+
+### 11. Limitations
+- This rerun reused provenance-passing runtime containers and did not rebuild services again.
+- The assistant response remained refusal-like while image-routing truth stayed null/null, so route/eval surfaces still cannot separate policy/model behavior from image-routing truth.
+- `retrieval_provenance` and retrieval executed/absence status remained incomplete on the eval snapshot path for this run.
+
+### 12. Remaining Blockers
+- Known image turns still finalize with null/null image-routing truth on assistant metadata, task.completed, eval snapshot, and rag-trace surfaces.
+- Image-turn containment remains not machine-readably proven under the stricter contract.
+- Compose migrator issue remains outside this task.
+- Vitest resolution remains outside this task.
+
 ## Runtime provenance lineage repair
 
 ### Result
