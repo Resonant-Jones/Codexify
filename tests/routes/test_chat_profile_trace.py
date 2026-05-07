@@ -15,6 +15,7 @@ from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat
 from guardian.protocol_tokens import TraceSnapshotAbsenceReason
 from guardian.tasks.types import ChatCompletionTask
+from guardian.workers import chat_worker
 
 
 @pytest.fixture(autouse=True)
@@ -461,6 +462,105 @@ def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
     assert (
         result["payload_summary"]["source_mode"] == trace_payload["source_mode"]
     )
+
+
+def test_run_chat_completion_task_compat_preserves_retrieval_posture(
+    monkeypatch,
+):
+    expected_posture = {
+        "source_mode": "workspace",
+        "boundary_label": "same_user_only",
+        "retrieval_override_mode": None,
+        "widen_reason": "explicit_workspace",
+        "conversation_only": False,
+    }
+
+    async def _fake_build_messages_for_llm(_task, user_id=None):
+        return (
+            [{"role": "system", "content": "SYSTEM"}],
+            "groq",
+            "mock-model",
+            {},
+            {
+                "source_mode": "workspace",
+                "widen_reason": "explicit_workspace",
+                "effective_policy": {
+                    "source_mode": "workspace",
+                    "widening_enabled": True,
+                    "identity_scope": "workspace",
+                },
+            },
+        )
+
+    def _fake_sanitized_payload_summary(*_args, **_kwargs):
+        return {
+            "payload_char_count": 10,
+            "message_count": 2,
+            "source_mode": "workspace",
+            "effective_source_mode": "workspace",
+            "obsidian_count": 1,
+            "obsidian_injected": True,
+            "retrieval_posture": expected_posture,
+        }
+
+    def _fake_execute_bounded_tool_turn_completion(*_args, **_kwargs):
+        return {
+            "assistant_text": "assistant reply",
+            "provider": "groq",
+            "model": "mock-model",
+            "bundle": {},
+            "trace": {
+                "source_mode": "workspace",
+                "widen_reason": "explicit_workspace",
+                "effective_policy": {
+                    "source_mode": "workspace",
+                    "widening_enabled": True,
+                    "identity_scope": "workspace",
+                },
+            },
+            "thread_id": 1,
+            "payload_summary": {
+                "payload_char_count": 12,
+                "message_count": 3,
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "obsidian_count": 1,
+                "obsidian_injected": True,
+            },
+        }
+
+    monkeypatch.setattr(
+        chat_worker,
+        "_build_messages_for_llm",
+        _fake_build_messages_for_llm,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_sanitized_payload_summary",
+        _fake_sanitized_payload_summary,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_execute_bounded_tool_turn_completion",
+        _fake_execute_bounded_tool_turn_completion,
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="groq",
+        model="mock-model",
+        origin="api:chat.complete|turn_id=abc|source_mode=workspace",
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert result["payload_summary"]["retrieval_posture"] == expected_posture
+    assert result["payload_summary"]["obsidian_count"] == 1
+    assert result["payload_summary"]["obsidian_injected"] is True
 
 
 def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
@@ -1179,6 +1279,110 @@ def test_rag_trace_distinguishes_workspace_obsidian_participation(
 
     chat._thread_latest_task.pop(405, None)
     chat._rag_traces.pop(405, None)
+
+
+def test_rag_trace_keeps_worker_payload_workspace_obsidian_evidence(
+    monkeypatch,
+):
+    chat._thread_latest_task[406] = "task-406"
+
+    payload_summary = {
+        "message_count": 2,
+        "source_mode": "workspace",
+        "effective_source_mode": "workspace",
+        "semantic_count": 1,
+        "obsidian_count": 1,
+        "retrieval_injected": True,
+        "obsidian_injected": True,
+        "retrieval_posture": {
+            "source_mode": "workspace",
+            "boundary_label": "same_user_only",
+            "retrieval_override_mode": None,
+            "widen_reason": "explicit_workspace",
+            "conversation_only": False,
+        },
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "source_mode": "workspace",
+                "widen_reason": "explicit_workspace",
+                "payload_summary": {
+                    "source_mode": "workspace",
+                    "effective_source_mode": "workspace",
+                    "obsidian_count": 0,
+                    "obsidian_injected": False,
+                    "retrieval_injected": False,
+                },
+            },
+            "payload_summary": payload_summary,
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(406, api_key="test-key")
+
+    assert trace["payload_summary"]["obsidian_count"] == 1
+    assert trace["payload_summary"]["obsidian_injected"] is True
+    assert trace["retrieval_summary"]["obsidian_count"] == 1
+
+    chat._thread_latest_task.pop(406, None)
+    chat._rag_traces.pop(406, None)
+
+
+def test_rag_trace_does_not_backfill_dropped_workspace_obsidian_evidence(
+    monkeypatch,
+):
+    chat._thread_latest_task[407] = "task-407"
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {
+                "documents": [],
+                "graph": [],
+                "source_mode": "workspace",
+                "widen_reason": "explicit_workspace",
+                "payload_summary": {
+                    "source_mode": "workspace",
+                    "effective_source_mode": "workspace",
+                    "obsidian_count": 1,
+                    "obsidian_injected": True,
+                    "retrieval_injected": True,
+                },
+            },
+            "payload_summary": {
+                "message_count": 2,
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "semantic_count": 1,
+                "obsidian_count": 0,
+                "retrieval_injected": False,
+                "obsidian_injected": False,
+                "retrieval_posture": {
+                    "source_mode": "workspace",
+                    "boundary_label": "same_user_only",
+                    "retrieval_override_mode": None,
+                    "widen_reason": "explicit_workspace",
+                    "conversation_only": False,
+                },
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(407, api_key="test-key")
+
+    assert trace["payload_summary"]["obsidian_count"] == 0
+    assert trace["payload_summary"]["obsidian_injected"] is False
+    assert trace["retrieval_summary"]["obsidian_count"] == 0
+
+    chat._thread_latest_task.pop(407, None)
+    chat._rag_traces.pop(407, None)
 
 
 def test_retrieval_posture_fallback_returns_empty_when_no_source_mode(

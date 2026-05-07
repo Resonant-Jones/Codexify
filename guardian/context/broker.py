@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
+import requests
+
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_CONVERSATION,
     SOURCE_MODE_OBSIDIAN_ONLY,
@@ -39,6 +41,10 @@ _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
 _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
 _THREAD_CANDIDATE_LIMIT = 500
 _PERSONAL_FACT_LIMIT = 12
+_WORKSPACE_RETRIEVAL_PROBE_TIMEOUT_SECONDS = 5.0
+_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV = (
+    "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE"
+)
 
 
 class EffectiveRetrievalPolicy(TypedDict):
@@ -109,6 +115,13 @@ def _append_retrieval_warning(context: Dict[str, Any], warning: str) -> None:
         warnings = []
     warnings.append(warning)
     context["retrieval_warnings"] = warnings
+
+
+def _workspace_retrieval_probe_base_url() -> str | None:
+    base_url = str(
+        os.getenv(_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV) or ""
+    ).strip()
+    return base_url.rstrip("/") or None
 
 
 def _thread_namespace(thread_id: int) -> str:
@@ -237,6 +250,88 @@ def _assert_user_scoped_results(
     ):
         raise AssertionError("retrieval_user_isolation_violation")
     return filtered
+
+
+def _workspace_backend_obsidian_results(
+    *,
+    query: str,
+    user_id: str,
+    k: int,
+) -> list[dict[str, Any]]:
+    base_url = _workspace_retrieval_probe_base_url()
+    if not base_url:
+        return []
+
+    api_key = str(
+        getattr(get_settings(), "GUARDIAN_API_KEY", None)
+        or os.getenv("GUARDIAN_API_KEY")
+        or ""
+    ).strip()
+    headers = {"X-API-Key": api_key} if api_key else None
+    search_url = f"{base_url}/api/health/retrieval"
+    try:
+        response = requests.get(
+            search_url,
+            headers=headers,
+            params={
+                "q": query,
+                "k": k,
+                "namespace": OBSIDIAN_NAMESPACE,
+            },
+            timeout=_WORKSPACE_RETRIEVAL_PROBE_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        logger.debug(
+            "[ContextBroker] workspace backend retrieval probe failed base=%s: %s",
+            base_url,
+            exc,
+        )
+        return []
+
+    search_payload = payload.get("search")
+    if not isinstance(search_payload, dict):
+        return []
+    matches = search_payload.get("matches")
+    if not isinstance(matches, list):
+        return []
+
+    normalized_user_id = str(user_id or "").strip()
+    normalized_results: list[dict[str, Any]] = []
+    for item in matches:
+        if not isinstance(item, dict):
+            continue
+        namespace = _extract_result_namespace(item)
+        if namespace != OBSIDIAN_NAMESPACE:
+            continue
+        item_user_id = _extract_result_user_id(item)
+        if normalized_user_id and item_user_id not in {
+            normalized_user_id,
+            None,
+        }:
+            continue
+        scoped_item = dict(item)
+        scoped_metadata = dict(item.get("metadata") or {})
+        scoped_metadata["namespace"] = OBSIDIAN_NAMESPACE
+        if normalized_user_id:
+            scoped_metadata["user_id"] = normalized_user_id
+            scoped_metadata["owner_user_id"] = normalized_user_id
+            scoped_item["user_id"] = normalized_user_id
+            scoped_item["owner_user_id"] = normalized_user_id
+        scoped_item["metadata"] = scoped_metadata
+        scoped_item["meta"] = dict(scoped_metadata)
+        normalized_results.append(scoped_item)
+        if len(normalized_results) >= k:
+            break
+
+    if normalized_results:
+        logger.info(
+            "[ContextBroker] workspace backend retrieval probe selected obsidian=%s base=%s",
+            len(normalized_results),
+            base_url,
+        )
+    return normalized_results
 
 
 def _looks_like_json(text: str) -> bool:
@@ -1354,6 +1449,16 @@ class ContextBroker:
                 scoped_item["user_id"] = resolved_user_id
                 scoped_item["owner_user_id"] = resolved_user_id
                 scoped_results.append(scoped_item)
+            if scoped_results:
+                return scoped_results
+
+            backend_results = _workspace_backend_obsidian_results(
+                query=query,
+                user_id=resolved_user_id,
+                k=k,
+            )
+            if backend_results:
+                return backend_results
             return scoped_results
         except Exception as exc:
             logger.warning(

@@ -149,6 +149,119 @@ def test_missing_evidence_fails_closed():
     }
 
 
+def test_worker_payload_evidence_is_not_backfilled_from_debug_trace():
+    module = _load_module()
+
+    evidence = module._normalize_workspace_retrieval_evidence(
+        task_completed_payload={
+            "payload_summary": {
+                "message_count": 2,
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "semantic_count": 1,
+                "obsidian_count": 0,
+                "retrieval_injected": False,
+                "obsidian_injected": False,
+            }
+        },
+        retrieval_posture={
+            "source_mode": "workspace",
+            "boundary_label": "same_user_only",
+            "retrieval_override_mode": None,
+            "widen_reason": "explicit_workspace",
+            "conversation_only": False,
+        },
+        trace={
+            "source_mode": "workspace",
+            "payload_summary": {
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+                "semantic_count": 1,
+                "obsidian_count": 1,
+                "retrieval_injected": True,
+                "obsidian_injected": True,
+            },
+        },
+    )
+
+    assert evidence["source_mode"] == "workspace"
+    assert evidence["obsidian_count"] == 0
+    assert evidence["worker_payload_obsidian_count"] == 0
+    assert evidence["trace_obsidian_count"] == 1
+    assert evidence["obsidian_injected"] is False
+    assert evidence["worker_payload_obsidian_injected"] is False
+    assert evidence["trace_obsidian_injected"] is True
+
+    verdicts = module.classify_proof_verdicts(
+        acceptance_status="accepted",
+        substrate_searchable=True,
+        terminal_event_type="task.completed",
+        assistant_text="workspace-seal-123",
+        retrieval_status=evidence["retrieval_status"],
+        obsidian_semantic_hits=evidence["obsidian_count"],
+        retrieval_source_mode=evidence["source_mode"],
+        retrieval_posture={
+            "source_mode": "workspace",
+            "boundary_label": "same_user_only",
+            "retrieval_override_mode": None,
+            "widen_reason": "explicit_workspace",
+            "conversation_only": False,
+        },
+        obsidian_injected=evidence["obsidian_injected"],
+        token="workspace-seal-123",
+    )
+
+    assert verdicts["broker_selection"]["passed"] is False
+    assert verdicts["completion_injection"]["passed"] is False
+    assert verdicts["final_verdict"]["passed"] is False
+
+
+def test_worker_payload_posture_is_not_backfilled_from_debug_trace(monkeypatch):
+    module = _load_module()
+
+    def _fake_request_json(_session, _method, url, **_kwargs):
+        if "rag-trace" in url:
+            return {
+                "trace": {
+                    "source_mode": "workspace",
+                    "widen_reason": "explicit_workspace",
+                },
+                "payload_summary": {
+                    "source_mode": "workspace",
+                    "effective_source_mode": "workspace",
+                    "retrieval_posture": {
+                        "source_mode": "workspace",
+                        "boundary_label": "same_user_only",
+                        "retrieval_override_mode": None,
+                        "widen_reason": "explicit_workspace",
+                        "conversation_only": False,
+                    },
+                },
+            }
+        raise AssertionError(f"unexpected request: {url}")
+
+    monkeypatch.setattr(module, "_request_json", _fake_request_json)
+
+    worker_posture, trace = module._latest_retrieval_artifacts(
+        object(),
+        "http://example.test",
+        {},
+        1,
+        {
+            "payload_summary": {
+                "source_mode": "workspace",
+                "effective_source_mode": "workspace",
+            }
+        },
+    )
+
+    assert worker_posture is None
+    assert isinstance(trace, dict)
+    assert trace["payload_summary"]["retrieval_posture"]["source_mode"] == (
+        "workspace"
+    )
+
+
 def test_acceptance_alone_is_not_success():
     module = _load_module()
 

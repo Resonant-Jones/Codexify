@@ -171,6 +171,9 @@ SOURCE_MODE_POSTURE: dict[str, dict[str, tuple[str, ...]]] = {
         # Workspace-local evidence is still user-bound; Obsidian hits are
         # selected by the broker and carried through completion-time semantic
         # injection rather than treated as a separate global retriever.
+        # The runtime may source those hits from the live backend retrieval
+        # probe when the worker container does not share the local Chroma
+        # volume, but the evidence remains workspace-local and user scoped.
         "includes": (
             "thread_messages",
             "semantic",
