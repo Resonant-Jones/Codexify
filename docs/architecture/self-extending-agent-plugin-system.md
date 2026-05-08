@@ -4,6 +4,8 @@ This note is the companion architecture reference for ADR-010. It explains the g
 
 Implementation status: extension proposal persistence, manual install-gate decisions, capability registry entries, scoped install binding persistence, backend read-time effective capability resolution, and a pure capability activation / dispatch contract seam exist on the backend; it returns explicit allow/deny outcomes plus command-bus-shaped dispatch envelopes. Sandbox execution, runtime activation, autonomous dispatch, and plugin execution still do not exist. Resolution precedence is profile > project > account.
 
+Pi-like coding-agent harness work is governed separately by [`pi-invocation-boundary-contract.md`](./pi-invocation-boundary-contract.md). That boundary keeps Guardian authority, transcript lineage, and command-bus ownership explicit, and must be read with Guardian-mediated coding-agent execution doctrine (ADR-020 when present in this repo lineage).
+
 ## Purpose
 
 Codexify needs a way to author new capabilities from within the system without turning the assistant into a freeform self-modifying agent.
