@@ -5,6 +5,7 @@
 - Proof class: `workspace-local retrieval completion proof`
 - Runtime path: `supported local Docker Compose`
 - Commit under test: `a5d6239ef26105ab45125e9f43d22fd2078d9584`
+- Scope: release-evidence for the supported local Compose path only; not a release signoff or install-mode widening.
 
 ## Proof Command
 ```bash

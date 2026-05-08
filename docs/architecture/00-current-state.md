@@ -30,6 +30,7 @@ Fresh live proof on 2026-05-05 now confirms the supported local-first posture on
 - Current release evidence now has fresh live proof for health, provider posture, and runtime path on the current tip.
 - A canonical workspace-local live proof harness now exists at `scripts/proofs/prove_workspace_obsidian_e2e.py`; it validates the supported local Compose path only and does not widen the release promise to other install modes.
 - The workspace-local Obsidian E2E proof harness passed on the supported local Compose path for commit `a5d6239ef26105ab45125e9f43d22fd2078d9584`, and the durable proof artifact is `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`.
+- That proof is release evidence for the supported local Compose path only; it does not widen the release promise to other install modes.
 - Workspace-local proof now treats searchability, broker selection, completion-context injection, and assistant reflection as separate evidence steps; vector-store searchability alone is weaker than proving the note influenced completion.
 - Worker-visible completion payloads now preserve the executed retrieval posture snapshot and workspace-local Obsidian evidence counts for completion turns instead of dropping back to a debug-only reconstruction.
 
