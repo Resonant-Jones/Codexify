@@ -1,0 +1,95 @@
+Dev Log - 2026-05-07
+
+Summary
+
+Context directive plumbing day.
+
+The work today was fundamentally about turning a new user-facing command path into a structured backend contract, then proving the runtime handled that contract without losing provenance. The day moved from shell capture to envelope handling to resolver scaffolding, and then into proof updates that classified how runtime commits should be attributed.
+
+What I completed
+
+Context directive shell and payload path
+
+Added the Obsidian context command shell and payload shape in the frontend, so the composer can express context directives instead of treating them as ad hoc chat text.
+Extended the slash-command contract and draft-sync coverage so the UI state stays aligned with the command envelope.
+Kept the change local to the composer/chat path rather than widening into unrelated navigation or retrieval surfaces.
+Context directive envelope acceptance
+
+Added backend support for accepting the context directive envelope in the Guardian chat route.
+Wired the frontend chat client to send the directive payload through the existing chat flow.
+Added route coverage so the envelope is treated as a first-class input shape, not a loose special case.
+Context directive resolver scaffold
+
+Introduced a resolver scaffold for context directives in Guardian.
+Added tests around the resolver behavior and chat-route directive handling, establishing a place for directive interpretation to live explicitly.
+This is still scaffold-level work, but it tightens the boundary around where directive resolution belongs.
+Runtime provenance proof hardening
+
+Updated the runtime provenance proof work so commit provenance is classified more carefully.
+Expanded the image-turn containment proof and its tests to reflect the revised truth about how runtime commits should be labeled and validated.
+This made the proof artifacts less ambiguous about what was actually being exercised.
+Important outcome
+
+The system is no longer just accepting a new context-command idea in the UI. It now has a real envelope path, a backend route that understands it, and a resolver seam where the semantics can be enforced instead of implied.
+
+That matters because provenance and directive handling are now being pushed into explicit contracts. The system stopped relying on informal handling of context intent and started recording a shape that can be tested, reasoned about, and hardened further.
+
+Commits
+
+3bbc3c71e - feat: add context directive resolver scaffold
+fa1872969 - proofs: classify runtime commit provenance
+b6e7da037 - feat: accept context directive envelope
+a39a2fe39 - feat: add obsidian context directive payload
+b5827575a - feat: add obsidian context command shell
+bdf3106bf - docs: record image-turn runtime provenance repair
+0ee170770 - docs: record image-turn runtime provenance gate
+49eefa02f - proofs: guard image-turn containment runtime provenance
+fe1661e13 - docs: rerun image-turn containment proof after worker normalization
+7f4cbae7c - docs: add context command connector semantics ADR
+b1d1605b1 - docs: capture supported profile live proof
+f89d5ea39 - Align agent runtime target contract
+72f180433 - runtime: normalize image routing in persisted trace
+bc7a6eecc - fix(retrieval): select and inject workspace obsidian evidence
+e1546ec58 - docs: rerun image-turn containment proof after final normalization
+b6c61239e - runtime: finalize image routing truth before trace persistence
+99bf54891 - docs: rerun image-turn containment proof after crash fix
+1e57dfb92 - Update daily evening audit memory
+edbbced6d - document uploads
+bf191f3e3 - Add workspace Obsidian selection and injection contract
+
+Notes
+
+Most of today’s evidence is code/test/documentation level, not live runtime proof.
+The current-state doc still carries the stronger 2026-05-05 live-proof story for the supported local-first path; today’s work did not replace that with new live validation.
+The new context-directive resolver is a scaffold, so the semantics are shaped but not fully finished.
+The provenance proof work is tightening truth around runtime behavior, but it remains proof work, not product launch evidence.
+Next likely moves
+
+Fill in the resolver semantics so context directives do something concrete end to end.
+Add narrower tests around malformed or partial directive envelopes.
+Re-run live proof only where the new directive path touches runtime behavior.
+Continue tightening provenance labels where trace persistence can still drift from actual execution.
+Closing thought
+
+Today’s work made a new intent path more explicit and less fragile. The important shift is not that a feature appeared, but that context handling and provenance now have contracts that can survive scrutiny.
+
+Narrative Log
+Dev Log - 2026-05-07
+
+Today was a contract day more than a feature day. The work kept converging on one idea: if the system is going to accept new forms of user intent, it needs to do so through explicit shapes, explicit routes, and explicit proof. Otherwise the behavior looks real from the outside while still being soft underneath.
+
+The first part of the day pushed that idea into the chat surface. The Obsidian context command moved from shell-level affordance into a payload the composer can actually emit. That mattered because it turned context into structured data rather than a buried convention. The draft-sync test updates followed the same line: they kept the frontend honest about what state it thinks it is carrying. Nothing about that work was flashy, but it removed a lot of ambiguity from the user intent path.
+
+From there the backend caught up. The Guardian chat route was taught to accept the context directive envelope, which is the kind of change that usually looks small until you realize it defines where meaning lives. Instead of treating directive input like incidental chat noise, the system now has a real input contract for it. The resolver scaffold goes one step further: it creates a place where directive meaning can be resolved deliberately instead of being scattered across handlers. That is still scaffold-level work, but it is the right kind of scaffold. It marks the boundary.
+
+The proof work was the other half of the day, and it belongs in the same story. Runtime provenance is only useful if the system can say what actually happened without hand-waving, so the image-turn containment proof was tightened and the commit provenance was classified more carefully. That kind of work rarely reads as product progress, but it is the difference between a system that merely runs and a system whose behavior can be trusted after the fact. The proof artifacts became more specific about what they were showing and what they were not.
+
+The deeper shift is that the system is starting to separate intention, envelope, and provenance. Those are different layers, and when they blur together, the whole thing gets hard to reason about. Today’s changes made the layers more legible. The user-facing command path became more structured, the backend accepted it as a real contract, and the proof layer stopped pretending that vague success was enough.
+
+What that makes possible next is straightforward: we can finish the directive semantics without changing the shape again, and we can keep tightening the proof around the paths that matter most. The system is a little less improvisational now. That is the useful kind of progress.
+
+
+
+
+
+8:52 PM
