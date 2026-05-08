@@ -79,7 +79,7 @@ As of 2026-05-08 follow-up implementation, the document identity/readback contra
 - The live backend posture still needs confirmation against the supported local-only profile before release signoff.
 - Fresh live evidence still needs to cover the supported beta path on the exact current `main` tip.
 - Any runtime mismatch between supported profile, catalog, and health surfaces remains a release hold.
-- A live proof attempt on 2026-05-05 still showed the coding worker failing before returning a `coding_result` because `/app/codex_runner/src/agent-wrapper.js` is missing in the running worker image; backend-seam tests now prove Guardian result persistence, but the live coding-result return path remains not release-ready.
+- A live proof attempt on 2026-05-05 still showed the coding worker failing before returning a `coding_result` because `/app/codex_runner/src/agent-wrapper.js` was missing in the running worker image. The packaging blocker has been fixed in `docker-compose.runtime.yml` by changing `worker-coding` from a pre-built image reference to a local `build: {context: ., dockerfile: backend/Dockerfile, target: runtime}` which mirrors the pattern used in `docker-compose.yml` and ensures `codex_runner/` is included in the image. Docker is not available in this environment for live rerun, so packaging proof is pending. Backend-seam tests now prove Guardian result persistence, but the live coding-result return path remains not release-ready until live proof confirms source-thread injection and idempotency.
 
 ## This week's priorities
 1. Re-run live supported-path proof on the current `main` tip.
