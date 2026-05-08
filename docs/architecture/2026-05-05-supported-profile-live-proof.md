@@ -364,3 +364,64 @@ This proof does not prove:
 - quarantine surfaces as part of the release promise
 - that the provider-registry unit-test slice is clean in every environment
 - that all future runtime changes will preserve this exact evidence without re-running the proof
+
+---
+
+## 2026-05-08 Follow-up Recheck
+
+**Recheck date:** 2026-05-08
+**Commit under test:** `1775466302ed9c55f915a453b02100383febdcd6`
+**Runtime path:** Supported local Docker Compose stack
+
+This follow-up rechecked the previously blocked document route proof after the backend startup blocker was cleared.
+
+### Recheck Commands
+
+```sh
+docker compose restart backend worker-document-embed
+docker compose ps
+docker compose logs --tail=120 backend
+```
+
+```sh
+docker compose exec -T backend python - <<'PY'
+import json, os, urllib.error, urllib.request
+base = 'http://127.0.0.1:8888'
+headers = {'X-API-Key': os.environ['GUARDIAN_API_KEY']}
+
+def request(method, path, body=None, extra_headers=None):
+    req_headers = dict(headers)
+    if extra_headers:
+        req_headers.update(extra_headers)
+    data = None if body is None else (body if isinstance(body, bytes) else body.encode())
+    req = urllib.request.Request(base + path, data=data, headers=req_headers, method=method)
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return resp.status, resp.read().decode()
+
+status, raw = request('GET', '/api/media/documents/84c6ab2f-2a4f-4257-bbfa-613b055657b3')
+print(status, raw)
+status, raw = request('GET', '/api/chat/28/messages')
+print(status, raw)
+status, raw = request('GET', '/api/chat/debug/rag-trace/28/latest')
+print(status, raw)
+PY
+```
+
+### Observed Evidence
+
+- The live supported upload path succeeded with a thread-scoped document attachment.
+- Explicit `project_id=1` upload input returned `404 Project not found`, so the supported recheck used `thread_id=28` without the explicit project override.
+- Uploaded document id: `84c6ab2f-2a4f-4257-bbfa-613b055657b3`
+- Thread id: `28`
+- Sentinel text: `SUPPORTED_PROOF_SENTINEL_2026_05_08`
+- `GET /api/media/documents/84c6ab2f-2a4f-4257-bbfa-613b055657b3` returned `embedding_status: ready`
+- The document detail response preserved the parsed text and embedding timestamps
+- `GET /api/chat/28/messages` returned an assistant response containing the exact sentinel token
+- The assistant payload recorded `retrieval_injected: true`, `linked_document_injected: true`, and `effective_source_mode: project`
+- `GET /api/chat/debug/rag-trace/28/latest` showed `source_mode: project`, `retrieval_query_matches_latest_turn: true`, `widen_reason: none`, and `linked_document_count: 3`
+
+### Follow-up Verdict
+
+**PASS**
+
+The previously blocked document readback and supported-path retrieval recheck now pass again on the live local Compose path. This re-proves the document upload -> embed -> retrieve seam on the supported runtime, but it does not change the historical PARTIAL verdict in this artifact or upgrade broader release readiness.

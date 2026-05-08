@@ -1642,7 +1642,6 @@ def _filter_image_refusal_semantic_context(
     *,
     suppression_trace: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None] | list[dict[str, Any]]:
-) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any] | None]:
     if not _image_attachments_from_meta(latest_user_meta):
         filtered = [item for item in semantic_items or [] if isinstance(item, dict)]
         if isinstance(suppression_trace, dict):
@@ -2697,8 +2696,6 @@ def _build_retrieval_provenance(
         "retrieval_status": retrieval_status,
     }
 
-
-def _build_model_selection_trace(
 def _build_model_selection_metadata(
     *,
     requested_provider: str | None,
@@ -2794,11 +2791,6 @@ def _build_model_selection_metadata(
         ):
             payload["policy_reason"] = "requested_provider_not_selected"
     return payload
-
-
-def _build_model_selection_metadata(
-    return {key: value for key, value in payload.items() if value is not None}
-
 
 def _build_model_selection_trace(
     *,
