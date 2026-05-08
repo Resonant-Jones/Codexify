@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
 try:
-    from guardian.core.auth_dependencies import get_current_user_id
+    from guardian.core.auth_dependencies import (  # noqa: F401
+        get_current_user_id,
+    )
     from guardian.core.dependencies import (
         RequestUserScope,
         chatlog_db,
@@ -89,23 +91,26 @@ _PROJECT_OWNER_SENTINEL = "__codexify_project_owner__"
 
 def _request_account_id(
     request_user_scope: RequestUserScope,
-    request: Request | None = None,
 ) -> str:
-    if request is not None:
-        return get_current_user_id(request)
     account_id = str(
         getattr(request_user_scope, "account_id", "") or ""
     ).strip()
-    return account_id or get_single_user_id()
+    if account_id:
+        return account_id
+
+    user_id = str(getattr(request_user_scope, "user_id", "") or "").strip()
+    if user_id:
+        return user_id
+
+    return get_single_user_id()
 
 
 def _resolve_project_owner_hint(
     raw_user_id: str | None,
     request_user_scope: RequestUserScope,
-    request: Request | None = None,
 ) -> str:
     requested_user_id = str(raw_user_id or "").strip()
-    account_id = _request_account_id(request_user_scope, request=request)
+    account_id = _request_account_id(request_user_scope)
     if getattr(request_user_scope, "multi_user_enabled", False):
         if requested_user_id and requested_user_id != account_id:
             raise HTTPException(
@@ -279,7 +284,6 @@ def create_project(
         owner_id = _resolve_project_owner_hint(
             body.user_id,
             request_user_scope,
-            request=request,
         )
         requested_name = (
             DEFAULT_PROJECT_NAME
