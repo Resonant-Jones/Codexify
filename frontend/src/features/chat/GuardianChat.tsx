@@ -1655,6 +1655,8 @@ export function GuardianChat({
     options: CompletionRequestOptions = {}
   ): Promise<CompletionOutcome> => {
     const selection = resolveCompletionSelection(options);
+    const contextDirectives =
+      options.slashIntent?.contextDirectives ?? null;
     const payload = {
       ...buildChatCompletionPayload(depth, {
         providerId: selection.providerId,
@@ -1663,6 +1665,7 @@ export function GuardianChat({
         preferredName: userName,
         profession: userProfession,
         guardianName,
+        contextDirectives,
       }),
       source_mode: sourceMode,
       ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),

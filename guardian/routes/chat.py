@@ -33,6 +33,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from pydantic import (
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -44,6 +45,10 @@ from pydantic import (
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.context.context_directive_resolver import (
+    resolve_context_request_plans,
+    serialize_context_request_plans,
+)
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id
@@ -353,6 +358,71 @@ def _slash_intent_origin_segment(
         )
         return ""
     return f"|slash_intent={encoded}"
+
+
+def _normalize_context_directives(
+    context_directives: list["ContextDirectiveRequest"] | None,
+) -> list[dict[str, str]] | None:
+    if not context_directives:
+        return None
+
+    normalized: list[dict[str, str]] = []
+    for directive in context_directives:
+        normalized.append(
+            {
+                "kind": "connector_context",
+                "connector_id": "obsidian",
+                "invocation": "turn_scoped",
+                "query_text": directive.query_text.strip(),
+            }
+        )
+    return normalized or None
+
+
+def _context_directives_origin_segment(
+    context_directives: list[dict[str, str]] | None,
+) -> str:
+    if not context_directives:
+        return ""
+
+    try:
+        encoded = quote(
+            json.dumps(
+                context_directives, ensure_ascii=False, separators=(",", ":")
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode context directives origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|context_directives={encoded}"
+
+
+def _context_request_plans_origin_segment(
+    context_request_plans: list[dict[str, Any]] | None,
+) -> str:
+    if not context_request_plans:
+        return ""
+
+    try:
+        encoded = quote(
+            json.dumps(
+                context_request_plans,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            safe="",
+        )
+    except Exception:
+        logger.debug(
+            "[chat.complete] failed to encode context request plans origin segment",
+            exc_info=True,
+        )
+        return ""
+    return f"|context_request_plans={encoded}"
 
 
 def _retrieval_override_from_slash_intent(
@@ -815,9 +885,16 @@ class ChatCompletionRequest(BaseModel):
     profession: Optional[str] = None
     guardian_name: Optional[str] = None
     turn_id: Optional[str] = None
-    source_mode: Optional[str] = "project"
+    source_mode: Optional[str] = None
     slash_intent: Optional["SlashIntentRequest"] = Field(
         default=None, alias="slashIntent"
+    )
+    context_directives: Optional[List["ContextDirectiveRequest"]] = Field(
+        default=None,
+        alias="contextDirectives",
+        validation_alias=AliasChoices(
+            "context_directives", "contextDirectives"
+        ),
     )
     depth_mode: Optional[
         str
@@ -833,6 +910,7 @@ SlashCommandId = Literal[
     "flow",
     "secure",
     "connect",
+    "obsidian",
     "help",
 ]
 SlashCommandIntentKind = Literal[
@@ -888,6 +966,32 @@ class SlashIntentRequest(BaseModel):
         if not (self.rawInput or self.rawToken):
             raise ValueError("slash intent requires rawInput or rawToken")
         return self
+
+
+ContextDirectiveKind = Literal["connector_context"]
+ContextDirectiveConnectorId = Literal["obsidian"]
+ContextDirectiveInvocation = Literal["turn_scoped"]
+
+
+class ContextDirectiveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    kind: ContextDirectiveKind
+    connector_id: ContextDirectiveConnectorId = Field(
+        validation_alias=AliasChoices("connector_id", "connectorId")
+    )
+    invocation: ContextDirectiveInvocation
+    query_text: StrictStr = Field(
+        validation_alias=AliasChoices("query_text", "queryText")
+    )
+
+    @field_validator("query_text")
+    @classmethod
+    def _validate_query_text(cls, value: StrictStr) -> StrictStr:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("context directive query_text cannot be blank")
+        return cleaned
 
 
 ChatCompletionRequest.model_rebuild()
@@ -1173,6 +1277,7 @@ def _persist_message_to_thread(
     role: str,
     content: str,
     owner: str,
+    message_metadata: dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     lock_probe_owner = "api:chat.messages:user_probe"
     lock_probe_acquired = False
@@ -1242,6 +1347,11 @@ def _persist_message_to_thread(
 
     chatlog_db.write_audit_log(
         "create", "chat_message", str(mid), user_id=str(owner)
+    )
+    _persist_message_extra_meta(
+        thread_id=thread_id,
+        message_id=mid,
+        extra_meta=message_metadata,
     )
 
     try:
@@ -1894,6 +2004,36 @@ def _coerce_message_meta(raw: Any) -> dict[str, Any]:
     return {}
 
 
+def _persist_message_extra_meta(
+    *, thread_id: int, message_id: int, extra_meta: dict[str, Any] | None
+) -> None:
+    if not isinstance(extra_meta, dict) or not extra_meta:
+        return
+    connect = getattr(chatlog_db, "_connect", None)
+    if not callable(connect):
+        return
+
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE chat_messages
+                    SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
+                    WHERE thread_id = %s
+                      AND id = %s
+                    """,
+                    (json.dumps(extra_meta), thread_id, message_id),
+                )
+    except Exception:
+        logger.debug(
+            "[chat.messages] failed to persist extra_meta thread_id=%s message_id=%s",
+            thread_id,
+            message_id,
+            exc_info=True,
+        )
+
+
 def _coerce_message_id(raw: Any) -> int | None:
     try:
         value = int(raw)
@@ -1934,6 +2074,30 @@ def _coerce_execution_payload(raw: Any) -> dict[str, Any] | None:
         return None
 
     return normalized
+
+
+def _source_mode_from_message_metadata(
+    message: dict[str, Any] | None
+) -> str | None:
+    if not isinstance(message, dict):
+        return None
+    metadata = _coerce_message_meta(
+        message.get("metadata")
+        if message.get("metadata")
+        else message.get("extra_meta")
+    )
+    if not metadata:
+        return None
+    for key in (
+        "contextSource",
+        "retrievalSource",
+        "source_mode",
+        "sourceMode",
+    ):
+        value = normalize_source_mode(metadata.get(key))
+        if value:
+            return value
+    return None
 
 
 def _fetch_message_extra_meta(
@@ -2387,11 +2551,16 @@ def chat_post_message(
         request=request,
     )
     try:
+        message_metadata = _coerce_message_meta(body.get("metadata"))
+        context_source = normalize_source_mode(body.get("contextSource"))
+        if context_source:
+            message_metadata["contextSource"] = context_source
         result = _persist_message_to_thread(
             thread_id=thread_id,
             role=role,
             content=content,
             owner=str(owner),
+            message_metadata=message_metadata or None,
         )
     except HTTPException as exc:
         if exc.status_code == 429 and isinstance(exc.detail, dict):
@@ -2484,12 +2653,19 @@ def chat_post_message_create_on_send(
         )
 
     assert requested_thread_id is not None
+    message_metadata = (
+        dict(body.metadata) if isinstance(body.metadata, dict) else {}
+    )
+    context_source = normalize_source_mode(body.contextSource)
+    if context_source:
+        message_metadata["contextSource"] = context_source
     try:
         result = _persist_message_to_thread(
             thread_id=requested_thread_id,
             role=role,
             content=content,
             owner=owner,
+            message_metadata=message_metadata or None,
         )
     except HTTPException as exc:
         if exc.status_code == 429 and isinstance(exc.detail, dict):
@@ -2615,9 +2791,6 @@ async def chat_complete(
     Enqueue an assistant reply for the given thread and return a task id.
     """
     turn_id = _normalize_turn_id(body.turn_id)
-    requested_source_mode = body.source_mode
-    source_mode = normalize_source_mode(requested_source_mode)
-
     requested_provider = str(body.provider or "").strip().lower() or None
     requested_model = str(body.model or "").strip() or None
 
@@ -2640,19 +2813,6 @@ async def chat_complete(
         thread=thread_exists if isinstance(thread_exists, dict) else None,
     )
 
-    thread_execution = resolve_thread_completion_settings(
-        thread_exists if isinstance(thread_exists, dict) else None,
-        requested_provider=body.provider,
-        requested_model=body.model,
-        requested_reasoning_mode=body.reasoning_mode,
-        requested_source_mode=source_mode,
-        settings=llm_settings,
-    )
-    provider = thread_execution.provider
-    model = thread_execution.model
-    reasoning_mode = thread_execution.reasoning_mode
-    source_mode = thread_execution.source_mode
-
     limit = int(body.max_context or 50)
     try:
         items = chatlog_db.list_messages(
@@ -2667,6 +2827,24 @@ async def chat_complete(
         items = sorted(items, key=lambda m: m.get("id") or 0)
     except Exception:
         pass
+    message_ids = [
+        message_id
+        for message_id in (_coerce_message_id(item.get("id")) for item in items)
+        if message_id is not None
+    ]
+    if message_ids:
+        backfill = _fetch_message_extra_meta(
+            thread_id=thread_id,
+            message_ids=message_ids,
+        )
+        if backfill:
+            for item in items:
+                message_id = _coerce_message_id(item.get("id"))
+                if message_id is None or item.get("extra_meta"):
+                    continue
+                metadata = backfill.get(message_id)
+                if metadata:
+                    item["extra_meta"] = metadata
     context: List[Dict[str, str]] = []
     for msg in items:
         role = str(msg.get("role") or "").strip()
@@ -2691,6 +2869,22 @@ async def chat_complete(
         if isinstance(latest_turn, dict)
         else None
     )
+    requested_source_mode = normalize_source_mode(
+        body.source_mode
+    ) or _source_mode_from_message_metadata(latest_turn)
+
+    thread_execution = resolve_thread_completion_settings(
+        thread_exists if isinstance(thread_exists, dict) else None,
+        requested_provider=body.provider,
+        requested_model=body.model,
+        requested_reasoning_mode=body.reasoning_mode,
+        requested_source_mode=requested_source_mode,
+        settings=llm_settings,
+    )
+    provider = thread_execution.provider
+    model = thread_execution.model
+    reasoning_mode = thread_execution.reasoning_mode
+    source_mode = thread_execution.source_mode
 
     requested_depth_raw = normalize_requested_depth_raw(body.depth_mode)
     # Binary projection: deep iff raw request is exactly "deep".
@@ -2808,6 +3002,26 @@ async def chat_complete(
     retrieval_override = _retrieval_override_from_slash_intent(
         body.slash_intent
     )
+    normalized_context_directives = _normalize_context_directives(
+        body.context_directives
+    )
+    serialized_context_request_plans: list[dict[str, Any]] | None = None
+    if normalized_context_directives:
+        try:
+            context_request_plans = resolve_context_request_plans(
+                normalized_context_directives
+            )
+            serialized_context_request_plans = serialize_context_request_plans(
+                context_request_plans
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_context_directive_plan",
+                    "reason": str(exc),
+                },
+            ) from exc
 
     task = ChatCompletionTask(
         user_id=account_id,
@@ -2833,8 +3047,12 @@ async def chat_complete(
         # Temporary transport bridge: carry turn_id, source_mode, and
         # bounded slash intent metadata via origin until ChatCompletionTask
         # gains typed fields for those values.
+        # TODO(ADR-024): promote context_directives to a typed task field
+        # when backend connector consumption is implemented.
         origin=(
             f"api:chat.complete|turn_id={turn_id}|source_mode={source_mode}"
+            f"{_context_directives_origin_segment(normalized_context_directives)}"
+            f"{_context_request_plans_origin_segment(serialized_context_request_plans)}"
             f"{_slash_intent_origin_segment(body.slash_intent)}"
             f"{_retrieval_override_origin_segment(retrieval_override)}"
             f"{_image_attachment_origin_segment(latest_turn)}"
@@ -3623,7 +3841,9 @@ def _get_task_completed_payload(
 
 def _latest_eval_trace_payload(thread_id: int) -> dict[str, Any] | None:
     try:
-        diagnostics = get_latest_eval_diagnostics(chatlog_db, thread_id=thread_id)
+        diagnostics = get_latest_eval_diagnostics(
+            chatlog_db, thread_id=thread_id
+        )
     except Exception as exc:
         logger.debug(
             "[chat] latest eval trace unavailable thread_id=%s err=%s",
@@ -3654,9 +3874,7 @@ def _latest_eval_trace_payload(thread_id: int) -> dict[str, Any] | None:
         if not payload_summary.get("retrieval_provenance") and isinstance(
             retrieval_summary, dict
         ):
-            retrieval_provenance = retrieval_summary.get(
-                "retrieval_provenance"
-            )
+            retrieval_provenance = retrieval_summary.get("retrieval_provenance")
             if isinstance(retrieval_provenance, dict):
                 payload_summary = dict(payload_summary)
                 payload_summary["retrieval_provenance"] = dict(
@@ -3717,12 +3935,11 @@ def _build_eval_model_selection(
 
     requested_provider = payload_summary.get("requested_provider")
     requested_model = payload_summary.get("requested_model")
-    attempted_provider = (
-        payload_summary.get("attempted_provider")
-        or metadata.get("attempted_provider")
-    )
-    attempted_model = (
-        payload_summary.get("attempted_model") or metadata.get("attempted_model")
+    attempted_provider = payload_summary.get(
+        "attempted_provider"
+    ) or metadata.get("attempted_provider")
+    attempted_model = payload_summary.get("attempted_model") or metadata.get(
+        "attempted_model"
     )
     resolved_provider = (
         payload_summary.get("resolved_provider")
@@ -3734,13 +3951,14 @@ def _build_eval_model_selection(
         or metadata.get("attempted_model")
         or payload_summary.get("final_model")
     )
-    final_provider = (
-        payload_summary.get("final_provider") or metadata.get("final_provider")
+    final_provider = payload_summary.get("final_provider") or metadata.get(
+        "final_provider"
     )
-    final_model = payload_summary.get("final_model") or metadata.get("final_model")
-    selection_source = (
-        payload_summary.get("selection_source")
-        or metadata.get("selection_source")
+    final_model = payload_summary.get("final_model") or metadata.get(
+        "final_model"
+    )
+    selection_source = payload_summary.get("selection_source") or metadata.get(
+        "selection_source"
     )
     fallback_reason = payload_summary.get("fallback_reason")
     model_resolution = payload_summary.get("model_resolution")
@@ -3793,21 +4011,17 @@ def _build_eval_model_selection(
             model_selection["policy_reason"] = selection_source
         elif fallback_reason:
             model_selection["policy_reason"] = fallback_reason
-        elif (
-            requested_model
-            and final_model
-            and requested_model != final_model
-        ):
+        elif requested_model and final_model and requested_model != final_model:
             model_selection["policy_reason"] = "requested_model_not_selected"
         elif (
             requested_provider
             and final_provider
             and requested_provider != final_provider
         ):
-            model_selection["policy_reason"] = (
-                "requested_provider_not_selected"
-            )
+            model_selection["policy_reason"] = "requested_provider_not_selected"
     return model_selection
+
+
 _RAG_TRACE_REDACTED_TEXT_KEYS = {
     "body",
     "content",
@@ -3949,9 +4163,9 @@ def _build_rag_trace_retrieval_summary(
             or trace.get("source_mode")
         )
     if summary["normalized_source_mode"] is None:
-        summary["normalized_source_mode"] = (
-            trace.get("normalized_source_mode") or trace.get("source_mode")
-        )
+        summary["normalized_source_mode"] = trace.get(
+            "normalized_source_mode"
+        ) or trace.get("source_mode")
     if summary["graph_hit_count"] is None:
         summary["graph_hit_count"] = trace.get("graph_hit_count")
     if summary["image_attachment_count"] is None:
@@ -4128,6 +4342,7 @@ def get_latest_rag_trace(
                 )
             )
             if not trace_source_evidence:
+            if not trace_source_evidence and not trace_unavailable_reason:
                 trace_unavailable_reason = (
                     TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value
                 )
@@ -4174,10 +4389,13 @@ def get_latest_rag_trace(
                 )
                 if isinstance(retrieval_provenance_value, dict):
                     retrieval_provenance = dict(retrieval_provenance_value)
-            trace_source_evidence = bool(
-                isinstance(eval_trace, dict)
-                or isinstance(eval_payload_summary, dict)
-            ) or trace_source_evidence
+            trace_source_evidence = (
+                bool(
+                    isinstance(eval_trace, dict)
+                    or isinstance(eval_payload_summary, dict)
+                )
+                or trace_source_evidence
+            )
 
     trace_needs_eval_promotion = not isinstance(trace, dict) or any(
         trace.get(key) in (None, "", [], {})
@@ -4253,7 +4471,10 @@ def get_latest_rag_trace(
                 ):
                     current_value = merged_trace.get(key)
                     promoted_value = promoted_eval_trace.get(key)
-                    if current_value in (None, "", [], {}) and promoted_value is not None:
+                    if (
+                        current_value in (None, "", [], {})
+                        and promoted_value is not None
+                    ):
                         merged_trace[key] = promoted_value
                 if promoted_eval_trace:
                     merged_trace.pop("trace_unavailable_reason", None)
@@ -4261,7 +4482,9 @@ def get_latest_rag_trace(
             trace_source_found = True
             trace_unavailable_reason = None
             if not task_id:
-                task_id = str(trace_snapshot.get("task_id") or "").strip() or None
+                task_id = (
+                    str(trace_snapshot.get("task_id") or "").strip() or None
+                )
             if task_id:
                 _rag_traces[thread_id] = trace
                 _persist_thread_latest_rag_trace(thread_id, task_id, trace)
@@ -4296,9 +4519,7 @@ def get_latest_rag_trace(
     else:
         if trace is None:
             trace = {}
-        trace["documents"] = _sanitize_rag_trace_entries(
-            trace.get("documents")
-        )
+        trace["documents"] = _sanitize_rag_trace_entries(trace.get("documents"))
         trace["graph"] = _sanitize_rag_trace_entries(trace.get("graph"))
         trace.setdefault("documents", [])
         trace.setdefault("graph", [])
@@ -4322,7 +4543,9 @@ def get_latest_rag_trace(
         retrieval_suppression = payload_summary.get("retrieval_suppression")
         if isinstance(retrieval_suppression, dict):
             trace["retrieval_suppression"] = retrieval_suppression
-    if "retrieval_suppression" not in trace and isinstance(completed_payload, dict):
+    if "retrieval_suppression" not in trace and isinstance(
+        completed_payload, dict
+    ):
         retrieval_suppression_value = completed_payload.get(
             "retrieval_suppression"
         )
@@ -4494,9 +4717,9 @@ def _promote_trace_snapshot_contract(
             if not _missing_contract_value(candidate_value):
                 normalized[key] = candidate_value
 
-    if _missing_contract_value(normalized.get("retrieval_policy")) and isinstance(
-        normalized.get("effective_policy"), dict
-    ):
+    if _missing_contract_value(
+        normalized.get("retrieval_policy")
+    ) and isinstance(normalized.get("effective_policy"), dict):
         normalized["retrieval_policy"] = dict(normalized["effective_policy"])
     if _missing_contract_value(normalized.get("retrieval_provenance")):
         retrieval_provenance = payload_summary.get("retrieval_provenance")

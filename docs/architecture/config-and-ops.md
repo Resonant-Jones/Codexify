@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-04-28
+Last updated: 2026-05-08
 Source anchors:
 - Makefile
 - package.json
@@ -162,10 +162,22 @@ python scripts/proofs/prove_workspace_obsidian_e2e.py
 | Variable | Current behavior | Anchors |
 |---|---|---|
 | `GUARDIAN_ENABLE_GRAPH_CONTEXT` | Enables graph snippets during context assembly | `guardian/context/broker.py`, `guardian/core/config.py` |
+| `CODEXIFY_ENABLE_GRAPH_WRITES` | Master runtime gate for graph-write persistence. Defaults to `false`. When false, the graph backend factory always returns `NoopGraphBackendAdapter` regardless of `CODEXIFY_GRAPH_BACKEND` or Neo4j container presence. | `guardian/memory_graph/graph_backend_factory.py`, `guardian/core/config.py`, `docker-compose.yml` |
+| `CODEXIFY_GRAPH_BACKEND` | Graph backend adapter selection. Defaults to `noop`. Valid values: `noop`, `neo4j`. Only effective when `CODEXIFY_ENABLE_GRAPH_WRITES=true`. Neo4j container presence alone does not enable graph writes. | `guardian/memory_graph/graph_backend_factory.py`, `guardian/core/config.py`, `docker-compose.yml` |
 | `GUARDIAN_FEDERATION_ENABLED` | Master feature gate for federation routes | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | trust policy envs | Signed policy, node allowlist, and federation auth requirements are env-driven | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | `GUARDIAN_COMMAND_BUS_LOOPBACK_BASE` | Base URL for command bus loopback execution | `guardian/command_bus/loopback_http_adapter.py`, `docker-compose.yml` |
 | WebSocket rate-limit envs | Guard `/api/ws/rpc` connection and payload behavior | `guardian/routes/websocket.py`, `guardian/core/config.py` |
+
+#### Graph-write runtime boundary on the supported Compose path
+
+The supported local Docker Compose path enforces a default-off contract for graph writes:
+
+- `CODEXIFY_ENABLE_GRAPH_WRITES=false` and `CODEXIFY_GRAPH_BACKEND=noop` are explicitly wired into the `backend` and worker services in `docker-compose.yml`.
+- Running `docker compose config` should visibly show these env vars on the `backend`, `worker-chat`, `worker-coding`, `worker-warmup`, and `graph-backfill` services.
+- The Neo4j service may be present in the Compose topology, but its presence does not imply graph-write enablement.
+- Graph-write enablement requires both flags to be explicitly set: `CODEXIFY_ENABLE_GRAPH_WRITES=true` AND `CODEXIFY_GRAPH_BACKEND=neo4j`.
+- The factory in `guardian/memory_graph/graph_backend_factory.py` is fail-closed: invalid backend values, missing flags, or absent Neo4j adapter all resolve to `NoopGraphBackendAdapter`.
 
 ### Frontend and desktop runtime
 
@@ -278,6 +290,30 @@ Primary anchors:
 - `/metrics` exists and Prometheus setup is initialized during app startup.
 - Command bus and websocket paths have explicit event/audit storage rather than relying only on console logs.
 - Structured JSON logger setup is `Unverified`; the scanned startup path used stdlib logging plus subsystem-specific log messages.
+
+## Workspace Obsidian E2E Proof Harness
+
+A canonical live-proof harness exists for the `retrievalSource="workspace"` seam on the supported local Compose path. It validates the complete end-to-end path from Obsidian-backed note ingestion through queue-backed completion to retrieval-posture trace evidence.
+
+**Script:** `scripts/proofs/prove_workspace_obsidian_e2e.py`
+
+| Condition | What it checks | Failure class |
+|---|---|---|
+| Health | `/health`, `/health/chat`, `/api/health/llm` return 2xx | `HEALTH_CHECK_FAILED` (exit 2) |
+| Ingest | Sentinel note accepted via `/api/obsidian/ingest` | `INGESTION_FAILED` (exit 3) |
+| Acceptance | Completion request returns task_id | `ACCEPTANCE_FAILED` (exit 4) |
+| Terminal state | Task reaches `task.completed` or `task.failed` | `COMPLETION_TIMEOUT` (exit 5) |
+| Response verdict | Assistant response contains sentinel-derived answer | `RESPONSE_VERDICT_FAILED` (exit 6) |
+| Retrieval posture | Posture snapshot shows workspace-local signal | `RETRIEVAL_EVIDENCE_FAILED` (exit 7) |
+
+**Command:**
+```bash
+python scripts/proofs/prove_workspace_obsidian_e2e.py
+# Or with explicit BASE and key:
+BASE=http://localhost:8888 GUARDIAN_API_KEY="$(cat ~/.codex_guardian_key)" \
+  python scripts/proofs/prove_workspace_obsidian_e2e.py
+```
+**Scope note:** This harness validates the supported local Compose path only. It does NOT prove sync automation, connector UX, or non-Compose install modes. Contract tests live at `tests/proofs/test_workspace_obsidian_e2e_contract.py`.
 
 ## Common Failure Signatures
 

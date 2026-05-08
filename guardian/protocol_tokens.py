@@ -11,6 +11,13 @@ class AcceptanceStatus(str, Enum):
     ACCEPTED_DEGRADED = "accepted_degraded"
 
 
+class ContextRequestStatus(str, Enum):
+    ACCEPTED_NOT_EXECUTED = "accepted_not_executed"
+    EXECUTED = "executed"
+    NO_RESULTS = "no_results"
+    FAILED = "failed"
+
+
 class TaskEventType(str, Enum):
     TASK_CREATED = "task.created"
     TASK_COMPLETED = "task.completed"
@@ -183,6 +190,9 @@ class ImageRoutingPath(str, Enum):
 ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in AcceptanceStatus}
 )
+CONTEXT_REQUEST_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in ContextRequestStatus}
+)
 TASK_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in TaskEventType}
 )
@@ -260,6 +270,7 @@ IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
 
 __all__ = [
     "AcceptanceStatus",
+    "ContextRequestStatus",
     "TaskEventType",
     "ToolTurnState",
     "LoopStopReason",
@@ -302,6 +313,7 @@ __all__ = [
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",
     "TRACE_SNAPSHOT_ABSENCE_REASONS",
 ]

@@ -2,7 +2,7 @@
 
 Purpose: define the canonical indexing blueprint for a Memory Graph layer that unifies relational memory, vector memory, and optional graph enrichment without changing the runtime source of truth.
 
-Last updated: 2026-04-28
+Last updated: 2026-05-08
 
 Source anchors:
 - docs/architecture/data-and-storage.md
@@ -230,14 +230,15 @@ signals.
 The current implementation path now also includes a dedicated graph-write task
 seam and graph-write worker scaffold.
 
-This worker is log-only and exists to stabilize topology before persistence:
+This worker now has a bounded adapter seam that preserves default-off behavior:
 
 - candidate ingest can hand off non-empty graph candidates as a derived task
-- the graph-write worker only inspects task payloads and emits summaries
-- no Neo4j writes, Postgres writes, or retrieval changes happen in this phase
+- the graph-write worker resolves `NoOpGraphBackend` by default
+- `Neo4jGraphBackend` is selected only behind explicit runtime enablement
+- receipt claim and inspection snapshot still happen before backend invocation
+- backend failure remains isolated and does not change chat acceptance semantics
 
-Actual graph persistence and idempotent write semantics remain deferred to a
-later task.
+Graph persistence remains optional, derived, and non-canonical in this phase.
 
 ### 5.6 Graph Replay Safety
 
@@ -250,8 +251,9 @@ This is a provenance-preserving, replay-safe control-plane seam:
 - receipt state remains operational and ephemeral
 - no canonical graph truth is claimed here
 
-Real Neo4j writes, durable idempotent persistence, and graph retrieval
-consumption remain deferred to a later task.
+The Neo4j adapter path now provides idempotent `MERGE`-based writes that
+preserve graph-write provenance metadata, but retrieval consumption remains
+deferred.
 
 ### 5.7 Graph-Write Inspection Snapshot Surface
 
@@ -281,6 +283,19 @@ This contract is intentionally inert in the current phase:
 
 The adapter gives future persistence code a stable typed seam while the worker
 remains inspection-only today.
+
+### 5.9 Graph-Write Runtime Gate
+
+Real graph persistence exists behind a runtime gate on the supported Docker
+Compose path. The supported-path default remains disabled:
+
+- `CODEXIFY_ENABLE_GRAPH_WRITES=false` (default)
+- `CODEXIFY_GRAPH_BACKEND=noop` (default)
+
+The factory in `guardian/memory_graph/graph_backend_factory.py` is fail-closed
+and returns `NoopGraphBackendAdapter` unless both flags are explicitly enabled.
+Neo4j container presence in the Compose topology does not imply graph-write
+enablement.
 
 ## 6. Invariants
 

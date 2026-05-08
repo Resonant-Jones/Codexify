@@ -34,6 +34,12 @@ from guardian.command_bus.contracts import (
 from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
+from guardian.context.context_directive_resolver import (
+    CONTEXT_REQUEST_PLANS_ORIGIN_KEY,
+    SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
+    SUPPORTED_CONTEXT_REQUEST_INVOCATION,
+    SUPPORTED_CONTEXT_REQUEST_KIND,
+)
 from guardian.context.retrieval_router_policy import (
     RETRIEVAL_OVERRIDE_CONVERSATION,
     RETRIEVAL_OVERRIDE_NONE,
@@ -51,13 +57,13 @@ from guardian.context.retrieval_router_policy import (
 )
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
-    build_openai_vision_content,
     _image_turn_vision_unsupported_detail,
+    build_openai_vision_content,
     chat_with_ai,
+    messages_contain_image_payload,
     normalize_completion_output,
     resolve_local_execution_model,
     resolve_model_vision_capability_state,
-    messages_contain_image_payload,
     stream_local,
 )
 from guardian.core.candidate_trace_store import store_candidate_trace
@@ -80,12 +86,14 @@ from guardian.core.provider_registry import (
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
     ErrorCode,
+    ContextRequestStatus,
     ImageRoutingPath,
     LoopStopReason,
+    ContextRequestStatus,
     ToolLoopStopReason,
     ToolTurnState,
-    TraceSuppressionReason,
     TraceSnapshotAbsenceReason,
+    TraceSuppressionReason,
 )
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
@@ -431,6 +439,16 @@ def _source_mode_from_origin(origin: Any) -> str:
     return SOURCE_MODE_PROJECT
 
 
+def _requested_source_mode_from_task(task: Any) -> str | None:
+    explicit_source_mode = normalize_source_mode(
+        getattr(task, "requested_source_mode", None)
+    )
+    if explicit_source_mode:
+        return explicit_source_mode
+    origin_source_mode = _source_mode_from_origin(getattr(task, "origin", None))
+    return normalize_source_mode(origin_source_mode)
+
+
 def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
     text = str(origin or "").strip()
     if not text:
@@ -479,6 +497,248 @@ def _retrieval_override_from_origin(origin: Any) -> dict[str, Any] | None:
     return None
 
 
+def _context_request_plans_from_origin(origin: Any) -> list[dict[str, Any]]:
+    text = str(origin or "").strip()
+    if not text:
+        return []
+
+    for segment in text.split("|")[1:]:
+        key, _, value = segment.partition("=")
+        if key.strip() != "context_request_plans":
+        if key.strip() != CONTEXT_REQUEST_PLANS_ORIGIN_KEY:
+            continue
+        raw_value = unquote(value.strip())
+        if not raw_value:
+            return []
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:
+            logger.debug(
+                "[chat-completion] failed to decode context request plans origin segment",
+                exc_info=True,
+            )
+            return []
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+        if isinstance(parsed, dict):
+            nested = parsed.get("context_request_plans") or parsed.get("plans")
+            if isinstance(nested, list):
+                return [item for item in nested if isinstance(item, dict)]
+        return []
+    return []
+
+
+def _supported_obsidian_context_request_plans(task: Any) -> list[dict[str, Any]]:
+    raw_plans = getattr(task, "context_request_plans", None)
+    if raw_plans is None:
+        raw_plans = _context_request_plans_from_origin(
+            getattr(task, "origin", None)
+        )
+    if not isinstance(raw_plans, list):
+        return []
+
+    supported: list[dict[str, Any]] = []
+    for plan in raw_plans:
+        if not isinstance(plan, dict):
+            continue
+        if not isinstance(parsed, list):
+            return []
+        return [dict(plan) for plan in parsed if isinstance(plan, dict)]
+    return []
+
+
+def _supported_obsidian_context_request_plans(
+    task: Any,
+) -> list[dict[str, Any]]:
+    supported_plans: list[dict[str, Any]] = []
+    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
+        request_kind = str(
+            plan.get("request_kind") or plan.get("requestKind") or ""
+        ).strip().lower()
+        connector_id = str(
+            plan.get("connector_id") or plan.get("connectorId") or ""
+        ).strip().lower()
+        invocation = str(plan.get("invocation") or "").strip().lower()
+        query_text = str(
+            plan.get("query_text") or plan.get("queryText") or ""
+        ).strip()
+        if (
+            request_kind != SUPPORTED_CONTEXT_REQUEST_KIND
+            or connector_id != SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID
+            or invocation != SUPPORTED_CONTEXT_REQUEST_INVOCATION
+            or not query_text
+        ):
+            continue
+
+        normalized_plan = dict(plan)
+        normalized_plan["request_kind"] = SUPPORTED_CONTEXT_REQUEST_KIND
+        normalized_plan["connector_id"] = SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID
+        normalized_plan["invocation"] = SUPPORTED_CONTEXT_REQUEST_INVOCATION
+        normalized_plan["query_text"] = query_text
+        normalized_plan["status"] = (
+            str(normalized_plan.get("status") or "").strip()
+            or ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value
+        )
+        normalized_plan["execution_required"] = False
+        supported_plans.append(normalized_plan)
+    return supported_plans
+
+
+def _context_request_result_record(
+    plan: dict[str, Any],
+    *,
+    status: str,
+    result_count: int,
+    injected: bool,
+    error: str | None = None,
+) -> dict[str, Any]:
+    record = {
+        "request_kind": str(
+            plan.get("request_kind") or plan.get("requestKind") or ""
+        ).strip()
+        or SUPPORTED_CONTEXT_REQUEST_KIND,
+        "connector_id": str(
+            plan.get("connector_id") or plan.get("connectorId") or ""
+        ).strip()
+        or SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
+        "invocation": str(plan.get("invocation") or "").strip()
+        or SUPPORTED_CONTEXT_REQUEST_INVOCATION,
+        "query_text": str(
+            plan.get("query_text") or plan.get("queryText") or ""
+        ).strip(),
+        "status": status,
+        "result_count": int(result_count),
+        "injected": bool(injected),
+    }
+    if error:
+        record["error"] = error
+    return record
+
+
+def _sanitize_context_request_error(exc: Exception) -> str:
+    text = re.sub(r"/[^\s]+", "[redacted]", str(exc))
+    text = re.sub(r"[A-Za-z]:\\\\[^\s]+", "[redacted]", text)
+    return f"{exc.__class__.__name__}: {text}"
+
+
+async def _apply_context_request_plans(
+    *,
+    broker: ContextBroker,
+    task: Any,
+    bundle: dict[str, Any],
+    user_id: str,
+    project_id: int | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(bundle, dict):
+        return []
+
+    context_request_results: list[dict[str, Any]] = []
+    connector_context = list(bundle.get("connector_context") or [])
+
+    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
+        request_kind = str(
+            plan.get("request_kind") or plan.get("requestKind") or ""
+        ).strip().lower()
+        connector_id = str(
+            plan.get("connector_id") or plan.get("connectorId") or ""
+        ).strip().lower()
+        invocation = str(plan.get("invocation") or "").strip().lower()
+        status = str(plan.get("status") or "").strip().lower()
+        if request_kind != "read_only_context_request":
+            continue
+        if connector_id != "obsidian":
+            continue
+        if invocation != "turn_scoped":
+            continue
+        if status != ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value:
+            continue
+        supported.append(dict(plan))
+    return supported
+
+
+        query_text = str(
+            plan.get("query_text") or plan.get("queryText") or ""
+        ).strip()
+
+        supported = (
+            request_kind == SUPPORTED_CONTEXT_REQUEST_KIND
+            and connector_id == SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID
+            and invocation == SUPPORTED_CONTEXT_REQUEST_INVOCATION
+        )
+
+        if not supported:
+            context_request_results.append(
+                _context_request_result_record(
+                    plan,
+                    status=ContextRequestStatus.FAILED.value,
+                    result_count=0,
+                    injected=False,
+                    error="unsupported_context_request_plan",
+                )
+            )
+            continue
+
+        normalized_plan = {
+            "request_kind": SUPPORTED_CONTEXT_REQUEST_KIND,
+            "connector_id": SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
+            "invocation": SUPPORTED_CONTEXT_REQUEST_INVOCATION,
+            "query_text": query_text,
+            "status": ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value,
+            "execution_required": False,
+        }
+
+        if not query_text:
+            context_request_results.append(
+                _context_request_result_record(
+                    normalized_plan,
+                    status=ContextRequestStatus.FAILED.value,
+                    result_count=0,
+                    injected=False,
+                    error="blank_query_text",
+                )
+            )
+            continue
+
+        try:
+            items = await broker.retrieve_obsidian_context_command(
+                query=query_text,
+                user_id=user_id,
+                project_id=project_id,
+                k=int(plan.get("k") or plan.get("limit") or 4),
+                retrieval_policy=plan.get("retrieval_policy")
+                if isinstance(plan.get("retrieval_policy"), dict)
+                else None,
+            )
+        except Exception as exc:
+            context_request_results.append(
+                _context_request_result_record(
+                    normalized_plan,
+                    status=ContextRequestStatus.FAILED.value,
+                    result_count=0,
+                    injected=False,
+                    error=_sanitize_context_request_error(exc),
+                )
+            )
+            continue
+
+        item_count = len(items)
+        if item_count:
+            connector_context.extend(items)
+            status = ContextRequestStatus.EXECUTED.value
+        else:
+            status = ContextRequestStatus.NO_RESULTS.value
+        context_request_results.append(
+            _context_request_result_record(
+                normalized_plan,
+                status=status,
+                result_count=item_count,
+                injected=bool(item_count),
+            )
+        )
+
+    bundle["connector_context"] = connector_context
+    bundle["context_request_results"] = context_request_results
+    return context_request_results
 def _image_attachment_count_from_origin(origin: Any) -> int | None:
     text = str(origin or "").strip()
     if not text:
@@ -989,7 +1249,8 @@ def resolve_thread_completion_settings(
             )
         )
         source_mode = normalize_source_mode(
-            _thread_config_value(
+            requested_source_mode
+            or _thread_config_value(
                 thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS
             )
             or SOURCE_MODE_PROJECT
@@ -1066,9 +1327,7 @@ async def _assemble_context_bundle(
         ):
             raise
         if retrieval_override_error and not (
-            retrieval_policy_error
-            or source_mode_error
-            or project_id_error
+            retrieval_policy_error or source_mode_error or project_id_error
         ):
             assemble_kwargs = dict(
                 thread_id=thread_id,
@@ -1351,7 +1610,9 @@ def _merge_retrieval_suppression_summaries(
     if not merged_items and not counts_by_reason:
         return None
     return {
-        "count": len(merged_items) if merged_items else sum(counts_by_reason.values()),
+        "count": len(merged_items)
+        if merged_items
+        else sum(counts_by_reason.values()),
         "items": merged_items,
         "counts_by_reason": counts_by_reason,
     }
@@ -1381,14 +1642,22 @@ def _filter_image_refusal_semantic_context(
     *,
     suppression_trace: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None] | list[dict[str, Any]]:
     if not _image_attachments_from_meta(latest_user_meta):
-        filtered = [item for item in semantic_items or [] if isinstance(item, dict)]
+        filtered = [
+            item for item in semantic_items or [] if isinstance(item, dict)
+        ]
         if isinstance(suppression_trace, dict):
             suppression_trace.setdefault("items", [])
             suppression_trace.setdefault("summary", {"total_suppressed": 0})
+            return filtered
         return filtered, None
     filtered: list[dict[str, Any]] = []
-    suppressed: list[dict[str, Any]] = []
+    suppressed_items: list[dict[str, Any]] = []
+    suppressed_trace_items: list[dict[str, Any]] = []
+    suppression_reason = (
+        TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
+    )
     for item in semantic_items or []:
         if not isinstance(item, dict):
             continue
@@ -1396,11 +1665,11 @@ def _filter_image_refusal_semantic_context(
             suppressed.append(
                 _build_retrieval_suppression_item(
                     item,
-                    suppression_reason=TraceSuppressionReason
-                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
-                    policy_reason=TraceSuppressionReason
-                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
-                    retrieval_lane=str(item.get("retrieval_lane") or "thread_semantic"),
+                    suppression_reason=suppression_reason,
+                    policy_reason=suppression_reason,
+                    retrieval_lane=str(
+                        item.get("retrieval_lane") or "thread_semantic"
+                    ),
                     thread_id=item.get("thread_id"),
                     project_id=item.get("project_id"),
                     retrieval_policy=item.get("retrieval_policy")
@@ -1409,15 +1678,15 @@ def _filter_image_refusal_semantic_context(
                 )
             )
             suppressed.append(
+            suppressed_trace_items.append(
                 _semantic_suppression_trace_item(
                     item,
-                    suppression_reason=(
-                        "assistant_vision_refusal_on_image_turn"
-                    ),
+                    suppression_reason=suppression_reason,
                 )
             )
             continue
         filtered.append(item)
+
     suppression_summary = _merge_retrieval_suppression_summaries(
         None if not suppressed else {
             "count": len(suppressed),
@@ -1428,14 +1697,22 @@ def _filter_image_refusal_semantic_context(
                     suppressed
                 )
             },
+        None
+        if not suppressed_items
+        else {
+            "count": len(suppressed_items),
+            "items": suppressed_items,
+            "counts_by_reason": {suppression_reason: len(suppressed_items)},
+            "counts_by_reason": {suppression_reason: len(suppressed_items)},
         }
     )
     if isinstance(suppression_trace, dict):
-        suppression_trace["items"] = suppressed
+        suppression_trace["items"] = suppressed_trace_items
         suppression_trace["summary"] = {
-            "total_suppressed": len(suppressed),
-            "assistant_vision_refusal_on_image_turn": len(suppressed),
+            "total_suppressed": len(suppressed_trace_items),
+            suppression_reason: len(suppressed_trace_items),
         }
+        return filtered
     return filtered, suppression_summary
 
 
@@ -1734,9 +2011,9 @@ def _apply_image_attachment_routing(
             "role": "user",
             "content": build_openai_vision_content(text, image_urls),
         }
-        routing_meta["image_routing_path"] = (
-            ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
-        )
+        routing_meta[
+            "image_routing_path"
+        ] = ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
         return updated, routing_meta
 
     interpretations = _interpret_image_attachments(
@@ -1797,17 +2074,18 @@ def _image_routing_absence_reason(
         )
         if vision_support_state is not True:
             return (
-                TraceSnapshotAbsenceReason
-                .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
+                TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
             )
-    if resolve_model_vision_capability_state(
-        provider,
-        resolved_model or normalized_resolved_model or "",
-        settings,
-    ) is True:
+    if (
+        resolve_model_vision_capability_state(
+            provider,
+            resolved_model or normalized_resolved_model or "",
+            settings,
+        )
+        is True
+    ):
         return (
-            TraceSnapshotAbsenceReason
-            .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
+            TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
         )
     return TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
 
@@ -1825,7 +2103,10 @@ def _resolve_image_routing_trace(
         routing_meta.get("image_attachment_count", 0) or 0
     )
     if image_attachment_count <= 0:
-        return None, TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
+        return (
+            None,
+            TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value,
+        )
 
     raw_path = str(routing_meta.get("image_routing_path") or "").strip().lower()
     provider_ready_image_payload_present = messages_contain_image_payload(
@@ -1846,8 +2127,7 @@ def _resolve_image_routing_trace(
                 return ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value, None
             return (
                 None,
-                TraceSnapshotAbsenceReason
-                .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value,
+                TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value,
             )
         return ImageRoutingPath.INTERPRETER.value, None
 
@@ -1857,8 +2137,7 @@ def _resolve_image_routing_trace(
     if vision_support_state is True:
         return (
             None,
-            TraceSnapshotAbsenceReason
-            .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value,
+            TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value,
         )
 
     return (
@@ -1953,7 +2232,9 @@ def _normalize_completion_image_routing_truth(
         for candidate in candidates:
             if not isinstance(candidate, dict):
                 continue
-            value = str(candidate.get("image_routing_path") or "").strip().lower()
+            value = (
+                str(candidate.get("image_routing_path") or "").strip().lower()
+            )
             if value:
                 return value
         return None
@@ -1974,8 +2255,7 @@ def _normalize_completion_image_routing_truth(
         settings,
     )
     if (
-        existing_path
-        == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+        existing_path == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
         and provider_ready_image_payload_present
         and vision_support_state is True
     ):
@@ -1986,10 +2266,7 @@ def _normalize_completion_image_routing_truth(
         )
     if existing_path == ImageRoutingPath.INTERPRETER.value:
         return image_attachment_count, ImageRoutingPath.INTERPRETER.value, None
-    if (
-        provider_ready_image_payload_present
-        and vision_support_state is True
-    ):
+    if provider_ready_image_payload_present and vision_support_state is True:
         return (
             image_attachment_count,
             ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
@@ -2108,6 +2385,15 @@ def build_sanitized_payload_summary(
         (retrieval_meta.get("federated") or {}).get("injected")
     )
     linked_document_injected = bool(docs_meta.get("injected"))
+    connector_context_meta = retrieval_meta.get("connector_context") or {}
+    connector_context_injected = bool(
+        connector_context_meta.get("injected")
+    )
+    connector_context_count = (
+        len((bundle or {}).get("connector_context") or [])
+        if isinstance(bundle, dict)
+        else 0
+    )
 
     obsidian_context_meta = retrieval_meta.get("obsidian")
     obsidian_context_count = 0
@@ -2161,6 +2447,7 @@ def build_sanitized_payload_summary(
         ),
         "obsidian_count": obsidian_count,
         "linked_document_count": linked_document_count,
+        "connector_context_count": connector_context_count,
         "has_user_system_override": bool(
             (bundle or {}).get("user_system_override")
             if isinstance(bundle, dict)
@@ -2190,6 +2477,7 @@ def build_sanitized_payload_summary(
         "graph_injected": graph_injected,
         "federated_injected": federated_injected,
         "linked_document_injected": linked_document_injected,
+        "connector_context_injected": connector_context_injected,
         "obsidian_injected": obsidian_injected,
         "verified_personal_facts_injected": verified_personal_facts_injected,
         "verified_personal_fact_ids": verified_personal_fact_ids,
@@ -2212,6 +2500,7 @@ def build_sanitized_payload_summary(
             "graph_injected",
             "federated_injected",
             "linked_document_injected",
+            "connector_context_injected",
             "obsidian_injected",
             "verified_personal_facts_injected",
         )
@@ -2273,13 +2562,17 @@ def _obsidian_semantic_hits_from_bundle(
         return []
 
     obsidian_hits = [
-        item for item in (bundle.get("obsidian") or []) if isinstance(item, dict)
+        item
+        for item in (bundle.get("obsidian") or [])
+        if isinstance(item, dict)
     ]
     if obsidian_hits:
         return obsidian_hits
 
     semantic_hits = [
-        item for item in (bundle.get("semantic") or []) if isinstance(item, dict)
+        item
+        for item in (bundle.get("semantic") or [])
+        if isinstance(item, dict)
     ]
     return [
         item
@@ -2418,15 +2711,19 @@ def _build_retrieval_provenance(
 
 
 def _build_model_selection_trace(
+def _build_model_selection_metadata(
     *,
     requested_provider: str | None,
     requested_model: str | None,
     attempted_provider: str | None,
     attempted_model: str | None,
+    resolved_provider: str | None = None,
+    resolved_model: str | None = None,
     final_provider: str | None,
     final_model: str | None,
     selection_source: str | None,
     fallback_reason: str | None,
+    model_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "requested_provider": (
@@ -2469,10 +2766,42 @@ def _build_model_selection_trace(
             if fallback_reason is not None
             else None
         ),
+        "policy_reason": None,
+        "model_resolution": None,
     }
 
 
 def _build_model_selection_metadata(
+    if isinstance(model_resolution, dict):
+        payload["model_resolution"] = dict(model_resolution)
+        source = str(model_resolution.get("source") or "").strip()
+        if source:
+            payload["policy_reason"] = source
+        failure_kind = str(model_resolution.get("failure_kind") or "").strip()
+        if failure_kind:
+            payload["model_resolution_failure_kind"] = failure_kind
+        message = str(model_resolution.get("message") or "").strip()
+        if message:
+            payload["model_resolution_message"] = message
+    if not payload.get("policy_reason"):
+        if fallback_reason:
+            payload["policy_reason"] = fallback_reason
+        elif (
+            payload.get("requested_model")
+            and payload.get("final_model")
+            and payload["requested_model"] != payload["final_model"]
+        ):
+            payload["policy_reason"] = "requested_model_not_selected"
+        elif (
+            payload.get("requested_provider")
+            and payload.get("final_provider")
+            and payload["requested_provider"] != payload["final_provider"]
+        ):
+            payload["policy_reason"] = "requested_provider_not_selected"
+    return payload
+
+
+def _build_model_selection_trace(
     *,
     requested_provider: str | None,
     requested_model: str | None,
@@ -2499,6 +2828,9 @@ def _build_model_selection_metadata(
         str(resolved_provider or "").strip().lower() or None
     )
     normalized_resolved_model = normalize_model_id(resolved_model)
+    normalized_final_provider = (
+        str(final_provider or "").strip().lower() or None
+    )
     normalized_final_provider = (
         str(final_provider or "").strip().lower() or None
     )
@@ -2874,16 +3206,12 @@ async def build_messages_for_llm(
         requested_provider=task.provider,
         requested_model=task.model,
         requested_reasoning_mode=task.reasoning_mode,
-        requested_source_mode=_source_mode_from_origin(
-            getattr(task, "origin", None)
-        ),
+        requested_source_mode=_requested_source_mode_from_task(task),
         settings=settings,
     )
     provider = thread_execution.provider
     routing_debug_metadata = _task_routing_debug_metadata(task)
-    requested_source_mode = _source_mode_from_origin(
-        getattr(task, "origin", None)
-    )
+    requested_source_mode = _requested_source_mode_from_task(task)
     effective_source_mode = _effective_source_mode_for_broker_assembly(
         thread_execution.source_mode,
         routing_debug_metadata.get("retrieval_override"),
@@ -3021,11 +3349,14 @@ async def build_messages_for_llm(
 
     depth = str(task.depth_mode or "normal").strip().lower()
     task_user_id = str(user_id or getattr(task, "user_id", "") or "").strip()
-    user_for_context = str(
-        (thread_info or {}).get("user_id")
-        or dependencies.get_single_user_id()
+    user_for_context = (
+        str(
+            (thread_info or {}).get("user_id")
+            or dependencies.get_single_user_id()
+            or "default"
+        ).strip()
         or "default"
-    ).strip() or "default"
+    )
     context_user_id = user_for_context or task_user_id
     source_mode = effective_source_mode
 
@@ -3041,8 +3372,10 @@ async def build_messages_for_llm(
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
     trace_candidate: dict[str, Any] | None = None
+    assembly_succeeded = False
     retrieval_policy_obj: Any | None = None
     retrieval_policy: dict[str, Any] | None = None
+    broker: ContextBroker | None = None
     try:
         effective_source_mode = _resolve_effective_source_mode_for_assembly(
             source_mode,
@@ -3052,9 +3385,7 @@ async def build_messages_for_llm(
             retrieval_query,
             depth,
             source_mode=effective_source_mode,
-            retrieval_override=routing_debug_metadata.get(
-                "retrieval_override"
-            ),
+            retrieval_override=routing_debug_metadata.get("retrieval_override"),
             active_thread_id=thread_id,
             active_project_id=project_id_for_prompt,
             active_persona=None,
@@ -3092,6 +3423,7 @@ async def build_messages_for_llm(
             prompt_meta = dict(bundle.get("_prompt_meta") or {})
             prompt_meta["request_user_id"] = task_user_id
             bundle["_prompt_meta"] = prompt_meta
+        assembly_succeeded = True
     except Exception as exc:
         logger.warning(
             "[chat-completion] context assemble failed depth=%s err=%s",
@@ -3101,6 +3433,116 @@ async def build_messages_for_llm(
         bundle = {}
     else:
         trace_candidate = trace
+
+    context_request_results: list[dict[str, Any]] = []
+    supported_context_request_plans = _supported_obsidian_context_request_plans(
+        task
+    )
+    if isinstance(bundle, dict):
+        connector_context_items = [
+            item for item in (bundle.get("connector_context") or []) if isinstance(item, dict)
+        ]
+        if supported_context_request_plans:
+            if broker is None:
+                for plan in supported_context_request_plans:
+                    query_text = str(plan.get("query_text") or "").strip()
+                    context_request_results.append(
+                        {
+                            "request_kind": str(
+                                plan.get("request_kind")
+                                or "read_only_context_request"
+                            ),
+                            "connector_id": str(
+                                plan.get("connector_id") or "obsidian"
+                            ),
+                            "invocation": str(
+                                plan.get("invocation") or "turn_scoped"
+                            ),
+                            "query_text": query_text,
+                            "status": ContextRequestStatus.FAILED.value,
+                            "result_count": 0,
+                            "injected": False,
+                            "error": "broker_unavailable",
+                        }
+                    )
+            else:
+                for plan in supported_context_request_plans:
+                    query_text = str(plan.get("query_text") or "").strip()
+                    result_record: dict[str, Any] = {
+                        "request_kind": str(
+                            plan.get("request_kind")
+                            or "read_only_context_request"
+                        ),
+                        "connector_id": str(
+                            plan.get("connector_id") or "obsidian"
+                        ),
+                        "invocation": str(
+                            plan.get("invocation") or "turn_scoped"
+                        ),
+                        "query_text": query_text,
+                        "status": ContextRequestStatus.FAILED.value,
+                        "result_count": 0,
+                        "injected": False,
+                    }
+                    if not query_text:
+                        result_record["error"] = "blank_query"
+                        context_request_results.append(result_record)
+                        continue
+                    try:
+                        connector_results = await broker.retrieve_obsidian_context_command(
+                            query=query_text,
+                            user_id=context_user_id,
+                            project_id=project_id_for_prompt,
+                            k=4,
+                            retrieval_policy=retrieval_policy,
+                        )
+                        result_count = len(
+                            [
+                                item
+                                for item in connector_results
+                                if isinstance(item, dict)
+                            ]
+                        )
+                        result_record["result_count"] = result_count
+                        if result_count > 0:
+                            connector_context_items.extend(connector_results)
+                            result_record["status"] = (
+                                ContextRequestStatus.EXECUTED.value
+                            )
+                            result_record["injected"] = True
+                        else:
+                            result_record["status"] = (
+                                ContextRequestStatus.NO_RESULTS.value
+                            )
+                    except Exception as exc:
+                        result_record["status"] = (
+                            ContextRequestStatus.FAILED.value
+                        )
+                        result_record["result_count"] = 0
+                        result_record["injected"] = False
+                        result_record["error"] = type(exc).__name__
+                    context_request_results.append(result_record)
+        bundle["connector_context"] = connector_context_items
+        bundle["context_request_results"] = list(context_request_results)
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace["context_request_results"] = list(context_request_results)
+    if assembly_succeeded and isinstance(bundle, dict):
+        try:
+            context_request_results = await _apply_context_request_plans(
+                broker=broker,
+                task=task,
+                bundle=bundle,
+                user_id=context_user_id,
+                project_id=project_id_for_prompt,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[chat-completion] context request plan application failed depth=%s err=%s",
+                depth,
+                exc,
+            )
+            context_request_results = []
 
     if (
         isinstance(bundle, dict)
@@ -3123,6 +3565,7 @@ async def build_messages_for_llm(
         "history": history_messages,
         "latest_turn": latest_turn,
         "retrieved_context": retrieved_context_messages,
+        "context_request_results": context_request_results,
     }
     completion_assembly.update(latest_turn_trace_fields)
     identity_context = {
@@ -3201,7 +3644,9 @@ async def build_messages_for_llm(
         )
         semantic_meta = context_meta.get("semantic")
         semantic_injected = bool(
-            semantic_meta.get("injected") if isinstance(semantic_meta, dict) else False
+            semantic_meta.get("injected")
+            if isinstance(semantic_meta, dict)
+            else False
         )
         context_meta["obsidian"] = {
             "count": len(obsidian_hits),
@@ -3226,16 +3671,6 @@ async def build_messages_for_llm(
         bundle["_attachment_meta"] = {
             "latest_user": latest_user_meta,
         }
-        semantic_suppression_trace: dict[str, Any] = {
-            "items": [],
-            "summary": {"total_suppressed": 0},
-        }
-        bundle["semantic"] = _filter_image_refusal_semantic_context(
-            bundle.get("semantic"),
-            latest_user_meta,
-            suppression_trace=semantic_suppression_trace,
-        )
-        bundle["_retrieval_suppression_trace"] = semantic_suppression_trace
         bundle["_completion_assembly"] = completion_assembly
 
     if trace is None:
@@ -3245,6 +3680,7 @@ async def build_messages_for_llm(
         trace.update(latest_turn_trace_fields)
         trace.update(routing_debug_metadata)
         trace.setdefault("source_mode", effective_source_mode)
+        trace["context_request_results"] = list(context_request_results)
 
     if retrieval_policy_obj is not None and isinstance(trace, dict):
         try:
@@ -3262,7 +3698,10 @@ async def build_messages_for_llm(
             )
 
     if isinstance(bundle, dict):
-        semantic_items, image_suppression = _filter_image_refusal_semantic_context(
+        (
+            semantic_items,
+            image_suppression,
+        ) = _filter_image_refusal_semantic_context(
             bundle.get("semantic"),
             latest_user_meta,
         )
@@ -3431,10 +3870,13 @@ def _execute_bounded_tool_turn_completion(
         ),
         attempted_provider=provider,
         attempted_model=model,
+        resolved_provider=provider,
+        resolved_model=model,
         final_provider=final_provider,
         final_model=final_model,
         selection_source=str(getattr(task, "selection_source", "") or ""),
         fallback_reason=None,
+        model_resolution=None,
     )
 
     def _build_result(
@@ -3508,9 +3950,7 @@ def _execute_bounded_tool_turn_completion(
             payload_summary["selection_source"] = model_selection[
                 "selection_source"
             ]
-            payload_summary["policy_reason"] = model_selection[
-                "policy_reason"
-            ]
+            payload_summary["policy_reason"] = model_selection["policy_reason"]
             payload_summary["fallback_reason"] = model_selection[
                 "fallback_reason"
             ]
@@ -3734,14 +4174,12 @@ def run_chat_completion_task(
     requested_source_mode = (
         str(getattr(task, "requested_source_mode", "") or "").strip() or None
     )
-    requested_provider = (
-        normalize_provider(getattr(task, "requested_provider", None))
-        or normalize_provider(getattr(task, "provider", None))
-    )
-    requested_model = (
-        normalize_model_id(getattr(task, "requested_model", None))
-        or normalize_model_id(getattr(task, "model", None))
-    )
+    requested_provider = normalize_provider(
+        getattr(task, "requested_provider", None)
+    ) or normalize_provider(getattr(task, "provider", None))
+    requested_model = normalize_model_id(
+        getattr(task, "requested_model", None)
+    ) or normalize_model_id(getattr(task, "model", None))
     messages_for_llm, routing_meta = _apply_image_attachment_routing(
         messages_for_llm,
         bundle=bundle,
@@ -3807,9 +4245,9 @@ def run_chat_completion_task(
                         ]
                     )
                     if image_attachment_count > 0:
-                        routing_meta["image_attachment_count"] = (
-                            image_attachment_count
-                        )
+                        routing_meta[
+                            "image_attachment_count"
+                        ] = image_attachment_count
         except Exception:
             logger.debug(
                 "[chat-completion] image attachment inference from thread messages failed",
@@ -3819,12 +4257,15 @@ def run_chat_completion_task(
         for candidate_message in reversed(messages_for_llm):
             if not isinstance(candidate_message, dict):
                 continue
-            if str(candidate_message.get("role") or "").strip().lower() != "user":
+            if (
+                str(candidate_message.get("role") or "").strip().lower()
+                != "user"
+            ):
                 continue
             candidate_content = candidate_message.get("content")
-            if isinstance(candidate_content, list) and messages_contain_image_payload(
-                [candidate_message]
-            ):
+            if isinstance(
+                candidate_content, list
+            ) and messages_contain_image_payload([candidate_message]):
                 image_attachment_count = 1
                 routing_meta["image_attachment_count"] = image_attachment_count
                 break
@@ -3837,17 +4278,19 @@ def run_chat_completion_task(
                 routing_meta["image_attachment_count"] = image_attachment_count
                 break
     payload_summary: dict[str, Any] = {}
-    image_attachment_count, image_routing_path, image_routing_absence_reason = (
-        _normalize_completion_image_routing_truth(
-            task=task,
-            provider=provider,
-            model=model,
-            settings=settings,
-            messages_for_llm=messages_for_llm,
-            routing_meta=routing_meta,
-            trace=trace,
-            payload_summary=payload_summary,
-        )
+    (
+        image_attachment_count,
+        image_routing_path,
+        image_routing_absence_reason,
+    ) = _normalize_completion_image_routing_truth(
+        task=task,
+        provider=provider,
+        model=model,
+        settings=settings,
+        messages_for_llm=messages_for_llm,
+        routing_meta=routing_meta,
+        trace=trace,
+        payload_summary=payload_summary,
     )
 
     payload_summary = build_sanitized_payload_summary(
@@ -3941,7 +4384,10 @@ def run_chat_completion_task(
         bundle=bundle if isinstance(bundle, dict) else None,
     )
     payload_summary["retrieval_provenance"] = retrieval_provenance
-    if isinstance(trace, dict) and trace.get("retrieval_suppression") is not None:
+    if (
+        isinstance(trace, dict)
+        and trace.get("retrieval_suppression") is not None
+    ):
         payload_summary["retrieval_suppression"] = trace.get(
             "retrieval_suppression"
         )
@@ -3957,6 +4403,10 @@ def run_chat_completion_task(
         if isinstance(trace, dict):
             trace = dict(trace)
             trace["retrieval_posture"] = retrieval_posture
+    if isinstance(trace, dict) and trace.get("context_request_results") is not None:
+        payload_summary["context_request_results"] = list(
+            trace.get("context_request_results") or []
+        )
     model_selection = _build_model_selection_metadata(
         requested_provider=requested_provider,
         requested_model=requested_model,
@@ -4023,9 +4473,8 @@ def run_chat_completion_task(
         if isinstance(payload_summary, dict)
         else None
     )
-    if (
-        merged_payload_summary.get("retrieval_posture") is None
-        and isinstance(base_retrieval_posture, dict)
+    if merged_payload_summary.get("retrieval_posture") is None and isinstance(
+        base_retrieval_posture, dict
     ):
         merged_payload_summary["retrieval_posture"] = dict(
             base_retrieval_posture
@@ -4036,7 +4485,9 @@ def run_chat_completion_task(
     )
     payload_summary = merged_payload_summary
     request_id = str(result.get("requestId") or _completion_request_id(task))
-    trace_result = result.get("trace") if isinstance(result.get("trace"), dict) else None
+    trace_result = (
+        result.get("trace") if isinstance(result.get("trace"), dict) else None
+    )
     trace_fallback = trace_result
     if trace_fallback is None and isinstance(trace, dict):
         trace_fallback = dict(trace)
@@ -4058,25 +4509,25 @@ def run_chat_completion_task(
     )
     payload_summary["image_attachment_count"] = image_attachment_count
     payload_summary["image_routing_path"] = image_routing_path
-    payload_summary["image_routing_absence_reason"] = (
-        image_routing_absence_reason
-    )
+    payload_summary[
+        "image_routing_absence_reason"
+    ] = image_routing_absence_reason
     result["image_attachment_count"] = image_attachment_count
     result["image_routing_path"] = image_routing_path
     result["image_routing_absence_reason"] = image_routing_absence_reason
     if isinstance(trace_result, dict):
         trace_result["image_attachment_count"] = image_attachment_count
         trace_result["image_routing_path"] = image_routing_path
-        trace_result["image_routing_absence_reason"] = (
-            image_routing_absence_reason
-        )
+        trace_result[
+            "image_routing_absence_reason"
+        ] = image_routing_absence_reason
         result["trace"] = trace_result
     elif isinstance(trace_fallback, dict):
         trace_fallback["image_attachment_count"] = image_attachment_count
         trace_fallback["image_routing_path"] = image_routing_path
-        trace_fallback["image_routing_absence_reason"] = (
-            image_routing_absence_reason
-        )
+        trace_fallback[
+            "image_routing_absence_reason"
+        ] = image_routing_absence_reason
         result["trace"] = trace_fallback
 
     candidate_trace = _build_candidate_trace(
@@ -4205,18 +4656,18 @@ def run_chat_completion_task(
     )
     payload_summary["image_attachment_count"] = image_attachment_count
     payload_summary["image_routing_path"] = image_routing_path
-    payload_summary["image_routing_absence_reason"] = (
-        image_routing_absence_reason
-    )
+    payload_summary[
+        "image_routing_absence_reason"
+    ] = image_routing_absence_reason
     result["image_attachment_count"] = image_attachment_count
     result["image_routing_path"] = image_routing_path
     result["image_routing_absence_reason"] = image_routing_absence_reason
     if isinstance(final_trace, dict):
         final_trace["image_attachment_count"] = image_attachment_count
         final_trace["image_routing_path"] = image_routing_path
-        final_trace["image_routing_absence_reason"] = (
-            image_routing_absence_reason
-        )
+        final_trace[
+            "image_routing_absence_reason"
+        ] = image_routing_absence_reason
         result["trace"] = final_trace
 
     if not persist_assistant_message:
