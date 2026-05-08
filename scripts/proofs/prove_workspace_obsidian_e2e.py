@@ -41,7 +41,7 @@ The harness reads the following runtime surfaces:
 - `GET /api/tasks/{task_id}/events` — task lifecycle and terminal state
 - `GET /api/chat/{thread_id}/messages` — final thread messages (verdict)
 - `GET /api/chat/debug/retrieval-posture/{thread_id}/latest` — trace evidence
-- `POST /api/obsidian/ingest` — sentinel note ingestion (Obsidian path)
+- `POST /api/obsidian/index` — Obsidian index trigger on configured vault
 
 ACCEPTANCE SEMANTICS (per ADR-001 / flows.md)
 =============================================
@@ -80,7 +80,7 @@ Exits !=0 — any proof condition fails (see failure classes below)
 FAILURE CLASSES
 ===============
 1. HEALTH_CHECK_FAILED  — backend health surfaces not ready
-2. INGESTION_FAILED     — sentinel note not accepted by ingestion path
+2. INGESTION_FAILED     — Obsidian index trigger failed
 3. ACCEPTANCE_FAILED   — POST /complete did not return 200/task_id
 4. COMPLETION_TIMEOUT  — task did not reach terminal state within timeout
 5. RESPONSE_VERDICT_FAILED — assistant response missing sentinel content
@@ -240,6 +240,56 @@ def _api_request(
         )
 
 
+def _parse_sse_events(raw_payload: Any) -> list[dict[str, Any]]:
+    """Parse SSE text frames into event dictionaries."""
+    if isinstance(raw_payload, list):
+        return [item for item in raw_payload if isinstance(item, dict)]
+    if not isinstance(raw_payload, str) or not raw_payload.strip():
+        return []
+
+    events: list[dict[str, Any]] = []
+    current_event_type: str | None = None
+    current_data_lines: list[str] = []
+
+    def _flush_current() -> None:
+        if not current_event_type:
+            return
+        payload_text = "\n".join(current_data_lines).strip()
+        payload: Any = {}
+        if payload_text:
+            try:
+                payload = json.loads(payload_text)
+            except Exception:
+                payload = {"raw": payload_text}
+        if not isinstance(payload, dict):
+            payload = {"value": payload}
+        events.append(
+            {
+                "event_type": current_event_type,
+                "type": current_event_type,
+                **payload,
+            }
+        )
+
+    for raw_line in raw_payload.splitlines():
+        line = raw_line.strip()
+        if not line:
+            _flush_current()
+            current_event_type = None
+            current_data_lines = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            current_event_type = line.split(":", 1)[1].strip()
+            continue
+        if line.startswith("data:"):
+            current_data_lines.append(line.split(":", 1)[1].lstrip())
+
+    _flush_current()
+    return events
+
+
 # ---------------------------------------------------------------------------
 # Health check helpers
 # ---------------------------------------------------------------------------
@@ -352,25 +402,23 @@ def _post_message(
 
 
 # ---------------------------------------------------------------------------
-# Ingestion helper — uses the existing Obsidian ingest path
+# Ingestion helper — uses the supported Obsidian index trigger route
 # ---------------------------------------------------------------------------
 def _ingest_sentinel_note(base: str, api_key: str) -> None:
-    """Ingest the sentinel note through the Obsidian-backed ingestion path."""
-    payload = _build_sentinel_payload()
+    """Trigger Obsidian indexing through the supported control-plane route."""
     status, body = _api_request(
         "POST",
-        "/api/obsidian/ingest",
+        "/api/obsidian/index",
         base,
         api_key,
-        body=payload,
         timeout=30.0,
     )
     if status >= 400:
         raise IngestionFailed(
-            f"Sentinel note ingestion failed with status {status}",
+            f"Obsidian index trigger failed with status {status}",
             detail=str(body),
         )
-    print("[PASS] Sentinel note ingested via /api/obsidian/ingest")
+    print("[PASS] Obsidian index triggered via /api/obsidian/index")
 
 
 # ---------------------------------------------------------------------------
@@ -435,10 +483,10 @@ def _wait_for_terminal_task(
             time.sleep(_POLL_INTERVAL_SECONDS)
             continue
 
-        if isinstance(events, list):
-            for event in events:
-                if event.get("event_type") in terminal_types:
-                    return event
+        parsed_events = _parse_sse_events(events)
+        for event in parsed_events:
+            if event.get("event_type") in terminal_types:
+                return event
         time.sleep(_POLL_INTERVAL_SECONDS)
 
     raise CompletionTimeout(
@@ -515,7 +563,12 @@ def _fetch_retrieval_posture(
     )
     if status >= 400:
         return {}
-    return body if isinstance(body, dict) else {}
+    if not isinstance(body, dict):
+        return {}
+    nested_posture = body.get("retrieval_posture")
+    if isinstance(nested_posture, dict):
+        return nested_posture
+    return body
 
 
 def _check_retrieval_evidence(posture: dict[str, Any]) -> None:

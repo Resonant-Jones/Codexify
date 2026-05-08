@@ -552,3 +552,53 @@ def test_harness_does_not_make_global_widening_claim():
     assert (
         "non-compose" in doc.lower() or "non compose" in doc.lower()
     ), "Harness docstring must explicitly exclude non-Compose install modes"
+
+
+def test_fetch_retrieval_posture_unwraps_debug_wrapper():
+    sys.path.insert(
+        0,
+        os.path.join(
+            os.path.dirname(__file__), "..", "..", "scripts", "proofs"
+        ),
+    )
+    import prove_workspace_obsidian_e2e as harness_module
+
+    wrapper = {
+        "thread_id": 7,
+        "status": "ok",
+        "retrieval_posture": {
+            "source_mode": "workspace",
+            "widen_reason": "explicit_workspace",
+        },
+    }
+    with patch.object(
+        harness_module,
+        "_api_request",
+        return_value=(200, wrapper),
+    ):
+        posture = harness_module._fetch_retrieval_posture(
+            "http://localhost:8888", "key", 7
+        )
+    assert posture["source_mode"] == "workspace"
+    assert posture["widen_reason"] == "explicit_workspace"
+
+
+def test_parse_sse_events_extracts_terminal_task_event():
+    sys.path.insert(
+        0,
+        os.path.join(
+            os.path.dirname(__file__), "..", "..", "scripts", "proofs"
+        ),
+    )
+    import prove_workspace_obsidian_e2e as harness_module
+
+    raw_sse = (
+        "event: task.queued\n"
+        'data: {"task_id":"t-1"}\n\n'
+        "event: task.completed\n"
+        'data: {"task_id":"t-1","ok":true}\n\n'
+    )
+    events = harness_module._parse_sse_events(raw_sse)
+    assert len(events) == 2
+    assert events[-1]["event_type"] == "task.completed"
+    assert events[-1]["task_id"] == "t-1"

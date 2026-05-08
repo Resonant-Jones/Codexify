@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 from typing import Any
 
@@ -46,6 +47,12 @@ class Neo4jGraphBackend:
         return self._driver
 
     def _execute_node_merge(self, tx, node: dict[str, Any]) -> None:
+        metadata_json = json.dumps(
+            dict(node.get("metadata") or {}),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
         tx.run(
             """
             MERGE (n:GraphEntity {node_key: $node_key})
@@ -54,19 +61,25 @@ class Neo4jGraphBackend:
               n.source_type = $source_type,
               n.source_id = $source_id,
               n.content = $content,
-              n.metadata = $metadata
+              n.metadata = $metadata_json
             """,
             node_key=str(node.get("node_key") or ""),
             node_type=str(node.get("node_type") or ""),
             source_type=str(node.get("source_type") or ""),
             source_id=str(node.get("source_id") or ""),
             content=str(node.get("content") or ""),
-            metadata=dict(node.get("metadata") or {}),
+            metadata_json=metadata_json,
         )
 
     def _execute_edge_merge(
         self, tx, edge: dict[str, Any], graph_write_id: str
     ) -> None:
+        metadata_json = json.dumps(
+            dict(edge.get("metadata") or {}),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
         tx.run(
             """
             MATCH (src:GraphEntity {node_key: $from_node_key})
@@ -76,13 +89,13 @@ class Neo4jGraphBackend:
                 from_node_key: $from_node_key,
                 to_node_key: $to_node_key
             }]->(dst)
-            SET r.metadata = $metadata,
+            SET r.metadata = $metadata_json,
                 r.graph_write_id = $graph_write_id
             """,
             edge_type=str(edge.get("edge_type") or ""),
             from_node_key=str(edge.get("from_node_key") or ""),
             to_node_key=str(edge.get("to_node_key") or ""),
-            metadata=dict(edge.get("metadata") or {}),
+            metadata_json=metadata_json,
             graph_write_id=graph_write_id,
         )
 
