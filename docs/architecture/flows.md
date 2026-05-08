@@ -33,15 +33,16 @@ Sequence:
 5. The route attempts to publish `task.created` as a lifecycle breadcrumb.
 6. `guardian/workers/chat_worker.py` dequeues the task and publishes `task.running`.
 7. `guardian/core/chat_completion_service.py` loads recent messages, assembles context, resolves provider/model/profile settings, and carries the live retrieval posture for the turn.
-   - When `retrievalSource="workspace"`, broker-selected Obsidian-backed evidence must survive into the completion context bundle, and the trace must distinguish searchability, selection, injection, and assistant reflection.
-   - The worker-visible completion payload preserves that executed posture snapshot and workspace-local Obsidian evidence counts so persisted task evidence matches the actual attempt instead of a stale or debug-only reconstruction.
+   - When `retrievalSource="workspace"`, broker-selected Obsidian-backed evidence must survive into the executed completion context bundle, and the trace must distinguish searchability, selection, injection, and assistant reflection.
+   - The worker-visible completion payload preserves that executed posture snapshot and workspace-local Obsidian evidence counts so persisted task evidence matches the actual attempt instead of a stale or debug-only reconstruction. That worker-visible payload is the canonical proof surface for the workspace seam.
 8. The provider call executes through `guardian/core/ai_router.py`.
    - If the provider returns plain assistant text, the existing completion path continues.
    - If the provider returns a structured tool decision, the completion service executes exactly one command through `guardian/command_bus/`, reinjects the result, and requests one final assistant answer.
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
    - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
-   - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and the canonical retrieval posture records that workspace widening occurred.
+   - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes, and can inject that evidence into the executed turn while the worker-visible completion payload remains the canonical proof surface.
+   - For the workspace proof harness, executed-path worker-visible completion payload evidence is the canonical proof surface; debug trace remains diagnostic-only and cannot replace the executed completion record.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
    - The snapshot is expected to carry containment-grade retrieval policy, provenance, suppression, and image-routing truth when available, including explicit absence reasons rather than silent nulls.
@@ -76,6 +77,7 @@ Acceptance semantics:
 - The route does not prove dequeue, eventual success, or UI receipt.
 - If enqueue succeeds but `task.created` cannot be published, the system is operationally in a degraded-acceptance state even though the current route payload still returns success. The queue acceptance is real; the lifecycle visibility is weaker.
 - Post-completion eval is derived inspection only. It does not change acceptance, does not gate completion, and does not replace the transcript as the canonical chat output.
+- A canonical live-proof harness validates the workspace retrieval seam end-to-end: `scripts/proofs/prove_workspace_obsidian_e2e.py`. It ingests a sentinel Obsidian note, creates a thread with `retrievalSource="workspace"`, waits for task terminal state (not just acceptance), verifies the assistant response contains sentinel-derived content, and asserts workspace-local signal in the retrieval posture. Contract tests at `tests/proofs/test_workspace_obsidian_e2e_contract.py` validate harness behavior without a live stack.
 - For the workspace proof harness on the supported local Compose path, acceptance is only the first milestone; the proof must also verify terminal task evidence, persisted assistant text, and workspace-local retrieval posture before it can pass.
 - For `retrievalSource="workspace"`, vector-store searchability alone is weaker than completion-context inclusion; the proof must show broker selection and injection for the Obsidian-backed note.
 - For `retrievalSource="workspace"`, the proof harness must read the worker-visible completion payload as the success source of truth and treat the debug trace as a comparison surface only.

@@ -38,6 +38,8 @@ If you are working on Guardian-mediated coding-agent execution or future Pi SDK 
 
 If you are working on a cross-surface Guardian intent spine for chat, voice, automation, CLI, or future plugin entrypoints, start with [`ADR-022: Guardian Intent Spine and Cross-Surface Control Plane`](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md). That ADR defines the canonical envelope and dispatch rules for "do this on my behalf" requests.
 
+If you are working on slash-command connector invocation, active connector semantics, Obsidian context commands, GitHub/Discord/Drive-style connector context, or MCP connector/tool invocation boundaries, start with [`ADR-024: Context Command and Active Connector Semantics`](./adr/024-context-command-active-connector-semantics.md). That ADR defines the turn-scoped connector doctrine without claiming any specific connector runtime is already implemented.
+
 If you are working on Flow Builder, delegation/specification workflows, tacit-knowledge extraction, or workflow authoring semantics, start with [`ADR-006: Flow Builder Elicitation Lane`](./adr/006-flow-builder-elicitation-lane.md) first. That ADR defines the upstream `interview -> extract -> normalize -> validate -> compile -> execute` lane and the boundary between elicitation and runnable execution.
 
 If you are working on Guardian-thread binding, FlowDraft identity, Builder view semantics, or run receipts, start with [`ADR-014: Flow Builder Thread, Draft, and Receipts Contract`](./adr/014-flow-builder-thread-draft-and-receipts-contract.md) after ADR-006. That ADR defines the canonical relationship between conversation state, authored flow state, alternate Builder views, and run evidence.
@@ -51,6 +53,8 @@ If you are working on graph-write replay safety or receipt semantics for the ins
 If you are working on the latest graph-write inspection snapshot surface or its debug route, continue with [`ADR-018: Graph Write Inspection Surface`](./adr/018-graph-write-inspection-surface.md) after ADR-017. That ADR defines the latest-per-thread operator snapshot without promoting graph truth.
 
 If you are working on the backend graph adapter seam or the no-op default implementation, continue with [`ADR-019: Graph Backend Adapter Contract`](./adr/019-graph-backend-adapter-contract.md) after ADR-018. That ADR defines the typed persistence seam without changing the current inspection-only runtime.
+
+If you are working on the graph-write runtime flag boundary, default-off enforcement on the supported Compose path, or the factory selection contract, continue with [`ADR-026: Graph Write Runtime Flag Boundary on Supported Compose Path`](./adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md) after ADR-019. That ADR repairs the runtime/config boundary so the documented default-off contract is actually enforced.
 
 ## KB Validity and Diagram Source Sets
 
@@ -69,6 +73,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
 - [Guardian Intent Spine and Cross-Surface Control Plane](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md): canonical cross-surface intent envelope and dispatch contract for chat, voice, automations, CLI, and future plugin surfaces.
+- [Context Command and Active Connector Semantics](./adr/024-context-command-active-connector-semantics.md): governing contract for slash-command connector invocation, active connector semantics, and turn-scoped connector/tool boundaries.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Flow Builder Elicitation Lane ADR](./adr/006-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
@@ -87,6 +92,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
 - [Bounded Tool-Augmented Completion Live Proof](./2026-04-20-bounded-tool-augmented-completion-live-proof.md): fresh supported-path live proof for the one-turn command-bus tool slice on the current `main` tip.
 - [Tool Jobs Cleanup Live Proof](./2026-04-28-tool-jobs-cleanup-live-proof.md): supported Compose schema proof that the dedicated `tool_jobs` cleanup migration restores downgrade shape, removes the table again on upgrade, and leaves `command_runs` / `command_run_events` intact.
+- [Supported Profile Live Proof](./2026-05-05-supported-profile-live-proof.md): fresh live proof for the supported local-first beta path after the posture, return-path, trace, and runtime-target fixes; not a release promise.
 - [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack with source-scoped evidence notes and confidence labels.
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
@@ -104,8 +110,10 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
 - [Continuity Governance Surface Contract](./adr/016-continuity-governance-surface-contract.md): user-governed continuity control plane for scope, intensity, decay, import treatment, exclusions, inspectability, and reset semantics.
 - [Graph Write Idempotency and Receipt Semantics](./adr/017-graph-write-idempotency-and-receipt-semantics.md): deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
+- [Neo4j Graph Backend Adapter Flagged Off By Default ADR](./adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md): first real graph persistence adapter behind explicit default-off runtime selection.
 - [Graph Write Inspection Surface](./adr/018-graph-write-inspection-surface.md): latest-per-thread graph-write inspection snapshots for operator/debug visibility, ephemeral and non-canonical.
 - [Graph Backend Adapter Contract](./adr/019-graph-backend-adapter-contract.md): typed graph backend seam with a default no-op implementation, mounted after inspection.
+- [Graph Write Runtime Flag Boundary](./adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md): default-off graph-write runtime boundary enforcement on the supported Docker Compose path.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.

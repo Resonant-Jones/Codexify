@@ -1,5 +1,6 @@
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
     DELEGATION_JOB_STATUSES,
@@ -21,6 +22,7 @@ from guardian.protocol_tokens import (
     TOOL_TURN_STATES,
     TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
+    ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
     DelegationJobStatus,
@@ -51,6 +53,21 @@ def test_acceptance_status_tokens() -> None:
     assert ACCEPTANCE_STATUSES == {"accepted", "accepted_degraded"}
 
 
+def test_context_request_status_tokens() -> None:
+    assert ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value == (
+        "accepted_not_executed"
+    )
+    assert ContextRequestStatus.EXECUTED.value == "executed"
+    assert ContextRequestStatus.NO_RESULTS.value == "no_results"
+    assert ContextRequestStatus.FAILED.value == "failed"
+    assert CONTEXT_REQUEST_STATUSES == {
+        "accepted_not_executed",
+        "executed",
+        "no_results",
+        "failed",
+    }
+
+
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
@@ -63,6 +80,9 @@ def test_trace_suppression_tokens() -> None:
     )
     assert TRACE_SUPPRESSION_REASONS == {
         "assistant_vision_refusal_on_image_turn",
+    }
+
+
 def test_trace_snapshot_absence_reason_tokens() -> None:
     assert TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value == (
         "trace_source_unavailable"
