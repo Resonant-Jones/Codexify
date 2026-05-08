@@ -12,6 +12,12 @@ from guardian.memory_graph.graph_backend import (
     GRAPH_BACKEND_RESULT_STATUS_NOOP,
     GraphBackendWriteResult,
 )
+from guardian.memory_graph.graph_backend_factory import (
+    _FACTORY_CACHE,
+    GRAPH_BACKEND_SELECTION_NOOP,
+    resolve_graph_backend_selection,
+)
+from guardian.memory_graph.noop_graph_backend import NoopGraphBackendAdapter
 from guardian.workers import graph_write_worker
 
 
@@ -276,3 +282,56 @@ def test_graph_write_worker_still_does_not_persist_or_call_graph_backend(
 
     assert len(redis_client.calls) == 1
     graph_backend_spy.assert_called_once()
+
+
+def test_graph_write_worker_uses_noop_backend_when_runtime_flag_disabled(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_ENABLE_GRAPH_WRITES", "false")
+    monkeypatch.setenv("CODEXIFY_GRAPH_BACKEND", "neo4j")
+    _FACTORY_CACHE.clear()
+
+    selection = resolve_graph_backend_selection()
+    assert selection == GRAPH_BACKEND_SELECTION_NOOP
+
+    adapter = NoopGraphBackendAdapter()
+    result = adapter.write_graph_task(_task())
+    assert result.status == GRAPH_BACKEND_RESULT_STATUS_NOOP
+
+
+def test_graph_write_worker_only_calls_neo4j_backend_when_flag_and_backend_are_explicitly_enabled(
+    caplog, monkeypatch
+):
+    caplog.set_level(logging.INFO)
+    monkeypatch.setenv("CODEXIFY_ENABLE_GRAPH_WRITES", "true")
+    monkeypatch.setenv("CODEXIFY_GRAPH_BACKEND", "neo4j")
+    _FACTORY_CACHE.clear()
+
+    redis_client = _FakeReceiptRedis(results=[True])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
+
+    neo4j_adapter_spy = MagicMock(
+        write_graph_task=MagicMock(
+            return_value=GraphBackendWriteResult(
+                status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+                graph_write_id="gwr_test_identity",
+                node_count=1,
+                edge_count=1,
+            )
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_graph_backend_adapter",
+        MagicMock(return_value=neo4j_adapter_spy),
+    )
+
+    graph_write_worker.process_graph_write_task(_task())
+
+    neo4j_adapter_spy.write_graph_task.assert_called_once()
+
+    _FACTORY_CACHE.clear()
