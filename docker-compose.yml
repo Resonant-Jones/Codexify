@@ -304,7 +304,10 @@ services:
       # Values: enforce | warn | off
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Resolve core/legacy env drift when both LLM_PROVIDER and AI_BACKEND are present.
-      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
+      # Local smoke tests should start from the canonical core settings path so
+      # the backend does not inherit the legacy Groq default unless it is
+      # explicitly requested.
+      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"
       # Single-user dev default (used when identity fallback is enabled).
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       STORAGE_BASE_PATH: /app/data/media

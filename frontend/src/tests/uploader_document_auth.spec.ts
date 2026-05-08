@@ -58,14 +58,15 @@ async function uploadDocument(
   const onImages = vi.fn();
   const onDocuments = vi.fn();
 
+  const hasProjectId = Object.prototype.hasOwnProperty.call(opts, "projectId");
+  const hasThreadId = Object.prototype.hasOwnProperty.call(opts, "threadId");
+
   const { result } = renderHook(() =>
     useUploader({
       onImages,
       onDocuments,
-      projectId: opts.projectId ?? 7,
-      threadId: Object.prototype.hasOwnProperty.call(opts, "threadId")
-        ? opts.threadId
-        : 11,
+      projectId: hasProjectId ? opts.projectId : 7,
+      threadId: hasThreadId ? opts.threadId : 11,
     })
   );
 
@@ -82,6 +83,7 @@ describe("useUploader auth headers", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    localStorage.clear();
   });
 
   it("adds X-API-Key on document upload in non-proxy mode", async () => {
@@ -167,5 +169,140 @@ describe("useUploader auth headers", () => {
     appended?.remove();
     appendSpy.mockRestore();
     clickSpy.mockRestore();
+  });
+});
+
+describe("useUploader trusted general project storage", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("ignores stale stored general project ids until trust is established", async () => {
+    vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
+    vi.stubEnv("VITE_USE_PROXY", "false");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "non-proxy-key");
+
+    localStorage.setItem("cfy.generalProjectId", "1");
+    localStorage.setItem("cfy.defaultProjectId", "1");
+    localStorage.removeItem("cfy.generalProjectIdTrusted");
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL): Promise<{
+        ok: boolean;
+        status: number;
+        json: () => Promise<unknown>;
+      }> => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url === resolveBackendUrl("/api/projects")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              projects: [
+                {
+                  id: 7,
+                  name: "General",
+                },
+              ],
+            }),
+          };
+        }
+        if (url === resolveBackendUrl("/api/media/upload/document")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              id: "doc-1",
+              src_url: "/media/documents/doc-1.txt",
+              filename: "doc-1.txt",
+            }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        };
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadDocument({ projectId: undefined, threadId: undefined });
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => String(url) === resolveBackendUrl("/api/projects")
+      )
+    ).toBe(true);
+
+    const uploadCall = fetchMock.mock.calls.find(
+      ([url]) => String(url) === resolveBackendUrl("/api/media/upload/document")
+    );
+    const form = uploadCall?.[1]?.body as FormData | undefined;
+    expect(form?.get("project_id")).toBe("7");
+    expect(form?.get("projectId")).toBe("7");
+    expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBeNull();
+  });
+
+  it("uses trusted stored general project ids when the trust marker is present", async () => {
+    vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
+    vi.stubEnv("VITE_USE_PROXY", "false");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "proxy-key");
+
+    localStorage.setItem("cfy.generalProjectId", "1");
+    localStorage.setItem("cfy.defaultProjectId", "1");
+    localStorage.setItem("cfy.generalProjectIdTrusted", "1");
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL): Promise<{
+        ok: boolean;
+        status: number;
+        json: () => Promise<unknown>;
+      }> => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url === resolveBackendUrl("/api/projects")) {
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({}),
+          };
+        }
+        if (url === resolveBackendUrl("/api/media/upload/document")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              id: "doc-2",
+              src_url: "/media/documents/doc-2.txt",
+              filename: "doc-2.txt",
+            }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        };
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadDocument({ projectId: undefined, threadId: undefined });
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => String(url) === resolveBackendUrl("/api/projects")
+      )
+    ).toBe(false);
+
+    const uploadCall = fetchMock.mock.calls.find(
+      ([url]) => String(url) === resolveBackendUrl("/api/media/upload/document")
+    );
+    const form = uploadCall?.[1]?.body as FormData | undefined;
+    expect(form?.get("project_id")).toBe("1");
+    expect(form?.get("projectId")).toBe("1");
   });
 });

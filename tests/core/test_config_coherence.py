@@ -134,6 +134,27 @@ def test_config_coherence_core_mode_allows_mismatch_and_logs_source(
     assert "CODEXIFY_CONFIG_SOURCE=core" in caplog.text
 
 
+def test_config_coherence_core_mode_accepts_local_smoke_path_without_groq_key(
+    monkeypatch,
+):
+    core = core_config.Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_CONFIG_SOURCE="core",
+        LOCAL_BASE_URL="http://host.docker.internal:11434/v1",
+        ALLOW_CLOUD_PROVIDERS=False,
+    )
+    legacy = _legacy_settings(AI_BACKEND="groq")
+    monkeypatch.setattr(
+        core_config,
+        "_load_legacy_settings_for_coherence",
+        lambda: legacy,
+    )
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("AI_BACKEND", "groq")
+
+    core_config.assert_config_coherence(core)
+
+
 def test_config_coherence_legacy_mode_allows_mismatch_and_logs_source(
     monkeypatch, caplog
 ):
