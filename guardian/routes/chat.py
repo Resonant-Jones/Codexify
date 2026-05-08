@@ -4126,10 +4126,11 @@ def get_latest_rag_trace(
                 or isinstance(
                     completed_payload.get("retrieval_provenance"), dict
                 )
-                else:
-                    trace_unavailable_reason = (
-                        TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value
-                    )
+            )
+            if not trace_source_evidence:
+                trace_unavailable_reason = (
+                    TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value
+                )
     if isinstance(completed_payload, dict):
         payload_summary_value = completed_payload.get("payload_summary")
         if isinstance(payload_summary_value, dict):
