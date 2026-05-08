@@ -4,6 +4,8 @@ This note is the companion architecture reference for ADR-010. It explains the g
 
 Implementation status: extension proposal persistence, manual install-gate decisions, capability registry entries, scoped install binding persistence, backend read-time effective capability resolution, a bounded capability result reinjection seam for one completed manual command-bus invocation, and a one-turn assistant reentry seam that converts one completed reinjection result into exactly one assistant-facing continuation payload exist on the backend; sandbox execution, autonomous retries, recursive loops, worker orchestration, autonomous runtime execution, and plugin execution do not. Resolution precedence is profile > project > account. The one-turn assistant reentry seam is contract-only and does not itself invoke providers or persist transcript output.
 
+For future Pi SDK integration or any Pi-like external coding-agent harness path, use [`pi-invocation-boundary-contract.md`](./pi-invocation-boundary-contract.md) and [`ADR-020`](./adr/020-guardian-mediated-coding-agent-execution-contract.md) as the governing invocation boundary before changing runtime behavior.
+
 ## Purpose
 
 Codexify needs a way to author new capabilities from within the system without turning the assistant into a freeform self-modifying agent.

@@ -36,6 +36,8 @@ If you are working on delegation, start with [`delegation-operator-manual.md`](.
 
 If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
 
+If you are working on Pi SDK integration, Pi-like external coding-agent harnesses, or invocation governance boundaries, start with [`Pi Invocation Boundary Contract`](./pi-invocation-boundary-contract.md) first, then apply [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md) for Guardian ownership and result-return doctrine.
+
 If you are working on a cross-surface Guardian intent spine for chat, voice, automation, CLI, or future plugin entrypoints, start with [`ADR-022: Guardian Intent Spine and Cross-Surface Control Plane`](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md). That ADR defines the canonical envelope and dispatch rules for "do this on my behalf" requests.
 
 If you are working on slash-command connector invocation, active connector semantics, Obsidian context commands, GitHub/Discord/Drive-style connector context, or MCP connector/tool invocation boundaries, start with [`ADR-024: Context Command and Active Connector Semantics`](./adr/024-context-command-active-connector-semantics.md). That ADR defines the turn-scoped connector doctrine without claiming any specific connector runtime is already implemented.
@@ -103,6 +105,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Web Evidence Intake Gate Contract](./web-evidence-intake-gate-contract.md): future pre-synthesis safety and provenance gate for web-derived evidence; not current runtime support.
 - [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md): canonical architecture note for bounded generated extensions, plugin forge flow, and sovereignty boundaries.
 - [ADR-020 Guardian Mediated Coding Agent Execution Contract](./adr/020-guardian-mediated-coding-agent-execution-contract.md): contract-only seam for Guardian-mediated coding-agent requests and results, including future Pi SDK adapters.
+- [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): Codexify-native boundary contract for future Pi-like harness invocation, Guardian ownership, provider-lane separation, and bounded result return.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
