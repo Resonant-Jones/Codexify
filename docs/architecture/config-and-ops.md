@@ -182,6 +182,8 @@ python scripts/proofs/prove_workspace_obsidian_e2e.py
 - The wizard/launcher presents the user-facing local provider posture as “Local via Ollama.”
 - The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`, with `LOCAL_BASE_URL=http://host.docker.internal:11434` for the Docker Compose runtime.
 - Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
+- Local backend smoke testing should start the runtime backend with `CODEXIFY_CONFIG_SOURCE=core` so the canonical local provider path can boot without a Groq key when AI inference is not being exercised.
+- If someone intentionally forces `CODEXIFY_CONFIG_SOURCE=legacy`, the legacy validator still applies and `AI_BACKEND=groq` continues to require `GROQ_API_KEY`.
 
 ### Packaged launcher and runtime distribution contract
 

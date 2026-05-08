@@ -1354,6 +1354,9 @@ def _merge_retrieval_suppression_summaries(
         "count": len(merged_items) if merged_items else sum(counts_by_reason.values()),
         "items": merged_items,
         "counts_by_reason": counts_by_reason,
+    }
+
+
 def _semantic_suppression_trace_item(
     item: dict[str, Any],
     *,
@@ -1375,27 +1378,22 @@ def _semantic_suppression_trace_item(
 def _filter_image_refusal_semantic_context(
     semantic_items: Any,
     latest_user_meta: dict[str, Any] | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    if not _image_attachments_from_meta(latest_user_meta):
-        return [item for item in semantic_items or [] if isinstance(item, dict)], None
-    filtered: list[dict[str, Any]] = []
-    suppressed_items: list[dict[str, Any]] = []
     *,
     suppression_trace: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     if not _image_attachments_from_meta(latest_user_meta):
         filtered = [item for item in semantic_items or [] if isinstance(item, dict)]
         if isinstance(suppression_trace, dict):
             suppression_trace.setdefault("items", [])
             suppression_trace.setdefault("summary", {"total_suppressed": 0})
-        return filtered
+        return filtered, None
     filtered: list[dict[str, Any]] = []
     suppressed: list[dict[str, Any]] = []
     for item in semantic_items or []:
         if not isinstance(item, dict):
             continue
         if _assistant_image_refusal_message(_semantic_context_item_text(item)):
-            suppressed_items.append(
+            suppressed.append(
                 _build_retrieval_suppression_item(
                     item,
                     suppression_reason=TraceSuppressionReason
@@ -1408,6 +1406,8 @@ def _filter_image_refusal_semantic_context(
                     retrieval_policy=item.get("retrieval_policy")
                     if isinstance(item.get("retrieval_policy"), dict)
                     else None,
+                )
+            )
             suppressed.append(
                 _semantic_suppression_trace_item(
                     item,
@@ -1419,27 +1419,24 @@ def _filter_image_refusal_semantic_context(
             continue
         filtered.append(item)
     suppression_summary = _merge_retrieval_suppression_summaries(
-        None
-        if not suppressed_items
-        else {
-            "count": len(suppressed_items),
-            "items": suppressed_items,
+        None if not suppressed else {
+            "count": len(suppressed),
+            "items": suppressed,
             "counts_by_reason": {
                 TraceSuppressionReason
                 .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value: len(
-                    suppressed_items
+                    suppressed
                 )
             },
         }
     )
-    return filtered, suppression_summary
     if isinstance(suppression_trace, dict):
         suppression_trace["items"] = suppressed
         suppression_trace["summary"] = {
             "total_suppressed": len(suppressed),
             "assistant_vision_refusal_on_image_turn": len(suppressed),
         }
-    return filtered
+    return filtered, suppression_summary
 
 
 def _format_image_label(attachment: dict[str, Any]) -> str:
@@ -2420,24 +2417,20 @@ def _build_retrieval_provenance(
     }
 
 
-def _build_model_selection_metadata(
 def _build_model_selection_trace(
     *,
     requested_provider: str | None,
     requested_model: str | None,
     attempted_provider: str | None,
     attempted_model: str | None,
-    resolved_provider: str | None,
-    resolved_model: str | None,
     final_provider: str | None,
     final_model: str | None,
     selection_source: str | None,
     fallback_reason: str | None,
-    model_resolution: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
+    return {
         "requested_provider": (
-            str(requested_provider).strip() or None
+            str(requested_provider).strip().lower() or None
             if requested_provider is not None
             else None
         ),
@@ -2447,7 +2440,7 @@ def _build_model_selection_trace(
             else None
         ),
         "attempted_provider": (
-            str(attempted_provider).strip() or None
+            str(attempted_provider).strip().lower() or None
             if attempted_provider is not None
             else None
         ),
@@ -2456,18 +2449,8 @@ def _build_model_selection_trace(
             if attempted_model is not None
             else None
         ),
-        "resolved_provider": (
-            str(resolved_provider).strip() or None
-            if resolved_provider is not None
-            else None
-        ),
-        "resolved_model": (
-            str(resolved_model).strip() or None
-            if resolved_model is not None
-            else None
-        ),
         "final_provider": (
-            str(final_provider).strip() or None
+            str(final_provider).strip().lower() or None
             if final_provider is not None
             else None
         ),
@@ -2487,33 +2470,21 @@ def _build_model_selection_trace(
             else None
         ),
     }
-    if isinstance(model_resolution, dict):
-        payload["model_resolution"] = dict(model_resolution)
-        source = str(model_resolution.get("source") or "").strip()
-        if source:
-            payload["policy_reason"] = source
-        failure_kind = str(model_resolution.get("failure_kind") or "").strip()
-        if failure_kind:
-            payload["model_resolution_failure_kind"] = failure_kind
-        message = str(model_resolution.get("message") or "").strip()
-        if message:
-            payload["model_resolution_message"] = message
-    if not payload.get("policy_reason"):
-        if fallback_reason:
-            payload["policy_reason"] = fallback_reason
-        elif (
-            payload.get("requested_model")
-            and payload.get("final_model")
-            and payload["requested_model"] != payload["final_model"]
-        ):
-            payload["policy_reason"] = "requested_model_not_selected"
-        elif (
-            payload.get("requested_provider")
-            and payload.get("final_provider")
-            and payload["requested_provider"] != payload["final_provider"]
-        ):
-            payload["policy_reason"] = "requested_provider_not_selected"
-    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _build_model_selection_metadata(
+    *,
+    requested_provider: str | None,
+    requested_model: str | None,
+    attempted_provider: str | None,
+    attempted_model: str | None,
+    resolved_provider: str | None,
+    resolved_model: str | None,
+    final_provider: str | None,
+    final_model: str | None,
+    selection_source: str | None,
+    fallback_reason: str | None,
+    model_resolution: dict[str, Any] | None,
 ) -> dict[str, Any]:
     settings = get_settings()
     normalized_requested_provider = (
@@ -2524,11 +2495,15 @@ def _build_model_selection_trace(
         str(attempted_provider or "").strip().lower() or None
     )
     normalized_attempted_model = normalize_model_id(attempted_model)
-    normalized_final_provider = str(final_provider or "").strip().lower() or None
-    normalized_final_model = normalize_model_id(final_model)
-    selection_source_text = (
-        str(selection_source or "").strip() or None
+    normalized_resolved_provider = (
+        str(resolved_provider or "").strip().lower() or None
     )
+    normalized_resolved_model = normalize_model_id(resolved_model)
+    normalized_final_provider = (
+        str(final_provider or "").strip().lower() or None
+    )
+    normalized_final_model = normalize_model_id(final_model)
+    selection_source_text = str(selection_source or "").strip() or None
     local_chat_model = normalize_model_id(
         getattr(settings, "LOCAL_CHAT_MODEL", None)
     )
@@ -2554,21 +2529,32 @@ def _build_model_selection_trace(
     elif fallback_reason:
         model_resolution_message = str(fallback_reason).strip() or None
 
-    model_resolution: dict[str, Any] = {
-        "source": model_resolution_source,
-        "message": model_resolution_message,
-    }
+    model_resolution_payload: dict[str, Any] = dict(model_resolution or {})
+    model_resolution_payload["source"] = model_resolution_source
+    model_resolution_payload["message"] = model_resolution_message
+    if not model_resolution_payload.get("policy_reason"):
+        model_resolution_payload["policy_reason"] = policy_reason
+
+    failure_kind = str(model_resolution_payload.get("failure_kind") or "").strip()
+    if failure_kind:
+        model_resolution_payload["model_resolution_failure_kind"] = failure_kind
+    message = str(model_resolution_payload.get("message") or "").strip()
+    if message:
+        model_resolution_payload["model_resolution_message"] = message
+
     return {
         "requested_provider": normalized_requested_provider,
         "requested_model": normalized_requested_model,
         "attempted_provider": normalized_attempted_provider,
         "attempted_model": normalized_attempted_model,
+        "resolved_provider": normalized_resolved_provider,
+        "resolved_model": normalized_resolved_model,
         "final_provider": normalized_final_provider,
         "final_model": normalized_final_model,
         "selection_source": selection_source_text,
         "policy_reason": policy_reason,
         "fallback_reason": fallback_reason,
-        "model_resolution": model_resolution,
+        "model_resolution": model_resolution_payload,
     }
 
 

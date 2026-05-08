@@ -183,7 +183,9 @@ services:
       CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
+      # Local smoke tests should boot from canonical config so a missing Groq key
+      # does not block media/API verification when AI inference is not exercised.
+      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       STORAGE_BASE_PATH: /app/data/media
       NEO4J_BOLT_URL: bolt://neo4j:7687
