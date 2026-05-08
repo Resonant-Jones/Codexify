@@ -1,3 +1,4 @@
+"""Graph backend adapter contract for derived graph-write tasks."""
 """Typed adapter contract for future graph persistence backends."""
 
 from __future__ import annotations
@@ -5,6 +6,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+GRAPH_BACKEND_KIND_NOOP = "noop"
+GRAPH_BACKEND_KIND_NEO4J = "neo4j"
+SUPPORTED_GRAPH_BACKEND_KINDS: tuple[str, ...] = (
+    GRAPH_BACKEND_KIND_NOOP,
+    GRAPH_BACKEND_KIND_NEO4J,
+)
+
+GRAPH_BACKEND_RESULT_STATUS_NOOP = "noop"
+GRAPH_BACKEND_RESULT_STATUS_SKIPPED = "skipped"
+GRAPH_BACKEND_RESULT_STATUS_WRITTEN = "written"
+GRAPH_BACKEND_RESULT_STATUS_FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class GraphBackendWriteResult:
+    status: str
+    backend_kind: str
+    graph_write_id: str
+    node_count: int = 0
+    edge_count: int = 0
 GRAPH_BACKEND_RESULT_STATUS_NOOP = "noop"
 GRAPH_BACKEND_RESULT_STATUS_SKIPPED = "skipped"
 
@@ -20,11 +41,23 @@ class GraphBackendWriteResult:
 
 
 class GraphBackendAdapter(Protocol):
+    backend_kind: str
+
+    def write_graph_candidates(
+        self, graph_write_task: dict[str, Any]
+    ) -> GraphBackendWriteResult:
     def write_graph_task(self, task: dict) -> GraphBackendWriteResult:
         ...
 
 
 __all__ = [
+    "GRAPH_BACKEND_KIND_NEO4J",
+    "GRAPH_BACKEND_KIND_NOOP",
+    "GRAPH_BACKEND_RESULT_STATUS_FAILED",
+    "GRAPH_BACKEND_RESULT_STATUS_NOOP",
+    "GRAPH_BACKEND_RESULT_STATUS_SKIPPED",
+    "GRAPH_BACKEND_RESULT_STATUS_WRITTEN",
+    "SUPPORTED_GRAPH_BACKEND_KINDS",
     "GRAPH_BACKEND_RESULT_STATUS_NOOP",
     "GRAPH_BACKEND_RESULT_STATUS_SKIPPED",
     "GraphBackendAdapter",
