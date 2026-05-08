@@ -40,6 +40,8 @@ If you are working on continuity governance, working-set decay, or import-aware 
 
 If you are working on the continuity control plane itself, including scope, intensity, decay, import treatment, exclusions, inspection, and reset semantics, continue with [`ADR-016: Continuity Governance Surface Contract`](./adr/016-continuity-governance-surface-contract.md) after ADR-015. That ADR defines the user-governed surface that configures continuity behavior without collapsing it into persona ownership or deep identity consent.
 
+If you are working on Pi SDK integration, external coding-agent harnesses, or Pi-like execution, start with [`Pi Invocation Boundary Contract`](./pi-invocation-boundary-contract.md) and then apply Guardian-mediated coding-agent execution doctrine (ADR-020 when present in this repo lineage). Treat provider/model integration (including Minimax) as a separate provider-lane concern.
+
 ## KB Validity and Diagram Source Sets
 
 Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
@@ -78,6 +80,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
 - [Runtime Protocol Token Contract](./runtime-protocol-token-contract.md): canonical runtime tokens for statuses, events, machine-readable failure codes, and bounded tool-loop meanings.
 - [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md): canonical architecture note for bounded generated extensions, plugin forge flow, and sovereignty boundaries.
+- [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): canonical boundary for future Guardian-mediated invocation of Pi-like external coding-agent harnesses, including command authority, result return, lineage, and provider-lane separation.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
