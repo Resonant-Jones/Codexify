@@ -78,4 +78,3 @@ def test_document_upload_returns_document_and_asset_identity():
     assert payload["document_id"] == "doc-123"
     assert payload["media_asset_id"] == "asset-123"
     assert payload["embedding_status"] == "pending"
-
