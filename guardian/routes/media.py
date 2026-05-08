@@ -145,6 +145,8 @@ class ImageUploadResponse(BaseModel):
 
 class DocumentUploadResponse(BaseModel):
     id: str
+    document_id: str
+    media_asset_id: str | None = None
     project_id: int
     thread_id: Optional[int] = None
     src_url: str
@@ -162,6 +164,8 @@ class DocumentUploadResponse(BaseModel):
 
 class DocumentDetailResponse(BaseModel):
     id: str
+    document_id: str
+    media_asset_id: str | None = None
     project_id: int
     thread_id: Optional[int] = None
     src_url: str
@@ -499,12 +503,28 @@ def _require_generated_image_account_scope(
 
 def _require_uploaded_document_account_scope(
     db,
-    document_id: str,
+    document_identity: str,
     request_user_scope: RequestUserScope,
 ) -> UploadedDocument:
+    identity = str(document_identity or "").strip()
+    if not identity:
+        raise HTTPException(status_code=404, detail="Document not found")
+
     with db.get_session() as session:
         document = (
-            session.query(UploadedDocument).filter_by(id=document_id).first()
+            session.query(UploadedDocument)
+            .filter(
+                UploadedDocument.deleted_at.is_(None),
+                or_(
+                    UploadedDocument.id == identity,
+                    UploadedDocument.asset_id == identity,
+                ),
+            )
+            .order_by(
+                (UploadedDocument.id == identity).desc(),
+                UploadedDocument.created_at.desc(),
+            )
+            .first()
         )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -903,6 +923,8 @@ def _document_upload_response_from_row(
 ) -> DocumentUploadResponse:
     return DocumentUploadResponse(
         id=document.id,
+        document_id=document.id,
+        media_asset_id=document.asset_id,
         project_id=int(document.project_id or fallback_project_id),
         thread_id=(
             requested_thread_id
@@ -942,6 +964,8 @@ def _document_detail_response_from_row(
 ) -> DocumentDetailResponse:
     return DocumentDetailResponse(
         id=document.id,
+        document_id=document.id,
+        media_asset_id=document.asset_id,
         project_id=int(document.project_id or fallback_project_id),
         thread_id=document.thread_id,
         src_url=_signed_src_url(document.src_url),
@@ -1886,6 +1910,8 @@ async def upload_document(
 
         return DocumentUploadResponse(
             id=doc_id,
+            document_id=doc_id,
+            media_asset_id=str(asset_metadata.get("asset_id") or "") or None,
             project_id=resolved_project_id,
             thread_id=resolved_thread_id,
             src_url=_signed_src_url(src_url),
