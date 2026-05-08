@@ -3470,10 +3470,13 @@ def _execute_bounded_tool_turn_completion(
         ),
         attempted_provider=provider,
         attempted_model=model,
+        resolved_provider=provider,
+        resolved_model=model,
         final_provider=final_provider,
         final_model=final_model,
         selection_source=str(getattr(task, "selection_source", "") or ""),
         fallback_reason=None,
+        model_resolution=None,
     )
 
     def _build_result(
