@@ -1391,6 +1391,7 @@ def _filter_image_refusal_semantic_context(
     latest_user_meta: dict[str, Any] | None,
     *,
     suppression_trace: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None] | list[dict[str, Any]]:
 ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any] | None]:
     if not _image_attachments_from_meta(latest_user_meta):
         filtered = [item for item in semantic_items or [] if isinstance(item, dict)]
@@ -1399,6 +1400,9 @@ def _filter_image_refusal_semantic_context(
             suppression_trace.setdefault("summary", {"total_suppressed": 0})
             return filtered
         return filtered, None
+    filtered: list[dict[str, Any]] = []
+    suppressed_items: list[dict[str, Any]] = []
+    suppressed_trace_items: list[dict[str, Any]] = []
 
     filtered: list[dict[str, Any]] = []
     suppressed_trace_items: list[dict[str, Any]] = []
@@ -1438,6 +1442,9 @@ def _filter_image_refusal_semantic_context(
         else {
             "count": len(suppressed_items),
             "items": suppressed_items,
+            "counts_by_reason": {
+                suppression_reason: len(suppressed_items)
+            },
             "counts_by_reason": {suppression_reason: len(suppressed_items)},
         }
     )
@@ -2429,19 +2436,20 @@ def _build_retrieval_provenance(
     }
 
 
+def _build_model_selection_trace(
 def _build_model_selection_metadata(
     *,
     requested_provider: str | None,
     requested_model: str | None,
     attempted_provider: str | None,
     attempted_model: str | None,
-    resolved_provider: str | None,
-    resolved_model: str | None,
+    resolved_provider: str | None = None,
+    resolved_model: str | None = None,
     final_provider: str | None,
     final_model: str | None,
     selection_source: str | None,
     fallback_reason: str | None,
-    model_resolution: dict[str, Any] | None,
+    model_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "requested_provider": (
@@ -2494,6 +2502,8 @@ def _build_model_selection_metadata(
             if fallback_reason is not None
             else None
         ),
+        "policy_reason": None,
+        "model_resolution": None,
     }
     if isinstance(model_resolution, dict):
         payload["model_resolution"] = dict(model_resolution)
@@ -2521,6 +2531,10 @@ def _build_model_selection_metadata(
             and payload["requested_provider"] != payload["final_provider"]
         ):
             payload["policy_reason"] = "requested_provider_not_selected"
+    return payload
+
+
+def _build_model_selection_metadata(
     return {key: value for key, value in payload.items() if value is not None}
 
 
@@ -2530,10 +2544,13 @@ def _build_model_selection_trace(
     requested_model: str | None,
     attempted_provider: str | None,
     attempted_model: str | None,
+    resolved_provider: str | None,
+    resolved_model: str | None,
     final_provider: str | None,
     final_model: str | None,
     selection_source: str | None,
     fallback_reason: str | None,
+    model_resolution: dict[str, Any] | None,
 ) -> dict[str, Any]:
     settings = get_settings()
     normalized_requested_provider = (
@@ -3256,16 +3273,6 @@ async def build_messages_for_llm(
         bundle["_attachment_meta"] = {
             "latest_user": latest_user_meta,
         }
-        semantic_suppression_trace: dict[str, Any] = {
-            "items": [],
-            "summary": {"total_suppressed": 0},
-        }
-        bundle["semantic"] = _filter_image_refusal_semantic_context(
-            bundle.get("semantic"),
-            latest_user_meta,
-            suppression_trace=semantic_suppression_trace,
-        )
-        bundle["_retrieval_suppression_trace"] = semantic_suppression_trace
         bundle["_completion_assembly"] = completion_assembly
 
     if trace is None:
