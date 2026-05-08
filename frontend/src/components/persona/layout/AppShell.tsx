@@ -50,10 +50,13 @@ import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
-import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import useRuntimeHealth, {
+  formatRuntimeHealthDiagnostics,
+} from "@/hooks/useRuntimeHealth";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   describeProviderState,
+  LIVE_EVENT_CONNECTION_STATES,
   PROVIDER_RUNTIME_STATES,
   RUNTIME_HEALTH_FAILURE_KINDS,
   RUNTIME_HEALTH_STATUSES,
@@ -632,6 +635,17 @@ function findDefaultProjectId(projects: any[]): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function hasProjectId(projects: any[], projectId: number | null): boolean {
+  if (!Array.isArray(projects) || projectId == null) return false;
+  return projects.some((project) => {
+    const rawId = project?.id ?? project?.project_id ?? null;
+    const parsed = Number(rawId);
+    return Number.isFinite(parsed) && parsed === projectId;
+  });
+}
+
+type GeneralProjectIdSource = "storage" | "validated" | "user";
+
 /* ─────────────────────────────────────────────────────────────────────────────
    🧠 SECTION: Theme Preference Handling
    This function takes in any value and ensures it matches one of our accepted
@@ -721,6 +735,31 @@ function writeSessionOverride(v: Resolved | null) {
     window.localStorage.setItem(SESSION_KEY, v)
     window.localStorage.setItem(SESSION_UNTIL, String(nextLocalMidnight()))
   }
+}
+
+function resolveProviderRuntimeState(
+  runtimeHealth: {
+    backendReachable: boolean | null;
+    failureKind: RuntimeHealthFailureKindToken | null;
+    status: RuntimeHealthStatusToken;
+    diagnostics: { hydrationState: "pending" | "ready" | "failed" };
+  }
+): ProviderRuntimeState {
+  if (runtimeHealth.diagnostics.hydrationState === "pending") {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (runtimeHealth.status === RUNTIME_HEALTH_STATUSES.HEALTHY) {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (
+    runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE
+  ) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  if (runtimeHealth.backendReachable === false) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  return PROVIDER_RUNTIME_STATES.DEGRADED;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1100,8 +1139,13 @@ export default function AppShell({
     if (typeof window === "undefined") return;
 
     const syncRouteState = () => {
-      setActiveRouteThreadId(readRouteThreadId());
       const routeView = resolveViewFromPathname(window.location.pathname);
+      const routeThreadId = readRouteThreadId();
+      if (routeThreadId != null) {
+        setActiveRouteThreadId(routeThreadId);
+      } else if (routeView !== "documents") {
+        setActiveRouteThreadId(null);
+      }
       if (routeView) {
         setView(routeView);
       }
@@ -1158,10 +1202,15 @@ export default function AppShell({
   const [generalProjectId, setGeneralProjectId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem("cfy.generalProjectId");
+    if (raw == null) return null;
     const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   });
-  const [projectKnowledgeBaseProjectName, setProjectKnowledgeBaseProjectName] = useState<string | null>(null);
+  const [generalProjectIdSource, setGeneralProjectIdSource] =
+    useState<GeneralProjectIdSource>(() => {
+      if (typeof window === "undefined") return "validated";
+      return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
+    });
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
   const [documentScope, setDocumentScope] = useState<DocumentScope>(
@@ -1170,7 +1219,13 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const syncRouteThread = () => {
-      setActiveRouteThreadId(readRouteThreadId());
+      const routeView = resolveViewFromPathname(window.location.pathname);
+      const routeThreadId = readRouteThreadId();
+      if (routeThreadId != null) {
+        setActiveRouteThreadId(routeThreadId);
+      } else if (routeView !== "documents") {
+        setActiveRouteThreadId(null);
+      }
     };
     syncRouteThread();
     window.addEventListener("popstate", syncRouteThread);
@@ -1236,6 +1291,7 @@ export default function AppShell({
     (projectId: string | null) => {
       const normalizedProjectId =
         projectId == null ? null : Number.parseInt(String(projectId), 10);
+      setGeneralProjectIdSource("user");
       setGeneralProjectId(
         normalizedProjectId != null && Number.isFinite(normalizedProjectId)
           ? normalizedProjectId
@@ -1246,6 +1302,17 @@ export default function AppShell({
       );
     },
     [activeRouteThreadId]
+  );
+  const handleGuardianProjectChange = useCallback(
+    (projectId: string | null) => {
+      if (projectId == null) return;
+      const normalizedProjectId = Number.parseInt(String(projectId), 10);
+      if (Number.isFinite(normalizedProjectId) && normalizedProjectId > 0) {
+        setGeneralProjectIdSource("user");
+        setGeneralProjectId(normalizedProjectId);
+      }
+    },
+    []
   );
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
@@ -1267,15 +1334,28 @@ export default function AppShell({
       window.localStorage.setItem("cfy.defaultProjectId", String(generalProjectId));
     } catch {}
   }, [generalProjectId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (generalProjectId != null) return;
+    try {
+      window.localStorage.removeItem("cfy.generalProjectId");
+      window.localStorage.removeItem("cfy.defaultProjectId");
+    } catch {}
+  }, [generalProjectId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (generalProjectId != null && generalProjectIdSource !== "storage") {
+        window.localStorage.setItem("cfy.generalProjectIdTrusted", "1");
+      } else {
+        window.localStorage.removeItem("cfy.generalProjectIdTrusted");
+      }
+    } catch {}
+  }, [generalProjectId, generalProjectIdSource]);
 
   useEffect(() => {
     let cancelled = false;
     if (startupLocked) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (generalProjectId != null) {
       return () => {
         cancelled = true;
       };
@@ -1301,9 +1381,14 @@ export default function AppShell({
           : Array.isArray(payload?.projects)
           ? payload.projects
           : [];
-        const defaultProject = findDefaultProjectId(list);
-        if (defaultProject != null) {
-          setGeneralProjectId(defaultProject);
+        if (list.length > 0) {
+          const defaultProject = findDefaultProjectId(list);
+          const currentProjectValid = hasProjectId(list, generalProjectId);
+          const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
+          if (nextProjectId !== generalProjectId) {
+            setGeneralProjectId(nextProjectId);
+          }
+          setGeneralProjectIdSource("validated");
         }
       } catch (err) {
         if (cancelled) return;
@@ -1347,9 +1432,9 @@ export default function AppShell({
           (thread: any) => Number(thread?.id) === activeRouteThreadId
         );
         const projectRaw = hit?.project_id ?? hit?.projectId ?? null;
-        const parsed = Number(projectRaw);
+        const parsed = projectRaw == null ? NaN : Number(projectRaw);
         if (cancelled) return;
-        setActiveThreadProjectId(Number.isFinite(parsed) ? parsed : null);
+        setActiveThreadProjectId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
       } catch (err) {
         if (cancelled) return;
         setActiveThreadProjectId(null);
@@ -1361,8 +1446,8 @@ export default function AppShell({
     };
   }, [activeRouteThreadId, auth, startupLocked]);
   const effectiveDocumentsProjectId = useMemo<number | null>(
-    () => activeThreadProjectId ?? generalProjectId,
-    [activeThreadProjectId, generalProjectId]
+    () => activeThreadProjectId ?? (generalProjectIdSource === "storage" ? null : generalProjectId),
+    [activeThreadProjectId, generalProjectId, generalProjectIdSource]
   );
   useEffect(() => {
     let cancelled = false;
@@ -1921,15 +2006,13 @@ export default function AppShell({
     const onOpenProjectKnowledgeBase = (event: Event) => {
       const detail = (event as CustomEvent<{
         projectId?: string | number | null;
-        projectName?: string | null;
       }>).detail;
       const projectId = Number(detail?.projectId);
       if (Number.isFinite(projectId) && projectId > 0) {
+        setGeneralProjectIdSource("user");
         setGeneralProjectId(projectId);
       }
-      const projectName = String(detail?.projectName ?? "").trim();
-      setProjectKnowledgeBaseProjectName(projectName || null);
-      navigateToView("dashboard");
+      navigateToView("documents");
     };
 
     window.addEventListener(
@@ -1946,7 +2029,7 @@ export default function AppShell({
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
-    projectId: generalProjectId ?? undefined,
+    projectId: generalProjectIdSource === "storage" ? undefined : generalProjectId ?? undefined,
     onImages: (items) =>
       setGallery((prev) => {
         const normalizedItems = items
@@ -2423,8 +2506,11 @@ export default function AppShell({
     : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
   const runtimeDegraded =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED &&
+    runtimeHealth.diagnostics.hydrationState !== "pending";
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const runtimeHydrationState = runtimeHealth.diagnostics.hydrationState;
+  const now = Date.now();
   const runtimeDetail =
     typeof process !== "undefined" &&
     process.env &&
@@ -2432,11 +2518,21 @@ export default function AppShell({
     runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       ? runtimeHealth.llmDetail
       : null;
+  const runtimeDiagnosticLines =
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED
+      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+      : [];
+  const liveUpdatesDisconnected =
+    runtimeHealth.diagnostics.liveEvents.connectionState ===
+      LIVE_EVENT_CONNECTION_STATES.DISCONNECTED &&
+    typeof runtimeHealth.diagnostics.liveEvents.statusUpdatedAt === "number" &&
+    now - runtimeHealth.diagnostics.liveEvents.statusUpdatedAt > 45_000;
+  const liveUpdateDiagnosticLines =
+    !runtimeDegraded && liveUpdatesDisconnected
+      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+      : [];
 
-  const providerRuntimeState: ProviderRuntimeState =
-    runtimeHealth.backendReachable === false
-      ? PROVIDER_RUNTIME_STATES.OFFLINE
-      : PROVIDER_RUNTIME_STATES.DEGRADED;
+  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
 
   const runtimePresentation = describeProviderState(providerRuntimeState);
 
@@ -2864,9 +2960,58 @@ export default function AppShell({
                 {runtimePresentation.detail}
               </div>
             )}
+            {runtimeDiagnosticLines.length > 0 ? (
+              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+                <summary className="cursor-pointer select-none opacity-80">
+                  Technical details
+                </summary>
+                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                  {runtimeDiagnosticLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
       )}
+      {liveUpdatesDisconnected && !runtimeDegraded ? (
+        <div className="relative z-10 w-full mt-3">
+          <div
+            className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold tracking-wide">
+                Live updates disconnected
+              </span>
+              <span className="opacity-80">
+                state: {runtimeHealth.diagnostics.liveEvents.connectionState}
+              </span>
+            </div>
+            <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
+              Guardian is healthy, but the live event stream has not stayed connected.
+            </div>
+            {liveUpdateDiagnosticLines.length > 0 ? (
+              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+                <summary className="cursor-pointer select-none opacity-80">
+                  Technical details
+                </summary>
+                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                  {liveUpdateDiagnosticLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
@@ -2982,7 +3127,7 @@ export default function AppShell({
                             borderColor: "var(--panel-border)",
                           }}
                         >
-                          <SidebarRoot
+                        <SidebarRoot
                             threads={[]}
                             activeId={
                               activeRouteThreadId == null
@@ -2992,9 +3137,9 @@ export default function AppShell({
                             onSelect={(id) => navigateToThread(id)}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              generalProjectId == null
+                              effectiveDocumentsProjectId == null
                                 ? null
-                                : String(generalProjectId)
+                                : String(effectiveDocumentsProjectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
                           />
@@ -3025,7 +3170,8 @@ export default function AppShell({
                         extColors={extColors}
                         onOpenInThread={openDocInThread}
                         onDeleteDocument={deleteDocument}
-                        defaultProjectId={generalProjectId}
+                        projectId={effectiveDocumentsProjectId}
+                        threadId={activeRouteThreadId}
                       />
                     </FrameCard>
                   </div>
@@ -3065,7 +3211,7 @@ export default function AppShell({
                             borderColor: "var(--panel-border)",
                           }}
                         >
-                          <SidebarRoot
+                        <SidebarRoot
                             threads={[]}
                             activeId={
                               activeRouteThreadId == null
@@ -3075,9 +3221,9 @@ export default function AppShell({
                             onSelect={(id) => navigateToThread(id)}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              generalProjectId == null
+                              effectiveDocumentsProjectId == null
                                 ? null
-                                : String(generalProjectId)
+                                : String(effectiveDocumentsProjectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
                           />
@@ -3209,8 +3355,10 @@ export default function AppShell({
                         onWorkspaceToggle={toggleWorkspaceDrawer}
                         workspaceOpen={workspaceDrawerOpen}
                         providerRuntimeState={providerRuntimeState}
+                        runtimeHealth={runtimeHealth}
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
+                        onProjectChange={handleGuardianProjectChange}
                       />
                     </ErrorBoundary>
                   </div>
@@ -3250,8 +3398,6 @@ export default function AppShell({
                   <DashboardView
                     extColors={extColors}
                     gallery={gallery}
-                    activeProjectId={generalProjectId}
-                    activeProjectName={projectKnowledgeBaseProjectName}
                     onImagePrompt={openChatWithPrompt}
                     onRequestNewProject={openCreateProjectModal}
                     onRequestNewThread={createThreadFromDashboard}

@@ -1,5 +1,6 @@
+import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
@@ -100,10 +101,48 @@ async def import_account_metadata(
         )
 
 
-from backend.rag.chatgpt_migration import ingest_chatgpt_export
+from backend.rag.chatgpt_migration import (
+    ingest_chatgpt_export,
+    ingest_claude_export,
+)
 from backend.rag.chatgpt_migration import (
     retry_chatgpt_import_embeddings as retry_chatgpt_import_embeddings_service,
 )
+
+
+def _detect_export_format_parsed(data: Any) -> str:
+    """Auto-detect whether content is a ChatGPT or Claude export format.
+    Takes already-parsed JSON data (dict or list).
+    """
+    # ChatGPT exports are a list (or dict with 'mapping' in first item)
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                if "mapping" in item:
+                    return "chatgpt"
+                # Claude exports have 'chat_messages' in each conversation
+                if "chat_messages" in item:
+                    return "claude"
+    elif isinstance(data, dict):
+        if "mapping" in data:
+            return "chatgpt"
+        if "chat_messages" in data:
+            return "claude"
+        # Check nested conversations/threads/chats/data
+        convs = (
+            data.get("conversations")
+            or data.get("threads")
+            or data.get("chats")
+            or data.get("data")
+        )
+        if isinstance(convs, list):
+            for item in convs:
+                if isinstance(item, dict):
+                    if "chat_messages" in item:
+                        return "claude"
+                    if "mapping" in item:
+                        return "chatgpt"
+    return "unknown"
 
 
 @router.post("/api/upload-chatgpt-export", response_model=MigrationStats)
@@ -114,7 +153,10 @@ async def upload_chatgpt_export(
     api_key: str = Depends(require_api_key),
 ):
     """
-    Import a ChatGPT export file (JSON).
+    Import a ChatGPT or Claude export file (JSON).
+
+    Auto-detects format: ChatGPT exports (with 'mapping' field) or
+    Claude exports (with 'chat_messages' field).
 
     Canonical path: /api/upload-chatgpt-export
     Legacy alias: /upload-chatgpt-export
@@ -129,7 +171,30 @@ async def upload_chatgpt_export(
             chunks.extend(chunk)
 
         content = bytes(chunks)
-        stats = ingest_chatgpt_export(content, user_id=user_id)
+
+        # Parse and detect export format
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            raise ValueError(
+                "Invalid JSON file: unable to parse uploaded content."
+            )
+
+        # Auto-detect export format (default to ChatGPT for backward compatibility)
+        export_format = _detect_export_format_parsed(parsed)
+        if export_format == "unknown":
+            export_format = "chatgpt"
+
+        if export_format == "claude":
+            stats = ingest_claude_export(content, user_id=user_id)
+        elif export_format == "chatgpt":
+            stats = ingest_chatgpt_export(content, user_id=user_id)
+        else:
+            raise ValueError(
+                "Unrecognized export format. Expected a ChatGPT export (with 'mapping' field) "
+                "or a Claude export (with 'chat_messages' field)."
+            )
+
         return MigrationStats(
             threads_imported=stats["threads_imported"],
             messages_imported=stats["messages_imported"],

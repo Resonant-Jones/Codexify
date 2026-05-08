@@ -40,6 +40,12 @@ const composerState = vi.hoisted(() => ({
     | null,
 }));
 
+const authState = vi.hoisted(() => ({
+  ready: true,
+  status: "authenticated" as const,
+  token: "test-token",
+}));
+
 type MockGuardianEventSource = EventTarget & {
   url: string;
   options: Record<string, unknown>;
@@ -52,38 +58,69 @@ type MockGuardianEventSource = EventTarget & {
   emitError: () => void;
 };
 
-vi.mock("@/lib/api", () => ({
-  default: apiSpies,
-  buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
-  clearInFlightCompletionTurnId: vi.fn(),
-  getAuthToken: vi.fn(() => null),
-  getBackendOutageRemainingMs: vi.fn(() => 0),
-  getDevApiKey: vi.fn(() => null),
-  getInFlightCompletionTurnId: vi.fn(() => null),
-  readRuntimeApiKey: vi.fn(() => null),
-  invokeCommandBus: async (payload: Record<string, unknown>) => {
-    const response = await apiSpies.post(
-      "/api/guardian/commands/invoke",
-      payload,
-      {
-        headers: {
-          "X-User-Id": String((payload as any)?.actor?.id ?? ""),
-        },
-      }
-    );
-    return response?.data ?? {};
-  },
-  updateThreadConfig: async (
-    threadId: string | number,
-    patch: Record<string, unknown>
-  ) => {
-    const response = await apiSpies.patch(
-      `/chat/threads/${threadId}/config`,
-      patch
-    );
-    return response?.data ?? {};
-  },
-}));
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>(
+    "@/lib/api"
+  );
+
+  return {
+    ...actual,
+    default: apiSpies,
+    buildChatCompletePath: (threadId: string | number) =>
+      `/chat/${threadId}/complete`,
+    clearInFlightCompletionTurnId: vi.fn(),
+    getAuthToken: vi.fn(() => null),
+    getBackendOutageRemainingMs: vi.fn(() => 0),
+    getDevApiKey: vi.fn(() => null),
+    getInFlightCompletionTurnId: vi.fn(() => null),
+    hasRequestAuthCredential: vi.fn(() => true),
+    readRuntimeApiKey: vi.fn(() => null),
+    invokeCommandBus: async (payload: Record<string, unknown>) => {
+      const response = await apiSpies.post(
+        "/api/guardian/commands/invoke",
+        payload,
+        {
+          headers: {
+            "X-User-Id": String((payload as any)?.actor?.id ?? ""),
+          },
+        }
+      );
+      return response?.data ?? {};
+    },
+    dispatchGuardianIntent: async (payload: Record<string, unknown>) => {
+      const response = await apiSpies.post(
+        "/api/guardian/intents/dispatch",
+        payload,
+        {
+          headers: {
+            "X-User-Id": String((payload as any)?.actor?.id ?? ""),
+          },
+        }
+      );
+      return response?.data ?? {};
+    },
+    moveChatThread: async (
+      threadId: string | number,
+      toProjectId: string | number
+    ) => {
+      const response = await apiSpies.post(
+        `/chat/threads/${threadId}/move`,
+        { toProjectId }
+      );
+      return response?.data ?? {};
+    },
+    updateThreadConfig: async (
+      threadId: string | number,
+      patch: Record<string, unknown>
+    ) => {
+      const response = await apiSpies.patch(
+        `/chat/threads/${threadId}/config`,
+        patch
+      );
+      return response?.data ?? {};
+    },
+  };
+});
 
 vi.mock("@/lib/guardianEventSource", () => {
   class MockGuardianEventSource extends EventTarget {
@@ -221,6 +258,10 @@ vi.mock("@/lib/runtimeRouteCapabilities", () => ({
   }),
 }));
 
+vi.mock("@/lib/authState", () => ({
+  useAuthState: () => authState,
+}));
+
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: any) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children, asChild, ...props }: any) => {
@@ -354,6 +395,25 @@ function renderChat(
   };
 }
 
+function createApiResponse(
+  data: Record<string, unknown>,
+  status = 201
+): {
+  data: Record<string, unknown>;
+  status: number;
+  statusText: string;
+  headers: Record<string, unknown>;
+  config: Record<string, unknown>;
+} {
+  return {
+    data,
+    status,
+    statusText: status === 201 ? "Created" : "OK",
+    headers: {},
+    config: {},
+  };
+}
+
 async function advanceTimers(ms: number) {
   await act(async () => {
     vi.advanceTimersByTime(ms);
@@ -383,6 +443,17 @@ describe("GuardianChat inference rail", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-05T00:00:00.000Z"));
     vi.clearAllMocks();
+    authState.ready = true;
+    authState.status = "authenticated";
+    authState.token = "test-token";
+    try {
+      window.localStorage.setItem("cfy.voice.playbackEnabled", "");
+      window.localStorage.setItem("cfy.voice.turnEnabled", "");
+      window.localStorage.setItem("cfy.voice.selectedVoice", "");
+      window.localStorage.setItem("cfy.voice.autoRead", "");
+    } catch {
+      // no-op
+    }
     composerState.slashIntent = null;
     chatState.messages = [];
     chatState.loading = false;
@@ -399,6 +470,9 @@ describe("GuardianChat inference rail", () => {
           data: {
             read_aloud_enabled: true,
             turn_based_enabled: true,
+            provider_default: "local_openai_compatible",
+            voice_default: "alloy",
+            voices: ["alloy", "ember"],
             supported_input_mime: ["audio/wav"],
             limits: {
               max_upload_bytes: 1024,
@@ -607,85 +681,274 @@ describe("GuardianChat inference rail", () => {
     });
   });
 
-  it("uses canonical local ownership when creating a chat thread from a display label", async () => {
+  it.each([
+    [
+      "thread_id",
+      { thread_id: 2, thread: { id: 2, title: "New Thread" } },
+    ],
+    [
+      "threadId",
+      { threadId: 2, thread: { id: 2, title: "New Thread" } },
+    ],
+    [
+      "id",
+      { id: 2, thread: { id: 2, title: "New Thread" } },
+    ],
+    [
+      "thread.id",
+      { thread: { id: 2, title: "New Thread" } },
+    ],
+    [
+      "Axios wrapper data.thread_id",
+      { thread_id: 2, thread: { id: 2, title: "New Thread" } },
+    ],
+  ])(
+    "creates and sends a new thread when the response shape supports %s",
+    async (_label, threadResponse) => {
+      renderChat("draft-thread", {
+        userName: "Resonant Jones",
+      });
+
+      apiMock.post.mockImplementation(async (url: string, body?: any) => {
+        if (url === "/api/chat/threads") {
+          expect(body).toEqual(
+            expect.objectContaining({
+              title: "hello",
+              user_id: "local",
+            })
+          );
+          return createApiResponse(threadResponse as Record<string, unknown>, 201);
+        }
+        if (url === "/chat/2/messages") {
+          expect(body).toEqual(
+            expect.objectContaining({
+              role: "user",
+              content: "hello",
+              user_id: "local",
+            })
+          );
+          return createApiResponse(
+            {
+              ok: true,
+              thread: { id: 2, title: "New Thread" },
+              message: { id: 456, thread_id: 2 },
+            },
+            200
+          );
+        }
+        if (url === "/chat/2/complete") {
+          return createApiResponse({ task_id: "task-123" }, 200);
+        }
+        return createApiResponse({}, 200);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("composer-send"));
+      });
+      await advanceTimers(100);
+
+      await waitFor(() => {
+        expect(apiMock.post).toHaveBeenCalledWith(
+          "/chat/2/complete",
+          expect.anything()
+        );
+      });
+
+      const postUrls = apiMock.post.mock.calls
+        .map(([url]) => url as string)
+        .filter((url) => url === "/api/chat/threads" || url === "/chat/2/messages" || url === "/chat/2/complete");
+      expect(postUrls).toEqual([
+        "/api/chat/threads",
+        "/chat/2/messages",
+        "/chat/2/complete",
+      ]);
+      expect(
+        apiMock.post.mock.calls.some(([url]) => url === "/chat/threads")
+      ).toBe(false);
+      expect(
+        screen.queryByTestId("thread-id-resolution-banner")
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Thread id missing from response")
+      ).not.toBeInTheDocument();
+    }
+  );
+
+  it("surfaces sanitized diagnostics when the create-thread response lacks a thread id", async () => {
     renderChat("draft-thread", {
       userName: "Resonant Jones",
     });
 
     apiMock.post.mockImplementation(async (url: string, body?: any) => {
-      if (url === "/chat/messages") {
+      if (url === "/api/chat/threads") {
         expect(body).toEqual(
           expect.objectContaining({
-            thread_id: null,
-            role: "user",
+            title: "hello",
             user_id: "local",
           })
         );
-        return {
-          data: {
-            thread_id: 123,
+        return createApiResponse(
+          {
+            ok: true,
+            created_thread: true,
             thread: {
-              id: 123,
-              title: "New Thread",
+              title: "Top secret thread",
+              content: "secret body",
             },
+            apiKey: "desktop-key",
+            cookie: "sid=abc123",
           },
-        };
+          200
+        );
       }
-      if (url === "/chat/123/complete") {
-        return { data: { task_id: "task-123" } };
-      }
-      return { data: {} };
+      return createApiResponse({}, 200);
     });
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("composer-send"));
     });
-    await advanceTimers(100);
 
     await waitFor(() => {
-      expect(apiMock.post).toHaveBeenCalledWith(
-        "/chat/messages",
-        expect.objectContaining({
-          user_id: "local",
-        })
-      );
+      expect(screen.getByTestId("thread-id-resolution-banner")).toBeInTheDocument();
     });
+
     expect(
-      apiMock.post.mock.calls.some(
-        ([url, body]) =>
-          url === "/chat/messages" &&
-          (body as Record<string, unknown>)?.user_id === "Resonant Jones"
-      )
+      screen.getByText("Thread id missing from response")
+    ).toBeInTheDocument();
+    expect(screen.getByText("endpoint=POST /api/chat/threads")).toBeInTheDocument();
+    expect(screen.getByText("method=POST")).toBeInTheDocument();
+    expect(screen.getByText("status=200")).toBeInTheDocument();
+    expect(screen.getByText("authPresent=true")).toBeInTheDocument();
+    expect(screen.getByText(/responseKeys=/)).toHaveTextContent(
+      "responseKeys=data,status,statusText,headers,config"
+    );
+    expect(screen.getByText(/dataKeys=/)).toHaveTextContent(
+      "dataKeys=ok,created_thread,thread,apiKey,cookie"
+    );
+    expect(screen.getByText(/threadKeys=/)).toHaveTextContent(
+      "threadKeys=title,content"
+    );
+    expect(screen.getByText(/parserBranch=/)).toHaveTextContent(
+      "response.thread_id -> response.threadId -> response.id"
+    );
+    expect(screen.getByText(/parserFailureReason=/)).toHaveTextContent(
+      "parserFailureReason=thread_id_missing"
+    );
+    expect(
+      screen.queryByText(/Top secret thread|secret body|desktop-key|sid=abc123/)
+    ).not.toBeInTheDocument();
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/messages")
+    ).toBe(false);
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/complete")
     ).toBe(false);
   });
 
-  it("switches profiles through the command bus invoke surface instead of the legacy tools shim", async () => {
+  it("surfaces wrong-endpoint diagnostics for non-object create-thread responses", async () => {
+    renderChat("draft-thread", {
+      userName: "Resonant Jones",
+    });
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/api/chat/threads") {
+        expect(body).toEqual(
+          expect.objectContaining({
+            title: "hello",
+            user_id: "local",
+          })
+        );
+        return {
+          data: "<html>Guardian shell</html>",
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config: {},
+        };
+      }
+      return createApiResponse({}, 200);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-id-resolution-banner")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText("Thread id missing from response")
+    ).toBeInTheDocument();
+    expect(screen.getByText("endpoint=POST /api/chat/threads")).toBeInTheDocument();
+    expect(screen.getByText("status=200")).toBeInTheDocument();
+    expect(screen.getByText("authPresent=true")).toBeInTheDocument();
+    expect(screen.getByText(/responseKeys=/)).toHaveTextContent(
+      "responseKeys=data,status,statusText,headers,config"
+    );
+    expect(screen.getByText(/dataKeys=/)).toHaveTextContent("dataKeys=<none>");
+    expect(screen.getByText(/threadKeys=/)).toHaveTextContent("threadKeys=<none>");
+    expect(screen.getByText("parserFailureReason=wrong_endpoint_or_non_json_response")).toBeInTheDocument();
+    expect(screen.queryByText(/Guardian shell/)).not.toBeInTheDocument();
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/api/chat/threads")
+    ).toBe(true);
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/messages")
+    ).toBe(false);
+    expect(
+      apiMock.post.mock.calls.some(([url]) => url === "/chat/2/complete")
+    ).toBe(false);
+  });
+
+  it("switches profiles through the intent spine instead of the legacy tools shim", async () => {
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("local_mode");
     renderChat("1");
 
     apiMock.post.mockImplementation(async (url: string, body?: any) => {
-      if (url === "/api/guardian/commands/invoke") {
+      if (url === "/api/guardian/intents/dispatch") {
         expect(body).toEqual(
           expect.objectContaining({
-            invoke_version: "1.0",
-            command_id: "op::guardian.profile.switch",
+            source_surface: "chat",
+            intent_kind: "command_bus.invoke",
             actor: { kind: "human", id: "local" },
-            arguments: expect.objectContaining({
-              path_params: { thread_id: 1 },
-              body: { profile_id: "local_mode" },
+            target: expect.objectContaining({
+              command_id: "op::guardian.profile.switch",
+              idempotency_key: "chat-profile-switch:1:local_mode",
+              arguments: expect.objectContaining({
+                path_params: { thread_id: 1 },
+                body: { profile_id: "local_mode" },
+              }),
+            }),
+            scope: expect.objectContaining({
+              thread_id: 1,
+              metadata: expect.objectContaining({
+                action: "profile_switch",
+              }),
+            }),
+            policy: expect.objectContaining({
+              approval_required: false,
+              allow_write_execution: true,
             }),
           })
         );
         return {
           data: {
-            run_id: "run-profile-switch-1",
-            status: "completed",
-            inline_result: {
-              ok: true,
-              thread_id: 1,
-              active_profile_id: "local_mode",
-              provider_override: "local",
-              model_override: "local-model",
+            intent_id: "intent-profile-switch-1",
+            status: "accepted",
+            dispatch_target: "command_bus",
+            source_surface: "chat",
+            receipt_ref: "run-profile-switch-1",
+            downstream_result_json: {
+              run_id: "run-profile-switch-1",
+              status: "completed",
+              inline_result: {
+                ok: true,
+                thread_id: 1,
+                active_profile_id: "local_mode",
+                provider_override: "local",
+                model_override: "local-model",
+              },
             },
           },
         };
@@ -714,9 +977,13 @@ describe("GuardianChat inference rail", () => {
 
     await waitFor(() => {
       expect(apiMock.post).toHaveBeenCalledWith(
-        "/api/guardian/commands/invoke",
+        "/api/guardian/intents/dispatch",
         expect.objectContaining({
-          command_id: "op::guardian.profile.switch",
+          source_surface: "chat",
+          intent_kind: "command_bus.invoke",
+          target: expect.objectContaining({
+            command_id: "op::guardian.profile.switch",
+          }),
         }),
         expect.objectContaining({
           headers: { "X-User-Id": "local" },
@@ -727,6 +994,54 @@ describe("GuardianChat inference rail", () => {
       apiMock.post.mock.calls.some(([url]) => url === "/tools/execute")
     ).toBe(false);
     promptSpy.mockRestore();
+  });
+
+  it("lets the user choose a voice and threads that selection through voice turns", async () => {
+    const { container } = renderChat("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice settings" }));
+    const voicePanel = await screen.findByTestId("voice-settings-popover");
+    await waitFor(() => {
+      expect(within(voicePanel).getByRole("option", { name: "ember" })).toBeInTheDocument();
+    });
+    const voiceSelect = within(voicePanel).getByLabelText("Voice");
+    fireEvent.change(voiceSelect, { target: { value: "ember" } });
+    expect((voiceSelect as HTMLSelectElement).value).toBe("ember");
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/voice/turn") {
+        expect(body).toBeInstanceOf(FormData);
+        expect((body as FormData).get("voice")).toBe("ember");
+        expect((body as FormData).get("tts_provider")).toBe(
+          "local_openai_compatible"
+        );
+        expect((body as FormData).get("tts_enabled")).toBe("true");
+        return { data: { ok: true } };
+      }
+      return { data: {} };
+    });
+
+    const fileInput = container.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement | null;
+    expect(fileInput).toBeTruthy();
+
+    fireEvent.change(fileInput as HTMLInputElement, {
+      target: {
+        files: [new File(["voice"], "voice.wav", { type: "audio/wav" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/voice/turn",
+        expect.any(FormData),
+        expect.objectContaining({
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 180000,
+        })
+      );
+    });
   });
 
   it("collapses oversized user messages by default and keeps the chat scroll container intact", async () => {
@@ -772,5 +1087,21 @@ describe("GuardianChat inference rail", () => {
     expect(longContent).toHaveStyle({ maxHeight: "360px", overflowY: "auto" });
     expect(within(shortCard).queryByRole("button", { name: "Show less" })).not.toBeInTheDocument();
     expect(screen.getByTestId("chat-container")).toHaveClass("overflow-y-auto");
+  });
+
+  it("does not attempt thread creation when auth is unauthenticated", async () => {
+    authState.ready = true;
+    authState.status = "unauthenticated";
+    authState.token = undefined;
+
+    renderChat("1");
+
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(
+        apiMock.post.mock.calls.some(([url]) => url === "/api/chat/threads")
+      ).toBe(false);
+    });
   });
 });

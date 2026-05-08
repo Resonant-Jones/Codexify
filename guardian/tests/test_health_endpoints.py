@@ -66,6 +66,27 @@ def test_health_endpoints_ok():
     assert data.get("status") == "ok"
 
 
+def test_health_reports_no_release_hold_for_local_only_settings(monkeypatch):
+    from guardian.core.config import Settings
+
+    settings = Settings(
+        _env_file=None,
+        OPENAI_API_KEY=None,
+        GROQ_API_KEY=None,
+        ALIBABA_API_KEY=None,
+        MINIMAX_API_KEY=None,
+    )
+    monkeypatch.setattr("guardian.core.config.get_settings", lambda: settings)
+
+    client = TestClient(app)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+
+    payload = resp.json()
+    assert payload["release_hold"] is False
+    assert payload["details"]["release_hold"] is False
+
+
 def test_health_llm_reports_local_online(monkeypatch):
     from guardian.core.config import get_settings
 
@@ -88,15 +109,100 @@ def test_health_llm_reports_local_online(monkeypatch):
         resp = client.get("/api/health/llm")
         assert resp.status_code == 200
         payload = resp.json()
-        assert payload.get("ok") is True
-        assert payload.get("status") == "online"
-        assert payload.get("provider") == "local"
-        assert payload["provider_truth"]["configured"] is True
-        assert payload["provider_truth"]["discoverable"] is True
-        assert payload["provider_truth"]["selectable"] is True
+        details = payload["details"]
+        assert details.get("ok") is True
+        assert payload.get("status") == "ok"
+        assert details.get("status") == "online"
+        assert details.get("provider") == "local"
+        assert details["provider_truth"]["configured"] is True
+        assert details["provider_truth"]["discoverable"] is True
+        assert details["provider_truth"]["selectable"] is True
     finally:
         settings.LLM_PROVIDER = prev_provider
         settings.LOCAL_BASE_URL = prev_local_base
+
+
+def test_health_llm_release_hold_ignores_bundled_cloud_defaults(monkeypatch):
+    from guardian.core.config import get_settings
+
+    class _Resolution:
+        model = "library2/ministral-3:8b"
+        failure_kind = None
+        message = None
+        endpoint_resolution = {"state": "available"}
+
+        def as_dict(self):
+            return {
+                "model": self.model,
+                "failure_kind": self.failure_kind,
+                "message": self.message,
+                "endpoint_resolution": self.endpoint_resolution,
+            }
+
+    settings = get_settings()
+    snapshot = {
+        "LLM_PROVIDER": settings.LLM_PROVIDER,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+        "ALIBABA_API_BASE": settings.ALIBABA_API_BASE,
+    }
+
+    monkeypatch.setattr(
+        "guardian.routes.health._collect_completion_service_health",
+        lambda: {
+            "ok": True,
+            "redis_reachable": True,
+            "enqueue_test_ok": True,
+            "worker_heartbeat_detected": True,
+            "worker_heartbeat_age_seconds": 0.5,
+            "status_reason": "ok",
+            "error": None,
+        },
+    )
+    monkeypatch.setattr(
+        "guardian.routes.health._probe_local_llm",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "status": "online",
+            "checked_endpoint": "/healthz",
+        },
+    )
+    monkeypatch.setattr(
+        "guardian.core.ai_router._resolve_local_base",
+        lambda settings: "http://127.0.0.1:11434/v1",
+    )
+    monkeypatch.setattr(
+        "guardian.core.ai_router.resolve_local_execution_model",
+        lambda **kwargs: _Resolution(),
+    )
+
+    settings.LLM_PROVIDER = "local"
+    settings.ALLOW_CLOUD_PROVIDERS = False
+    settings.CODEXIFY_LOCAL_ONLY_MODE = True
+    settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+    settings.OPENAI_API_KEY = None
+    settings.GROQ_API_KEY = None
+    settings.MINIMAX_API_KEY = None
+    settings.MINIMAX_API_BASE = settings.MINIMAX_API_BASE
+    settings.ALIBABA_API_KEY = None
+    settings.ALIBABA_API_BASE = settings.ALIBABA_API_BASE
+
+    client = TestClient(app)
+    try:
+        resp = client.get("/api/health/llm")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["release_hold"] is False
+        assert payload["details"]["release_hold"] is False
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
 
 
 def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
@@ -135,15 +241,17 @@ def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
         resp = client.get("/api/health/llm")
         assert resp.status_code == 200
         payload = resp.json()
-        assert payload["provider"] == "groq"
-        assert payload["status"] == "unknown"
-        assert payload["ok"] is False
-        assert payload["mode"] == "runtime_unprobed"
-        assert payload["provider_runtime"]["enabled"] is True
-        assert payload["completion_service"]["status_reason"] == "ok"
-        assert payload["provider_truth"]["configured"] is True
-        assert payload["provider_truth"]["authorized"] is True
-        assert payload["provider_truth"]["selectable"] is True
+        details = payload["details"]
+        assert details["provider"] == "groq"
+        assert payload["status"] == "degraded"
+        assert details["status"] == "unknown"
+        assert details["ok"] is False
+        assert details["mode"] == "runtime_unprobed"
+        assert details["provider_runtime"]["enabled"] is True
+        assert details["completion_service"]["status_reason"] == "ok"
+        assert details["provider_truth"]["configured"] is True
+        assert details["provider_truth"]["authorized"] is True
+        assert details["provider_truth"]["selectable"] is True
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
@@ -170,6 +278,7 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
         "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
         "MINIMAX_API_BASE": settings.MINIMAX_API_BASE,
+        "MINIMAX_API_FLAVOR": settings.MINIMAX_API_FLAVOR,
         "MINIMAX_MODEL": settings.MINIMAX_MODEL,
     }
 
@@ -191,7 +300,7 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
     )
     monkeypatch.setattr(
         "guardian.core.provider_registry.requests.get",
-        lambda url, headers, timeout: (_ for _ in ()).throw(
+        lambda *args, **kwargs: (_ for _ in ()).throw(
             requests.exceptions.Timeout("timed out")
         ),
     )
@@ -202,6 +311,7 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
     settings.CODEXIFY_EGRESS_ALLOWLIST = "minimax"
     settings.MINIMAX_API_KEY = "minimax-key"
     settings.MINIMAX_API_BASE = "https://api.minimax.local/v1"
+    settings.MINIMAX_API_FLAVOR = "openai"
     settings.MINIMAX_MODEL = "minimax-chat"
 
     client = TestClient(app)
@@ -209,6 +319,7 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
         health = client.get("/api/health/llm")
         assert health.status_code == 200
         health_payload = health.json()
+        health_details = health_payload["details"]
 
         catalog = client.get("/api/llm/catalog")
         assert catalog.status_code == 200
@@ -219,29 +330,29 @@ def test_health_and_catalog_share_dynamic_provider_model_index_state(
             if provider["id"] == "minimax"
         )
 
-        assert health_payload["provider"] == "minimax"
-        assert health_payload["model"] == "minimax-chat"
+        assert health_details["provider"] == "minimax"
+        assert health_details["model"] == "minimax-chat"
         assert (
-            health_payload["provider_runtime"]["model_index"]
+            health_details["provider_runtime"]["model_index"]
             == minimax["model_index"]
         )
         assert (
-            health_payload["provider_runtime"]["available"]
+            health_details["provider_runtime"]["available"]
             == minimax["available"]
         )
         assert (
-            health_payload["provider_runtime"]["enabled"] == minimax["enabled"]
+            health_details["provider_runtime"]["enabled"] == minimax["enabled"]
         )
         assert (
-            health_payload["provider_truth"]["configured"]
+            health_details["provider_truth"]["configured"]
             == minimax["truth"]["configured"]
         )
         assert (
-            health_payload["provider_truth"]["authorized"]
+            health_details["provider_truth"]["authorized"]
             == minimax["truth"]["authorized"]
         )
         assert (
-            health_payload["provider_truth"]["selectable"]
+            health_details["provider_truth"]["selectable"]
             == minimax["truth"]["selectable"]
         )
         assert minimax["model_index"]["state"] == "degraded"

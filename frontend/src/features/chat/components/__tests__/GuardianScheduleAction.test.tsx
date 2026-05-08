@@ -3,19 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import GuardianScheduleAction from "@/features/chat/components/GuardianScheduleAction";
-import { createGuardianCronJob } from "@/features/chat/api/cron";
+import { dispatchGuardianIntent } from "@/lib/api";
 
-vi.mock("@/features/chat/api/cron", async () => {
-  const actual = await vi.importActual<typeof import("@/features/chat/api/cron")>(
-    "@/features/chat/api/cron"
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>(
+    "@/lib/api"
   );
   return {
     ...actual,
-    createGuardianCronJob: vi.fn(),
+    dispatchGuardianIntent: vi.fn(),
   };
 });
 
-const createGuardianCronJobMock = vi.mocked(createGuardianCronJob);
+const dispatchGuardianIntentMock = vi.mocked(dispatchGuardianIntent);
 
 describe("GuardianScheduleAction", () => {
   beforeEach(() => {
@@ -33,21 +33,25 @@ describe("GuardianScheduleAction", () => {
     expect(
       screen.getByText("Payload reference is required.")
     ).toBeInTheDocument();
-    expect(createGuardianCronJobMock).not.toHaveBeenCalled();
+    expect(dispatchGuardianIntentMock).not.toHaveBeenCalled();
   });
 
   test("shows a confirmation step and creates a durable noop job", async () => {
     const user = userEvent.setup();
 
-    createGuardianCronJobMock.mockResolvedValue({
-      createdAt: "2026-03-09T05:30:00Z",
-      id: 42,
-      isEnabled: true,
-      jobType: "noop",
-      name: "Daily pulse",
-      payload: { reference: "status/daily-pulse" },
-      schedule: "@daily",
-      updatedAt: "2026-03-09T05:30:00Z",
+    dispatchGuardianIntentMock.mockResolvedValue({
+      status: "accepted",
+      dispatch_target: "cron",
+      downstream_result_json: {
+        created_at: "2026-03-09T05:30:00Z",
+        id: 42,
+        is_enabled: true,
+        job_type: "noop",
+        name: "Daily pulse",
+        payload: { reference: "status/daily-pulse" },
+        schedule: "@daily",
+        updated_at: "2026-03-09T05:30:00Z",
+      },
     });
 
     render(<GuardianScheduleAction />);
@@ -66,12 +70,40 @@ describe("GuardianScheduleAction", () => {
     await user.click(screen.getByRole("button", { name: "Create durable job" }));
 
     await waitFor(() => {
-      expect(createGuardianCronJobMock).toHaveBeenCalledWith({
-        isEnabled: true,
-        jobType: "noop",
-        name: "Daily pulse",
-        payload: { reference: "status/daily-pulse" },
-        schedule: "@daily",
+      expect(dispatchGuardianIntentMock).toHaveBeenCalledWith({
+        actor: { kind: "human", id: "local" },
+        approval_state: "pending",
+        intent_kind: "cron.create",
+        policy: {
+          approval_required: false,
+          allow_write_execution: true,
+          metadata: { action: "create_cron_job" },
+        },
+        provenance_json: {
+          action: "create_cron_job",
+          input: {
+            isEnabled: true,
+            jobType: "noop",
+            name: "Daily pulse",
+            payload: { reference: "status/daily-pulse" },
+            schedule: "@daily",
+          },
+          source: "chat.schedule.action",
+        },
+        scope: {
+          metadata: {
+            action: "create_cron_job",
+            source: "chat.schedule.action",
+          },
+        },
+        source_surface: "chat",
+        target: {
+          is_enabled: true,
+          job_type: "noop",
+          name: "Daily pulse",
+          payload: { reference: "status/daily-pulse" },
+          schedule: "@daily",
+        },
       });
     });
 
@@ -99,11 +131,11 @@ describe("GuardianScheduleAction", () => {
   test("supports a custom interval schedule and reports backend failures", async () => {
     const user = userEvent.setup();
 
-    createGuardianCronJobMock.mockRejectedValue(
-      Object.assign(new Error("blocked"), {
-        response: { data: { detail: "webhook target host is forbidden by default policy" } },
-      })
-    );
+    dispatchGuardianIntentMock.mockResolvedValue({
+      status: "failed",
+      dispatch_target: "cron",
+      rejection_reason: "webhook target host is forbidden by default policy",
+    });
 
     render(<GuardianScheduleAction />);
 
@@ -122,12 +154,40 @@ describe("GuardianScheduleAction", () => {
     await user.click(screen.getByRole("button", { name: "Create durable job" }));
 
     await waitFor(() => {
-      expect(createGuardianCronJobMock).toHaveBeenCalledWith({
-        isEnabled: true,
-        jobType: "webhook",
-        name: "Webhook ping",
-        payload: { url: "https://api.example.com/hook" },
-        schedule: "*/15 * * * *",
+      expect(dispatchGuardianIntentMock).toHaveBeenCalledWith({
+        actor: { kind: "human", id: "local" },
+        approval_state: "pending",
+        intent_kind: "cron.create",
+        policy: {
+          approval_required: false,
+          allow_write_execution: true,
+          metadata: { action: "create_cron_job" },
+        },
+        provenance_json: {
+          action: "create_cron_job",
+          input: {
+            isEnabled: true,
+            jobType: "webhook",
+            name: "Webhook ping",
+            payload: { url: "https://api.example.com/hook" },
+            schedule: "*/15 * * * *",
+          },
+          source: "chat.schedule.action",
+        },
+        scope: {
+          metadata: {
+            action: "create_cron_job",
+            source: "chat.schedule.action",
+          },
+        },
+        source_surface: "chat",
+        target: {
+          is_enabled: true,
+          job_type: "webhook",
+          name: "Webhook ping",
+          payload: { url: "https://api.example.com/hook" },
+          schedule: "*/15 * * * *",
+        },
       });
     });
 

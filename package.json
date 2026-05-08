@@ -2,16 +2,17 @@
   "name": "guardian-monorepo",
   "private": true,
   "scripts": {
-    "lint": "pnpm --dir frontend/src lint",
-    "build": "pnpm --dir frontend/src build",
-    "test": "pnpm --dir frontend/src exec vitest run",
-    "format": "pnpm --dir frontend/src format",
-    "format:check": "pnpm --dir frontend/src format:check",
+    "lint": "pnpm --dir frontend lint",
+    "build": "pnpm --dir frontend build",
+    "test": "pnpm --dir frontend test",
+    "format": "pnpm --dir frontend format",
+    "format:check": "pnpm --dir frontend format:check",
     "process-logs": "npx tsx scripts/process_logs.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
     "@tailwindcss/vite": "^4.1.14",
+    "@tauri-apps/cli": "^2.10.1",
     "autoprefixer": "^10.4.21",
     "baseline-browser-mapping": "^2.10.0",
     "tailwindcss": "^4.1.14"

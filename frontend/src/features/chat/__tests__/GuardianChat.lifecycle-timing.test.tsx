@@ -354,6 +354,14 @@ describe("GuardianChat lifecycle timing", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    try {
+      window.localStorage.setItem("cfy.voice.playbackEnabled", "");
+      window.localStorage.setItem("cfy.voice.turnEnabled", "");
+      window.localStorage.setItem("cfy.voice.selectedVoice", "");
+      window.localStorage.setItem("cfy.voice.autoRead", "");
+    } catch {
+      // no-op
+    }
     taskEventSources.instances.length = 0;
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,

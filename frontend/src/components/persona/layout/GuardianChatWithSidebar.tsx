@@ -27,6 +27,9 @@ import {
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
+import type {
+  RuntimeHealthStatus,
+} from "@/hooks/useRuntimeHealth";
 import {
   useSessionActiveDraft,
   useSessionActiveInferenceMode,
@@ -51,6 +54,7 @@ import {
   requireAuthReady,
   useAuthState,
 } from "@/lib/authState";
+import { getDesktopRuntimeAuthConfig, isTauriRuntime } from "@/lib/runtimeConfig";
 import type {
   ChatRequestState,
   ProviderRuntimeState,
@@ -89,6 +93,18 @@ function PanelShell({ className, surfaceStyle, disabled, children }: PanelShellP
       {children}
     </FrameCard>
   );
+}
+
+function formatDesktopAuthDiagnostics(): string[] {
+  if (!isTauriRuntime()) return [];
+  const snapshot = getDesktopRuntimeAuthConfig();
+  if (!snapshot) return [];
+  return [
+    `apiKeyPresent=${snapshot.apiKeyPresent ? "true" : "false"}`,
+    `envPath=${snapshot.envPath ?? "<unavailable>"}`,
+    `runtimeRoot=${snapshot.runtimeRoot ?? "<unavailable>"}`,
+    snapshot.failureKind ? `failureKind=${snapshot.failureKind}` : null,
+  ].filter((line): line is string => Boolean(line));
 }
 
 const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
@@ -226,6 +242,8 @@ type GuardianChatWithSidebarProps = {
   onWorkspaceClose?: () => void;
   onWorkspaceOpenInThread?: (doc: DocumentLike | null) => void;
   providerRuntimeState?: ProviderRuntimeState | null;
+  runtimeHealth?: RuntimeHealthStatus | null;
+  onProjectChange?: (projectId: string | null, projectName: string | null) => void;
 };
 
 export default function GuardianChatWithSidebar({
@@ -242,6 +260,8 @@ export default function GuardianChatWithSidebar({
   onWorkspaceClose,
   onWorkspaceOpenInThread,
   providerRuntimeState = null,
+  runtimeHealth = null,
+  onProjectChange,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -263,6 +283,11 @@ export default function GuardianChatWithSidebar({
     setSelectedProjectId(id);
     setSelectedProjectName(name);
   }, []);
+
+  React.useEffect(() => {
+    if (selectedProjectId == null) return;
+    onProjectChange?.(selectedProjectId, selectedProjectName);
+  }, [onProjectChange, selectedProjectId, selectedProjectName]);
 
   // Persist sidebar visibility preference
   React.useEffect(() => {
@@ -1679,7 +1704,18 @@ export default function GuardianChatWithSidebar({
                   className="mx-4 mt-3 rounded-lg border px-3 py-2 text-xs"
                   style={{ borderColor: "var(--panel-border)", color: "var(--text)" }}
                 >
-                  Authentication required. Please sign in or set a dev key.
+                  <div>Authentication required.</div>
+                  {formatDesktopAuthDiagnostics().length ? (
+                    <div className="mt-1 space-y-0.5 text-[11px] leading-5 text-[color:var(--muted)]">
+                      {formatDesktopAuthDiagnostics().map((line) => (
+                        <div key={line}>{line}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-[11px] leading-5 text-[color:var(--muted)]">
+                      Sign in or provide a dev key in local development.
+                    </div>
+                  )}
                 </div>
               )}
               {showWorkspacePreview && (
@@ -1715,6 +1751,7 @@ export default function GuardianChatWithSidebar({
                   onWorkspaceToggle={onWorkspaceToggle}
                   workspaceOpen={workspaceOpen}
                   providerRuntimeState={providerRuntimeState}
+                  runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
                   onSendMessage={handleSendMessage}

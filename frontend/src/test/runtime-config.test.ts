@@ -3,9 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   initRuntimeConfig,
   readDesktopStartupRoutingDecision,
+  getDesktopRuntimeAuthConfig,
+  getRuntimeConfigHydrationState,
   resolveApiUrl,
+  resolveBackendUrl,
   resolveSseEndpoint,
 } from "@/lib/runtimeConfig";
+import {
+  buildAuthenticatedFetchInit,
+  clearRuntimeApiKey,
+  readRuntimeApiKey,
+} from "@/lib/api";
 
 const invokeMock = vi.fn();
 
@@ -13,6 +21,7 @@ describe("runtime config", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     invokeMock.mockReset();
+    clearRuntimeApiKey();
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       value: {
@@ -47,27 +56,84 @@ describe("runtime config", () => {
     expect(resolveSseEndpoint(config)).toBe("/api/events");
   });
 
+  it("uses the browser origin as the backend base in the webUI compose bundle", async () => {
+    vi.stubEnv("VITE_WEBUI_COMPOSE_BUNDLE", "1");
+
+    const config = await initRuntimeConfig({ force: true });
+
+    expect(config.mode).toBe("web");
+    expect(config.backendBaseUrl).toBe(window.location.origin);
+    expect(resolveBackendUrl("/health", config)).toBe(
+      `${window.location.origin}/health`
+    );
+    expect(resolveApiUrl("/api/share", config)).toBe("/api/share");
+    expect(resolveSseEndpoint(config)).toBe("/api/events");
+  });
+
+  it("ignores relative packaged API base overrides in tauri mode", async () => {
+    (window as any).__TAURI_IPC__ = {};
+    (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
+    vi.stubEnv("VITE_API_BASE_URL", "/api");
+    invokeMock.mockResolvedValue({
+      mode: "tauri",
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiBaseUrl: "http://127.0.0.1:8888/api",
+      sseUrl: "http://127.0.0.1:8888/api/events",
+      sharePublicBaseUrl: "http://127.0.0.1:5173",
+      authMode: "local",
+      apiKeyPresent: true,
+      apiKey: "packaged-runtime-key",
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: null,
+      runtimeContext: "packaged",
+    });
+
+    const config = await initRuntimeConfig({ force: true });
+
+    expect(config.apiBaseUrl).toBe("http://127.0.0.1:8888/api");
+    expect(resolveApiUrl("/api/share", config)).toBe(
+      "http://127.0.0.1:8888/api/share"
+    );
+  });
+
   it("hydrates tauri runtime config via desktop command", async () => {
     (window as any).__TAURI_IPC__ = {};
     (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
     invokeMock.mockResolvedValue({
       mode: "tauri",
-      backendBaseUrl: "http://127.0.0.1:9999",
-      apiBaseUrl: "http://127.0.0.1:9999/api",
-      sseUrl: "http://127.0.0.1:9999/api/events",
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiBaseUrl: "http://127.0.0.1:8888/api",
+      sseUrl: "http://127.0.0.1:8888/api/events",
       sharePublicBaseUrl: "https://share.example",
       authMode: "local",
+      apiKeyPresent: true,
+      apiKey: "packaged-runtime-key",
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: null,
+      runtimeContext: "packaged",
     });
 
     const config = await initRuntimeConfig({ force: true });
 
     expect(config.mode).toBe("tauri");
-    expect(config.backendBaseUrl).toBe("http://127.0.0.1:9999");
-    expect(config.apiBaseUrl).toBe("http://127.0.0.1:9999/api");
-    expect(resolveApiUrl("/api/share", config)).toBe(
-      "http://127.0.0.1:9999/api/share"
+    expect(config.backendBaseUrl).toBe("http://127.0.0.1:8888");
+    expect(config.apiBaseUrl).toBe("http://127.0.0.1:8888/api");
+    expect(readRuntimeApiKey()).toBe("packaged-runtime-key");
+    expect(getDesktopRuntimeAuthConfig()?.apiKeyPresent).toBe(true);
+    expect(getDesktopRuntimeAuthConfig()?.envPath).toBe(
+      "/Users/username/Codexify/.env"
     );
-    expect(resolveSseEndpoint(config)).toBe("http://127.0.0.1:9999/api/events");
+    expect(getRuntimeConfigHydrationState()).toBe("ready");
+    expect(resolveApiUrl("/api/share", config)).toBe(
+      "http://127.0.0.1:8888/api/share"
+    );
+    expect(resolveSseEndpoint(config)).toBe("http://127.0.0.1:8888/api/events");
+    const headers = buildAuthenticatedFetchInit().headers as Record<string, string>;
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBe(
+      "packaged-runtime-key"
+    );
   });
 
   it("prioritizes persisted desktop connection overrides", async () => {
@@ -117,6 +183,33 @@ describe("runtime config", () => {
     expect(decision?.setupReadiness?.recommendedAction).toBe(
       "Open Docker Desktop, then retry."
     );
+  });
+
+  it("captures packaged auth diagnostics without exposing the secret", async () => {
+    (window as any).__TAURI_IPC__ = {};
+    (window as any).__CFY_TAURI_CORE__ = { invoke: invokeMock };
+    invokeMock.mockResolvedValue({
+      mode: "tauri",
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiBaseUrl: "http://127.0.0.1:8888/api",
+      sseUrl: "http://127.0.0.1:8888/api/events",
+      sharePublicBaseUrl: "http://127.0.0.1:5173",
+      authMode: "local",
+      apiKeyPresent: false,
+      apiKey: null,
+      envPath: "/Users/username/Codexify/.env",
+      runtimeRoot: "/Users/username/Codexify",
+      failureKind: "config_incomplete",
+      runtimeContext: "packaged",
+    });
+
+    await initRuntimeConfig({ force: true });
+
+    const snapshot = getDesktopRuntimeAuthConfig();
+
+    expect(snapshot?.apiKeyPresent).toBe(false);
+    expect(snapshot?.failureKind).toBe("config_incomplete");
+    expect(JSON.stringify(snapshot)).not.toContain("packaged-runtime-key");
   });
 
   it("refreshes launcher setup readiness when the first handoff is incomplete", async () => {
