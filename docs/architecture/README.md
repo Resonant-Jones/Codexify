@@ -54,6 +54,8 @@ If you are working on the latest graph-write inspection snapshot surface or its 
 
 If you are working on the backend graph adapter seam or the no-op default implementation, continue with [`ADR-019: Graph Backend Adapter Contract`](./adr/019-graph-backend-adapter-contract.md) after ADR-018. That ADR defines the typed persistence seam without changing the current inspection-only runtime.
 
+If you are working on the graph-write runtime flag boundary, default-off enforcement on the supported Compose path, or the factory selection contract, continue with [`ADR-026: Graph Write Runtime Flag Boundary on Supported Compose Path`](./adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md) after ADR-019. That ADR repairs the runtime/config boundary so the documented default-off contract is actually enforced.
+
 ## KB Validity and Diagram Source Sets
 
 Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-validity-matrix.md).
@@ -111,6 +113,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Neo4j Graph Backend Adapter Flagged Off By Default ADR](./adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md): first real graph persistence adapter behind explicit default-off runtime selection.
 - [Graph Write Inspection Surface](./adr/018-graph-write-inspection-surface.md): latest-per-thread graph-write inspection snapshots for operator/debug visibility, ephemeral and non-canonical.
 - [Graph Backend Adapter Contract](./adr/019-graph-backend-adapter-contract.md): typed graph backend seam with a default no-op implementation, mounted after inspection.
+- [Graph Write Runtime Flag Boundary](./adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md): default-off graph-write runtime boundary enforcement on the supported Docker Compose path.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.

@@ -61,6 +61,7 @@ Use this note as the local map for all ADRs.
 23. [[023-workspace-e2e-proof-harness-contract|ADR-023 Workspace E2E Proof Harness Contract]] — canonical live proof harness for the supported local Compose path that validates workspace-scoped Obsidian-backed note retrieval end to end.
 24. [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]] — governing ADR for Context Commands, active connector semantics, slash-command connector invocation, and connector/tool boundary doctrine.
 24. [[025-workspace-obsidian-selection-and-injection-contract|ADR-024 Workspace Obsidian Selection and Injection Contract]] — canonical contract for truthfully distinguishing workspace-local searchability, broker selection, completion-context injection, and assistant reflection for Obsidian-backed notes.
+25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
 
 ---
 
@@ -312,6 +313,18 @@ Primary companion notes:
   * [[router-decision-table|Retrieval Router Decision Table]]
   * [[flows|Critical Flows]]
   * [[config-and-ops|Config and Ops]]
+
+* [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] links to:
+
+  * [[019-Graph-Backend-Adapter-Contract|Graph Backend Adapter Contract]]
+  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
+  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
+  * [[018-Graph-Write-Inspection-Surface|Graph Write Inspection Surface]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
+  * [[data-and-storage|Data and Storage]]
+  * [[config-and-ops|Config and Ops]]
+  * [[00-current-state]]
 ---
 
 ## Maintenance rule
