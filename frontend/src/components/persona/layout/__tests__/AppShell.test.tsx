@@ -35,6 +35,49 @@ const runtimeHealthState = {
   liveEventsStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
   lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
   stale: false,
+  diagnostics: {
+    resolvedApiBaseUrl: "http://localhost:8888",
+    resolvedApiBaseUrlSource: "vite-dev",
+    apiKeyPresent: true,
+    apiKeySource: "vite-dev",
+    hydrationState: "ready" as const,
+    nativeCommandStatus: "ready",
+    authSource: "vite-dev",
+    chat: {
+      endpoint: "/health/chat",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "ok",
+      parsedOk: true,
+      detailsStatus: "ok",
+      detailsOk: true,
+      providerRuntimeAvailable: true,
+      endpointResolutionState: "ready",
+      failureReason: null,
+    },
+    llm: {
+      endpoint: "/api/health/llm",
+      httpStatus: 200,
+      transportErrorClass: null,
+      parsedStatus: "ok",
+      parsedOk: true,
+      detailsStatus: "ok",
+      detailsOk: true,
+      providerRuntimeAvailable: true,
+      endpointResolutionState: "ready",
+      failureReason: null,
+    },
+    liveEvents: {
+      connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+      statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+      connected: true,
+    },
+    failureKind: null,
+    lastSuccessAt: Date.parse("2026-03-20T12:00:00Z"),
+    lastFailedAt: null,
+    lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
+    currentComputedStateSource: "live-poll" as const,
+  },
 };
 const routeCapabilityState = {
   ready: true,
@@ -179,21 +222,14 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
   default: ({
     onRequestNewProject,
     gallery,
-    activeProjectId,
-    activeProjectName,
   }: {
     onRequestNewProject: () => void;
     gallery?: Array<{ src: string; prompt: string }>;
-    activeProjectId?: number | string | null;
-    activeProjectName?: string | null;
   }) => (
     <div data-testid="dashboard-view-mock">
       <button type="button" onClick={onRequestNewProject}>
         New Project
       </button>
-      <div data-testid="dashboard-project-kb-context">
-        {activeProjectId ?? "no-project"}:{activeProjectName ?? "no-name"}
-      </div>
       <div data-testid="dashboard-gallery-mock">
         {(gallery ?? []).map((item) => (
           <span key={item.src}>{item.prompt}</span>
@@ -212,7 +248,13 @@ vi.mock("@/components/ErrorBoundary", () => ({
 }));
 
 vi.mock("@/components/documents/DocumentsView", () => ({
-  default: () => (
+  default: ({
+    projectId,
+    threadId,
+  }: {
+    projectId?: number | string | null;
+    threadId?: number | string | null;
+  }) => (
     <div data-testid="documents-view-mock">
       <section
         data-testid="documents-layout"
@@ -220,6 +262,15 @@ vi.mock("@/components/documents/DocumentsView", () => ({
         data-workspace-anchor="app-shell-right"
       >
         <div data-testid="documents-center-panel">Documents center</div>
+        <div data-testid="documents-project-id">
+          {projectId ?? "no-project"}
+        </div>
+        <div data-testid="documents-default-project-id">
+          {projectId ?? "no-project"}
+        </div>
+        <div data-testid="documents-thread-id">
+          {threadId ?? "no-thread"}
+        </div>
       </section>
     </div>
   ),
@@ -235,7 +286,19 @@ vi.mock("@/components/sidebar/SidebarRoot", () => ({
 }));
 
 vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
-  default: () => <div data-testid="guardian-chat-with-sidebar-mock" />,
+  default: (props: {
+    onProjectChange?: (projectId: string | null, projectName: string | null) => void;
+  }) => (
+    <div data-testid="guardian-chat-with-sidebar-mock">
+      <button
+        type="button"
+        data-testid="guardian-set-project-2"
+        onClick={() => props.onProjectChange?.("2", "Launch Project")}
+      >
+        Set Project 2
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ui/ToastPortal", () => ({
@@ -395,6 +458,47 @@ describe("AppShell logo wordmark color contract", () => {
     expect(listCodexEntriesSpy).not.toHaveBeenCalled();
   });
 
+  it("refreshes a stale stored general project id before loading media", async () => {
+    localStorage.setItem("cfy.generalProjectId", "1");
+    localStorage.setItem("cfy.defaultProjectId", "1");
+
+    const documentProjectIds: Array<number | undefined> = [];
+    mockApi.get.mockImplementation(async (path: string, options?: any) => {
+      if (path === "/api/projects") {
+        return {
+          data: {
+            projects: [
+              { id: 7, name: "General" },
+              { id: 8, name: "Research" },
+            ],
+          },
+        };
+      }
+
+      if (path === "/media/documents") {
+        documentProjectIds.push(options?.params?.project_id);
+        expect(options?.params?.project_id).not.toBe(1);
+        return { data: { documents: [] } };
+      }
+
+      return { data: {} };
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/api/projects");
+    });
+
+    expect(documentProjectIds).not.toContain(1);
+
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("1");
+      expect(localStorage.getItem("cfy.defaultProjectId")).toBe("1");
+      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBeNull();
+    });
+  });
+
   it("honors the /flow-builder route on initial render", async () => {
     localStorage.setItem("cfy.lastView", "dashboard");
     setRoutePath("/flow-builder?mode=expertise");
@@ -490,7 +594,7 @@ describe("AppShell settings utility trigger", () => {
     expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
   });
 
-  it("routes Project Knowledge Base requests to the dashboard surface", async () => {
+  it("routes Project Knowledge Base requests to the Documents surface", async () => {
     localStorage.setItem("cfy.lastView", "guardian");
     setRouteThread(123);
 
@@ -507,10 +611,31 @@ describe("AppShell settings utility trigger", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("dashboard-view-mock")).toBeInTheDocument();
+      expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("dashboard-project-kb-context")).toHaveTextContent(
-      "42:Launch Project"
+    expect(screen.getByTestId("documents-project-id")).toHaveTextContent(
+      "42"
+    );
+    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("123");
+  });
+
+  it("preserves the Guardian project selection when switching to Documents", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("guardian-set-project-2"));
+    await user.click(screen.getByRole("button", { name: "Documents" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("documents-default-project-id")).toHaveTextContent(
+      "2"
     );
   });
 });

@@ -28,13 +28,30 @@ inline literals.
 - Acceptance statuses:
   `accepted`, `accepted_degraded`
 
+- Context request plan/result statuses:
+  `accepted_not_executed`, `executed`, `no_results`, `failed`
+
 - Task event types:
   `task.created`, `task.completed`, `task.failed`,
   `task.cancelled`, `task.event`
 
 - Error codes:
   `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
-  `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`
+  `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`,
+  `CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED`,
+  `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING`
+
+- Trace suppression reasons:
+  `assistant_vision_refusal_on_image_turn`
+- Trace snapshot absence reasons:
+  `trace_source_unavailable`, `trace_snapshot_missing`,
+  `image_routing_not_evaluated`,
+  `vision_model_selected_but_image_payload_not_routed`,
+  `local_model_substitution_selected_nonvision_model`,
+  `retrieval_not_executed`, `retrieval_no_candidates`
+
+- Image routing paths:
+  `native_multimodal_vision`, `interpreter`
 
 - Bounded tool-loop states:
   `idle`, `decision_received`, `command_dispatched`,

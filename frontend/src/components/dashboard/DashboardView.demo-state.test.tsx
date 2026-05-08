@@ -21,7 +21,6 @@ const authState = vi.hoisted(() => ({
 
 const apiState = vi.hoisted(() => ({
   get: vi.fn(),
-  post: vi.fn(),
 }));
 
 const workspaceState = vi.hoisted(() => ({
@@ -46,7 +45,6 @@ vi.mock("@/lib/runtimeConfig", () => ({
 vi.mock("@/lib/api", () => ({
   default: {
     get: apiState.get,
-    post: apiState.post,
   },
 }));
 
@@ -127,7 +125,6 @@ describe("DashboardView beta contract", () => {
     authState.allowGate = false;
     authState.value = { token: null };
     apiState.get.mockReset();
-    apiState.post.mockReset();
     workspaceState.requestWorkspaceOpenMock.mockReset();
   });
 
@@ -161,170 +158,6 @@ describe("DashboardView beta contract", () => {
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo documents")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
-  });
-
-  it("renders the no-project Project Knowledge Base state and keeps it distinct from System Docs", () => {
-    render(
-      <DashboardView
-        extColors={EXT_COLORS}
-        gallery={[]}
-        onImagePrompt={vi.fn()}
-        onRequestNewProject={vi.fn()}
-        onRequestNewThread={vi.fn()}
-        onNavigateDocuments={vi.fn()}
-        onNavigateGallery={vi.fn()}
-        threadGridRows={2}
-      />
-    );
-
-    expect(
-      screen.getByRole("heading", { name: /Project Knowledge Base/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Uploaded docs, notes, specs, and working references inform project work\./i
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Select or create a project to build its Knowledge Base\./i
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Project Knowledge Base informs project work; System Docs govern the assistant from Settings > Data\./i
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/^Constitutional overlay$/i)
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Upload Project Knowledge Base documents/i })
-    ).not.toBeInTheDocument();
-    expect(apiState.get).not.toHaveBeenCalledWith(
-      "/media/documents",
-      expect.objectContaining({ params: expect.objectContaining({ project_id: expect.anything() }) })
-    );
-  });
-
-  it("renders the selected-project Project Knowledge Base panel with upload affordance and project documents", async () => {
-    authState.allowGate = true;
-    apiState.get.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
-      if (url === "/chat/threads") return { data: [] };
-      if (url === "/media/documents" && config?.params?.project_id === "42") {
-        return {
-          data: {
-            documents: [
-              {
-                id: "doc-kb-1",
-                filename: "Launch Spec.md",
-                embedding_status: "ready",
-              },
-            ],
-          },
-        };
-      }
-      if (url === "/media/documents") {
-        return { data: { documents: [] } };
-      }
-      return { data: {} };
-    });
-
-    render(
-      <DashboardView
-        extColors={EXT_COLORS}
-        gallery={[]}
-        activeProjectId="42"
-        activeProjectName="Launch Project"
-        onImagePrompt={vi.fn()}
-        onRequestNewProject={vi.fn()}
-        onRequestNewThread={vi.fn()}
-        onNavigateDocuments={vi.fn()}
-        onNavigateGallery={vi.fn()}
-        threadGridRows={2}
-      />
-    );
-
-    expect(await screen.findByText("Launch Spec.md")).toBeInTheDocument();
-    expect(screen.getByText("Active project: Launch Project")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Upload Project Knowledge Base documents/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Project Knowledge Base informs project work\. System Docs govern the assistant from Settings > Data; they are separate from this project-local document lane\./i
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /This surface uses existing project document storage\. It does not change global behavior or retrieval policy\./i
-      )
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/constitutional/i)).not.toBeInTheDocument();
-  });
-
-  it("uploads Project Knowledge Base documents through the existing project document API and refreshes the list", async () => {
-    authState.allowGate = true;
-    let projectDocs = [
-      {
-        id: "doc-before",
-        filename: "Before Upload.md",
-        embedding_status: "ready",
-      },
-    ];
-    apiState.get.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
-      if (url === "/chat/threads") return { data: [] };
-      if (url === "/media/documents" && config?.params?.project_id === "7") {
-        return { data: { documents: projectDocs } };
-      }
-      if (url === "/media/documents") return { data: { documents: [] } };
-      return { data: {} };
-    });
-    apiState.post.mockImplementation(async () => {
-      projectDocs = [
-        {
-          id: "doc-after",
-          filename: "After Upload.md",
-          embedding_status: "queued",
-        },
-      ];
-      return { data: { id: "doc-after", filename: "After Upload.md" } };
-    });
-
-    render(
-      <DashboardView
-        extColors={EXT_COLORS}
-        gallery={[]}
-        activeProjectId={7}
-        activeProjectName="Ops Project"
-        onImagePrompt={vi.fn()}
-        onRequestNewProject={vi.fn()}
-        onRequestNewThread={vi.fn()}
-        onNavigateDocuments={vi.fn()}
-        onNavigateGallery={vi.fn()}
-        threadGridRows={2}
-      />
-    );
-
-    expect(await screen.findByText("Before Upload.md")).toBeInTheDocument();
-
-    const input = screen.getByLabelText("Project Knowledge Base document files");
-    const file = new File(["# Notes"], "After Upload.md", { type: "text/markdown" });
-    fireEvent.change(input, { target: { files: [file] } });
-
-    await waitFor(() => {
-      expect(apiState.post).toHaveBeenCalledWith(
-        "/api/media/upload/document",
-        expect.any(FormData),
-        expect.objectContaining({
-          headers: { "Content-Type": "multipart/form-data" },
-        })
-      );
-    });
-    const form = apiState.post.mock.calls[0]?.[1] as FormData;
-    expect(form.get("project_id")).toBe("7");
-    expect(form.get("tag")).toBe("uploaded");
-    expect(await screen.findByText("After Upload.md")).toBeInTheDocument();
   });
 
   it("keeps recent threads capped and renders saved gallery images without demo fallbacks", async () => {

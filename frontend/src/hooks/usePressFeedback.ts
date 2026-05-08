@@ -9,6 +9,7 @@ import type {
 import { cn } from "@/lib/utils";
 
 import {
+  MOBILE_INTERACTION,
   MOBILE_INTERACTION_CLASS,
   getMobilePressFeedbackStyle,
 } from "@/components/persona/layout/mobileInteractionContract";

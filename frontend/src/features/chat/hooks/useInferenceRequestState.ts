@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GuardianEventSource } from "@/lib/guardianEventSource";
-import api, { getAuthToken, getDevApiKey, readRuntimeApiKey } from "@/lib/api";
+import api, { buildAuthenticatedFetchInit } from "@/lib/api";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -543,15 +543,13 @@ function buildLifecyclePatch(
 }
 
 function buildEventHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const authToken = getAuthToken();
-  const apiKey = readRuntimeApiKey() || getDevApiKey();
-  if (authToken) {
-    headers.Authorization = `Bearer ${authToken}`;
-  } else if (apiKey) {
-    headers["X-API-Key"] = apiKey;
-  }
-  return headers;
+  const init = buildAuthenticatedFetchInit({
+    headers: {
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
+    },
+  });
+  return (init.headers as Record<string, string>) ?? {};
 }
 
 function buildStatePatch(

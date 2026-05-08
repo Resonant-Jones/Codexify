@@ -169,6 +169,7 @@ COPY --from=builder /opt/python/lib/python3.11/site-packages /opt/python/lib/pyt
 # Copy application code
 COPY guardian /app/guardian
 COPY backend /app/backend
+COPY codex_runner /app/codex_runner
 COPY plugins /app/plugins
 COPY scripts /app/scripts
 
@@ -187,7 +188,7 @@ FROM runtime AS tts-runtime
 # Copy the site-packages tree with pinned TTS dependency graph.
 COPY --from=builder-tts /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages
 
-# === Compiled backend proof stage: build a frozen artifact for the API entrypoint ===
+# === Compiled runtime proof stage: build a frozen dispatcher artifact ===
 FROM builder AS compiled-builder
 
 WORKDIR /src
@@ -204,9 +205,9 @@ RUN mkdir -p /src/guardian/contracts && \
     cp /src/guardian/contracts.py /src/guardian/contracts/__init__.py
 
 RUN python -m pip install pyinstaller
-RUN pyinstaller /src/packaging/pyinstaller/codexify_backend.spec --noconfirm --clean --distpath /src/build/dist --workpath /src/build/work
+RUN pyinstaller /src/packaging/pyinstaller/codexify_runtime.spec --noconfirm --clean --distpath /src/build/dist --workpath /src/build/work
 
-# === Compiled backend runtime proof image ===
+# === Compiled runtime proof image ===
 FROM dhi.io/python:3.11.14-debian13-dev AS compiled-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -215,16 +216,35 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     PORT=8888 \
     HOME=/home/codexify \
-    CODEXIFY_APP_ROOT=/app
+    CODEXIFY_APP_ROOT=/app \
+    ALEMBIC_CONFIG=/app/runtime/alembic.ini
 
 WORKDIR /app
 
 RUN mkdir -p /home/codexify
 
-COPY --from=compiled-builder /src/build/dist/codexify-backend /app/runtime
+COPY --from=compiled-builder /src/build/dist/codexify-runtime /app/runtime
 COPY config /app/config
 COPY docs/builtin-help /app/docs/builtin-help
+COPY backend/alembic.ini /app/runtime/alembic.ini
+COPY backend/migrations /app/runtime/migrations
+RUN python - <<'PY'
+from pathlib import Path
+
+path = Path("/app/runtime/alembic.ini")
+text = path.read_text(encoding="utf-8")
+text = text.replace(
+    "script_location = %(here)s/../guardian/db/migrations",
+    "script_location = %(here)s/migrations",
+)
+text = text.replace(
+    "prepend_sys_path = %(here)s/..",
+    "prepend_sys_path = %(here)s",
+)
+path.write_text(text, encoding="utf-8")
+PY
 
 EXPOSE 8888
 
-ENTRYPOINT ["/app/runtime/codexify-backend"]
+ENTRYPOINT ["/app/runtime/codexify-runtime"]
+CMD ["backend"]

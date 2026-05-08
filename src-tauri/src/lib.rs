@@ -25,12 +25,14 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::desktop_get_runtime_config,
+            commands::desktop_get_runtime_auth_config,
             commands::desktop_get_launcher_startup_handoff,
             commands::desktop_fetch_media,
             commands::desktop_get_api_key,
             commands::desktop_set_api_key,
             commands::desktop_clear_api_key,
             commands::desktop_open_external,
+            commands::desktop_open_webui,
             commands::desktop_open_docker_desktop,
             commands::desktop_runtime_preflight_check,
             commands::desktop_run_setup_cli,

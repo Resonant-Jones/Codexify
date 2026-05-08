@@ -366,11 +366,11 @@ _MINIMAX_DOCUMENTED_MODELS: tuple[dict[str, Any], ...] = (
         "id": "MiniMax-M2.5",
         "displayName": "MiniMax M2.5",
         "contextWindow": 204800,
-        "capabilities": {"chat": True, "vision": False, "text_input": True},
+        "capabilities": {"chat": True, "vision": True, "text_input": True},
         "supports_chat": True,
-        "supports_vision": False,
+        "supports_vision": True,
         "supports_text_input": True,
-        "model_kind": "chat",
+        "model_kind": "vision_chat",
     },
     {
         "id": "MiniMax-M2.5-highspeed",
@@ -877,6 +877,127 @@ def _normalize_model_descriptor(item: dict[str, Any]) -> dict[str, Any]:
     return descriptor
 
 
+def _clean_override_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    clean = value.strip()
+    return clean or None
+
+
+def _apply_model_override(
+    descriptor: dict[str, Any],
+    override: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(descriptor)
+    override_snapshot: dict[str, Any] = {
+        "provider_id": _clean_override_text(override.get("provider_id")),
+        "model_id": _clean_override_text(override.get("model_id")),
+        "display_label": _clean_override_text(override.get("display_label")),
+        "picker_label": _clean_override_text(override.get("picker_label")),
+        "supports_chat": (
+            override.get("supports_chat")
+            if isinstance(override.get("supports_chat"), bool)
+            else None
+        ),
+        "supports_vision": (
+            override.get("supports_vision")
+            if isinstance(override.get("supports_vision"), bool)
+            else None
+        ),
+        "supports_text_input": (
+            override.get("supports_text_input")
+            if isinstance(override.get("supports_text_input"), bool)
+            else None
+        ),
+        "model_kind": (
+            _clean_override_text(override.get("model_kind"))
+            if _clean_override_text(override.get("model_kind"))
+            in {"chat", "vision_chat", "utility"}
+            else None
+        ),
+        "notes": _clean_override_text(override.get("notes")),
+        "created_at": override.get("created_at"),
+        "updated_at": override.get("updated_at"),
+    }
+
+    display_label = override_snapshot["display_label"]
+    picker_label = override_snapshot["picker_label"]
+    if display_label:
+        merged["displayName"] = display_label
+        merged["display_label"] = display_label
+        merged["label"] = display_label
+    elif picker_label:
+        merged["displayName"] = picker_label
+        merged["display_label"] = picker_label
+        merged["label"] = picker_label
+
+    if picker_label:
+        merged["picker_label"] = picker_label
+
+    if override_snapshot["supports_chat"] is not None:
+        merged["supports_chat"] = bool(override_snapshot["supports_chat"])
+    if override_snapshot["supports_vision"] is not None:
+        merged["supports_vision"] = bool(override_snapshot["supports_vision"])
+    if override_snapshot["supports_text_input"] is not None:
+        merged["supports_text_input"] = bool(
+            override_snapshot["supports_text_input"]
+        )
+
+    model_kind = override_snapshot["model_kind"]
+    if model_kind:
+        merged["model_kind"] = model_kind
+    else:
+        derived_kind_source = {
+            key: value
+            for key, value in merged.items()
+            if key not in {"model_kind", "modelKind"}
+        }
+        merged["model_kind"] = _normalize_model_kind(
+            derived_kind_source,
+            supports_chat=bool(merged.get("supports_chat")),
+            supports_vision=bool(merged.get("supports_vision")),
+        )
+
+    capabilities = dict(merged.get("capabilities") or {})
+    capabilities["chat"] = bool(merged.get("supports_chat"))
+    capabilities["vision"] = bool(merged.get("supports_vision"))
+    capabilities["text_input"] = bool(merged.get("supports_text_input"))
+    merged["capabilities"] = capabilities
+    merged["override"] = {
+        key: value
+        for key, value in override_snapshot.items()
+        if value is not None
+    }
+    merged["manual_override"] = True
+    return merged
+
+
+def _apply_model_overrides(
+    provider_id: str,
+    models: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    try:
+        from backend.model_overrides import get_model_override_map
+    except Exception:
+        return models
+
+    provider_key = normalize_provider(provider_id)
+    override_map = get_model_override_map()
+    provider_overrides = override_map.get(provider_key or "", {})
+    if not provider_overrides:
+        return models
+
+    merged_models: list[dict[str, Any]] = []
+    for item in models:
+        model_id = normalize_model_id(item.get("id"))
+        override = provider_overrides.get(model_id or "")
+        if override:
+            merged_models.append(_apply_model_override(item, override))
+        else:
+            merged_models.append(dict(item))
+    return merged_models
+
+
 def _fallback_chat_capable_models(
     provider_id: str, models: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -1194,6 +1315,95 @@ def provider_status(provider_id: str, settings: Settings) -> dict[str, Any]:
     }
 
 
+def provider_egress_allowed(provider_id: str, settings: Settings) -> bool:
+    provider = normalize_provider(provider_id)
+    if provider not in CLOUD_PROVIDERS:
+        return True
+    try:
+        assert_egress_allowed(provider, settings=settings)
+    except EgressDeniedError:
+        return False
+    return True
+
+
+def _cloud_capable_configuration_present(settings: Settings) -> bool:
+    if bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", False)):
+        return True
+
+    raw_allowlist = str(
+        getattr(settings, "CODEXIFY_EGRESS_ALLOWLIST", "") or ""
+    ).strip()
+    if raw_allowlist:
+        allowlisted = {
+            item.strip().lower()
+            for item in raw_allowlist.split(",")
+            if item.strip()
+        }
+        if allowlisted & CLOUD_PROVIDERS:
+            return True
+
+    cloud_env_fields = (
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "GROQ_API_KEY",
+        "GROQ_BASE_URL",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "ALIBABA_API_KEY",
+        "ALIBABA_API_BASE",
+        "MINIMAX_API_KEY",
+        "MINIMAX_API_BASE",
+    )
+    for field in cloud_env_fields:
+        if str(getattr(settings, field, "") or "").strip():
+            return True
+    return False
+
+
+def supported_profile_posture(settings: Settings) -> dict[str, Any]:
+    from guardian.core.supported_profile import (
+        get_active_supported_profile,
+        validate_supported_profile_runtime,
+    )
+
+    manifest = get_active_supported_profile()
+    selected_provider = normalize_provider(getattr(settings, "LLM_PROVIDER", None))
+    cloud_capable = _cloud_capable_configuration_present(settings)
+
+    if manifest is None:
+        return {
+            "name": None,
+            "version": None,
+            "surface": None,
+            "valid": None,
+            "mismatches": [],
+            "selected_provider": selected_provider,
+            "selected_provider_supported": None,
+            "cloud_capable_configuration_present": cloud_capable,
+            "release_hold": None,
+        }
+
+    mismatches = validate_supported_profile_runtime(manifest, settings=settings)
+    valid = len(mismatches) == 0
+    expected_provider = normalize_provider(
+        manifest.provider_contract.get("LLM_PROVIDER")
+    )
+    return {
+        "name": manifest.name,
+        "version": manifest.version,
+        "surface": manifest.surface,
+        "valid": valid,
+        "mismatches": list(mismatches),
+        "selected_provider": selected_provider,
+        "selected_provider_supported": bool(valid),
+        "cloud_capable_configuration_present": cloud_capable,
+        "release_hold": bool((not valid) or cloud_capable),
+        "expected_provider": expected_provider,
+    }
+
+
 def _static_provider_models(
     provider_id: str,
     settings: Settings,
@@ -1348,12 +1558,13 @@ def resolve_provider_capability(
             "model_count": sum(
                 1 for model in models if bool(model.get("supports_chat"))
             ),
-            "utility_model_count": sum(
-                1 for model in models if not bool(model.get("supports_chat"))
-            ),
-            "total_model_count": len(models),
-        }
+                "utility_model_count": sum(
+                    1 for model in models if not bool(model.get("supports_chat"))
+                ),
+                "total_model_count": len(models),
+            }
 
+    models = _apply_model_overrides(provider, models)
     chat_model_count = sum(
         1 for model in models if bool(model.get("supports_chat"))
     )
@@ -1431,19 +1642,40 @@ def model_supports_capability(
     capability_key: str,
     settings: Settings,
 ) -> bool:
+    return bool(
+        resolve_model_capability_state(
+            provider_id,
+            model_id,
+            capability_key,
+            settings,
+        )
+    )
+
+
+def resolve_model_capability_state(
+    provider_id: str,
+    model_id: str | None,
+    capability_key: str,
+    settings: Settings,
+) -> bool | None:
     provider = normalize_provider(provider_id)
     target = normalize_model_id(model_id)
     if not target:
-        return False
+        return None
     for item in get_provider_model_descriptors(provider, settings):
         if normalize_model_id(item.get("id")) != target:
             continue
         capabilities = item.get("capabilities")
         if not isinstance(capabilities, dict):
-            return False
+            return None
         value = capabilities.get(capability_key)
-        return bool(value) if isinstance(value, bool) else False
-    return False
+        if isinstance(value, bool):
+            return bool(value)
+        direct_value = item.get(f"supports_{capability_key}")
+        if isinstance(direct_value, bool):
+            return bool(direct_value)
+        return None
+    return None
 
 
 def resolve_provider_for_model(

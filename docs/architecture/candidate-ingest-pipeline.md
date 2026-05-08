@@ -1,17 +1,21 @@
 # Candidate Trace Ingestion Pipeline
 
 Purpose: describe the backend-only ingestion seam that consumes transient `candidate_trace` records and prepares them for future entity or graph extraction without changing canonical chat behavior.
-Last updated: 2026-04-21
+Last updated: 2026-05-08
 Source anchors:
 - guardian/core/chat_completion_service.py
+- guardian/core/graph_write_inspection_store.py
 - guardian/workers/candidate_ingest_worker.py
 - guardian/workers/graph_write_worker.py
 - guardian/tasks/types.py
 - guardian/queue/redis_queue.py
+- guardian/queue/graph_write_receipts.py
+- guardian/memory_graph/graph_write_identity.py
 - docs/architecture/candidate-trace-surface.md
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/adr/009-candidate-trace-ingest-worker.md
 - docs/architecture/adr/011-graph-write-task-seam-and-worker-scaffold.md
+- docs/architecture/adr/018-graph-write-inspection-surface.md
 
 ## Purpose
 
@@ -79,17 +83,77 @@ Graph candidates remain transient derived artifacts and are not:
 
 Future graph persistence remains explicitly deferred.
 
+## Graph-Write Inspection Snapshot Surface
+
+The graph-write worker now emits a latest-per-thread inspection snapshot after
+receipt handling.
+
+This surface is intentionally operational and summary-oriented:
+
+- it records whether the task was first-seen or duplicate-skipped
+- it preserves thread-scoped identity plus node, edge, and warning counts
+- it remains backend-only and debug-only
+- it does not create canonical graph truth
+
+The inspection snapshot is not:
+
+- exported
+- restored
+- used by retrieval
+- written to Neo4j in this phase
+- promoted into canonical chat or memory state
+
+The debug route reads the latest snapshot for a thread, or an explicit empty
+state when no snapshot exists.
+
+## Graph Backend Adapter Contract
+
+The graph-write worker now also mounts a bounded graph backend adapter after
+receipt claim and inspection snapshot emission.
+
+This adapter seam is deliberately inert in the current phase:
+
+- the default backend implementation is no-op
+- adapter output is derived, not canonical
+- adapter results do not alter receipt semantics
+- adapter results do not feed retrieval, export, or canonical graph state
+
+The adapter contract exists so later graph persistence can attach to a stable
+typed seam without changing the current inspection-only behavior.
+
+### Runtime gate for graph backend selection
+
+Graph backend selection is runtime-gated and default-off on the supported
+Docker Compose path. The factory in
+`guardian/memory_graph/graph_backend_factory.py` returns
+`NoopGraphBackendAdapter` unless both:
+
+- `CODEXIFY_ENABLE_GRAPH_WRITES=true`
+- `CODEXIFY_GRAPH_BACKEND=neo4j`
+
+Neo4j container presence alone does not enable graph writes. Invalid backend
+values or missing flags fail closed to noop.
+
 ## Graph-Write Task Hand-Off
 
 Candidate ingest now hands non-empty graph candidates to a dedicated
 `GRAPH_WRITE_QUEUE` as a derived `GraphWriteTask`.
 
-The graph-write worker is inspection-only in this phase:
+The graph-write worker now resolves a bounded backend adapter via
+`get_graph_backend()`:
 
-- it summarizes task nodes, edges, and warnings
-- it does not persist graph state
-- it does not feed retrieval
-- it does not participate in export or restore
+- default path is `NoOpGraphBackend`
+- `Neo4jGraphBackend` is selected only when `CODEXIFY_ENABLE_GRAPH_WRITES=true`
+  and `CODEXIFY_GRAPH_BACKEND=neo4j`
+- backend selection is operational and derived-only; it does not promote graph
+  artifacts to canonical truth
+
+The worker keeps the existing contract:
+
+- receipt claim happens before backend invocation
+- duplicate tasks exit before backend invocation
+- inspection snapshot semantics stay upstream of the backend call
+- backend failures are contained and do not affect chat acceptance semantics
 
 Graph-write tasks remain deterministic derived artifacts and are not:
 
@@ -97,9 +161,27 @@ Graph-write tasks remain deterministic derived artifacts and are not:
 - restored
 - persisted as canonical records
 - used by retrieval
-- written to Neo4j in this phase
+- consumed by retrieval in this phase
 
-Future graph persistence remains explicitly deferred.
+Neo4j persistence now exists behind an explicit default-off runtime gate.
+
+## Graph Identity and Receipt Semantics
+
+Graph-write tasks now carry deterministic graph-lane identity derived from the
+candidate trace boundary plus the canonicalized graph payload.
+
+Before the graph-write worker inspects or writes a task, it claims an ephemeral receipt
+for the task's idempotency key. That receipt is Redis-backed operational dedupe
+only:
+
+- it is not exported
+- it is not restored
+- it is not persisted as canonical state
+- it is not used by retrieval
+- it is not consumed by retrieval in this phase
+
+The receipt claim only makes the inspection-only lane replay-safe. It does not
+turn graph tasks into graph truth.
 
 ## Non-Canonical Constraint
 

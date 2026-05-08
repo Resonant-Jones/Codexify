@@ -135,6 +135,8 @@ class GraphWriteTask(TypedDict):
     thread_id: str | int
     candidate_trace_id: str
     created_at: str
+    graph_write_id: str
+    idempotency_key: str
     nodes: list[dict[str, Any]]
     edges: list[dict[str, Any]]
     warnings: list[str]
@@ -691,6 +693,48 @@ class DelegationTask(BaseTask):
         )
 
 
+@dataclass
+class CodingExecutionTask(BaseTask):
+    """Queue task for coding execution via PiCodexRunnerAdapter.
+
+    Used for async delegation of coding tasks through the queue/worker
+    system, enabling proper SSE event visibility and lifecycle tracking.
+    """
+
+    type: str = "coding_execution"
+    run_id: str = ""
+    deployment_id: str = ""
+    instructions: str = ""
+    cwd: str | None = None
+    timeout_seconds: int = 300
+    coding_task_id: str = ""
+    attempt_id: str = ""
+    thread_id: int | None = None
+    source_message_id: int | str | None = None
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
+        base = _base_kwargs(payload or {})
+        base.setdefault("type", cls.type)
+        return cls(
+            run_id=str(payload.get("run_id") or "").strip(),
+            deployment_id=str(payload.get("deployment_id") or "").strip(),
+            instructions=str(
+                payload.get("instructions") or payload.get("task_prompt") or ""
+            ).strip(),
+            cwd=_coerce_optional_text(payload.get("cwd")),
+            timeout_seconds=int(payload.get("timeout_seconds") or 300),
+            coding_task_id=str(payload.get("coding_task_id") or "").strip(),
+            attempt_id=str(payload.get("attempt_id") or "").strip(),
+            thread_id=_coerce_optional_positive_int(payload.get("thread_id")),
+            source_message_id=_coerce_optional_identifier(
+                payload.get("source_message_id")
+                or payload.get("sourceMessageId")
+            ),
+            **base,
+        )
+
+
 TASK_TYPE_REGISTRY: dict[str, type[BaseTask]] = {
     "warmup": WarmupTask,
     "chat_completion": ChatCompletionTask,
@@ -698,6 +742,7 @@ TASK_TYPE_REGISTRY: dict[str, type[BaseTask]] = {
     "voice_turn": VoiceTurnTask,
     "cron.execute": CronExecutionTask,
     "delegation.task": DelegationTask,
+    "coding_execution": CodingExecutionTask,
 }
 
 

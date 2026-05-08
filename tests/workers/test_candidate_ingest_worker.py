@@ -79,6 +79,10 @@ def test_candidate_ingest_worker_enqueues_graph_write_task_from_graph_candidates
     assert graph_write_task["thread_id"] == 7
     assert graph_write_task["candidate_trace_id"] == "trace-1"
     assert graph_write_task["created_at"] == "2026-01-01T00:00:00Z"
+    assert graph_write_task["graph_write_id"].startswith("gwr_")
+    assert graph_write_task["idempotency_key"].startswith(
+        "graph-write:trace-1:"
+    )
     assert len(graph_write_task["nodes"]) == 2
     assert len(graph_write_task["edges"]) == 1
     assert graph_write_task["warnings"] == []
@@ -215,6 +219,93 @@ def test_candidate_ingest_worker_contains_graph_write_enqueue_failure(
     assert summary.edge_count == 1
     assert summary.warning_count == 0
     enqueue_spy.assert_called_once()
+
+
+def test_candidate_ingest_worker_graph_write_identity_is_stable_for_same_payload(
+    monkeypatch,
+):
+    enqueue_spy = MagicMock(return_value=None)
+    monkeypatch.setattr(candidate_ingest_worker, "enqueue", enqueue_spy)
+
+    payload = {
+        "messages": [
+            {
+                "id": "msg-1",
+                "content": "Source message",
+            }
+        ],
+        "documents": [
+            {
+                "id": "doc-1",
+                "content": "Derived document",
+                "source_message_id": "msg-1",
+            }
+        ],
+    }
+
+    candidate_ingest_worker.process_candidate_ingest_task(
+        _task(payload=payload)
+    )
+    candidate_ingest_worker.process_candidate_ingest_task(
+        _task(payload=payload)
+    )
+
+    first_task = enqueue_spy.call_args_list[0].args[0]
+    second_task = enqueue_spy.call_args_list[1].args[0]
+
+    assert first_task["graph_write_id"] == second_task["graph_write_id"]
+    assert first_task["idempotency_key"] == second_task["idempotency_key"]
+
+
+def test_candidate_ingest_worker_graph_write_identity_changes_when_candidates_change(
+    monkeypatch,
+):
+    enqueue_spy = MagicMock(return_value=None)
+    monkeypatch.setattr(candidate_ingest_worker, "enqueue", enqueue_spy)
+
+    first_payload = {
+        "messages": [
+            {
+                "id": "msg-1",
+                "content": "Source message",
+            }
+        ],
+        "documents": [
+            {
+                "id": "doc-1",
+                "content": "Derived document",
+                "source_message_id": "msg-1",
+            }
+        ],
+    }
+    second_payload = {
+        "messages": [
+            {
+                "id": "msg-1",
+                "content": "Source message",
+            }
+        ],
+        "documents": [
+            {
+                "id": "doc-1",
+                "content": "Derived document v2",
+                "source_message_id": "msg-1",
+            }
+        ],
+    }
+
+    candidate_ingest_worker.process_candidate_ingest_task(
+        _task(payload=first_payload)
+    )
+    candidate_ingest_worker.process_candidate_ingest_task(
+        _task(payload=second_payload)
+    )
+
+    first_task = enqueue_spy.call_args_list[0].args[0]
+    second_task = enqueue_spy.call_args_list[1].args[0]
+
+    assert first_task["graph_write_id"] != second_task["graph_write_id"]
+    assert first_task["idempotency_key"] != second_task["idempotency_key"]
 
 
 def test_candidate_ingest_worker_does_not_persist_or_call_graph_backend(

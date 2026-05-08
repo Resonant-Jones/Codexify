@@ -222,6 +222,68 @@ def test_single_user_media_behavior_remains_compatible(monkeypatch):
     assert uploaded_image.user_id == "legacy-user"
 
 
+def test_single_user_media_accepts_project_scoped_queries(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_MULTI_USER_ENABLED", "false")
+    rows_by_model = {
+        media_routes.UploadedImage: [],
+        media_routes.UploadedDocument: [],
+    }
+    db, _session = _make_db(rows_by_model)
+    client = _make_client(
+        monkeypatch,
+        RequestUserScope(
+            user_id="local",
+            subject_id=None,
+            account_id=None,
+            multi_user_enabled=False,
+        ),
+        db,
+    )
+    db.list_projects.return_value = [
+        {
+            "id": 1,
+            "user_id": "local",
+            "name": "General",
+            "description": "Default project for content without a specified project",
+            "identity_depth": "light",
+        }
+    ]
+
+    images_response = client.get(
+        "/api/media/images?project_id=1", headers={"X-API-Key": API_KEY}
+    )
+    documents_response = client.get(
+        "/api/media/documents?project_id=1", headers={"X-API-Key": API_KEY}
+    )
+
+    assert images_response.status_code == 200, images_response.text
+    assert documents_response.status_code == 200, documents_response.text
+
+
+def test_get_project_record_prefers_live_db_handle(
+    monkeypatch,
+):
+    db = SimpleNamespace(
+        list_projects=lambda: [
+            {
+                "id": 1,
+                "user_id": "local",
+                "name": "General",
+                "description": "Default project for content without a specified project",
+            }
+        ]
+    )
+    monkeypatch.setattr(media_routes, "chatlog_db", None, raising=False)
+
+    project = media_routes._get_project_record(db, 1)
+
+    assert project is not None
+    assert project["id"] == 1
+    assert project["name"] == "General"
+
+
 def test_multi_user_upload_persists_authenticated_principal_as_owner(
     monkeypatch,
 ):

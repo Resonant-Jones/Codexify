@@ -1,5 +1,5 @@
 Purpose: Capture Codexify's current runtime architecture in one place so onboarding, estimation, and design review start from implemented behavior rather than assumptions.
-Last updated: 2026-04-20
+Last updated: 2026-04-27
 Source anchors:
 - docker-compose.yml
 - src-tauri/
@@ -21,13 +21,13 @@ Source anchors:
 
 | Component | Responsibility | Key anchors |
 |---|---|---|
-| React frontend | Manual route-to-view mapping, chat/doc/gallery/settings UX, local session state, live event consumption | `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx` |
+| React frontend | Manual route-to-view mapping, chat/doc/gallery/settings UX, local session state, live event consumption; hosts the browser UI in the standalone webUI bundle and the Tauri shell on macOS | `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/components/persona/layout/AppShell.tsx` |
 | Frontend API/runtime layer | Resolves backend base URL, injects auth/API-key headers, manages SSE connections | `frontend/src/lib/runtimeConfig.ts`, `frontend/src/lib/api.ts`, `frontend/src/hooks/useLiveEvents.ts`, `frontend/src/lib/guardianEventSource.ts` |
 | FastAPI app | Startup orchestration, middleware, router inclusion, `/api/events`, `/api/tasks/*/events`, metrics, media mount | `guardian/guardian_api.py`, `guardian/server/run.py` |
 | Auth and exposure boundary | Chooses local vs remote auth mode, derives current user, enforces API key/session rules, shapes CORS/public exposure | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | Chat API surface | Thread CRUD, message persistence, completion enqueue, RAG trace/debug endpoints | `guardian/routes/chat.py`, `guardian/routes/threads.py` |
-| Completion service and chat worker | Builds provider-ready message bundles, runs model calls, optionally executes one bounded command-bus tool turn, persists assistant output, emits task events | `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` |
-| Context broker | Composes recent messages, semantic retrieval, document context, memory retrieval, optional graph/federated context | `guardian/context/broker.py`, `guardian/memoryos/retriever.py` |
+| Completion service and chat worker | Builds provider-ready message bundles, runs model calls, optionally executes one bounded command-bus tool turn, persists assistant output, emits task events, and now emits canonical retrieval posture snapshots for supported source modes | `guardian/core/chat_completion_service.py`, `guardian/workers/chat_worker.py` |
+| Context broker | Composes recent messages, semantic retrieval, document context, workspace/local-note retrieval, memory retrieval, optional graph/federated context | `guardian/context/broker.py`, `guardian/memoryos/retriever.py` |
 | Media and document ingestion | Uploads documents/images, deduplicates assets, extracts text, links docs to threads/projects, enqueues embedding jobs | `guardian/routes/media.py`, `guardian/routes/documents.py`, `guardian/services/document_parsers/` |
 | Embedding and retrieval stack | Creates chat/document embeddings, indexes and searches vector data, exposes health state | `guardian/workers/document_embed_worker.py`, `guardian/workers/chat_embedding_worker.py`, `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py` |
 | Command bus layer | Derives callable commands from OpenAPI, enforces policy/idempotency, exposes the canonical invoke surface | `guardian/routes/command_bus.py`, `guardian/command_bus/` |
@@ -40,7 +40,7 @@ Source anchors:
 
 ### Default local topology
 
-- `frontend` serves the Vite UI and proxies browser traffic to `backend`.
+- `frontend` serves the Vite UI in dev, the macOS Tauri client shell on desktop, and the standalone webUI bundle on port 3000; the webUI bundle serves static assets and proxies browser traffic to `backend`.
 - `backend` runs `uvicorn guardian.guardian_api:app` on port `8888`.
 - `db` provides Postgres and is the primary system of record.
 - `redis` backs chat/document/cron queues, cancellation, heartbeats, and task event transport.
@@ -102,11 +102,13 @@ The configured provider is not the same thing as discovered provider inventory. 
 ### Chat completion path
 
 - Trigger: `POST /api/chat/{thread_id}/complete`
+- For first-send flows, the frontend now creates a backend thread first with `POST /api/chat/threads`, resolves the returned durable thread id, and only then posts the first user message to `POST /api/chat/{thread_id}/messages` before queuing completion.
 - Core sequence:
   - validate thread and depth context
   - acquire Redis turn lock
   - enqueue `ChatCompletionTask`
   - worker assembles context and calls provider
+  - if `source_mode="workspace"`, the completion service widens to user-bounded local knowledge, including Obsidian-backed notes, while preserving thread and user boundaries
   - if the provider returns a structured tool decision, the worker executes exactly one command through the command bus, reinjects the result, and requests one final assistant answer
   - when the model emits a structured tool decision, the completion service executes exactly one command-bus invoke, reinjects the result, and requests one final assistant answer
   - persist assistant message and emit task/domain events
@@ -119,6 +121,7 @@ The configured provider is not the same thing as discovered provider inventory. 
   - load recent thread messages
   - pull vector matches
   - add project/thread documents
+  - for workspace source mode, include local-note retrieval from the Obsidian-backed corpus while keeping the resolved user boundary explicit
   - optionally add memory, graph, sensors, or federated context by depth/flags
   - render system/context messages
 - Anchors: `guardian/context/broker.py`, `guardian/memoryos/retriever.py`, `guardian/cognition/system_prompt_builder.py`
