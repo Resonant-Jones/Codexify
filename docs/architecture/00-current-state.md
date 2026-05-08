@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-07
+2026-05-08
 
 ## Interpretation rule
 This file is authoritative for:
@@ -32,7 +32,7 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 - The retrieval-posture explainer UI surface was added to the Command Center with a standalone panel and per-thread posture history display.
 - Executable backend-seam evaluation suites continue to provide coverage for: identity-boundary proof (project scope containment, explicit widening, exclusion filters), supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam), and broker/source-mode matrix reconciliation.
 - Fresh live proof was re-run on the exact current `main` tip. Chat completion still works and the chat ownership seam normalizes a browser display label to `local`, and the supported local Compose migrator now reaches the merged extension/eval head cleanly so the expected `agent_extension_*` tables are present again. The live backend container still needs a separate supported-profile recheck, and the bounded tool-loop cases still regress instead of matching the claimed supported-path behavior.
-Fresh live proof on 2026-05-05 now confirms the supported local-first posture on the current tip, including provider/catalog/health alignment, upload -> embed -> retrieve, image-turn containment, coding-result return, and runtime-target normalization. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. That proof is evidence of the supported path, not release signoff.
+Fresh live proof on 2026-05-05 now confirmed the supported local-first posture on the current tip, including provider/catalog/health alignment, upload -> embed -> retrieve, image-turn containment, coding-result return, and runtime-target normalization. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. On 2026-05-08, the document upload -> embed -> retrieve seam was rechecked and the previously blocked document readback/retrieval path was re-proven on the supported local Compose path. That proof is evidence of the supported path, not release signoff.
 
 - Coding worker results now ingest back through Guardian with lineage and idempotency guards.
 - Public webUI beta handoff docs and the GHCR pullability note remain on `main`.
@@ -43,7 +43,7 @@ Fresh live proof on 2026-05-05 now confirms the supported local-first posture on
 - Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
 - Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
-- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, but the full end-to-end upload -> embed -> retrieve proof still needs a fresh rerun on the current tip.
+- Upload -> parse -> embed -> retrieve is now proven again on the live runtime for the supported local Compose path. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, and the 2026-05-08 recheck confirmed document readback plus supported retrieval on the current tip.
 - The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
