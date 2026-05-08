@@ -9,10 +9,12 @@ import useGuardianScheduleAction from "@/features/chat/hooks/useGuardianSchedule
 
 type GuardianScheduleActionProps = {
   className?: string;
+  actorId?: string;
 };
 
 export default function GuardianScheduleAction({
   className,
+  actorId,
 }: GuardianScheduleActionProps) {
   const {
     cancelReview,
@@ -25,7 +27,7 @@ export default function GuardianScheduleAction({
     setField,
     submit,
     validationErrors,
-  } = useGuardianScheduleAction();
+  } = useGuardianScheduleAction({ actorId });
 
   const targetLabel =
     form.jobType === "webhook" ? "Webhook URL" : "Payload reference";
@@ -54,7 +56,7 @@ export default function GuardianScheduleAction({
         </h2>
         <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
           Create a durable cron job from explicit input. This control stays
-          structured on purpose and submits directly to the existing cron API.
+          structured on purpose and submits through the Guardian intent spine.
         </p>
       </div>
 

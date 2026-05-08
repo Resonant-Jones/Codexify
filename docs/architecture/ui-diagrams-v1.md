@@ -195,6 +195,7 @@ Conservative assumptions:
 Explicit exclusions:
 - No backend observability topology, event bus architecture, or distributed node map.
 - No future-only tools from expansion sections are treated as current required surfaces.
+- Diagnostics surfaces may render provenance chips and suppression summaries, but they still must not expose raw system prompts, hidden messages, embeddings, or other internal reasoning artifacts.
 
 ## 9. Omitted / intentionally excluded areas
 

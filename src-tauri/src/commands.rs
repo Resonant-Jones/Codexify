@@ -4354,6 +4354,14 @@ pub fn desktop_open_external(url: String) -> Result<(), String> {
     }
 }
 
+/// Opens the Docker WebUI in the default browser.
+/// The WebUI is available at port 3000 when the runtime is running with the webui service.
+#[tauri::command]
+pub fn desktop_open_webui() -> Result<(), String> {
+    let url = "http://127.0.0.1:3000";
+    desktop_open_external(url.to_string())
+}
+
 #[tauri::command]
 pub fn desktop_runtime_preflight_check(
     runtime: tauri::State<'_, BootstrapRuntime>,

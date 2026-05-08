@@ -312,10 +312,27 @@ def build_primitive_stability() -> DomainReport:
 
 
 def build_extension_boundary() -> DomainReport:
+    legacy_tools_patterns = (
+        "legacy `/tools` compatibility shim",
+        "legacy tools shim",
+        "compatibility shim",
+    )
+    legacy_tools_docs = [
+        *doc_candidates("system-overview.md"),
+        *doc_candidates("flows.md"),
+        *doc_candidates("modules-and-ownership.md"),
+        *doc_candidates("tech-debt-and-risks.md"),
+        *doc_candidates("legacy-tools-shim-inventory.md"),
+    ]
     checks = [
         check_exists(
-            "Tools route present",
-            ["guardian/routes/tools.py"],
+            "Command bus route present",
+            ["guardian/routes/command_bus.py"],
+            missing_status="FAIL",
+        ),
+        check_exists(
+            "Command bus contracts present",
+            ["guardian/command_bus/contracts.py"],
             missing_status="FAIL",
         ),
         check_exists(
@@ -328,48 +345,78 @@ def build_extension_boundary() -> DomainReport:
             ["guardian/workers/cron_worker.py"],
             missing_status="FAIL",
         ),
-        check_contains(
-            "Architecture docs describe command-bus and cron execution seams",
-            [
-                *doc_candidates("system-overview.md"),
-                *doc_candidates("flows.md"),
-            ],
-            ["legacy `/tools` compatibility shim", "Cron and job execution"],
-            require_all=True,
+        check_exists(
+            "Guardian intent spine route present",
+            ["guardian/routes/agent_orchestration.py"],
+            missing_status="WARN",
+        ),
+        check_exists(
+            "Agent orchestration persistence seams present",
+            ["guardian/agents/store.py", "guardian/agents/events.py"],
+            missing_status="WARN",
+        ),
+        check_exists(
+            "Guardian-mediated coding worker seam present",
+            ["guardian/workers/coding_worker.py"],
             missing_status="WARN",
         ),
         check_contains(
-            "Config docs expose provider selection as configuration",
-            doc_candidates("config-and-ops.md"),
-            ["LLM_PROVIDER", "ALLOW_CLOUD_PROVIDERS"],
+            "Architecture docs describe command bus, cron, and coding-agent seams",
+            [
+                *doc_candidates("system-overview.md"),
+                *doc_candidates("flows.md"),
+                *doc_candidates("00-current-state.md"),
+            ],
+            [
+                "command bus",
+                "Cron and job execution",
+                "Coding results now return through Guardian",
+            ],
             require_all=True,
             missing_status="WARN",
         ),
     ]
-    warning = warning_if_contains(
-        "Legacy tools shim still carries process-local behavior",
-        [
-            *doc_candidates("flows.md"),
-            *doc_candidates("roadmap-signals.md"),
-            *doc_candidates("tech-debt-and-risks.md"),
-        ],
-        [
-            "still keeps some process-local job state",
-            "process-local job state",
-            "tool execution unification",
-        ],
+    legacy_tools_route = existing_path(["guardian/routes/tools.py"])
+    legacy_tools_mention = contains_patterns(
+        legacy_tools_docs,
+        legacy_tools_patterns,
+        require_all=False,
     )
-    if warning is not None:
-        checks.append(warning)
+    if legacy_tools_route is not None:
+        checks.append(
+            CheckResult(
+                "PASS",
+                "Legacy /tools compatibility route status",
+                f"{relative_path(legacy_tools_route)} exists as compatibility surface",
+            )
+        )
+    elif legacy_tools_mention is not None:
+        mention_path, matched_patterns = legacy_tools_mention
+        checks.append(
+            CheckResult(
+                "WARN",
+                "Legacy /tools compatibility route status",
+                f"{relative_path(mention_path)} references {repr(matched_patterns[0])}; route is absent and should remain compatibility-only if reintroduced",
+            )
+        )
+    else:
+        checks.append(
+            CheckResult(
+                "PASS",
+                "Legacy /tools compatibility route status",
+                "guardian/routes/tools.py is absent and not required by current architecture docs",
+            )
+        )
 
     return make_domain(
         "Extension Boundary",
         checks,
-        "Tools, cron, provider configuration, and command-bus documentation give Codexify clear extension seams. The repo also documents that the legacy tools shim still carries process-local behavior, which weakens confidence that every new workflow can stay outside kernel edits.",
+        "Command bus, cron execution, Guardian intent-orchestration seams, and the Guardian-mediated coding result path provide the current extension boundary evidence. This remains a cautionary domain because extension governance and cross-surface maturity still require manual review.",
         [
             "does the extension boundary allow new workflows without kernel edits?",
-            "can new automation paths prefer durable command-bus or cron lanes over compatibility shims?",
-            "is provider switching fully configuration-driven in real deployments, not just in local defaults?",
+            "can new automation paths continue to prefer durable command-bus and cron lanes over ad hoc process-local behavior?",
+            "do Guardian intent-spine and coding-agent return-path seams stay policy-governed across chat, automation, and future plugin entrypoints?",
+            "is self-extending plugin governance explicit enough to prevent capability drift at install and runtime binding boundaries?",
         ],
     )
 

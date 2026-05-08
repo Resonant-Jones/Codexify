@@ -1,27 +1,32 @@
-# Daily Audit — 2026-04-12
+# Daily Audit — 2026-05-08
 
 ## Repo Status
-- Date: 2026-04-12
+- Date: 2026-05-08
 - Phase: `evening`
-- Branch: `detached@1625d1b`
-- HEAD: `1625d1b6e6af65ef419cc6bfee1888e6882bf362`
+- Branch: `codex/add-vision-capability-validation`
+- HEAD: `b04f9ec52bd30d80ca549fa24bc70794f363c95f`
 - Worktree: clean
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
 - Attempted commands:
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/b14b/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/b14b/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
-- Summary counts: PASS 40, WARN 11, FAIL 0
-- Strongest evidence: `Core Loop Integrity`, `Primitive Stability`, `Extension Boundary`
-- Weakest signals: `Federation Readiness`, `Governance Readiness`, `Alternate Surface Readiness`
+  - `python3 scripts/audit_platform_readiness.py --json` -> exit 1 (non-JSON text fallback)
+  - `python3 scripts/audit_platform_readiness.py` -> exit 1 (plain)
+- Summary counts: PASS 38, WARN 12, FAIL 1
+- Strongest evidence: `Core Loop Integrity, Primitive Stability, Observability`
+- Weakest signals: `Extension Boundary, Federation Readiness, Governance Readiness`
+
+## Notable Change From Prior Audit
+- The fresh capture still reports `FAIL 1`; the Extension Boundary check remains tied to the missing legacy `guardian/routes/tools.py` path in this checkout.
+- `--json` still falls back to text output, so the audit CLI remains in `text_fallback` mode rather than emitting structured JSON.
+- No release-truth change is warranted from this snapshot alone.
 
 ### Current Suggested Score Bands
 | Domain | Band |
 | --- | --- |
 | `Core Loop Integrity` | 1-2 likely |
 | `Primitive Stability` | 1-2 likely |
-| `Extension Boundary` | 1-2 likely |
+| `Extension Boundary` | 0-1 likely |
 | `Observability` | 1-2 likely |
 | `Durability & Recovery` | 1-2 likely |
 | `Alternate Surface Readiness` | manual review required |
@@ -45,22 +50,30 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 4
-- Unique files changed: 4
-- Files changed: `docs/specs/workspace_profile_spec.md`, `frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx`, `frontend/src/features/commandCenter/components/TraceWorkbench.tsx`, `frontend/src/features/commandCenter/CommandCenterPage.tsx`
+- Commit count: 8
+- Unique files changed: 10
+- Files changed: `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/core/chat_completion_service.py`, `guardian/routes/chat.py`, `tests/context/test_retrieval_trace_provenance.py`, `tests/contracts/test_protocol_tokens.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py`, `guardian/context/broker.py`, `scripts/proofs/prove_image_turn_containment_runtime_provenance.py`, `tests/proofs/test_image_turn_containment_runtime_provenance.py`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `1625d1b6e6af` | Add retrieval posture glossary to command center | `docs/specs/workspace_profile_spec.md` |
-| `4e790c2ca940` | Add retrieval posture glossary to command center | `frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx`, `frontend/src/features/commandCenter/components/TraceWorkbench.tsx` |
-| `36191dae8b33` | Add standalone retrieval posture help panel | `frontend/src/features/commandCenter/CommandCenterPage.tsx`, `frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx`, `frontend/src/features/commandCenter/components/TraceWorkbench.tsx` |
-| `facb4007e069` | Add retrieval posture explainer to trace workbench | `frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx`, `frontend/src/features/commandCenter/components/TraceWorkbench.tsx` |
+| `b04f9ec52bd3` | tests: repair image-turn regression syntax gate | `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/core/chat_completion_service.py`, `guardian/routes/chat.py`, `tests/context/test_retrieval_trace_provenance.py`, `tests/contracts/test_protocol_tokens.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py` |
+| `5ad34275e7c1` | context: fix broker syntax blocker | `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/context/broker.py` |
+| `446e79a3d4f9` | docs: rerun image-turn containment proof after provenance pass | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
+| `6fd1c2aa0a82` | docs: record image-turn provenance lineage repair | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
+| `c7d8c786d326` | Merge branch 'main' into codex/add-vision-capability-validation | none |
+| `fa1872969a5e` | proofs: classify runtime commit provenance | `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `scripts/proofs/prove_image_turn_containment_runtime_provenance.py`, `tests/proofs/test_image_turn_containment_runtime_provenance.py` |
+| `bdf3106bf3ca` | docs: record image-turn runtime provenance repair | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
+| `0ee170770a1b` | docs: record image-turn runtime provenance gate | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 1 | `docs/specs/workspace_profile_spec.md` |
-| `frontend` | 3 | `frontend/src/features/commandCenter/__tests__/CommandCenterPage.test.tsx`, `frontend/src/features/commandCenter/components/TraceWorkbench.tsx`, `frontend/src/features/commandCenter/CommandCenterPage.tsx` |
+| `chat` | 1 | `guardian/routes/chat.py` |
+| `docs` | 1 | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
+| `frontend` | 0 | none |
+| `providers` | 0 | none |
+| `tests` | 5 | `tests/context/test_retrieval_trace_provenance.py`, `tests/contracts/test_protocol_tokens.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py`, `tests/proofs/test_image_turn_containment_runtime_provenance.py` |
+| `unknown` | 3 | `guardian/core/chat_completion_service.py`, `guardian/context/broker.py`, `scripts/proofs/prove_image_turn_containment_runtime_provenance.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
@@ -69,8 +82,11 @@
 - `sync_not_durable`: Sync subscriptions are still process-local rather than durable across restarts. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`, `docs/architecture/data-and-storage.md`
 - `federation_high_blast_radius`: Federation remains sensitive to trust policy, feature flags, and egress behavior. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
 
-## Manual Notes
-- Finished today: 
-- Blocked: 
-- Next priority: 
+## Manual Review Summary
+- Domains requiring human review: `Alternate Surface Readiness`, `Governance Readiness`
+- Primary cautions: extension boundary still fails on missing legacy `guardian/routes/tools.py`; federation remains high-blast-radius; sync delivery remains process-local; logging guarantees stay unverified.
 
+## Manual Notes
+- Finished today: Captured the 2026-05-08 evening platform readiness audit snapshot on codex/add-vision-capability-validation; the Extension Boundary fail remains tied to the missing legacy guardian/routes/tools.py path in this checkout.
+- Blocked: python3 scripts/audit_platform_readiness.py --json still emits text output instead of JSON.
+- Next priority: Refresh the snapshot after the Extension Boundary repair is actually present on main so the latest pointers can reflect it truthfully.

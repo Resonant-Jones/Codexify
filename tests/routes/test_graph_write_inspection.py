@@ -13,6 +13,7 @@ def _seed_snapshot(
     graph_write_id: str,
     candidate_trace_id: str,
     request_id: str,
+    adapter_failure_message: object | None = None,
 ) -> dict[str, object]:
     snapshot = {
         "thread_id": thread_id,
@@ -27,6 +28,7 @@ def _seed_snapshot(
         "node_types": ["Document", "Thread"],
         "edge_types": ["PART_OF_THREAD"],
         "created_at": "2026-04-28T12:00:00Z",
+        "adapter_failure_message": adapter_failure_message,
     }
     graph_write_inspection_store.store_graph_write_inspection_snapshot(
         thread_id,
@@ -136,3 +138,35 @@ def test_graph_write_inspection_route_exposes_duplicate_skipped_status(
     assert body["graph_write_inspection"]["receipt_status"] == (
         GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED
     )
+
+
+def test_graph_write_inspection_store_bounds_adapter_failure_message():
+    _seed_snapshot(
+        4,
+        receipt_status="claimed",
+        graph_write_id="gwr_bounded_failure",
+        candidate_trace_id="trace-4",
+        request_id="req-4",
+        adapter_failure_message=f"  {'x' * 300}  ",
+    )
+
+    snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(4)
+
+    assert snapshot is not None
+    assert snapshot["adapter_failure_message"] == "x" * 240
+
+
+def test_graph_write_inspection_store_normalizes_blank_adapter_failure_message():
+    _seed_snapshot(
+        5,
+        receipt_status="claimed",
+        graph_write_id="gwr_blank_failure",
+        candidate_trace_id="trace-5",
+        request_id="req-5",
+        adapter_failure_message="   \n\t  ",
+    )
+
+    snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(5)
+
+    assert snapshot is not None
+    assert snapshot["adapter_failure_message"] is None

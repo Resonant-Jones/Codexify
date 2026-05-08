@@ -23,7 +23,7 @@ import {
   type SlashCommandDefinition,
   type SlashCommandId,
   type SlashCommandIntentPayload,
-  buildSlashCommandIntentPayload,
+  buildSlashCommandSendPayload,
   resolveSlashCommandIntent,
 } from "@/contracts/slashCommands";
 import {
@@ -795,12 +795,11 @@ export function Composer({
     if (sendInFlightRef.current) return;
     if (sendTransportDisabled) return;
 
-    const bodyText = value.trim();
+    const { messageText, slashIntent } = buildSlashCommandSendPayload(value);
+    const bodyText = messageText.trim();
     const hasAttachments = draftAttachments.length > 0;
     const hasDocumentTiles = documentTiles.length > 0;
     if (!bodyText && !hasAttachments && !hasDocumentTiles) return;
-
-    const slashIntent = buildSlashCommandIntentPayload(value);
 
     sendInFlightRef.current = true;
     setInternalSending(true);
@@ -830,7 +829,6 @@ export function Composer({
       const message = hasAttachments
         ? buildChatAttachmentMessage(uploaded, bodyText)
         : bodyText;
-      const slashIntent = buildSlashCommandIntentPayload(value);
 
       if (hasAttachments && !message) {
         showToast("No attachments could be uploaded.");
@@ -1234,9 +1232,10 @@ export function Composer({
                 </div>
               ) : null}
               <div className="max-h-60 overflow-y-auto">
-                {visibleSlashCommands.length > 0 ? (
-                  visibleSlashCommands.map((command) => {
+              {visibleSlashCommands.length > 0 ? (
+                visibleSlashCommands.map((command) => {
                     const isActive = command.id === activeSlashCommand?.id;
+                    const isContextCommandShell = command.id === "obsidian";
                     return (
                       <button
                         key={command.id}
@@ -1268,16 +1267,31 @@ export function Composer({
                             {command.description}
                           </span>
                         </span>
-                        <span
-                          className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
-                          style={{
-                            color: isActive ? "var(--accent)" : "var(--muted)",
-                            background: isActive
-                              ? "color-mix(in oklab, var(--accent) 10%, transparent)"
-                              : "transparent",
-                          }}
-                        >
-                          /{command.id}
+                        <span className="mt-0.5 flex shrink-0 flex-col items-end gap-1">
+                          {isContextCommandShell ? (
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
+                              style={{
+                                color: isActive ? "var(--accent)" : "var(--muted)",
+                                background: isActive
+                                  ? "color-mix(in oklab, var(--accent) 10%, transparent)"
+                                  : "transparent",
+                              }}
+                            >
+                              Context shell
+                            </span>
+                          ) : null}
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
+                            style={{
+                              color: isActive ? "var(--accent)" : "var(--muted)",
+                              background: isActive
+                                ? "color-mix(in oklab, var(--accent) 10%, transparent)"
+                                : "transparent",
+                            }}
+                          >
+                            /{command.id}
+                          </span>
                         </span>
                       </button>
                     );

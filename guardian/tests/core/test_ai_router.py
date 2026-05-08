@@ -168,12 +168,6 @@ def test_chat_with_ai_minimax_anthropic_preserves_image_blocks(monkeypatch):
         return _FakeResponse({"content": [{"type": "text", "text": "ok"}]})
 
     monkeypatch.setattr("guardian.core.ai_router.requests.post", fake_post)
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        lambda url, headers, timeout: _MockDiscoveryResponse(
-            {"data": [{"id": "MiniMax-M2.5"}]}
-        ),
-    )
 
     settings = _fake_settings("minimax")
     reply = chat_with_ai(
@@ -211,6 +205,44 @@ def test_chat_with_ai_minimax_anthropic_preserves_image_blocks(monkeypatch):
         }
     ]
     assert reply == "ok"
+
+
+def test_chat_with_ai_minimax_anthropic_rejects_non_vision_image_blocks(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.ai_router.requests.post",
+        lambda *args, **kwargs: _FakeResponse(
+            {"content": [{"type": "text", "text": "ok"}]}
+        ),
+    )
+
+    settings = _fake_settings("minimax")
+
+    with pytest.raises(HTTPException) as exc:
+        chat_with_ai(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.test/image.png"},
+                        },
+                        {"type": "text", "text": "Describe the image."},
+                    ],
+                }
+            ],
+            provider="minimax",
+            model="MiniMax-M2.7",
+            settings=settings,
+        )
+
+    detail = exc.value.detail
+    assert exc.value.status_code == 400
+    assert detail["error_code"] == "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
+    assert detail["provider"] == "minimax"
+    assert detail["model"] == "MiniMax-M2.7"
 
 
 def test_chat_with_ai_minimax_anthropic_surface(monkeypatch):

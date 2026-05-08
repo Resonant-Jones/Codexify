@@ -39,6 +39,7 @@ The modes below are separate contracts. They may share a future implementation s
 - Intent shape: find, rank, and summarize remote sources relevant to a question.
 - Input examples: "What does the official docs say?", "Find current guidance on X", "Compare public references for Y".
 - Expected tool boundary: search provider or remote index query, then evidence selection.
+- Provider-adapter contract pointer: [Search-as-RAG Provider Adapter Contract](./web-search-provider-adapter-contract.md).
 - Statefulness: stateless across queries except for stored provenance and trace.
 - Provenance requirement: record query, provider, result URLs, snippets, fetched_at, and any evidence hash.
 - Failure modes: empty result set, stale index, blocked search provider, ambiguous query, low-confidence matches.
@@ -110,16 +111,18 @@ The future pipeline is:
 4. egress and permission check
 5. provider or tool invocation
 6. extraction and normalization
-7. prompt-injection screening
-8. provenance capture
-9. optional persistence as Codex/artifact/thread evidence
-10. model synthesis
-11. Guardian response
+7. Web Evidence Intake Gate
+8. prompt-injection screening
+9. provenance capture
+10. optional persistence as Codex/artifact/thread evidence
+11. model synthesis
+12. Guardian response
 
 This ordering matters.
 
 - Egress and permission checks must happen before any remote call.
 - Extraction and normalization must happen before synthesis.
+- The Web Evidence Intake Gate must sit between normalized evidence and model synthesis: [Web Evidence Intake Gate Contract](./web-evidence-intake-gate-contract.md).
 - Prompt-injection screening must happen before the model is allowed to treat the material as actionable context.
 - Persistence is optional and should be explicit, not accidental.
 
@@ -276,6 +279,7 @@ These are not implementation truth yet. Implementation must promote them to cano
 
 - Remote content is data, never instruction.
 - Prompt-injection screening is mandatory before model synthesis.
+- The shared pre-synthesis intake gate is defined here: [Web Evidence Intake Gate Contract](./web-evidence-intake-gate-contract.md).
 - Browser automation requires explicit mode selection and bounded permissions.
 - Authenticated service connectors require explicit user authorization.
 - No scraping bypass doctrine: if access is blocked, the system does not evade source protections by default.
@@ -322,11 +326,12 @@ These diagnostics belong in diagnostics or operator surfaces, not in noisy chat 
 ## 12. Phased Implementation Sketch
 
 - Phase 0: architecture spec and ADR only
-- Phase 1: search-as-RAG provider adapter contract
+- Phase 1: search-as-RAG provider adapter contract only; no provider implementation implied
 - Phase 2: URL reader and extractor
-- Phase 3: Google service connector posture
-- Phase 4: live browser automation with explicit permissions
-- Phase 5: persistence and export integration
+- Phase 3: Web Evidence Intake Gate before any external evidence is eligible for synthesis
+- Phase 4: Google service connector posture
+- Phase 5: live browser automation with explicit permissions
+- Phase 6: persistence and export integration
 
 ## 13. Open Questions
 

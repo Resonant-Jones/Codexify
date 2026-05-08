@@ -47,6 +47,16 @@ export type UploadedDocumentItem = {
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const DOC_EXT = new Set([".pdf", ".docx", ".md", ".txt"]);
+const TRUSTED_GENERAL_PROJECT_STORAGE_KEY = "cfy.generalProjectIdTrusted";
+
+function hasTrustedStoredProjectContext(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(TRUSTED_GENERAL_PROJECT_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 // Convert backend-returned media paths (e.g. "/media/images/...jpg") into an absolute URL
 // so the frontend can render them even when served from a different dev origin (5173 vs 8888).
@@ -119,6 +129,7 @@ function inferIdFromPathname(regexes: RegExp[]): string | undefined {
 
 function inferIdFromStorage(keys: string[]): string | undefined {
   if (typeof window === "undefined") return undefined;
+  if (!hasTrustedStoredProjectContext()) return undefined;
   try {
     for (const k of keys) {
       const v = localStorage.getItem(k);
