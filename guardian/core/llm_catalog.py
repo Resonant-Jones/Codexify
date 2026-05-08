@@ -160,6 +160,9 @@ def resolve_model_vision_capability_state(
             if isinstance(value, bool) and value is True:
                 return True
             return None
+        heuristic = _local_model_capabilities(target_model, target_model)
+        if bool(heuristic.get("supports_vision")):
+            return True
         return None
 
     return resolve_model_capability_state_registry(
@@ -624,6 +627,31 @@ def _provider_entry(
         if provider_id == "local"
         else capability
     )
+    truth = build_provider_truth(
+        provider_id,
+        settings,
+        capability=provider_capability,
+        discoverable=(
+            str(endpoint_resolution.get("state") or "").strip()
+            == "available"
+            if endpoint_resolution is not None
+            else str(
+                (capability.get("model_index") or {}).get("state") or ""
+            ).strip()
+            == "available"
+        ),
+        selectable=bool(enabled),
+    )
+    supported_profile_name = truth.get("supported_profile_name")
+    supported_profile_approved = truth.get("supported_profile_approved")
+    if not include_all and provider_id != "local" and not authorized:
+        return None
+    if (
+        not include_all
+        and supported_profile_name is not None
+        and not bool(supported_profile_approved)
+    ):
+        return None
     entry: dict[str, Any] = {
         "id": provider_id,
         "displayName": _PROVIDER_LABELS.get(provider_id, provider_id.title()),
@@ -634,21 +662,7 @@ def _provider_entry(
         "available": available,
         "models": models,
         "model_index": dict(capability["model_index"]),
-        "truth": build_provider_truth(
-            provider_id,
-            settings,
-            capability=provider_capability,
-            discoverable=(
-                str(endpoint_resolution.get("state") or "").strip()
-                == "available"
-                if endpoint_resolution is not None
-                else str(
-                    (capability.get("model_index") or {}).get("state") or ""
-                ).strip()
-                == "available"
-            ),
-            selectable=bool(enabled),
-        ),
+        "truth": truth,
     }
     source = _provider_source(provider_id, settings)
     if source is not None:

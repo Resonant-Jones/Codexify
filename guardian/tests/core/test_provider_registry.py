@@ -12,13 +12,16 @@ from guardian.core.provider_registry import (
     get_provider_model_descriptors,
     provider_allows_default_during_degraded_discovery,
     provider_availability,
+    provider_egress_allowed,
     provider_governance,
     provider_governance_contract,
     provider_routing_requires_discovered_inventory,
+    supported_profile_posture,
     resolve_provider_capability,
     resolve_provider_for_model,
     validate_provider_model_selection,
 )
+from guardian.core.provider_truth import build_provider_truth
 
 
 def _settings(**overrides) -> Settings:
@@ -29,6 +32,34 @@ def _settings(**overrides) -> Settings:
             "openai,groq,alibaba,minimax,anthropic,gemini"
         ),
         "LOCAL_BASE_URL": "http://127.0.0.1:11434/v1",
+    }
+    defaults.update(overrides)
+    return Settings(_env_file=None, **defaults)
+
+
+def _supported_profile_settings(**overrides) -> Settings:
+    defaults = {
+        "LLM_PROVIDER": "local",
+        "ALLOW_CLOUD_PROVIDERS": False,
+        "CODEXIFY_LOCAL_ONLY_MODE": True,
+        "CODEXIFY_EGRESS_ALLOWLIST": "",
+        "LOCAL_BASE_URL": "http://host.docker.internal:11434/v1",
+        "LOCAL_API_KEY": "local",
+        "LOCAL_LLM_MODEL": "library2/ministral-3:8b",
+        "LOCAL_CHAT_MODEL": "library2/ministral-3:8b",
+        "LLM_MODEL": "library2/ministral-3:8b",
+        "OPENAI_API_KEY": None,
+        "OPENAI_BASE_URL": None,
+        "GROQ_API_KEY": None,
+        "GROQ_BASE_URL": None,
+        "ANTHROPIC_API_KEY": None,
+        "GEMINI_API_KEY": None,
+        "GENAI_API_KEY": None,
+        "GOOGLE_API_KEY": None,
+        "ALIBABA_API_KEY": None,
+        "ALIBABA_API_BASE": None,
+        "MINIMAX_API_KEY": None,
+        "MINIMAX_API_BASE": None,
     }
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)
@@ -108,46 +139,139 @@ def test_disabled_providers_remain_unsupported_when_forced_authorized():
 
 
 def test_provider_governance_contract_is_internally_consistent():
-    for provider_id, contract in PROVIDER_GOVERNANCE.items():
-        assert contract["provider"] == provider_id
-        assert contract["display_name"] == PROVIDER_LABELS[provider_id]
-        assert get_provider_governance(provider_id) == contract
+    contract = provider_governance_contract()
 
-        classification = contract["classification"]
-        local_only = contract["local_only"]
+    for provider_id, contract_entry in contract.items():
+        assert contract_entry["provider"] == provider_id
+        assert provider_governance(provider_id) == contract_entry
+
+        classification = contract_entry["classification"]
+        local_only = contract_entry["local_only"]
 
         if classification == "discovery_backed":
-            assert contract["live_discovery_expected"] is True
-            assert contract["routing_requires_discovered_inventory"] is True
+            assert contract_entry["live_discovery_expected"] is True
+            assert contract_entry["routing_requires_discovered_inventory"] is True
             assert (
-                contract["configured_defaults_allowed_on_discovery_failure"]
+                contract_entry["configured_defaults_allowed_on_discovery_failure"]
                 is True
             )
             assert local_only is False
             continue
 
         if classification == "static_authorized":
-            assert contract["live_discovery_expected"] is False
-            assert contract["routing_requires_discovered_inventory"] is False
+            assert contract_entry["live_discovery_expected"] is False
+            assert contract_entry["routing_requires_discovered_inventory"] is False
             assert local_only is False
             continue
 
         if classification == "local_only":
             assert local_only is True
             assert (
-                contract["configured_defaults_allowed_on_discovery_failure"]
+                contract_entry["configured_defaults_allowed_on_discovery_failure"]
                 is True
             )
             continue
 
         assert classification == "disabled"
-        assert contract["live_discovery_expected"] is False
-        assert contract["routing_requires_discovered_inventory"] is False
+        assert contract_entry["live_discovery_expected"] is False
+        assert contract_entry["routing_requires_discovered_inventory"] is False
         assert (
-            contract["configured_defaults_allowed_on_discovery_failure"]
+            contract_entry["configured_defaults_allowed_on_discovery_failure"]
             is False
         )
         assert local_only is False
+
+
+def test_supported_profile_posture_marks_local_provider_supported(monkeypatch):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    for env_key in (
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "GROQ_API_KEY",
+        "GROQ_BASE_URL",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "ALIBABA_API_KEY",
+        "ALIBABA_API_BASE",
+        "MINIMAX_API_KEY",
+        "MINIMAX_API_BASE",
+    ):
+        monkeypatch.delenv(env_key, raising=False)
+    settings = _supported_profile_settings()
+
+    posture = supported_profile_posture(settings)
+    local_truth = build_provider_truth(
+        "local",
+        settings,
+        capability={
+            "authorized": True,
+            "enabled": True,
+            "model_index": {"state": "available"},
+        },
+    )
+
+    assert posture["name"] == "v1-local-core-web-mcp"
+    assert posture["valid"] is True
+    assert posture["selected_provider"] == "local"
+    assert posture["selected_provider_supported"] is True
+    assert posture["release_hold"] is False
+    assert posture["cloud_capable_configuration_present"] is False
+    assert local_truth["supported_profile_name"] == "v1-local-core-web-mcp"
+    assert local_truth["supported_profile_valid"] is True
+    assert local_truth["supported_profile_approved"] is True
+    assert local_truth["discovered_inventory"] is True
+    assert local_truth["executable"] is True
+    assert local_truth["egress_allowed"] is True
+
+
+def test_supported_profile_posture_marks_cloud_provider_unsupported(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    for env_key in (
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "GROQ_API_KEY",
+        "GROQ_BASE_URL",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "ALIBABA_API_KEY",
+        "ALIBABA_API_BASE",
+        "MINIMAX_API_KEY",
+        "MINIMAX_API_BASE",
+    ):
+        monkeypatch.delenv(env_key, raising=False)
+    settings = _supported_profile_settings(
+        GROQ_API_KEY="test-groq-key",
+        GROQ_BASE_URL="https://api.groq.com/openai/v1",
+    )
+
+    posture = supported_profile_posture(settings)
+    available, reason = provider_availability("groq", settings)
+    groq_truth = build_provider_truth(
+        "groq",
+        settings,
+        capability={
+            "authorized": True,
+            "enabled": False,
+            "model_index": {"state": "unavailable"},
+        },
+    )
+
+    assert posture["name"] == "v1-local-core-web-mcp"
+    assert posture["valid"] is True
+    assert posture["cloud_capable_configuration_present"] is True
+    assert posture["release_hold"] is True
+    assert available is False
+    assert reason == "Cloud providers disabled by config"
+    assert provider_egress_allowed("groq", settings) is False
+    assert groq_truth["supported_profile_approved"] is False
+    assert groq_truth["executable"] is False
+    assert groq_truth["egress_allowed"] is False
 
 
 class _MockResponse:

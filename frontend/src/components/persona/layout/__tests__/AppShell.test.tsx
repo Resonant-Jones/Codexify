@@ -265,6 +265,9 @@ vi.mock("@/components/documents/DocumentsView", () => ({
         <div data-testid="documents-project-id">
           {projectId ?? "no-project"}
         </div>
+        <div data-testid="documents-default-project-id">
+          {projectId ?? "no-project"}
+        </div>
         <div data-testid="documents-thread-id">
           {threadId ?? "no-thread"}
         </div>
@@ -453,6 +456,47 @@ describe("AppShell logo wordmark color contract", () => {
     render(<AppShell />);
 
     expect(listCodexEntriesSpy).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a stale stored general project id before loading media", async () => {
+    localStorage.setItem("cfy.generalProjectId", "1");
+    localStorage.setItem("cfy.defaultProjectId", "1");
+
+    const documentProjectIds: Array<number | undefined> = [];
+    mockApi.get.mockImplementation(async (path: string, options?: any) => {
+      if (path === "/api/projects") {
+        return {
+          data: {
+            projects: [
+              { id: 7, name: "General" },
+              { id: 8, name: "Research" },
+            ],
+          },
+        };
+      }
+
+      if (path === "/media/documents") {
+        documentProjectIds.push(options?.params?.project_id);
+        expect(options?.params?.project_id).not.toBe(1);
+        return { data: { documents: [] } };
+      }
+
+      return { data: {} };
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/api/projects");
+    });
+
+    expect(documentProjectIds).not.toContain(1);
+
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.generalProjectId")).toBe("1");
+      expect(localStorage.getItem("cfy.defaultProjectId")).toBe("1");
+      expect(localStorage.getItem("cfy.generalProjectIdTrusted")).toBeNull();
+    });
   });
 
   it("honors the /flow-builder route on initial render", async () => {

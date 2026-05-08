@@ -35,12 +35,6 @@ type WorkspaceDrawerProps = {
   onMoveScratchpadToComposer?: (text: string) => void;
 };
 
-const WORKSPACE_PANEL_COPY: Record<WorkspaceDrawerTab, string> = {
-  shelf: "Shelf items will appear here in a later phase.",
-  scratchpad: "Scratchpad editing lands in Phase 2 with text input and autosave.",
-  inspector: "Inspector renderers will plug into this panel in a later phase.",
-};
-
 function resolveRouteThreadIdentity(): string | null {
   if (typeof window === "undefined") return null;
   const match = window.location.pathname.match(/^\/chat\/([^/]+)/);
@@ -73,7 +67,6 @@ export default function WorkspaceDrawer({
     [onActiveTabChange]
   );
 
-  const panel = WORKSPACE_PANEL_COPY[activeTab];
   const layoutModeLabel = getWorkspaceLayoutModeLabel(layoutMode);
   const idBase = "workspace";
   const resolvedThreadIdentity =
@@ -165,13 +158,8 @@ export default function WorkspaceDrawer({
             id={`${idBase}-panel-${activeTab}`}
             role="tabpanel"
             aria-labelledby={`${idBase}-tab-${activeTab}`}
-            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-              color: "var(--text)",
-            }}
+            className="mt-3 flex flex-1 min-h-0 flex-col p-4"
+            style={{ color: "var(--text)" }}
           >
             <WorkspaceScratchpadPanel
               threadIdentity={resolvedThreadIdentity}
@@ -183,13 +171,8 @@ export default function WorkspaceDrawer({
             id={`${idBase}-panel-${activeTab}`}
             role="tabpanel"
             aria-labelledby={`${idBase}-tab-${activeTab}`}
-            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-              color: "var(--text)",
-            }}
+            className="mt-3 flex flex-1 min-h-0 flex-col p-4"
+            style={{ color: "var(--text)" }}
           >
             <WorkspaceShelfPanel
               threadIdentity={resolvedThreadIdentity}
@@ -202,13 +185,8 @@ export default function WorkspaceDrawer({
             id={`${idBase}-panel-${activeTab}`}
             role="tabpanel"
             aria-labelledby={`${idBase}-tab-${activeTab}`}
-            className="mt-3 flex flex-1 min-h-0 flex-col rounded-[var(--radius)] border p-4"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-              color: "var(--text)",
-            }}
+            className="mt-3 flex flex-1 min-h-0 flex-col p-4"
+            style={{ color: "var(--text)" }}
           >
             <WorkspaceInspectorPanel selectedItem={selectedItem} />
           </section>

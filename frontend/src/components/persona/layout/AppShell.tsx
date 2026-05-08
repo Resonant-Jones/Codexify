@@ -635,6 +635,17 @@ function findDefaultProjectId(projects: any[]): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function hasProjectId(projects: any[], projectId: number | null): boolean {
+  if (!Array.isArray(projects) || projectId == null) return false;
+  return projects.some((project) => {
+    const rawId = project?.id ?? project?.project_id ?? null;
+    const parsed = Number(rawId);
+    return Number.isFinite(parsed) && parsed === projectId;
+  });
+}
+
+type GeneralProjectIdSource = "storage" | "validated" | "user";
+
 /* ─────────────────────────────────────────────────────────────────────────────
    🧠 SECTION: Theme Preference Handling
    This function takes in any value and ensures it matches one of our accepted
@@ -724,6 +735,31 @@ function writeSessionOverride(v: Resolved | null) {
     window.localStorage.setItem(SESSION_KEY, v)
     window.localStorage.setItem(SESSION_UNTIL, String(nextLocalMidnight()))
   }
+}
+
+function resolveProviderRuntimeState(
+  runtimeHealth: {
+    backendReachable: boolean | null;
+    failureKind: RuntimeHealthFailureKindToken | null;
+    status: RuntimeHealthStatusToken;
+    diagnostics: { hydrationState: "pending" | "ready" | "failed" };
+  }
+): ProviderRuntimeState {
+  if (runtimeHealth.diagnostics.hydrationState === "pending") {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (runtimeHealth.status === RUNTIME_HEALTH_STATUSES.HEALTHY) {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (
+    runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE
+  ) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  if (runtimeHealth.backendReachable === false) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  return PROVIDER_RUNTIME_STATES.DEGRADED;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1170,6 +1206,11 @@ export default function AppShell({
     const parsed = Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   });
+  const [generalProjectIdSource, setGeneralProjectIdSource] =
+    useState<GeneralProjectIdSource>(() => {
+      if (typeof window === "undefined") return "validated";
+      return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
+    });
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
   const [documentScope, setDocumentScope] = useState<DocumentScope>(
@@ -1250,6 +1291,7 @@ export default function AppShell({
     (projectId: string | null) => {
       const normalizedProjectId =
         projectId == null ? null : Number.parseInt(String(projectId), 10);
+      setGeneralProjectIdSource("user");
       setGeneralProjectId(
         normalizedProjectId != null && Number.isFinite(normalizedProjectId)
           ? normalizedProjectId
@@ -1266,6 +1308,7 @@ export default function AppShell({
       if (projectId == null) return;
       const normalizedProjectId = Number.parseInt(String(projectId), 10);
       if (Number.isFinite(normalizedProjectId) && normalizedProjectId > 0) {
+        setGeneralProjectIdSource("user");
         setGeneralProjectId(normalizedProjectId);
       }
     },
@@ -1291,15 +1334,28 @@ export default function AppShell({
       window.localStorage.setItem("cfy.defaultProjectId", String(generalProjectId));
     } catch {}
   }, [generalProjectId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (generalProjectId != null) return;
+    try {
+      window.localStorage.removeItem("cfy.generalProjectId");
+      window.localStorage.removeItem("cfy.defaultProjectId");
+    } catch {}
+  }, [generalProjectId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (generalProjectId != null && generalProjectIdSource !== "storage") {
+        window.localStorage.setItem("cfy.generalProjectIdTrusted", "1");
+      } else {
+        window.localStorage.removeItem("cfy.generalProjectIdTrusted");
+      }
+    } catch {}
+  }, [generalProjectId, generalProjectIdSource]);
 
   useEffect(() => {
     let cancelled = false;
     if (startupLocked) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (generalProjectId != null) {
       return () => {
         cancelled = true;
       };
@@ -1325,9 +1381,14 @@ export default function AppShell({
           : Array.isArray(payload?.projects)
           ? payload.projects
           : [];
-        const defaultProject = findDefaultProjectId(list);
-        if (defaultProject != null) {
-          setGeneralProjectId(defaultProject);
+        if (list.length > 0) {
+          const defaultProject = findDefaultProjectId(list);
+          const currentProjectValid = hasProjectId(list, generalProjectId);
+          const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
+          if (nextProjectId !== generalProjectId) {
+            setGeneralProjectId(nextProjectId);
+          }
+          setGeneralProjectIdSource("validated");
         }
       } catch (err) {
         if (cancelled) return;
@@ -1385,8 +1446,8 @@ export default function AppShell({
     };
   }, [activeRouteThreadId, auth, startupLocked]);
   const effectiveDocumentsProjectId = useMemo<number | null>(
-    () => activeThreadProjectId ?? generalProjectId,
-    [activeThreadProjectId, generalProjectId]
+    () => activeThreadProjectId ?? (generalProjectIdSource === "storage" ? null : generalProjectId),
+    [activeThreadProjectId, generalProjectId, generalProjectIdSource]
   );
   useEffect(() => {
     let cancelled = false;
@@ -1948,6 +2009,7 @@ export default function AppShell({
       }>).detail;
       const projectId = Number(detail?.projectId);
       if (Number.isFinite(projectId) && projectId > 0) {
+        setGeneralProjectIdSource("user");
         setGeneralProjectId(projectId);
       }
       navigateToView("documents");
@@ -1967,7 +2029,7 @@ export default function AppShell({
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
-    projectId: generalProjectId ?? undefined,
+    projectId: generalProjectIdSource === "storage" ? undefined : generalProjectId ?? undefined,
     onImages: (items) =>
       setGallery((prev) => {
         const normalizedItems = items
@@ -2470,12 +2532,7 @@ export default function AppShell({
       ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
       : [];
 
-  const providerRuntimeState: ProviderRuntimeState =
-    runtimeHydrationState === "pending"
-      ? PROVIDER_RUNTIME_STATES.ONLINE
-      : runtimeHealth.backendReachable === false
-      ? PROVIDER_RUNTIME_STATES.OFFLINE
-      : PROVIDER_RUNTIME_STATES.DEGRADED;
+  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
 
   const runtimePresentation = describeProviderState(providerRuntimeState);
 

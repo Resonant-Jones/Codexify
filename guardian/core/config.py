@@ -507,6 +507,36 @@ class Settings(BaseSettings):
         default=False,
         description="Enable using graph-derived context during completions.",
     )
+    CODEXIFY_ENABLE_GRAPH_WRITES: bool = Field(
+        default=False,
+        description=(
+            "Explicit gate for derived graph-write persistence. "
+            "Default false keeps graph-write worker on no-op backend."
+        ),
+    )
+    CODEXIFY_GRAPH_BACKEND: str = Field(
+        default="noop",
+        description=(
+            "Derived graph-write backend selector when "
+            "CODEXIFY_ENABLE_GRAPH_WRITES=true. Supported values: noop, neo4j."
+        ),
+    )
+    NEO4J_URI: str = Field(
+        default="bolt://neo4j:7687",
+        description="Neo4j Bolt URI used by graph-write backend adapter.",
+    )
+    NEO4J_USER: str = Field(
+        default="neo4j",
+        description="Neo4j username used by graph-write backend adapter.",
+    )
+    NEO4J_PASSWORD: str = Field(
+        default="",
+        description="Neo4j password used by graph-write backend adapter.",
+    )
+    NEO4J_DATABASE: str = Field(
+        default="neo4j",
+        description="Neo4j database used by graph-write backend adapter.",
+    )
     GUARDIAN_DEV_MODE: bool = Field(
         default=False,
         description="Enable dev-only routes such as /dev/*.",

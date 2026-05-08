@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-04-28
+Last updated: 2026-05-08
 Source anchors:
 - Makefile
 - package.json
@@ -74,6 +74,16 @@ Source anchors:
 - The supported profile and provider registry answer “what should be allowed and treated as supported for this beta?”
 - None of those surfaces is sufficient alone. A green health check does not prove the mounted route surface matches the supported profile, and catalog presence does not prove that a provider path is part of the supported beta contract.
 
+### Provider governance note
+
+- The supported profile file is the beta release contract. It is the posture that the runtime must satisfy, not a loose hint about preferred defaults.
+- Catalog discovery is not support. A provider can be discovered, authorized, or even executable at a runtime layer without being part of the supported beta posture.
+- Provider health is not support by itself. `/health`, `/health/chat`, and `/api/health/llm` must be read alongside `/api/llm/catalog` to understand the actual beta posture.
+- Cloud-capable configuration must always be interpreted against the active supported-profile posture. If the profile is local-only, cloud-capable env flags or credentials are drift evidence, not beta approval.
+- For release proof, `/health`, `/api/health/llm`, and `/api/llm/catalog` should agree on the supported profile, the selected provider, and whether the runtime is release-hold or aligned.
+- Operator views such as `?include=all` may still show unsupported providers for diagnosis, but that inspection surface does not widen release support.
+- Default catalog and health truth should keep discovered inventory, configured provider, egress-allowed provider, supported-profile-approved provider, and executable provider distinct so operators can see exactly where posture diverges.
+
 ### Current operator limits without a full Command Center / Observability Deck
 
 - Operators can currently infer whether the selected provider is configured, credentialed, egress-allowed, and reachable enough for the active runtime path.
@@ -120,6 +130,18 @@ Source anchors:
    - Verify the supported-profile flags are active, internal-only/quarantined routes are not exposed on the supported beta surface, provider registry posture agrees with catalog and health, and the current audit window includes fresh live proof for assistant completion plus upload -> embed -> retrieve.
    - If any of those checks fail, or if the mismatch can only be explained through unsupported/internal surfaces, record the release as `hold`.
 
+### Workspace proof harness for release evidence
+
+- Use `scripts/proofs/prove_workspace_obsidian_e2e.py` when you need live evidence that a workspace-scoped completion can be influenced by an Obsidian-backed local note on the supported local Compose path.
+- The harness stages a scratch vault under `tmp/`, indexes it through `/api/obsidian/config` and `/api/obsidian/index`, then waits on the real task-event stream and verifies the persisted assistant message plus retrieval posture.
+- It is release evidence only. It does not prove sync automation, connector UX, packaged desktop behavior, or any non-Compose install mode.
+- Exact command:
+
+```bash
+BASE=http://localhost:8888 GUARDIAN_API_KEY="$(scripts/dev/dev-key.sh)" \
+python scripts/proofs/prove_workspace_obsidian_e2e.py
+```
+
 ### Storage, media, and embeddings
 
 | Variable | Current behavior | Anchors |
@@ -140,10 +162,17 @@ Source anchors:
 | Variable | Current behavior | Anchors |
 |---|---|---|
 | `GUARDIAN_ENABLE_GRAPH_CONTEXT` | Enables graph snippets during context assembly | `guardian/context/broker.py`, `guardian/core/config.py` |
+| `CODEXIFY_ENABLE_GRAPH_WRITES` | Explicit default-off gate for derived graph-write persistence. `false` keeps `NoOpGraphBackend`; `true` allows backend selection via `CODEXIFY_GRAPH_BACKEND`. | `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py`, `guardian/workers/graph_write_worker.py` |
+| `CODEXIFY_GRAPH_BACKEND` | Derived graph-write backend selector (`noop` or `neo4j`). Only honored when `CODEXIFY_ENABLE_GRAPH_WRITES=true`; reachable Neo4j alone is not enablement. | `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py` |
 | `GUARDIAN_FEDERATION_ENABLED` | Master feature gate for federation routes | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | trust policy envs | Signed policy, node allowlist, and federation auth requirements are env-driven | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | `GUARDIAN_COMMAND_BUS_LOOPBACK_BASE` | Base URL for command bus loopback execution | `guardian/command_bus/loopback_http_adapter.py`, `docker-compose.yml` |
 | WebSocket rate-limit envs | Guard `/api/ws/rpc` connection and payload behavior | `guardian/routes/websocket.py`, `guardian/core/config.py` |
+
+Graph-write enablement note:
+- Supported beta behavior remains unchanged by default on `main`.
+- Neo4j being reachable in local Compose does not implicitly turn on graph writes.
+- Postgres remains canonical truth even when `CODEXIFY_ENABLE_GRAPH_WRITES=true`.
 
 ### Frontend and desktop runtime
 
@@ -254,6 +283,30 @@ Primary anchors:
 - `/metrics` exists and Prometheus setup is initialized during app startup.
 - Command bus and websocket paths have explicit event/audit storage rather than relying only on console logs.
 - Structured JSON logger setup is `Unverified`; the scanned startup path used stdlib logging plus subsystem-specific log messages.
+
+## Workspace Obsidian E2E Proof Harness
+
+A canonical live-proof harness exists for the `retrievalSource="workspace"` seam on the supported local Compose path. It validates the complete end-to-end path from Obsidian-backed note ingestion through queue-backed completion to retrieval-posture trace evidence.
+
+**Script:** `scripts/proofs/prove_workspace_obsidian_e2e.py`
+
+| Condition | What it checks | Failure class |
+|---|---|---|
+| Health | `/health`, `/health/chat`, `/api/health/llm` return 2xx | `HEALTH_CHECK_FAILED` (exit 2) |
+| Ingest | Sentinel note accepted via `/api/obsidian/ingest` | `INGESTION_FAILED` (exit 3) |
+| Acceptance | Completion request returns task_id | `ACCEPTANCE_FAILED` (exit 4) |
+| Terminal state | Task reaches `task.completed` or `task.failed` | `COMPLETION_TIMEOUT` (exit 5) |
+| Response verdict | Assistant response contains sentinel-derived answer | `RESPONSE_VERDICT_FAILED` (exit 6) |
+| Retrieval posture | Posture snapshot shows workspace-local signal | `RETRIEVAL_EVIDENCE_FAILED` (exit 7) |
+
+**Command:**
+```bash
+python scripts/proofs/prove_workspace_obsidian_e2e.py
+# Or with explicit BASE and key:
+BASE=http://localhost:8888 GUARDIAN_API_KEY="$(cat ~/.codex_guardian_key)" \
+  python scripts/proofs/prove_workspace_obsidian_e2e.py
+```
+**Scope note:** This harness validates the supported local Compose path only. It does NOT prove sync automation, connector UX, or non-Compose install modes. Contract tests live at `tests/proofs/test_workspace_obsidian_e2e_contract.py`.
 
 ## Common Failure Signatures
 
