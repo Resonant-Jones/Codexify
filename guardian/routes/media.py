@@ -364,16 +364,32 @@ def _project_is_visible_to_scope(
 
 
 def _get_project_record(db, project_id: int) -> dict[str, Any] | None:
-    try:
-        with db.get_session() as session:
-            project = (
-                session.query(Project).filter(Project.id == project_id).first()
-            )
-            if project is None:
-                return None
-            return _normalize_project_row(project)
-    except Exception:
-        return None
+    projects: list[dict[str, Any]] = []
+    if hasattr(db, "list_projects"):
+        try:
+            projects = db.list_projects() or []
+        except Exception:
+            projects = []
+    if not projects and hasattr(db, "get_session"):
+        try:
+            with db.get_session() as session:
+                rows = session.query(Project).all()
+                projects = [
+                    _normalize_project_row(row)
+                    for row in rows
+                ]
+        except Exception:
+            projects = []
+
+    for project in projects:
+        row = _normalize_project_row(project)
+        try:
+            row_id = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if row_id == int(project_id):
+            return row
+    return None
 
 
 def _require_project_account_scope(
