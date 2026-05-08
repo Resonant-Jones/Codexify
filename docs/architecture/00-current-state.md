@@ -17,12 +17,29 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 
 Fresh live proof on 2026-05-08 now partially confirms the supported local-first posture on the current `main` tip (`9ca4caf56`), including provider/catalog/health alignment, chat completion with RAG trace, image-turn containment, coding-result return lineage/idempotency (code inspection), and runtime-target normalization. The upload -> embed -> retrieve path is **blocked**: `GET /api/documents/{id}` returns 404 after successful upload, preventing verification of embedding readiness and sentinel retrieval. The evidence is recorded in `docs/architecture/2026-05-08-supported-profile-live-proof.md` with a PARTIAL verdict. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. These proofs are evidence of the supported path, not release signoff.
 
+As of 2026-05-08 follow-up implementation, the document identity/readback contract has been repaired in code: upload responses now expose explicit `document_id` and `media_asset_id`, and a supported `GET /api/documents/{id}` detail route resolves by document ID (with asset-ID compatibility lookup) while preserving account ownership checks and embedding lifecycle fields. A fresh live Compose re-proof is still pending because backend startup is currently blocked by a pre-existing merge-artifact syntax error in `guardian/core/config.py`.
+
 - Coding worker results now ingest back through Guardian with lineage and idempotency guards.
 - Public webUI beta handoff docs and the GHCR pullability note remain on `main`.
 - The public webUI handoff bundle remains packaged for tester distribution.
 - The desktop shell and runner/TUI work were refined on `main`, but that does not change the release gate by itself.
 
 - Local Docker Compose remains the supported install path.
+- Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
+- Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
+- Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
+- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, but the full end-to-end upload -> embed -> retrieve proof still needs a fresh rerun on the current tip.
+- The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
+- Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
+- Built-in system docs/help are seeded at startup and available to retrieval.
+- The import embed worker can drain a live backlog without breaking chat or health surfaces.
+- `/health`, `/health/chat`, `/api/health/llm`, `/api/health/retrieval`, and `/api/llm/catalog?include=all` remain the primary runtime evidence surfaces, but this runtime now shows a supported-profile/catalog mismatch that must be resolved before any release claim.
+- Executable evaluation suites now cover backend seam evidence for:
+  - Supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam).
+  - Identity-boundary proof (project scope containment, explicit widening, exclusion filters).
+  - Broker/source-mode reconciliation (`effective_source_mode` derived from `source_mode` + `retrieval_override`).
+  - Workspace-local retrieval posture, including live completion evidence for Obsidian-backed notes.
+- A canonical live-proof harness now exists for the `retrievalSource="workspace"` seam (`scripts/proofs/prove_workspace_obsidian_e2e.py`), covering health → ingest → thread → message → completion → verdict → retrieval-posture evidence on the supported local Compose path.
 - The packaged macOS desktop shell remains part of the beta delivery surface.
 - The public webUI Docker bundle remains available for browser-only tester use.
 - The supported beta story remains local-first and backend-shared across those surfaces.
@@ -48,7 +65,7 @@ Fresh live proof on 2026-05-08 now partially confirms the supported local-first 
 
 ## This week's priorities
 1. Investigate and resolve the document retrieval 404 blocker: `GET /api/documents/{id}` returns 404 after successful upload via `POST /api/media/upload/document`.
-2. Re-run the full supported-path proof after the document retrieval fix.
+2. Re-run the full supported-path proof after the document retrieval fix once backend startup is restored.
 3. Keep the fresh supported-path proof artifact synchronized with future runtime changes.
 4. Watch for any future drift between supported-profile, catalog, and health surfaces.
 5. Preserve the proven coding-result return path and runtime-target contract under regression protection.

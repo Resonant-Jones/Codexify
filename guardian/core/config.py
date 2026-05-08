@@ -531,6 +531,22 @@ class Settings(BaseSettings):
             "Neo4j container presence alone does not enable graph writes."
         ),
     )
+    NEO4J_URI: str = Field(
+        default="bolt://neo4j:7687",
+        description="Neo4j Bolt URI used by graph-write backend adapter.",
+    )
+    NEO4J_USER: str = Field(
+        default="neo4j",
+        description="Neo4j username used by graph-write backend adapter.",
+    )
+    NEO4J_PASSWORD: str = Field(
+        default="",
+        description="Neo4j password used by graph-write backend adapter.",
+    )
+    NEO4J_DATABASE: str = Field(
+        default="neo4j",
+        description="Neo4j database used by graph-write backend adapter.",
+    )
     GUARDIAN_DEV_MODE: bool = Field(
         default=False,
         description="Enable dev-only routes such as /dev/*.",

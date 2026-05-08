@@ -191,6 +191,30 @@ def test_rag_trace_exposes_retrieval_suppression(monkeypatch):
             }
         ],
     }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "retrieval_suppression": retrieval_suppression,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(782, api_key="test-key")
+    assert trace["payload_summary"]["retrieval_suppression"] == (
+        retrieval_suppression
+    )
+    assert trace["retrieval_suppression"] == retrieval_suppression
+
+    chat._thread_latest_task.pop(782, None)
+    chat._rag_traces.pop(782, None)
+
+
 def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
     chat._thread_latest_task[782] = "task-782"
 
@@ -204,11 +228,6 @@ def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
         chat,
         "_get_task_completed_payload",
         lambda _task_id: {
-            "trace": {"documents": [], "graph": []},
-            "payload_summary": {
-                "payload_char_count": 10,
-                "message_count": 2,
-                "retrieval_suppression": retrieval_suppression,
             "trace": {
                 "documents": [],
                 "graph": [],
@@ -225,10 +244,6 @@ def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
     )
 
     trace = chat.get_latest_rag_trace(782, api_key="test-key")
-    assert trace["payload_summary"]["retrieval_suppression"] == (
-        retrieval_suppression
-    )
-    assert trace["retrieval_suppression"] == retrieval_suppression
     assert trace["image_routing_path"] is None
     assert trace["image_routing_absence_reason"] == absence_reason
     assert trace["payload_summary"]["image_routing_absence_reason"] == (
