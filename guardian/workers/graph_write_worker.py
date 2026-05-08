@@ -17,9 +17,15 @@ from guardian.memory_graph.graph_backend import (
     GRAPH_BACKEND_RESULT_STATUS_FAILED,
 )
 from guardian.memory_graph.graph_backend_factory import get_graph_backend
+from guardian.core.graph_write_inspection_store import (
+    GRAPH_WRITE_INSPECTION_STATUS_CLAIMED,
+    GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
+    store_graph_write_inspection_snapshot,
+)
 from guardian.memory_graph.graph_write_identity import (
     build_graph_write_identity,
 )
+from guardian.memory_graph.noop_graph_backend import get_graph_backend_adapter
 from guardian.queue.graph_write_receipts import claim_graph_write_receipt
 from guardian.queue.redis_queue import GRAPH_WRITE_QUEUE, get_redis_connection
 
@@ -28,6 +34,12 @@ logger = logging.getLogger(__name__)
 GRAPH_WRITE_WORKER_SUMMARY_LOG = "graph_write_worker_inspected_task"
 GRAPH_WRITE_WORKER_WARNING_LOG = "graph_write_worker_task_warnings"
 GRAPH_WRITE_WORKER_DUPLICATE_LOG = "graph_write_worker_duplicate_task_skipped"
+GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG = (
+    "graph_write_worker_inspection_snapshot_store_failed"
+)
+GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG = (
+    "graph_write_worker_graph_backend_adapter_failed"
+)
 GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG = (
     "graph_write_worker_receipt_claim_failed"
 )
@@ -84,6 +96,74 @@ def _coerce_task_identity(
     }
 
 
+def _build_graph_write_inspection_snapshot(
+    *,
+    thread_id: int | str,
+    request_id: str,
+    candidate_trace_id: str,
+    graph_write_id: str,
+    idempotency_key: str,
+    receipt_status: str,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    warnings: list[str],
+    created_at: str,
+) -> dict[str, Any]:
+    node_types = sorted(
+        {
+            str(node.get("node_type") or "").strip()
+            for node in nodes
+            if str(node.get("node_type") or "").strip()
+        }
+    )
+    edge_types = sorted(
+        {
+            str(edge.get("edge_type") or "").strip()
+            for edge in edges
+            if str(edge.get("edge_type") or "").strip()
+        }
+    )
+    return {
+        "thread_id": thread_id,
+        "request_id": request_id,
+        "candidate_trace_id": candidate_trace_id,
+        "graph_write_id": graph_write_id,
+        "idempotency_key": idempotency_key,
+        "receipt_status": receipt_status,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "warning_count": len(warnings),
+        "node_types": node_types,
+        "edge_types": edge_types,
+        "created_at": created_at,
+    }
+
+
+def _invoke_graph_backend_adapter(
+    task: dict[str, Any],
+    *,
+    request_id: str,
+    thread_id: int | str,
+    candidate_trace_id: str,
+    graph_write_id: str,
+    idempotency_key: str,
+) -> None:
+    adapter = get_graph_backend_adapter()
+    try:
+        adapter.write_graph_task(task)
+    except Exception:
+        logger.exception(
+            f"[graph-write] {GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG}",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+                "graph_write_id": graph_write_id,
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+
 def process_graph_write_task(task: dict) -> None:
     if not isinstance(task, dict):
         logger.warning(
@@ -138,6 +218,32 @@ def process_graph_write_task(task: dict) -> None:
         return
 
     if not claimed:
+        snapshot = _build_graph_write_inspection_snapshot(
+            thread_id=thread_id,
+            request_id=request_id,
+            candidate_trace_id=candidate_trace_id,
+            graph_write_id=graph_write_id,
+            idempotency_key=idempotency_key,
+            receipt_status=GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
+            nodes=nodes,
+            edges=edges,
+            warnings=warnings,
+            created_at=str(task.get("created_at") or "").strip(),
+        )
+        try:
+            store_graph_write_inspection_snapshot(thread_id, snapshot)
+        except Exception:
+            logger.exception(
+                f"[graph-write] {GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG}",
+                extra={
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "candidate_trace_id": candidate_trace_id,
+                    "graph_write_id": graph_write_id,
+                    "idempotency_key": idempotency_key,
+                    "receipt_status": GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
+                },
+            )
         logger.info(
             f"[graph-write] {GRAPH_WRITE_WORKER_DUPLICATE_LOG}",
             extra={
@@ -146,6 +252,7 @@ def process_graph_write_task(task: dict) -> None:
                 "candidate_trace_id": candidate_trace_id,
                 "graph_write_id": graph_write_id,
                 "idempotency_key": idempotency_key,
+                "receipt_status": GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
             },
         )
         return
@@ -159,13 +266,42 @@ def process_graph_write_task(task: dict) -> None:
             for node in nodes
             if str(node.get("node_type") or "").strip()
         }
+    receipt_status = GRAPH_WRITE_INSPECTION_STATUS_CLAIMED
+    snapshot = _build_graph_write_inspection_snapshot(
+        thread_id=thread_id,
+        request_id=request_id,
+        candidate_trace_id=candidate_trace_id,
+        graph_write_id=graph_write_id,
+        idempotency_key=idempotency_key,
+        receipt_status=receipt_status,
+        nodes=nodes,
+        edges=edges,
+        warnings=warnings,
+        created_at=str(task.get("created_at") or "").strip(),
     )
-    edge_types = sorted(
-        {
-            str(edge.get("edge_type") or "").strip()
-            for edge in edges
-            if str(edge.get("edge_type") or "").strip()
-        }
+
+    try:
+        store_graph_write_inspection_snapshot(thread_id, snapshot)
+    except Exception:
+        logger.exception(
+            f"[graph-write] {GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG}",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+                "graph_write_id": graph_write_id,
+                "idempotency_key": idempotency_key,
+                "receipt_status": receipt_status,
+            },
+        )
+
+    _invoke_graph_backend_adapter(
+        task,
+        request_id=request_id,
+        thread_id=thread_id,
+        candidate_trace_id=candidate_trace_id,
+        graph_write_id=graph_write_id,
+        idempotency_key=idempotency_key,
     )
 
     logger.info(
@@ -176,12 +312,15 @@ def process_graph_write_task(task: dict) -> None:
             "candidate_trace_id": candidate_trace_id,
             "graph_write_id": graph_write_id,
             "idempotency_key": idempotency_key,
+            "receipt_status": receipt_status,
             "node_count": len(nodes),
             "edge_count": len(edges),
             "warning_count": len(warnings),
             "node_types": node_types,
             "edge_types": edge_types,
             "backend_kind": backend_name,
+            "node_types": snapshot["node_types"],
+            "edge_types": snapshot["edge_types"],
         },
     )
 
@@ -274,6 +413,7 @@ __all__ = [
     "GRAPH_WRITE_WORKER_SUMMARY_LOG",
     "GRAPH_WRITE_WORKER_WARNING_LOG",
     "GRAPH_WRITE_WORKER_DUPLICATE_LOG",
+    "GRAPH_WRITE_WORKER_GRAPH_BACKEND_ADAPTER_FAILED_LOG",
     "GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG",
     "GRAPH_WRITE_WORKER_BACKEND_RESULT_LOG",
     "GRAPH_WRITE_WORKER_BACKEND_FAILURE_LOG",

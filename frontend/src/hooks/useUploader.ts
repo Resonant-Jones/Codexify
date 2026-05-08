@@ -4,8 +4,11 @@
  * Handles chat/project uploads and emits UI hooks while supporting
  * optional disabled gating for turn-based composer locks.
  */
-import { useCallback } from "react";
-import { buildAuthenticatedFetchInit } from "../lib/api";
+import { useCallback, useRef } from "react";
+import {
+  buildAuthenticatedFetchInit,
+  resolveBackendThreadIdFromResponse,
+} from "../lib/api";
 import { resolveApiUrl, resolveBackendUrl } from "../lib/runtimeConfig";
 
 export type Accepted = ".pdf" | ".docx" | ".md" | ".txt" | ".png" | ".jpg" | ".jpeg" | ".webp";
@@ -160,11 +163,16 @@ export function useUploader({
 }) {
   const accept = ".pdf,.docx,.md,.txt,.png,.jpg,.jpeg,.webp";
   const forceApiKey = explicitAuth || tag === "gallery";
+  const activePickerRef = useRef<HTMLInputElement | null>(null);
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     const withAuth = (init: RequestInit): RequestInit =>
       buildAuthenticatedFetchInit(init, { forceApiKey });
+    const withMediaAuth = (init: RequestInit): RequestInit =>
+      buildAuthenticatedFetchInit(init, { forceApiKey: true });
     const apiUrl = (path: string): string => resolveApiUrl(path);
+    const mediaUploadUrl = (path: string): string =>
+      resolveBackendUrl(path);
 
     if (disabled) {
       // Respect upstream gating (e.g., turn-in-flight) by ignoring new uploads.
@@ -288,10 +296,92 @@ export function useUploader({
       }
     }
 
+    async function resolveUploadThreadId(): Promise<string | undefined> {
+      const projectContextId = effectiveProjectId ?? (await resolveDefaultProjectId());
+
+      if (projectContextId !== undefined) {
+        try {
+          const response = await fetch(
+            apiUrl("/api/chat/threads"),
+            withAuth({ method: "GET" })
+          );
+          if (response.ok) {
+            const payload: any = await response.json();
+            const threads = Array.isArray(payload)
+              ? payload
+              : Array.isArray(payload?.threads)
+                ? payload.threads
+                : [];
+            const match = threads.find((thread: any) => {
+              const threadProjectId = normalizePositiveIdString(
+                thread?.project_id ?? thread?.projectId ?? thread?.project?.id
+              );
+              return threadProjectId === projectContextId;
+            });
+            const matchedThreadId = normalizePositiveIdString(
+              match?.id ?? match?.thread_id ?? match?.threadId
+            );
+            if (matchedThreadId) {
+              return matchedThreadId;
+            }
+          }
+        } catch {
+          // fall through to thread creation
+        }
+      }
+
+      try {
+        const createPayload: Record<string, unknown> = {
+          title: tag === "gallery" ? "Gallery uploads" : "Uploads",
+        };
+        if (projectContextId !== undefined) {
+          createPayload.project_id = projectContextId;
+        }
+
+        const response = await fetch(
+          apiUrl("/api/chat/threads"),
+          withAuth({
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(createPayload),
+          })
+        );
+        if (!response.ok) return undefined;
+
+        const payload: any = await response.json();
+        const resolution = resolveBackendThreadIdFromResponse(payload, {
+          endpoint: "POST /api/chat/threads",
+          method: "POST",
+          status: response.status,
+          authPresent: forceApiKey,
+        });
+        return resolution.threadId != null
+          ? String(resolution.threadId)
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+
     if (effectiveProjectId === undefined) {
       const fallbackProjectId = await resolveDefaultProjectId();
       if (fallbackProjectId !== undefined) {
         effectiveProjectId = fallbackProjectId;
+      }
+    }
+
+    const needsThreadContext = arr.some((file) => {
+      const ext = extOf(file.name);
+      return ext !== null && IMAGE_EXT.has(ext);
+    });
+    const shouldResolveProjectThread =
+      needsThreadContext && (tag === "gallery" || effectiveThreadId === undefined);
+    if (shouldResolveProjectThread) {
+      const resolvedThreadId = await resolveUploadThreadId();
+      if (resolvedThreadId !== undefined) {
+        effectiveThreadId = resolvedThreadId;
       }
     }
 
@@ -360,8 +450,8 @@ export function useUploader({
             }
 
             const uploadResp = await fetch(
-              apiUrl("/api/media/upload/image"),
-              withAuth({
+              mediaUploadUrl("/api/media/upload/image"),
+              withMediaAuth({
                 method: "POST",
                 body: formData,
               })
@@ -432,8 +522,8 @@ export function useUploader({
 
             // Try multipart/form-data first (the "standard" upload method).
             let uploadResp = await fetch(
-              apiUrl("/api/media/upload/document"),
-              withAuth({
+              mediaUploadUrl("/api/media/upload/document"),
+              withMediaAuth({
                 method: "POST",
                 body: formData,
               })
@@ -500,8 +590,8 @@ export function useUploader({
 
                 for (const payload of payloads) {
                   const r = await fetch(
-                    apiUrl("/api/media/upload/document"),
-                    withAuth({
+                    mediaUploadUrl("/api/media/upload/document"),
+                    withMediaAuth({
                       method: "POST",
                       headers: {
                         "content-type": "application/json",
@@ -672,13 +762,40 @@ export function useUploader({
     onDragOver: (e: React.DragEvent) => e.preventDefault(),
     pick: () => {
       if (disabled) return;
+      if (typeof document === "undefined") return;
+
+      // Some browsers only open the file chooser for inputs that are attached
+      // to the DOM. Mount a temporary hidden input instead of clicking a
+      // detached element.
+      if (activePickerRef.current) {
+        try {
+          activePickerRef.current.remove();
+        } catch {}
+        activePickerRef.current = null;
+      }
+
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = true;
       input.accept = accept;
+      input.style.position = "fixed";
+      input.style.left = "-9999px";
+      input.style.width = "1px";
+      input.style.height = "1px";
+      input.style.opacity = "0";
+      input.setAttribute("aria-hidden", "true");
+      input.dataset.cfyUploader = "true";
       input.onchange = () => {
         if (input.files) handleFiles(input.files);
+        try {
+          input.remove();
+        } catch {}
+        if (activePickerRef.current === input) {
+          activePickerRef.current = null;
+        }
       };
+      activePickerRef.current = input;
+      document.body.appendChild(input);
       input.click();
     },
   } as const;

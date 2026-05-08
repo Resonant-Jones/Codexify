@@ -107,9 +107,8 @@ services:
         echo "[graph-init] Done."
 
   migrator:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    entrypoint: ["python"]
     depends_on:
       db:
         condition: service_healthy
@@ -121,7 +120,7 @@ services:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       PYTHONPATH: /app
-      ALEMBIC_CONFIG: /app/backend/alembic.ini
+      ALEMBIC_CONFIG: /app/runtime/alembic.ini
       ENABLE_BLIP_MODEL: "false"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
       GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:?GUARDIAN_API_KEY must be set in .env}"
@@ -132,12 +131,11 @@ services:
       EMBEDDING_BACKEND: "local"
       CODEXIFY_USE_OPENAI: "0"
     restart: "no"
-    command: ["/app/backend/scripts/docker/run_migrator.py"]
+    command: ["migrator"]
 
   model-prep:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    entrypoint: ["python"]
     volumes:
       - codexify_models:/models
       - hf_cache:/root/.cache/huggingface
@@ -154,12 +152,11 @@ services:
       EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
     restart: "no"
-    command: ["/app/guardian/scripts/ensure_embed_model.py"]
+    command: ["model-prep"]
 
   backend:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    entrypoint: ["python"]
     ports: ["8888:8888"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()"]
@@ -230,34 +227,11 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
-    command:
-      - -c
-      - |
-        import os
-        import pathlib
-        import runpy
-        import sys
-
-        required = os.getenv("LOCAL_EMBEDDINGS_REQUIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
-        model_dir = pathlib.Path(os.getenv("LOCAL_EMBED_MODEL", "/models/bge-large-en-v1.5"))
-
-        if required and not model_dir.exists():
-          print(
-              f"[backend] ERROR: LOCAL_EMBEDDINGS_REQUIRED=1 but model directory is missing: {model_dir}",
-              file=sys.stderr,
-          )
-          print(
-              "[backend] Run `docker compose run --rm model-prep` or mount a pre-provisioned model.",
-              file=sys.stderr,
-          )
-          raise SystemExit(1)
-
-        runpy.run_path("/app/backend/scripts/docker/run_backend.py", run_name="__main__")
+    command: ["backend"]
 
   worker-warmup:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    entrypoint: ["python"]
     depends_on:
       redis:
         condition: service_healthy
@@ -300,12 +274,11 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
-    command: ["-m", "guardian.workers.warmup_worker"]
+    command: ["worker-warmup"]
 
   worker-chat:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    entrypoint: ["python"]
     depends_on:
       redis:
         condition: service_healthy
@@ -350,12 +323,39 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
-    command: ["-m", "guardian.workers.chat_worker"]
+    command: ["worker-chat"]
+
+  worker-coding:
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    working_dir: /app
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    volumes:
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HOME: /home/codexify
+      PYTHONPATH: /app
+      REDIS_URL: redis://redis:6379/0
+      GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+      CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+    restart: unless-stopped
+    command: ["python", "-m", "guardian.workers.coding_worker"]
 
   worker-document-embed:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    entrypoint: ["python"]
     depends_on:
       redis:
         condition: service_healthy
@@ -399,12 +399,11 @@ services:
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
-    command: ["-m", "guardian.workers.document_embed_worker"]
+    command: ["worker-document-embed"]
 
   worker-chat-embed:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-backend:${CODEXIFY_IMAGE_TAG:-local-beta}
+    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
-    entrypoint: ["python"]
     depends_on:
       redis:
         condition: service_healthy
@@ -448,7 +447,21 @@ services:
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
-    command: ["-m", "guardian.workers.chat_embedding_worker"]
+    command: ["worker-chat-embed"]
+
+  # ─────────────────────────────────────────────────────────────────
+  # WebUI Service - Docker-hosted frontend (for mobile/Tailscale access)
+  # ─────────────────────────────────────────────────────────────────
+  webui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.webui
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   pg_data:

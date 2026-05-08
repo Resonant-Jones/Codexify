@@ -1,5 +1,5 @@
 Purpose: define the first canonical retrieval-router doctrine for Guardian so contributors can reason about retrieval posture without embedding ad hoc heuristics in chat, prompt, or provider code.
-Last updated: 2026-04-16
+Last updated: 2026-05-04
 Source anchors:
 - docs/architecture/README.md
 - docs/architecture/system-overview.md
@@ -18,8 +18,8 @@ orchestration layer that sits before `ContextBroker` assembly, not in prompt
 text and not in UI controls.
 
 This document establishes the first canonical policy table for that seam.
-It is doctrine plus contract only. It does not claim that the live completion
-flow already consults this policy.
+It is doctrine plus contract, and parts of it now mirror live runtime behavior
+in the broker and completion service.
 
 ## Reference Table vs Runtime Scaffold
 
@@ -91,7 +91,7 @@ introduces live retrieval behavior changes in this task.
 | Intent | Retrieval Needed | Default Scope | Time Mode | Graph Allowance | Depth Bias | Escalation Order | Stop Condition |
 |---|---|---|---|---|---|---|---|
 | `conversation_only` | no | `conversation` | `none` | `disallow` | `shallow` | none | stop at the active conversation |
-| `direct_qa` | yes | `local` | `none` | `disallow` | `normal` | `thread_messages -> thread_semantic -> project_docs -> adjacent_local` | stop on first sufficient local evidence |
+| `direct_qa` | yes | `local` | `none` | `disallow` | `normal` | `thread_messages -> thread_semantic -> project_docs` | stop on first sufficient local evidence |
 | `memory_recall` | yes | `local` | `recent` | `disallow` | `deep` | `thread_messages -> memory -> thread_semantic -> project_docs` | stop once recall is supported |
 | `timeline_recall` | yes | `local` | `chronological` | `disallow` | `deep` | `thread_messages -> memory -> thread_semantic -> project_docs` | stop once a coherent ordered timeline exists |
 | `provenance` | yes | `local` | `none` | `prefer_enrichment` | `normal` | `thread_messages -> thread_semantic -> project_docs -> graph_enrichment -> adjacent_local` | stop once source or lineage can be explained |
@@ -107,6 +107,14 @@ introduces live retrieval behavior changes in this task.
 - Any widening beyond thread scope must set an explicit `widen_reason` in the trace payload.
 - `source_mode` and `widen_reason` must remain truthful and stable after assembly; the trace cannot silently widen later.
 
+## External Web Search Relation
+
+Future Search-as-RAG adapter execution may sit behind an existing explicit broadened retrieval posture such as `explicit_global_search`.
+
+This task does not add runtime behavior and does not introduce new intent tokens. The router remains the decision seam, while provider adapters remain the execution seam for external indexed retrieval.
+
+Any future runtime adoption must keep that separation intact.
+
 ## Design Rules
 
 - Retrieval is optional.
@@ -114,6 +122,7 @@ introduces live retrieval behavior changes in this task.
   - The router decides whether retrieval is needed instead of assuming it.
 - Scope starts narrow.
   - Start from the active conversation and local evidence before widening.
+  - Ordinary chat is thread-first: active thread messages, then thread-local semantic context, then thread-linked docs.
   - Broader search should be explicit or policy-driven, not accidental.
 - Time is a partition, not just ranking.
   - Timeline queries are not ordinary QA with a recency boost.

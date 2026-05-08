@@ -14,6 +14,19 @@ describe("Draft thread route invariants", () => {
     expect(source).toContain("thread_id: null");
   });
 
+  it("routes Guardian create-thread calls through the canonical API prefix", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "features/chat/GuardianChat.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("const createThreadFromComposer");
+    const end = source.indexOf("const ensureThreadIdForAttachments");
+    const slice = start >= 0 && end > start ? source.slice(start, end) : source;
+
+    expect(slice).toContain("buildChatThreadsPath()");
+    expect(slice).not.toContain('api.post("/chat/threads"');
+  });
+
   it("does not create threads from dashboard new-thread flow", () => {
     const source = readFileSync(
       resolve(process.cwd(), "components/persona/layout/AppShell.tsx"),

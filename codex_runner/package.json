@@ -1,0 +1,13 @@
+{
+  "name": "codex-runner-pi",
+  "version": "0.1.0",
+  "description": "Pi-powered Campaign Runner",
+  "type": "module",
+  "scripts": {
+    "agent": "node src/agent-wrapper.js",
+    "audit": "node src/agent-wrapper.js audit",
+    "compile": "node src/agent-wrapper.js compile",
+    "task": "node src/agent-wrapper.js task"
+  },
+  "dependencies": {}
+}

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BookOpen, ChevronRight, FileText, ImagePlus, UploadCloud } from "lucide-react";
+import { BookOpen, ChevronRight, FileText, ImagePlus } from "lucide-react";
 import DocumentTile, { type DocumentFile } from "@/components/documents/DocumentTile";
 import FrameCard from "@/components/surface/FrameCard";
 import { Button } from "@/components/ui/button";
@@ -149,8 +149,6 @@ function MobileRecentDocumentRow({
 type DashboardViewProps = {
   extColors: ExtColors;
   gallery: GalleryItem[];
-  activeProjectId?: string | number | null;
-  activeProjectName?: string | null;
   onImagePrompt: (p: string) => void;
   onRequestNewProject: () => void;
   onRequestNewThread: () => void;
@@ -162,8 +160,6 @@ type DashboardViewProps = {
 export default function DashboardView({
   extColors,
   gallery,
-  activeProjectId = null,
-  activeProjectName = null,
   onImagePrompt: _onImagePrompt,
   onRequestNewProject,
   onRequestNewThread,
@@ -179,25 +175,10 @@ export default function DashboardView({
   >([]);
   const [showImgGen, setShowImgGen] = React.useState(false);
   const [recentDocs, setRecentDocs] = React.useState<DocumentFile[]>([]);
-  const [projectKnowledgeDocs, setProjectKnowledgeDocs] = React.useState<DocumentFile[]>([]);
-  const [projectKnowledgeLoading, setProjectKnowledgeLoading] = React.useState(false);
-  const [projectKnowledgeUploading, setProjectKnowledgeUploading] = React.useState(false);
-  const [projectKnowledgeError, setProjectKnowledgeError] = React.useState<string | null>(null);
-  const projectKnowledgeFileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [previewImage, setPreviewImage] = React.useState<{
     src: string;
     alt: string;
   } | null>(null);
-
-  const normalizedProjectId = React.useMemo(() => {
-    const value = String(activeProjectId ?? "").trim();
-    return value || null;
-  }, [activeProjectId]);
-  const activeProjectLabel = React.useMemo(() => {
-    const cleanName = String(activeProjectName ?? "").trim();
-    if (cleanName) return cleanName;
-    return normalizedProjectId ? `Project ${normalizedProjectId}` : null;
-  }, [activeProjectName, normalizedProjectId]);
 
   const openRecentDocument = React.useCallback((doc: DocumentFile) => {
     requestWorkspaceOpen(
@@ -288,82 +269,6 @@ export default function DashboardView({
       cancelled = true;
     };
   }, [auth]);
-
-  const loadProjectKnowledgeDocuments = React.useCallback(async () => {
-    if (!normalizedProjectId) {
-      setProjectKnowledgeDocs([]);
-      setProjectKnowledgeLoading(false);
-      setProjectKnowledgeError(null);
-      return;
-    }
-    if (!checkAuthGate(auth, "project knowledge documents load")) {
-      setProjectKnowledgeDocs([]);
-      setProjectKnowledgeLoading(false);
-      return;
-    }
-
-    setProjectKnowledgeLoading(true);
-    setProjectKnowledgeError(null);
-    try {
-      const res = await api.get("/media/documents", {
-        params: { limit: 8, project_id: normalizedProjectId },
-      });
-      const docs = unwrapDashboardDocumentsPayload(res?.data)
-        .map(normalizeDashboardDocument)
-        .filter((doc: DocumentFile | null): doc is DocumentFile => !!doc);
-      setProjectKnowledgeDocs(docs);
-    } catch (error) {
-      console.warn("[dashboard] failed to load project knowledge documents", error);
-      setProjectKnowledgeDocs([]);
-      setProjectKnowledgeError("Project Knowledge Base documents could not be loaded.");
-    } finally {
-      setProjectKnowledgeLoading(false);
-    }
-  }, [auth, normalizedProjectId]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      await loadProjectKnowledgeDocuments();
-      if (cancelled) return;
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadProjectKnowledgeDocuments]);
-
-  const handleProjectKnowledgeUpload = React.useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files ?? []);
-      event.target.value = "";
-      if (!normalizedProjectId || files.length === 0) return;
-      if (!checkAuthGate(auth, "project knowledge document upload")) {
-        setProjectKnowledgeError("Sign in before uploading project knowledge documents.");
-        return;
-      }
-
-      setProjectKnowledgeUploading(true);
-      setProjectKnowledgeError(null);
-      try {
-        for (const file of files) {
-          const form = new FormData();
-          form.append("project_id", normalizedProjectId);
-          form.append("file", file);
-          form.append("tag", "uploaded");
-          await api.post("/api/media/upload/document", form, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
-        }
-        await loadProjectKnowledgeDocuments();
-      } catch (error) {
-        console.warn("[dashboard] project knowledge upload failed", error);
-        setProjectKnowledgeError("Upload failed. The document was not added to this project.");
-      } finally {
-        setProjectKnowledgeUploading(false);
-      }
-    },
-    [auth, loadProjectKnowledgeDocuments, normalizedProjectId]
-  );
 
   const openThread = React.useCallback((id: string) => {
     const normalizedId = String(id ?? "").trim();
@@ -579,121 +484,6 @@ export default function DashboardView({
                       )}
                     </div>
                   )}
-                </div>
-              </div>
-            </FrameCard>
-
-            <FrameCard
-              refractiveFallback
-              shimmerMode="subtle"
-              className={isPhoneShell ? "w-full min-h-[240px]" : "flex-1 min-h-[240px]"}
-            >
-              <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
-                <div className={cardHeaderClassName}>
-                  <div>
-                    <h2 className="text-lg font-semibold tracking-tight">
-                      Project Knowledge Base
-                    </h2>
-                    <p className="text-xs leading-6 opacity-70">
-                      Uploaded docs, notes, specs, and working references inform
-                      project work.
-                    </p>
-                  </div>
-                  {normalizedProjectId ? (
-                    <div className={`flex items-center gap-[var(--pill-gap)] ${isPhoneShell ? "flex-wrap justify-start" : ""}`}>
-                      <input
-                        ref={projectKnowledgeFileInputRef}
-                        type="file"
-                        className="hidden"
-                        multiple
-                        accept=".pdf,.doc,.docx,.md,.txt,application/pdf,text/plain,text/markdown,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        onChange={handleProjectKnowledgeUpload}
-                        aria-label="Project Knowledge Base document files"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => projectKnowledgeFileInputRef.current?.click()}
-                        disabled={projectKnowledgeUploading}
-                        aria-label="Upload Project Knowledge Base documents"
-                      >
-                        <UploadCloud className="mr-1 h-4 w-4" />
-                        {projectKnowledgeUploading ? "Uploading..." : "Upload"}
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="rounded-full border border-[var(--panel-border)] px-2 py-1 text-[11px] font-medium text-[var(--muted)]">
-                      Project required
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-1 min-h-0 flex-col gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
-                  {normalizedProjectId ? (
-                    <>
-                      <div className="flex flex-wrap items-center gap-[var(--pill-gap)] text-xs leading-6 opacity-80">
-                        <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
-                          Active project: {activeProjectLabel}
-                        </span>
-                        <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
-                          Project-local
-                        </span>
-                      </div>
-                      <p className="text-sm leading-6">
-                        Project Knowledge Base informs project work. System Docs
-                        govern the assistant from Settings &gt; Data; they are
-                        separate from this project-local document lane.
-                      </p>
-                      {projectKnowledgeError ? (
-                        <p className="text-xs leading-6 text-red-300">{projectKnowledgeError}</p>
-                      ) : null}
-                      <div className="min-h-0 flex-1 overflow-hidden">
-                        {projectKnowledgeLoading ? (
-                          <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
-                            Loading project documents...
-                          </div>
-                        ) : projectKnowledgeDocs.length === 0 ? (
-                          <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
-                            No project documents yet. Upload docs, notes, specs,
-                            or working references for this project.
-                          </div>
-                        ) : (
-                          <div className="grid content-start gap-[var(--pill-gap)] overflow-auto pr-1">
-                            {projectKnowledgeDocs.map((doc) => (
-                              <button
-                                key={doc.id ?? doc.name}
-                                type="button"
-                                className="flex min-w-0 items-center justify-between gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] px-3 py-2 text-left text-sm transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
-                                onClick={() => openRecentDocument(doc)}
-                                aria-label={`Open ${doc.name} from Project Knowledge Base`}
-                              >
-                                <span className="min-w-0 truncate">{doc.name}</span>
-                                <span className="shrink-0 text-[11px] opacity-60">
-                                  {doc.embeddingStatus ? String(doc.embeddingStatus) : "document"}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex flex-1 items-center">
-                      <div className="space-y-2">
-                        <p className="text-sm leading-6">
-                          Select or create a project to build its Knowledge Base.
-                        </p>
-                        <p className="text-xs leading-6 opacity-75">
-                          Project Knowledge Base informs project work; System
-                          Docs govern the assistant from Settings &gt; Data.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  <div className="text-xs leading-6 opacity-75">
-                    This surface uses existing project document storage. It does
-                    not change global behavior or retrieval policy.
-                  </div>
                 </div>
               </div>
             </FrameCard>

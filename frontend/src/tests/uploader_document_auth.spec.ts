@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useUploader } from "../hooks/useUploader";
+import { resolveBackendUrl } from "../lib/runtimeConfig";
 
 class MockFileReader {
   result: string | ArrayBuffer | null = null;
@@ -29,7 +30,7 @@ function installFetchMock() {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url === "/api/media/upload/document") {
+      if (url === resolveBackendUrl("/api/media/upload/document")) {
         return {
           ok: true,
           status: 200,
@@ -91,8 +92,8 @@ describe("useUploader auth headers", () => {
     const fetchMock = installFetchMock();
     await uploadDocument();
 
-    const mediaCall = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/media/upload/document"
+    const mediaCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/media/upload/document")
     );
     expect(mediaCall).toBeDefined();
     const init = mediaCall?.[1] as RequestInit | undefined;
@@ -100,7 +101,7 @@ describe("useUploader auth headers", () => {
     expect(headers["X-API-Key"]).toBe("non-proxy-key");
   });
 
-  it("does not add X-API-Key on document upload in proxy mode", async () => {
+  it("adds X-API-Key on document upload in proxy mode when a local key is configured", async () => {
     vi.stubGlobal("FileReader", MockFileReader as unknown as typeof FileReader);
     vi.stubEnv("VITE_USE_PROXY", "true");
     vi.stubEnv("VITE_GUARDIAN_API_KEY", "proxy-key");
@@ -108,13 +109,13 @@ describe("useUploader auth headers", () => {
     const fetchMock = installFetchMock();
     await uploadDocument();
 
-    const mediaCall = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/media/upload/document"
+    const mediaCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/media/upload/document")
     );
     expect(mediaCall).toBeDefined();
     const init = mediaCall?.[1] as RequestInit | undefined;
     const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(headers["X-API-Key"]).toBeUndefined();
+    expect(headers["X-API-Key"]).toBe("proxy-key");
   });
 
   it("uploads documents without thread context when project_id is present", async () => {
@@ -125,9 +126,46 @@ describe("useUploader auth headers", () => {
     const fetchMock = installFetchMock();
     await uploadDocument({ projectId: 7, threadId: undefined });
 
-    const mediaCall = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/media/upload/document"
+    const mediaCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/media/upload/document")
     );
     expect(mediaCall).toBeDefined();
+  });
+
+  it("mounts a file input in the DOM before opening the picker", () => {
+    const appendSpy = vi.spyOn(document.body, "appendChild");
+    const clickSpy = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    const { result } = renderHook(() =>
+      useUploader({
+        onImages: vi.fn(),
+        onDocuments: vi.fn(),
+        projectId: 7,
+        threadId: 11,
+      })
+    );
+
+    act(() => {
+      result.current.pick();
+    });
+
+    expect(
+      appendSpy.mock.calls.some(([node]) => node instanceof HTMLInputElement)
+    ).toBe(true);
+    const appended = appendSpy.mock.calls.find(
+      ([node]) => node instanceof HTMLInputElement
+    )?.[0] as HTMLInputElement | undefined;
+    expect(appended).toBeInstanceOf(HTMLInputElement);
+    expect(appended?.type).toBe("file");
+    expect(appended?.multiple).toBe(true);
+    expect(appended?.accept).toContain(".png");
+    expect(appended?.accept).toContain(".pdf");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    appended?.remove();
+    appendSpy.mockRestore();
+    clickSpy.mockRestore();
   });
 });

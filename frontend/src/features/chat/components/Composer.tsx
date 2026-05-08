@@ -13,6 +13,7 @@ import api from "@/lib/api";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { getMobileTapTargetStyle } from "@/components/persona/layout/mobileInteractionContract";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
+import { ModelMetadataEditorSheet } from "@/features/chat/components/ModelMetadataEditorSheet";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
@@ -22,7 +23,7 @@ import {
   type SlashCommandDefinition,
   type SlashCommandId,
   type SlashCommandIntentPayload,
-  buildSlashCommandIntentPayload,
+  buildSlashCommandSendPayload,
   resolveSlashCommandIntent,
 } from "@/contracts/slashCommands";
 import {
@@ -34,6 +35,7 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
+import type { LlmCatalogModel } from "@/features/chat/hooks/useLlmCatalog";
 import type { DocumentContextTile } from "@/lib/documentContext";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
@@ -215,7 +217,7 @@ export type ComposerSendOptions = {
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
-type SourceMode = "project" | "workspace";
+type SourceMode = "project" | "personal_knowledge";
 
 type DraftAttachment = {
   id: string;
@@ -312,8 +314,10 @@ export function Composer({
   providerOpenSignal,
   onProviderChange,
   activeModelId = "default",
+  selectedModelCatalog = null,
   modelOptions = [],
   onModelChange,
+  onCatalogRefresh,
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   inferenceModeOptions = [],
   onInferenceModeChange,
@@ -350,8 +354,10 @@ export function Composer({
   providerOpenSignal?: number;
   onProviderChange?: (providerId: string) => void;
   activeModelId?: string;
+  selectedModelCatalog?: LlmCatalogModel | null;
   modelOptions?: ComposerSelectOption[];
   onModelChange?: (modelId: string) => void;
+  onCatalogRefresh?: () => Promise<void> | void;
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
@@ -432,6 +438,7 @@ export function Composer({
   const [uploading, setUploading] = useState(false);
   const sendInFlightRef = useRef(false);
   const [showImgGen, setShowImgGen] = useState(false);
+  const [showModelEditor, setShowModelEditor] = useState(false);
   const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
 
@@ -663,10 +670,6 @@ export function Composer({
   function stageFiles(files: FileList | File[]) {
     const arr = Array.from(files || []);
     if (!arr.length) return;
-    if (draftControlsDisabled) {
-      notifyTransportBusy();
-      return;
-    }
 
     setDraftAttachments((prev) => {
       const next = [...prev];
@@ -747,18 +750,12 @@ export function Composer({
     const endpoint =
       att.kind === "image" ? "/api/media/upload/image" : "/api/media/upload/document";
     const form = new FormData();
-    const resolvedProjectId = projectId ?? resolveProjectId();
-    if (resolvedProjectId !== null) {
-      form.append("project_id", String(resolvedProjectId));
-    }
     form.append("thread_id", String(uploadThreadId));
     form.append("file", file);
     form.append("tag", "uploaded");
 
     try {
-      const res = await api.post(endpoint, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const res = await api.post(endpoint, form);
       const data = (res as any)?.data ?? res;
       const src = data?.src_url;
       if (!src) {
@@ -798,12 +795,11 @@ export function Composer({
     if (sendInFlightRef.current) return;
     if (sendTransportDisabled) return;
 
-    const bodyText = value.trim();
+    const { messageText, slashIntent } = buildSlashCommandSendPayload(value);
+    const bodyText = messageText.trim();
     const hasAttachments = draftAttachments.length > 0;
     const hasDocumentTiles = documentTiles.length > 0;
     if (!bodyText && !hasAttachments && !hasDocumentTiles) return;
-
-    const slashIntent = buildSlashCommandIntentPayload(value);
 
     sendInFlightRef.current = true;
     setInternalSending(true);
@@ -833,7 +829,6 @@ export function Composer({
       const message = hasAttachments
         ? buildChatAttachmentMessage(uploaded, bodyText)
         : bodyText;
-      const slashIntent = buildSlashCommandIntentPayload(value);
 
       if (hasAttachments && !message) {
         showToast("No attachments could be uploaded.");
@@ -925,10 +920,6 @@ export function Composer({
   }
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (draftControlsDisabled) {
-      notifyTransportBusy();
-      return;
-    }
     const rawAsset = e.dataTransfer?.getData("application/x-cfy-asset");
     if (rawAsset) {
       try {
@@ -990,6 +981,15 @@ export function Composer({
     modelOptions.find((option) => option.value === activeModelId)?.label ??
     modelOptions[0]?.label ??
     "Model";
+  const modelMetadataFooterAction =
+    activeProviderId && selectedModelCatalog
+      ? {
+          label: "Edit selected model",
+          description: "Rename labels or correct vision capability.",
+          disabled: draftControlsDisabled,
+          onClick: () => setShowModelEditor(true),
+        }
+      : undefined;
   const hasImageAttachments = draftAttachments.some((att) => att.kind === "image");
   const hasVisionCapableModel = modelOptions.some((option) => {
     if (option.supportsChat === false || option.modelKind === "utility") {
@@ -1232,9 +1232,10 @@ export function Composer({
                 </div>
               ) : null}
               <div className="max-h-60 overflow-y-auto">
-                {visibleSlashCommands.length > 0 ? (
-                  visibleSlashCommands.map((command) => {
+              {visibleSlashCommands.length > 0 ? (
+                visibleSlashCommands.map((command) => {
                     const isActive = command.id === activeSlashCommand?.id;
+                    const isContextCommandShell = command.id === "obsidian";
                     return (
                       <button
                         key={command.id}
@@ -1266,16 +1267,31 @@ export function Composer({
                             {command.description}
                           </span>
                         </span>
-                        <span
-                          className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
-                          style={{
-                            color: isActive ? "var(--accent)" : "var(--muted)",
-                            background: isActive
-                              ? "color-mix(in oklab, var(--accent) 10%, transparent)"
-                              : "transparent",
-                          }}
-                        >
-                          /{command.id}
+                        <span className="mt-0.5 flex shrink-0 flex-col items-end gap-1">
+                          {isContextCommandShell ? (
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
+                              style={{
+                                color: isActive ? "var(--accent)" : "var(--muted)",
+                                background: isActive
+                                  ? "color-mix(in oklab, var(--accent) 10%, transparent)"
+                                  : "transparent",
+                              }}
+                            >
+                              Context shell
+                            </span>
+                          ) : null}
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]"
+                            style={{
+                              color: isActive ? "var(--accent)" : "var(--muted)",
+                              background: isActive
+                                ? "color-mix(in oklab, var(--accent) 10%, transparent)"
+                                : "transparent",
+                            }}
+                          >
+                            /{command.id}
+                          </span>
                         </span>
                       </button>
                     );
@@ -1330,7 +1346,7 @@ export function Composer({
             multiple
             style={{ display: "none" }}
             onChange={(e) => {
-              const files = e.target.files;
+              const files = Array.from(e.currentTarget.files ?? []);
               e.currentTarget.value = "";
               if (files && files.length) stageFiles(files);
             }}
@@ -1357,15 +1373,11 @@ export function Composer({
               style={{ gap: "var(--composer-control-gap, 12px)" }}
             >
               <ComposerActionMenu
-                disabled={draftControlsDisabled}
+                disabled={false}
                 isPhoneShell={isPhoneShell}
                 depthMode={depthMode}
                 depthOptions={depthOptions}
                 onAttach={() => {
-                  if (draftControlsDisabled) {
-                    notifyTransportBusy();
-                    return;
-                  }
                   fileInputRef.current?.click();
                 }}
                 onGenerateImage={() => {
@@ -1401,6 +1413,7 @@ export function Composer({
                 isPhoneShell={isPhoneShell}
                 selectedValue={activeModelId}
                 disabled={draftControlsDisabled || modelOptions.length === 0}
+                footerAction={modelMetadataFooterAction}
                 onSelect={onModelChange ?? (() => {})}
               />
               <ComposerSelectMenu
@@ -1455,6 +1468,13 @@ export function Composer({
         onOpenChange={setShowImgGen}
         projectId={projectId ?? resolveProjectId()}
         threadId={threadId ?? null}
+      />
+      <ModelMetadataEditorSheet
+        open={showModelEditor}
+        onOpenChange={setShowModelEditor}
+        providerId={activeProviderId}
+        model={selectedModelCatalog}
+        onSaved={onCatalogRefresh}
       />
     </>
   );

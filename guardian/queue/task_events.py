@@ -250,6 +250,25 @@ def read_events(
     return events
 
 
+def read_latest_completed_payload(
+    task_id: str, *, block_ms: int = _READ_EVENTS_BLOCK_MS
+) -> dict[str, Any] | None:
+    """Return the most recent task.completed payload for a task stream."""
+
+    try:
+        events = read_events(task_id, "0", count=100, block_ms=block_ms)
+    except Exception:
+        return None
+
+    completed_payload: dict[str, Any] | None = None
+    for _, event in events:
+        if event.get("type") == "task.completed":
+            data = event.get("data", {})
+            if isinstance(data, dict):
+                completed_payload = data
+    return completed_payload
+
+
 def describe_terminal_state(task_id: str) -> dict[str, Any]:
     """Describe whether a task stream has reached a terminal state."""
     try:
