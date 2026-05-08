@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from "react";
-import { hasRuntimeApiKey } from "@/lib/runtimeAuth";
+import {
+  hasResolvedRuntimeApiKey,
+  hasRuntimeApiKey,
+} from "@/lib/runtimeAuth";
 
 export type AuthStatus = "unknown" | "authenticated" | "unauthenticated";
 
@@ -29,12 +32,20 @@ function normalizeAuthToken(token: string | null | undefined): string | null {
 }
 
 function readRuntimeEnv(name: string, fallback = ""): string {
-  const viteEnv =
-    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
   const nodeEnv =
     typeof process !== "undefined" ? ((process as any).env ?? {}) : {};
-  const raw = viteEnv[name] ?? nodeEnv[name] ?? fallback;
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  const raw = nodeEnv[name] ?? viteEnv[name] ?? fallback;
   return String(raw ?? "");
+}
+
+function isDesktopRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    typeof (window as any).__TAURI_IPC__ !== "undefined" ||
+    typeof (window as any).__TAURI_INTERNALS__ !== "undefined"
+  );
 }
 
 function isDevRuntime(): boolean {
@@ -73,6 +84,9 @@ function deriveAuthState(): AuthState {
       ready: true,
       token: token ?? undefined,
     };
+  }
+  if (isDesktopRuntime() && !hasResolvedRuntimeApiKey()) {
+    return { status: "unknown", ready: false };
   }
   return { status: "unauthenticated", ready: true };
 }

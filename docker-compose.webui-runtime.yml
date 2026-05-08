@@ -1,0 +1,78 @@
+name: codexify
+
+services:
+  db:
+    extends:
+      file: docker-compose.runtime.yml
+      service: db
+
+  neo4j:
+    extends:
+      file: docker-compose.runtime.yml
+      service: neo4j
+
+  redis:
+    extends:
+      file: docker-compose.runtime.yml
+      service: redis
+
+  graph-init:
+    extends:
+      file: docker-compose.runtime.yml
+      service: graph-init
+
+  migrator:
+    extends:
+      file: docker-compose.runtime.yml
+      service: migrator
+
+  model-prep:
+    extends:
+      file: docker-compose.runtime.yml
+      service: model-prep
+
+  backend:
+    extends:
+      file: docker-compose.runtime.yml
+      service: backend
+
+  worker-warmup:
+    extends:
+      file: docker-compose.runtime.yml
+      service: worker-warmup
+
+  worker-chat:
+    extends:
+      file: docker-compose.runtime.yml
+      service: worker-chat
+
+  worker-chat-embed:
+    extends:
+      file: docker-compose.runtime.yml
+      service: worker-chat-embed
+
+  worker-document-embed:
+    extends:
+      file: docker-compose.runtime.yml
+      service: worker-document-embed
+
+  frontend:
+    image: ${CODEXIFY_WEBUI_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-webui:${CODEXIFY_WEBUI_IMAGE_TAG:-local-beta}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.webui
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pg_data:
+  neo4j_data:
+  hf_cache:
+  codexify_models:
+  codexify_chroma:
+  codexify_media:
+  codexify_cli_home:

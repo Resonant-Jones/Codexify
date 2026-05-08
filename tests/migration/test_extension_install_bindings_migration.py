@@ -179,11 +179,13 @@ def test_extension_install_bindings_migration_round_trip(tmp_path, monkeypatch):
                 },
             )
             session.add(proposal)
+            session.commit()
+            session.refresh(proposal)
 
             decision = AgentExtensionInstallGateDecision(
                 decision_id="decision-1",
                 account_id="user-123",
-                proposal_id="proposal-1",
+                proposal_id=proposal.proposal_id,
                 decision_token=InstallGateDecisionToken.APPROVED.value,
                 reason="manual approval",
                 notes_json={},
@@ -205,12 +207,14 @@ def test_extension_install_bindings_migration_round_trip(tmp_path, monkeypatch):
                 ],
             )
             session.add(decision)
+            session.commit()
+            session.refresh(decision)
 
             registry = AgentExtensionRegistryEntry(
                 registry_id="registry-1",
                 account_id="user-123",
-                proposal_id="proposal-1",
-                decision_id="decision-1",
+                proposal_id=proposal.proposal_id,
+                decision_id=decision.decision_id,
                 project_id=17,
                 profile_id=None,
                 source_thread_id=21,
@@ -247,12 +251,14 @@ def test_extension_install_bindings_migration_round_trip(tmp_path, monkeypatch):
                 },
             )
             session.add(registry)
+            session.commit()
+            session.refresh(registry)
 
             binding = AgentExtensionInstallBinding(
                 binding_id="binding-1",
                 account_id="user-123",
-                registry_entry_id="registry-1",
-                proposal_id="proposal-1",
+                registry_entry_id=registry.registry_id,
+                proposal_id=proposal.proposal_id,
                 scope_token=ExtensionInstallBindingScope.PROJECT.value,
                 project_id=17,
                 profile_id=None,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -132,3 +133,59 @@ def test_default_user_bootstrap_does_not_seed_known_password(monkeypatch):
     assert user["id"] == "local"
     assert user["username"] == "local"
     assert not verify_password("local", user["password_hash"])
+def test_default_local_bootstrap_is_canonical_but_not_guessable(monkeypatch):
+    monkeypatch.delenv("GUARDIAN_BOOTSTRAP_PASSWORD", raising=False)
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "auth-flow-session-secret")
+    monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
+
+    auth_db = _AuthDb()
+
+    from guardian.routes import auth as auth_routes
+
+    with patch.object(auth_routes, "load_guardian_db_from_env", return_value=auth_db):
+        seeded_user = get_or_create_default_user(auth_db)
+
+        assert seeded_user["id"] == "local"
+        assert seeded_user["username"] == "local"
+        assert verify_password("local", seeded_user["password_hash"]) is False
+
+        app = FastAPI()
+        app.include_router(auth_routes.router)
+        client = TestClient(app)
+        login_response = client.post(
+            "/auth/login",
+            json={"username": "local", "password": "local"},
+        )
+
+    assert login_response.status_code == 401
+
+
+def test_local_bootstrap_uses_operator_secret_when_provided(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_BOOTSTRAP_PASSWORD", "operator-secret")
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "auth-flow-session-secret")
+    monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
+
+    auth_db = _AuthDb()
+
+    from guardian import guardian_api
+    from guardian.routes import auth as auth_routes
+
+    with patch.object(auth_routes, "load_guardian_db_from_env", return_value=auth_db):
+        seeded_user = get_or_create_default_user(auth_db)
+
+        assert seeded_user["id"] == "local"
+        assert seeded_user["username"] == "local"
+        assert verify_password(
+            "operator-secret", seeded_user["password_hash"]
+        )
+
+        client = TestClient(guardian_api.app)
+        login_response = client.post(
+            "/auth/login",
+            json={"username": "local", "password": "operator-secret"},
+        )
+
+    assert login_response.status_code == 200
+    assert login_response.json()["user_id"] == "local"

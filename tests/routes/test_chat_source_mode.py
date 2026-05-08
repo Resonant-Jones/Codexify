@@ -10,6 +10,9 @@ from guardian.context.broker import ContextBroker
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
+    SOURCE_MODE_WORKSPACE,
+    WIDEN_REASON_EXPLICIT_WORKSPACE,
+    source_mode_boundary_label,
 )
 from guardian.tasks.types import task_from_dict
 from tests.utils import get_test_user_id
@@ -19,6 +22,7 @@ from tests.utils import get_test_user_id
     ("raw_source_mode", "expected_source_mode"),
     [
         ("personal_knowledge", "personal_knowledge"),
+        ("workspace", "workspace"),
         ("obsidian", "obsidian_only"),
         ("obsidian_only", "obsidian_only"),
         ("", "project"),
@@ -85,6 +89,114 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
         == expected_requested_source_mode
     )
     assert captured["queue_name"] == "codexify:queue:chat"
+
+
+@pytest.mark.asyncio
+async def test_context_broker_workspace_mode_stays_local_and_user_bounded(
+    monkeypatch,
+):
+    expected_user_id = get_test_user_id()
+
+    class _Chatlog:
+        def get_chat_thread(self, thread_id):
+            return {
+                "id": thread_id,
+                "user_id": expected_user_id,
+                "project_id": 7,
+                "archived_at": None,
+            }
+
+        def list_messages(self, thread_id, limit, offset):
+            return [{"id": 1, "role": "user", "content": "Hello"}]
+
+    broker = ContextBroker(
+        _Chatlog(),
+        None,
+        None,
+        None,
+        settings=SimpleNamespace(GUARDIAN_ENABLE_GRAPH_CONTEXT=False),
+    )
+    captured: dict[str, object] = {}
+
+    async def _fake_search_with_widening(
+        *,
+        query,
+        k,
+        thread_id,
+        user_id,
+        project_id,
+        source_mode,
+        search_fn,
+        widening_enabled=True,
+        retrieval_policy=None,
+    ):
+        captured.update(
+            {
+                "called": True,
+                "query": query,
+                "k": k,
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "project_id": project_id,
+                "source_mode": source_mode,
+                "widening_enabled": widening_enabled,
+            }
+        )
+        return (
+            [
+                {
+                    "id": "doc-1",
+                    "score": 0.9,
+                    "text": "workspace hit",
+                    "user_id": user_id,
+                }
+            ],
+            WIDEN_REASON_EXPLICIT_WORKSPACE,
+            {
+                "attempted": True,
+                "status": "contributed",
+                "reason": "local_hits",
+            },
+        )
+
+    async def _fake_get_scoped_documents(**_kwargs):
+        return {"project": [], "thread": [], "global": []}
+
+    monkeypatch.setattr(
+        broker,
+        "_search_with_widening",
+        _fake_search_with_widening,
+    )
+    monkeypatch.setattr(
+        broker,
+        "get_scoped_documents",
+        _fake_get_scoped_documents,
+    )
+
+    _context, trace = await broker.assemble(
+        1,
+        query="Hello",
+        depth_mode="normal",
+        user_id=expected_user_id,
+        project_id=7,
+        source_mode=SOURCE_MODE_WORKSPACE,
+    )
+
+    assert captured["called"] is True
+    assert captured["user_id"] == expected_user_id
+    assert captured["project_id"] == 7
+    assert captured["source_mode"] == SOURCE_MODE_WORKSPACE
+    assert captured["widening_enabled"] is True
+    assert trace["source_mode"] == SOURCE_MODE_WORKSPACE
+    assert trace["effective_policy"] == {
+        "source_mode": SOURCE_MODE_WORKSPACE,
+        "widening_enabled": True,
+        "identity_scope": SOURCE_MODE_WORKSPACE,
+    }
+    assert trace["widen_reason"] == WIDEN_REASON_EXPLICIT_WORKSPACE
+    assert source_mode_boundary_label(trace["source_mode"]) == (
+        "same_user_only"
+    )
 
 
 @pytest.mark.parametrize(
@@ -237,7 +349,7 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
                 "widening_enabled": True,
                 "identity_scope": SOURCE_MODE_PROJECT,
             },
-            True,
+            False,
         ),
         (
             {"mode": "project"},
@@ -246,7 +358,7 @@ def test_chat_complete_rejects_invalid_slash_intent_values(
                 "widening_enabled": True,
                 "identity_scope": SOURCE_MODE_PROJECT,
             },
-            True,
+            False,
         ),
         (
             {"mode": "personal_knowledge"},
@@ -304,6 +416,7 @@ async def test_context_broker_merges_retrieval_override_without_skipping_thread_
         source_mode,
         search_fn,
         widening_enabled=True,
+        retrieval_policy=None,
     ):
         captured.update(
             {
@@ -361,3 +474,12 @@ async def test_context_broker_merges_retrieval_override_without_skipping_thread_
     assert captured["called"] is True
     assert captured["widening_enabled"] is expected_widening_enabled
     assert trace["effective_policy"] == expected_policy
+    assert (
+        trace["retrieval_policy"]["allow_semantic_widening"]
+        is expected_widening_enabled
+    )
+    assert trace["retrieval_policy"]["source_mode"] == trace["source_mode"]
+    assert (
+        trace["retrieval_policy"]["widening_source_mode"]
+        == trace["source_mode"]
+    )

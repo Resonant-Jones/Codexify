@@ -89,16 +89,63 @@ class RetrievalPlan:
     active_persona: str | None = None
 
 
+@dataclass(frozen=True)
+class ContextAssemblyPolicy:
+    """Resolved retrieval controls for one completion assembly."""
+
+    plan: RetrievalPlan
+    source_mode: ScopeMode | str
+    widening_source_mode: ScopeMode | str
+    thread_project_bound: bool
+    allow_thread_semantic: bool
+    allow_thread_docs: bool
+    allow_project_docs: bool
+    allow_semantic_widening: bool
+    allow_global_widening: bool
+    reasons: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        plan = self.plan
+        return {
+            "source_mode": str(self.source_mode),
+            "widening_source_mode": str(self.widening_source_mode),
+            "boundary_label": source_mode_boundary_label(self.source_mode),
+            "thread_project_bound": self.thread_project_bound,
+            "allow_thread_semantic": self.allow_thread_semantic,
+            "allow_thread_docs": self.allow_thread_docs,
+            "allow_project_docs": self.allow_project_docs,
+            "allow_semantic_widening": self.allow_semantic_widening,
+            "allow_global_widening": self.allow_global_widening,
+            "reasons": [str(reason) for reason in self.reasons],
+            "retrieval_plan": {
+                "intent": plan.intent.value,
+                "query": plan.query,
+                "effective_depth": plan.effective_depth.value,
+                "default_scope": plan.default_scope.value,
+                "time_mode": plan.time_mode.value,
+                "graph_allowance": plan.graph_allowance.value,
+                "escalation_order": [
+                    step.value for step in plan.escalation_order
+                ],
+                "retrieval_needed": bool(plan.retrieval_needed),
+                "allow_global_fallback": bool(plan.allow_global_fallback),
+                "reasons": [str(reason) for reason in plan.reasons],
+            },
+        }
+
+
 SOURCE_MODE_PROJECT = "project"
 SOURCE_MODE_PERSONAL_KNOWLEDGE = "personal_knowledge"
 SOURCE_MODE_CONVERSATION = "conversation"
 SOURCE_MODE_OBSIDIAN_ONLY = "obsidian_only"
+SOURCE_MODE_WORKSPACE = "workspace"
 
 SOURCE_MODES: tuple[str, ...] = (
     SOURCE_MODE_PROJECT,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_CONVERSATION,
     SOURCE_MODE_OBSIDIAN_ONLY,
+    SOURCE_MODE_WORKSPACE,
 )
 
 RETRIEVAL_OVERRIDE_NONE = "none"
@@ -117,12 +164,14 @@ WIDEN_REASON_NONE = "none"
 WIDEN_REASON_INSUFFICIENT_THREAD_HITS = "insufficient_thread_hits"
 WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS = "low_confidence_thread_hits"
 WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE = "explicit_personal_knowledge"
+WIDEN_REASON_EXPLICIT_WORKSPACE = "explicit_workspace"
 
 WIDEN_REASONS: tuple[str, ...] = (
     WIDEN_REASON_NONE,
     WIDEN_REASON_INSUFFICIENT_THREAD_HITS,
     WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS,
     WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE,
+    WIDEN_REASON_EXPLICIT_WORKSPACE,
 )
 
 SOURCE_MODE_BOUNDARY_ACTIVE_CONVERSATION_ONLY = "active_conversation_only"
@@ -134,6 +183,7 @@ SOURCE_MODE_BOUNDARY_LABELS: dict[str, str] = {
     SOURCE_MODE_PERSONAL_KNOWLEDGE: SOURCE_MODE_BOUNDARY_SAME_USER_ONLY,
     SOURCE_MODE_CONVERSATION: SOURCE_MODE_BOUNDARY_ACTIVE_CONVERSATION_ONLY,
     SOURCE_MODE_OBSIDIAN_ONLY: SOURCE_MODE_BOUNDARY_SAME_USER_ONLY,
+    SOURCE_MODE_WORKSPACE: SOURCE_MODE_BOUNDARY_SAME_USER_ONLY,
 }
 
 SOURCE_MODE_POSTURE: dict[str, dict[str, tuple[str, ...]]] = {
@@ -162,6 +212,21 @@ SOURCE_MODE_POSTURE: dict[str, dict[str, tuple[str, ...]]] = {
         "includes": ("thread_messages", "obsidian"),
         "required_sources": ("obsidian",),
     },
+    SOURCE_MODE_WORKSPACE: {
+        # Workspace-local evidence is still user-bound; Obsidian hits are
+        # selected by the broker and carried through completion-time semantic
+        # injection rather than treated as a separate global retriever.
+        # The runtime may source those hits from the live backend retrieval
+        # probe when the worker container does not share the local Chroma
+        # volume, but the evidence remains workspace-local and user scoped.
+        "includes": (
+            "thread_messages",
+            "semantic",
+            "docs",
+            "obsidian",
+        ),
+        "required_sources": ("obsidian",),
+    },
 }
 
 
@@ -181,6 +246,16 @@ ESCALATION_STEPS: frozenset[str] = frozenset(
 )
 
 _EMPTY_ESCALATION: tuple[EscalationStep, ...] = ()
+_BROAD_RETRIEVAL_INTENTS: frozenset[QueryIntent] = frozenset(
+    {
+        QueryIntent.MEMORY_RECALL,
+        QueryIntent.TIMELINE_RECALL,
+        QueryIntent.PROVENANCE,
+        QueryIntent.EXPLORATORY,
+        QueryIntent.EXPLICIT_GLOBAL_SEARCH,
+        QueryIntent.RELATIONSHIP_TRACE,
+    }
+)
 
 
 def normalize_source_mode(value: object) -> str:
@@ -604,6 +679,88 @@ def resolve_retrieval_plan(
     )
 
 
+def resolve_context_assembly_policy(
+    query: str,
+    user_depth: RetrievalDepth | str | None,
+    *,
+    source_mode: str,
+    retrieval_override: dict[str, object] | None = None,
+    active_thread_id: int | None = None,
+    active_project_id: int | None = None,
+    active_persona: str | None = None,
+    intent: QueryIntent | str | None = None,
+) -> ContextAssemblyPolicy:
+    """Resolve the live thread-first retrieval policy for one completion."""
+
+    plan = resolve_retrieval_plan(
+        query,
+        user_depth,
+        intent=intent,
+        active_thread_id=active_thread_id,
+        active_project_id=active_project_id,
+        active_persona=active_persona,
+    )
+    normalized_source_mode = normalize_source_mode(source_mode)
+    thread_project_bound = active_project_id is not None
+    widening_source_mode = normalized_source_mode
+    if plan.allow_global_fallback:
+        widening_source_mode = SOURCE_MODE_WORKSPACE
+    allow_thread_semantic = normalized_source_mode not in {
+        SOURCE_MODE_CONVERSATION,
+        SOURCE_MODE_OBSIDIAN_ONLY,
+    }
+    allow_thread_docs = normalized_source_mode not in {
+        SOURCE_MODE_CONVERSATION,
+        SOURCE_MODE_OBSIDIAN_ONLY,
+    }
+    allow_project_docs = (
+        thread_project_bound
+        and normalized_source_mode != SOURCE_MODE_CONVERSATION
+        and normalized_source_mode != SOURCE_MODE_OBSIDIAN_ONLY
+    )
+    allow_semantic_widening = (
+        normalized_source_mode
+        in {SOURCE_MODE_PERSONAL_KNOWLEDGE, SOURCE_MODE_WORKSPACE}
+        or plan.intent in _BROAD_RETRIEVAL_INTENTS
+    )
+    allow_global_widening = bool(plan.allow_global_fallback)
+
+    reasons = list(plan.reasons)
+    if thread_project_bound:
+        reasons.append("thread is project-bound, so project documents remain eligible.")
+    else:
+        reasons.append("thread is not project-bound, so project documents stay out by default.")
+    if allow_semantic_widening:
+        reasons.append(
+            f"source mode {normalized_source_mode} or explicit intent allows widening beyond the active thread."
+        )
+    else:
+        reasons.append(
+            "ordinary chat stays thread-first and does not widen semantic recall."
+        )
+    if allow_global_widening:
+        reasons.append("explicit broadened intent allows global search posture.")
+    if retrieval_override:
+        override_mode = str(retrieval_override.get("mode") or "").strip()
+        if override_mode:
+            reasons.append(
+                f"retrieval override requested mode={override_mode}."
+            )
+
+    return ContextAssemblyPolicy(
+        plan=plan,
+        source_mode=normalized_source_mode,
+        widening_source_mode=widening_source_mode,
+        thread_project_bound=thread_project_bound,
+        allow_thread_semantic=allow_thread_semantic,
+        allow_thread_docs=allow_thread_docs,
+        allow_project_docs=allow_project_docs,
+        allow_semantic_widening=allow_semantic_widening,
+        allow_global_widening=allow_global_widening,
+        reasons=tuple(reasons),
+    )
+
+
 __all__ = [
     "ESCALATION_STEPS",
     "GRAPH_ALLOWANCES",
@@ -622,11 +779,13 @@ __all__ = [
     "SOURCE_MODE_OBSIDIAN_ONLY",
     "SOURCE_MODE_PERSONAL_KNOWLEDGE",
     "SOURCE_MODE_PROJECT",
+    "SOURCE_MODE_WORKSPACE",
     "SOURCE_MODE_POSTURE",
     "SOURCE_MODES",
     "SCOPE_MODES",
     "TIME_MODES",
     "WIDEN_REASON_EXPLICIT_PERSONAL_KNOWLEDGE",
+    "WIDEN_REASON_EXPLICIT_WORKSPACE",
     "WIDEN_REASON_INSUFFICIENT_THREAD_HITS",
     "WIDEN_REASON_LOW_CONFIDENCE_THREAD_HITS",
     "WIDEN_REASON_NONE",
@@ -638,6 +797,7 @@ __all__ = [
     "ROUTER_POLICY",
     "RetrievalDepth",
     "RetrievalPlan",
+    "ContextAssemblyPolicy",
     "ScopeMode",
     "TimeMode",
     "classify_query_intent",
@@ -648,5 +808,6 @@ __all__ = [
     "normalize_source_mode",
     "normalize_widen_reason",
     "resolve_retrieval_plan",
+    "resolve_context_assembly_policy",
     "source_mode_boundary_label",
 ]

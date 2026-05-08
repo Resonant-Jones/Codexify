@@ -60,11 +60,11 @@ export function classifyOptionalSurfaceError(error: unknown): OptionalSurfaceErr
 }
 
 function readRuntimeEnv(name: string, fallback = ""): string {
-  const viteEnv =
-    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
   const nodeEnv =
     typeof process !== "undefined" ? ((process as any).env ?? {}) : {};
-  const raw = viteEnv[name] ?? nodeEnv[name] ?? fallback;
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  const raw = nodeEnv[name] ?? viteEnv[name] ?? fallback;
   return String(raw ?? "");
 }
 
@@ -74,6 +74,10 @@ function isDevRuntime(): boolean {
   if (typeof viteEnv.DEV === "boolean") return viteEnv.DEV;
   const raw = readRuntimeEnv("NODE_ENV", "development").trim().toLowerCase();
   return raw !== "production";
+}
+
+function isProxyRuntime(): boolean {
+  return readRuntimeEnv("VITE_USE_PROXY", "false") === "true";
 }
 
 function resolveDevApiKey(): string {
@@ -202,22 +206,20 @@ function applyAuthHeaders(
   const forceApiKey = options.forceApiKey ?? false;
   const token = getAuthToken();
   const runtimeApiKey = getRuntimeApiKey();
-  const devApiKey = resolveDevApiKey();
-  const apiKey = runtimeApiKey || devApiKey;
   const hasAuthorization = hasHeader(headers, "Authorization");
   const hasApiKey = hasHeader(headers, "X-API-Key");
 
+  if (runtimeApiKey && !hasApiKey) {
+    headers["X-API-Key"] = runtimeApiKey;
+  } else {
+    const devApiKey = resolveDevApiKey();
+    const allowDevKey = !isProxyRuntime() || forceApiKey;
+    if ((forceApiKey || !token) && allowDevKey && devApiKey && !hasApiKey) {
+      headers["X-API-Key"] = devApiKey;
+    }
+  }
+
   if (!forceApiKey && token && !hasAuthorization) {
-    headers.Authorization = `Bearer ${token}`;
-    return;
-  }
-
-  if (apiKey && !hasApiKey) {
-    headers["X-API-Key"] = apiKey;
-    return;
-  }
-
-  if (token && !hasAuthorization) {
     headers.Authorization = `Bearer ${token}`;
   }
 }
@@ -278,6 +280,21 @@ export function buildThreadDocumentsPath(threadId: string | number): string {
 
 export function buildLlmCatalogPath(): string {
   return "/llm/catalog";
+}
+
+export function buildLlmModelOverridesPath(): string {
+  return "/api/llm/model-overrides";
+}
+
+export function buildLlmModelOverridePath(
+  providerId: string | number,
+  modelId: string | number
+): string {
+  return `${buildLlmModelOverridesPath()}/${normalizePathSegment(providerId)}/${normalizePathSegment(modelId)}`;
+}
+
+export function buildChatThreadsPath(): string {
+  return "/api/chat/threads";
 }
 
 export function buildChatCompletePath(threadId: string | number): string {
@@ -355,6 +372,31 @@ export type ThreadMoveResponse = {
   move?: Record<string, unknown>;
 };
 
+export type ThreadIdResolutionContext = {
+  endpoint: string;
+  method: string;
+  status: number | null;
+  authPresent: boolean;
+};
+
+export type ThreadIdParserFailureReason =
+  | "resolved"
+  | "thread_id_missing"
+  | "wrong_endpoint_or_non_json_response";
+
+export type ThreadIdResolutionDiagnostics = ThreadIdResolutionContext & {
+  responseKeys: string[];
+  responseDataKeys: string[];
+  responseThreadKeys: string[];
+  parserBranch: string;
+  parserFailureReason: ThreadIdParserFailureReason;
+};
+
+export type ThreadIdResolution = {
+  threadId: number | null;
+  diagnostics: ThreadIdResolutionDiagnostics;
+};
+
 export type CommandBusActor = {
   kind: "human" | "agent" | "system";
   id: string;
@@ -389,11 +431,105 @@ export type CommandBusInvokeResponse = {
   warning?: unknown;
 };
 
+export type GuardianIntentSourceSurface =
+  | "chat"
+  | "voice"
+  | "automation"
+  | "cli"
+  | "plugin";
+
+export type GuardianIntentKind = "command_bus.invoke" | "cron.create";
+
+export type GuardianIntentApprovalState = "pending" | "approved" | "blocked";
+
+export type GuardianIntentExecutionState =
+  | "accepted"
+  | "blocked"
+  | "running"
+  | "completed"
+  | "failed";
+
+export type GuardianIntentScope = {
+  thread_id?: number | null;
+  source_message_id?: number | null;
+  project_id?: number | null;
+  repo_root?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type GuardianIntentPolicy = {
+  approval_required?: boolean;
+  allow_write_execution?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type GuardianCommandBusIntentTarget = {
+  command_id: string;
+  arguments?: CommandBusInvokeArguments;
+  idempotency_key?: string | null;
+};
+
+export type GuardianCronCreateIntentTarget = {
+  is_enabled?: boolean;
+  job_type: string;
+  name: string;
+  payload?: Record<string, unknown>;
+  schedule: string;
+};
+
+export type GuardianIntentTarget =
+  | GuardianCommandBusIntentTarget
+  | GuardianCronCreateIntentTarget;
+
+export type GuardianIntentRequest = {
+  intent_id?: string;
+  actor: CommandBusActor;
+  source_surface: GuardianIntentSourceSurface;
+  intent_kind?: GuardianIntentKind;
+  target: GuardianIntentTarget;
+  scope?: GuardianIntentScope;
+  policy?: GuardianIntentPolicy;
+  provenance_json?: Record<string, unknown>;
+  idempotency_key?: string | null;
+  requested_at?: string;
+  approval_state?: GuardianIntentApprovalState;
+  execution_state?: GuardianIntentExecutionState | null;
+  receipt_ref?: string | null;
+};
+
+export type GuardianIntentDispatchResult = {
+  intent_id?: string;
+  status?: "accepted" | "blocked" | "failed";
+  dispatch_target?: "command_bus" | "cron";
+  intent_kind?: GuardianIntentKind;
+  source_surface?: GuardianIntentSourceSurface;
+  receipt_ref?: string | null;
+  downstream_result_json?: Record<string, unknown>;
+  rejection_reason?: string | null;
+  execution_state?: GuardianIntentExecutionState | null;
+  provenance_json?: Record<string, unknown>;
+};
+
 export async function invokeCommandBus(
   payload: CommandBusInvokeRequest
 ): Promise<CommandBusInvokeResponse> {
   const response = await api.post(
     "/api/guardian/commands/invoke",
+    payload,
+    {
+      headers: {
+        "X-User-Id": payload.actor.id,
+      },
+    }
+  );
+  return response?.data ?? {};
+}
+
+export async function dispatchGuardianIntent(
+  payload: GuardianIntentRequest
+): Promise<GuardianIntentDispatchResult> {
+  const response = await api.post(
+    "/api/guardian/intents/dispatch",
     payload,
     {
       headers: {
@@ -433,6 +569,132 @@ export async function moveChatThread(
     { toProjectId }
   );
   return response?.data ?? {};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function summarizeObjectKeys(value: unknown, limit = 12): string[] {
+  if (!isPlainObject(value)) return [];
+  const keys = Object.keys(value).filter((key) => key !== "__proto__");
+  return keys.slice(0, limit);
+}
+
+function coerceThreadIdCandidate(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function summarizeThreadIdParserBranches(): string {
+  return [
+    "response.thread_id",
+    "response.threadId",
+    "response.id",
+    "response.thread.id",
+    "response.data.thread_id",
+    "response.data.threadId",
+    "response.data.id",
+    "response.data.thread.id",
+  ].join(" -> ");
+}
+
+function isAxiosResponseLike(value: unknown): value is Record<string, unknown> {
+  if (!isPlainObject(value)) return false;
+  return ["data", "status", "statusText", "headers", "config", "request"].some(
+    (key) => key in value
+  );
+}
+
+export function hasRequestAuthCredential(): boolean {
+  return Boolean(getRuntimeApiKey() || getAuthToken() || resolveDevApiKey());
+}
+
+export function resolveBackendThreadIdFromResponse(
+  responseLike: unknown,
+  context: ThreadIdResolutionContext
+): ThreadIdResolution {
+  const response = isPlainObject(responseLike) ? responseLike : null;
+  const responseHasDataProp =
+    Boolean(response) && Object.prototype.hasOwnProperty.call(response, "data");
+  const responseDataValue = responseHasDataProp ? response?.data : undefined;
+  const responseData = isPlainObject(responseDataValue) ? responseDataValue : null;
+  const responseThread = response && isPlainObject(response.thread)
+    ? response.thread
+    : responseData && isPlainObject(responseData.thread)
+      ? responseData.thread
+      : null;
+  const parserFailureReason: ThreadIdParserFailureReason =
+    response != null &&
+    responseHasDataProp &&
+    !isPlainObject(responseDataValue) &&
+    isAxiosResponseLike(response)
+      ? "wrong_endpoint_or_non_json_response"
+      : "thread_id_missing";
+
+  const diagnostics: ThreadIdResolutionDiagnostics = {
+    endpoint: context.endpoint,
+    method: context.method,
+    status: Number.isFinite(context.status as number) ? Number(context.status) : null,
+    authPresent: Boolean(context.authPresent),
+    responseKeys: summarizeObjectKeys(response),
+    responseDataKeys: summarizeObjectKeys(responseData),
+    responseThreadKeys: summarizeObjectKeys(responseThread),
+    parserBranch: summarizeThreadIdParserBranches(),
+    parserFailureReason,
+  };
+
+  const candidates: Array<[string, unknown]> = [
+    ["response.thread_id", response?.thread_id],
+    ["response.threadId", response?.threadId],
+    ["response.id", response?.id],
+    ["response.thread.id", responseThread?.id],
+    ["response.data.thread_id", responseData?.thread_id],
+    ["response.data.threadId", responseData?.threadId],
+    ["response.data.id", responseData?.id],
+    ["response.data.thread.id", responseData?.thread?.id],
+  ];
+
+  for (const [branch, rawValue] of candidates) {
+    const threadId = coerceThreadIdCandidate(rawValue);
+    if (threadId != null) {
+      return {
+        threadId,
+        diagnostics: {
+          ...diagnostics,
+          parserBranch: branch,
+          parserFailureReason: "resolved",
+        },
+      };
+    }
+  }
+
+  return {
+    threadId: null,
+    diagnostics,
+  };
+}
+
+export function formatThreadIdResolutionDiagnostics(
+  diagnostics: ThreadIdResolutionDiagnostics
+): string[] {
+  return [
+    `endpoint=${diagnostics.endpoint}`,
+    `method=${diagnostics.method}`,
+    `status=${diagnostics.status ?? "<unknown>"}`,
+    `authPresent=${diagnostics.authPresent ? "true" : "false"}`,
+    `responseKeys=${diagnostics.responseKeys.length > 0 ? diagnostics.responseKeys.join(",") : "<none>"}`,
+    `dataKeys=${diagnostics.responseDataKeys.length > 0 ? diagnostics.responseDataKeys.join(",") : "<none>"}`,
+    `threadKeys=${diagnostics.responseThreadKeys.length > 0 ? diagnostics.responseThreadKeys.join(",") : "<none>"}`,
+    `parserBranch=${diagnostics.parserBranch}`,
+    `parserFailureReason=${diagnostics.parserFailureReason}`,
+  ];
 }
 
 function isAbsoluteUrl(value: string): boolean {
@@ -889,19 +1151,16 @@ api.interceptors.request.use((config) => {
 
   const token = getAuthToken();
   const runtimeApiKey = getRuntimeApiKey();
+  if (runtimeApiKey && !existingApiKey) {
+    setHeader("X-API-Key", runtimeApiKey);
+  } else if (!token) {
+    const devApiKey = resolveDevApiKey();
+    if (devApiKey && !existingAuthorization && !existingApiKey) {
+      setHeader("X-API-Key", devApiKey);
+    }
+  }
   if (token && !existingAuthorization) {
     setHeader("Authorization", `Bearer ${token}`);
-  } else if (!token) {
-    if (runtimeApiKey && !existingAuthorization && !existingApiKey) {
-      setHeader("X-API-Key", runtimeApiKey);
-    } else {
-      const devApiKey = resolveDevApiKey();
-      if (devApiKey && !existingAuthorization && !existingApiKey) {
-        setHeader("X-API-Key", devApiKey);
-      }
-    }
-  } else if (runtimeApiKey && !existingApiKey) {
-    setHeader("X-API-Key", runtimeApiKey);
   }
   config.headers = headers;
 
@@ -1199,13 +1458,10 @@ export async function fetchPersonalFactRevisions(
 }
 
 export async function fetchProviderState() {
-  const res = await fetch("/api/health/llm");
-
-  if (!res.ok) {
-    throw new Error(`Provider state fetch failed: ${res.status}`);
-  }
-
-  const json = await res.json();
+  // Use the authenticated runtime client so packaged desktop mode keeps the
+  // in-memory desktop API key attached to the provider health probe.
+  const res = await api.get("/health/llm");
+  const json = res?.data ?? {};
 
   console.log("[provider-state:raw]", json);
 

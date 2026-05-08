@@ -61,11 +61,53 @@ def _create_thread(
     }
 
 
+def _branch_thread(
+    monkeypatch, expected_user_id: str, project_id: int
+) -> dict[str, object]:
+    db = MagicMock()
+    db.get_chat_thread.return_value = {
+        "id": 31,
+        "user_id": expected_user_id,
+        "title": "Parent Thread",
+        "summary": "Parent summary",
+        "project_id": project_id,
+    }
+    db.create_chat_thread.return_value = {
+        "id": 32,
+        "user_id": expected_user_id,
+        "title": "Parent Thread (branch)",
+        "summary": "Parent summary",
+        "project_id": project_id,
+        "parent_id": 31,
+    }
+    db.write_audit_log.return_value = None
+    monkeypatch.setattr(chat_routes, "chatlog_db", db)
+
+    result = chat_routes.branch_thread(
+        31,
+        body=chat_routes.ThreadBranchRequest(),
+        api_key="test-api-key",
+        request_user_scope=RequestUserScope(
+            user_id=expected_user_id,
+            account_id=expected_user_id,
+            multi_user_enabled=True,
+        ),
+    )
+    return {
+        "id": result["id"],
+        "parent_id": result["parent_id"],
+        "user_id": db.create_chat_thread.call_args.kwargs["user_id"],
+    }
+
+
 def test_entities_share_same_user(monkeypatch):
     user_id = get_test_user_id()
     project = _create_project(monkeypatch, user_id)
     thread = _create_thread(monkeypatch, user_id, int(project["id"]))
+    branch = _branch_thread(monkeypatch, user_id, int(project["id"]))
 
     assert project["user_id"] == user_id
     assert thread["user_id"] == user_id
+    assert branch["user_id"] == user_id
+    assert branch["parent_id"] == 31
     assert project["user_id"] == thread["user_id"]

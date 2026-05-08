@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 from datetime import datetime, timezone
 from typing import Any
@@ -12,6 +13,9 @@ from guardian.core.passwords import hash_password
 from guardian.db.models import User
 
 logger = logging.getLogger(__name__)
+
+
+BOOTSTRAP_PASSWORD_ENV = "GUARDIAN_BOOTSTRAP_PASSWORD"
 
 
 def _resolve_default_user_id() -> str:
@@ -26,6 +30,12 @@ def _bootstrap_password_hash() -> str:
     the bootstrap credential itself must not be a fixed, guessable value.
     """
     return hash_password(secrets.token_urlsafe(32))
+    bootstrap_password = (os.getenv(BOOTSTRAP_PASSWORD_ENV) or "").strip()
+    if not bootstrap_password:
+        # Fail closed: the canonical local owner still exists, but it is not
+        # issued a guessable password on fresh instances.
+        bootstrap_password = secrets.token_urlsafe(32)
+    return hash_password(bootstrap_password)
 
 
 def get_or_create_default_user(

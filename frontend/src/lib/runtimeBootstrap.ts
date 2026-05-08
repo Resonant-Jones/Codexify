@@ -1,16 +1,19 @@
 import {
+  NATIVE_BRIDGE_FAILURE_KIND,
+  NativeBridgeUnavailableError,
   invokeTauriCommand,
   isTauriRuntime,
   openExternalUrl,
 } from "@/lib/runtimeConfig";
 
 export type RuntimePreflight = {
-  dockerCliInstalled: boolean;
-  dockerComposeAvailable: boolean;
-  dockerDaemonReachable: boolean;
+  dockerCliInstalled: boolean | null;
+  dockerComposeAvailable: boolean | null;
+  dockerDaemonReachable: boolean | null;
   ready: boolean;
   failureKind?: string;
   detail?: string;
+  checksExecuted?: boolean;
   runtimeContext?: "development" | "packaged";
   repoRoot?: string;
   runtimeHome?: string;
@@ -18,7 +21,7 @@ export type RuntimePreflight = {
   packaged?: boolean;
 };
 
-export type BootstrapStep = "setup" | "compose-up" | "health-check";
+export type BootstrapStep = "setup" | "pull-images" | "compose-up" | "health-check";
 
 export type BootstrapRecoveryStage =
   | "preflight"
@@ -72,6 +75,15 @@ export type RuntimeReadinessResult = BootstrapStepResult & {
   redisReady: boolean;
   chatReady: boolean;
   llmReady?: boolean;
+  probeContext?: "host-native" | "container-local" | "frontend" | "unknown";
+  llmStatus?: string | null;
+  llmDetailsStatus?: string | null;
+  llmDetailsOk?: boolean | null;
+  llmProvider?: string | null;
+  llmModel?: string | null;
+  llmProviderRuntimeAvailable?: boolean | null;
+  llmEndpointResolutionState?: string | null;
+  llmFailureReason?: string | null;
   checks: HealthEndpointCheck[];
 };
 
@@ -132,6 +144,7 @@ export type RuntimeBootstrapStatus =
   | "compose-missing"
   | "docker-not-running"
   | "preparing-local-config"
+  | "downloading-local-images"
   | "starting-local-services"
   | "waiting-for-ready"
   | "failed"
@@ -167,6 +180,12 @@ export const BOOTSTRAP_LOG_SERVICES: BootstrapLogService[] = [
 
 function asBoolean(value: unknown): boolean {
   return value === true;
+}
+
+function asOptionalBoolean(value: unknown): boolean | null {
+  if (value === true) return true;
+  if (value === false) return false;
+  return null;
 }
 
 function normalizeText(value: unknown): string | undefined {
@@ -220,6 +239,23 @@ function normalizeOptionalBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
+function normalizeOptionalBooleanOrNull(value: unknown): boolean | null {
+  if (value === true) return true;
+  if (value === false) return false;
+  return null;
+}
+
+function normalizeProbeContext(
+  value: unknown
+): "host-native" | "container-local" | "frontend" | "unknown" | undefined {
+  return value === "host-native" ||
+    value === "container-local" ||
+    value === "frontend" ||
+    value === "unknown"
+    ? value
+    : undefined;
+}
+
 function normalizeBootstrapLogService(
   value: unknown,
   fallback: BootstrapLogService
@@ -245,7 +281,12 @@ function normalizeEndpointCheck(payload: unknown): HealthEndpointCheck {
 }
 
 function normalizeStep(step: unknown, fallback: BootstrapStep): BootstrapStep {
-  if (step === "setup" || step === "compose-up" || step === "health-check") {
+  if (
+    step === "setup" ||
+    step === "pull-images" ||
+    step === "compose-up" ||
+    step === "health-check"
+  ) {
     return step;
   }
   return fallback;
@@ -355,12 +396,14 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
       : {};
 
   const preflight: RuntimePreflight = {
-    dockerCliInstalled: asBoolean(source.dockerCliInstalled),
-    dockerComposeAvailable: asBoolean(source.dockerComposeAvailable),
-    dockerDaemonReachable: asBoolean(source.dockerDaemonReachable),
+    dockerCliInstalled: asOptionalBoolean(source.dockerCliInstalled),
+    dockerComposeAvailable: asOptionalBoolean(source.dockerComposeAvailable),
+    dockerDaemonReachable: asOptionalBoolean(source.dockerDaemonReachable),
     ready: asBoolean(source.ready),
     failureKind: normalizeFailureKind(source.failureKind),
     detail: normalizeText(source.detail),
+    checksExecuted:
+      typeof source.checksExecuted === "boolean" ? source.checksExecuted : undefined,
     runtimeContext: normalizeRuntimeContext(source.runtimeContext),
     repoRoot: normalizeText(source.repoRoot),
     runtimeHome: normalizeText(source.runtimeHome),
@@ -370,9 +413,9 @@ export function normalizeRuntimePreflight(payload: unknown): RuntimePreflight {
 
   if (
     preflight.ready &&
-    (!preflight.dockerCliInstalled ||
-      !preflight.dockerComposeAvailable ||
-      !preflight.dockerDaemonReachable)
+    (preflight.dockerCliInstalled === false ||
+      preflight.dockerComposeAvailable === false ||
+      preflight.dockerDaemonReachable === false)
   ) {
     preflight.ready = false;
   }
@@ -402,6 +445,25 @@ export function normalizeRuntimeReadiness(
     redisReady: asBoolean(source.redisReady ?? source.redis_ready),
     chatReady: asBoolean(source.chatReady ?? source.chat_ready),
     llmReady: normalizeOptionalBoolean(source.llmReady ?? source.llm_ready),
+    probeContext: normalizeProbeContext(source.probeContext ?? source.probe_context),
+    llmStatus: normalizeText(source.llmStatus ?? source.llm_status),
+    llmDetailsStatus: normalizeText(
+      source.llmDetailsStatus ?? source.llm_details_status
+    ),
+    llmDetailsOk: normalizeOptionalBooleanOrNull(
+      source.llmDetailsOk ?? source.llm_details_ok
+    ),
+    llmProvider: normalizeText(source.llmProvider ?? source.llm_provider),
+    llmModel: normalizeText(source.llmModel ?? source.llm_model),
+    llmProviderRuntimeAvailable: normalizeOptionalBooleanOrNull(
+      source.llmProviderRuntimeAvailable ??
+        source.llm_provider_runtime_available
+    ),
+    llmEndpointResolutionState: normalizeText(
+      source.llmEndpointResolutionState ??
+        source.llm_endpoint_resolution_state
+    ),
+    llmFailureReason: normalizeText(source.llmFailureReason ?? source.llm_failure_reason),
     checks: rawChecks.map((item) => normalizeEndpointCheck(item)),
   };
 }
@@ -437,10 +499,17 @@ function buildRuntimeBootstrapState(
 }
 
 function formatPreflightDetail(preflight: RuntimePreflight): string | undefined {
+  const formatOptionalBoolean = (value: boolean | null): string =>
+    value === null ? "unknown" : String(value);
   const lines = [
-    `dockerCliInstalled=${preflight.dockerCliInstalled}`,
-    `dockerComposeAvailable=${preflight.dockerComposeAvailable}`,
-    `dockerDaemonReachable=${preflight.dockerDaemonReachable}`,
+    `checksExecuted=${preflight.checksExecuted === false ? "false" : "true"}`,
+    `dockerCliInstalled=${formatOptionalBoolean(preflight.dockerCliInstalled)}`,
+    `dockerComposeAvailable=${formatOptionalBoolean(
+      preflight.dockerComposeAvailable
+    )}`,
+    `dockerDaemonReachable=${formatOptionalBoolean(
+      preflight.dockerDaemonReachable
+    )}`,
     `ready=${preflight.ready}`,
   ];
   if (preflight.runtimeContext) {
@@ -746,7 +815,24 @@ export function mapRuntimePreflightFailureToState(
     );
   }
 
-  if (!preflight.dockerCliInstalled || preflight.failureKind === "docker-cli-unavailable") {
+  if (preflight.failureKind === NATIVE_BRIDGE_FAILURE_KIND) {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Desktop native bridge unavailable",
+      "Codexify could not run native setup checks from this context. Open Codexify from the desktop app, then retry. This is a native bridge problem, not a Docker installation problem.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (
+    preflight.dockerCliInstalled === false ||
+    preflight.failureKind === "docker-cli-unavailable"
+  ) {
     return buildRuntimeBootstrapState(
       "docker-missing",
       "Docker Desktop is required",
@@ -762,7 +848,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (
     preflight.failureKind === "docker-compose-unavailable" ||
-    !preflight.dockerComposeAvailable
+    preflight.dockerComposeAvailable === false
   ) {
     return buildRuntimeBootstrapState(
       "compose-missing",
@@ -779,12 +865,61 @@ export function mapRuntimePreflightFailureToState(
 
   if (
     preflight.failureKind === "docker-daemon-unavailable" ||
-    !preflight.dockerDaemonReachable
+    preflight.dockerDaemonReachable === false
   ) {
     return buildRuntimeBootstrapState(
       "docker-not-running",
       "Docker Desktop is not responding yet",
       "Codexify found Docker on this machine, but the local daemon is not reachable. Start Docker Desktop, wait for it to finish initializing, then retry.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "runtime-compose-file-missing") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Packaged runtime Compose file is missing",
+      "Packaged startup could not find the registry-backed Compose file it needs to start local services. Reinstall or repair Codexify, then retry.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (
+    preflight.failureKind === "runtime-images-missing" ||
+    preflight.failureKind === "runtime-image-pull-failed"
+  ) {
+    return buildRuntimeBootstrapState(
+      "failed",
+      preflight.failureKind === "runtime-image-pull-failed"
+        ? "Runtime image pull failed"
+        : "Codexify needs to download its local runtime images",
+      preflight.failureKind === "runtime-image-pull-failed"
+        ? "Docker is ready, but Codexify could not download its local runtime images. Check network access or registry credentials, then retry."
+        : "Docker is ready, but Codexify runtime images are not available yet. Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
+      {
+        detail,
+        failureKind: preflight.failureKind,
+        preflight,
+        stepResults,
+      }
+    );
+  }
+
+  if (preflight.failureKind === "registry-runtime-unavailable") {
+    return buildRuntimeBootstrapState(
+      "failed",
+      "Registry-backed runtime is unavailable",
+      "Codexify could not use the packaged registry-backed runtime from this context. Open the packaged desktop app, then retry.",
       {
         detail,
         failureKind: preflight.failureKind,
@@ -834,6 +969,19 @@ export function createPreparingLocalConfigState(
   );
 }
 
+export function createDownloadingLocalImagesState(
+  preflight: RuntimePreflight,
+  detail?: string,
+  stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
+): RuntimeBootstrapState {
+  return buildRuntimeBootstrapState(
+    "downloading-local-images",
+    "Downloading local runtime images",
+    "Codexify is pulling its registry-backed runtime images before it starts the packaged Compose stack.",
+    { detail, preflight, stepResults }
+  );
+}
+
 export function createStartingLocalServicesState(
   preflight: RuntimePreflight,
   detail?: string,
@@ -842,7 +990,7 @@ export function createStartingLocalServicesState(
   return buildRuntimeBootstrapState(
     "starting-local-services",
     "Starting local services",
-    "Codexify is bringing the local Docker Compose stack up from the Docker-compatible packaged runtime root.",
+    "Codexify is bringing the local Docker Compose stack up from the registry-backed packaged runtime root.",
     { detail, preflight, stepResults }
   );
 }
@@ -1016,6 +1164,14 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
     };
   }
 
+  if (failureKind === NATIVE_BRIDGE_FAILURE_KIND) {
+    return {
+      title: "Desktop native bridge unavailable",
+      message:
+        "Codexify could not run native setup checks from this context. Open Codexify from the desktop app, then retry. This is a native bridge problem, not a Docker installation problem.",
+    };
+  }
+
   if (failureKind === "docker-cli-execution-failed") {
     return {
       title: "Docker CLI execution failed",
@@ -1039,6 +1195,38 @@ export function getBootstrapDisplayCopy(state: RuntimeBootstrapState): {
       title: "Docker Desktop is not responding yet",
       message:
         "Docker is installed, but the local daemon is not reachable yet. Open Docker Desktop, wait for it to finish starting, then retry.",
+    };
+  }
+
+  if (failureKind === "runtime-compose-file-missing") {
+    return {
+      title: "Packaged runtime Compose file is missing",
+      message:
+        "The packaged desktop app could not find the registry-backed Compose file it needs to start local services. Reinstall or repair Codexify, then retry.",
+    };
+  }
+
+  if (failureKind === "runtime-images-missing") {
+    return {
+      title: "Codexify needs to download its local runtime images",
+      message:
+        "Docker is ready, but Codexify runtime images are not available yet. Retry setup checks to pull the registry-backed runtime images, then start the packaged runtime.",
+    };
+  }
+
+  if (failureKind === "runtime-image-pull-failed") {
+    return {
+      title: "Runtime image pull failed",
+      message:
+        "Docker is ready, but Codexify could not download its local runtime images. Check network access or registry credentials, then retry.",
+    };
+  }
+
+  if (failureKind === "registry-runtime-unavailable") {
+    return {
+      title: "Registry-backed runtime is unavailable",
+      message:
+        "Codexify could not use the packaged registry-backed runtime from this context. Open the packaged desktop app, then retry.",
     };
   }
 
@@ -1126,6 +1314,10 @@ export function getBootstrapRecoveryStage(
     return "compose-up";
   }
 
+  if (state.stepResults["pull-images"] && !state.stepResults["pull-images"]?.ok) {
+    return "setup";
+  }
+
   if (state.stepResults.setup && !state.stepResults.setup?.ok) {
     return "setup";
   }
@@ -1159,6 +1351,15 @@ export function getBootstrapRecoveryActions(
   if (
     failureKind === "docker-cli-execution-failed" ||
     failureKind === "docker-cli-found-but-unusable-from-packaged-context"
+  ) {
+    return ["retry"];
+  }
+
+  if (
+    failureKind === "runtime-compose-file-missing" ||
+    failureKind === "runtime-images-missing" ||
+    failureKind === "runtime-image-pull-failed" ||
+    failureKind === "registry-runtime-unavailable"
   ) {
     return ["retry"];
   }
@@ -1520,10 +1721,43 @@ export function formatRuntimeReadinessResult(
   if (result.failureKind) {
     lines.push(`failureKind=${result.failureKind}`);
   }
+  if (result.probeContext) {
+    lines.push(`probeContext=${result.probeContext}`);
+  }
+  if (result.llmStatus) {
+    lines.push(`llmStatus=${result.llmStatus}`);
+  }
+  if (result.llmDetailsStatus) {
+    lines.push(`llmDetailsStatus=${result.llmDetailsStatus}`);
+  }
+  if (typeof result.llmDetailsOk === "boolean") {
+    lines.push(`llmDetailsOk=${result.llmDetailsOk}`);
+  }
+  if (result.llmProvider) {
+    lines.push(`llmProvider=${result.llmProvider}`);
+  }
+  if (result.llmModel) {
+    lines.push(`llmModel=${result.llmModel}`);
+  }
+  if (typeof result.llmProviderRuntimeAvailable === "boolean") {
+    lines.push(
+      `llmProviderRuntimeAvailable=${result.llmProviderRuntimeAvailable}`
+    );
+  }
+  if (result.llmEndpointResolutionState) {
+    lines.push(
+      `llmEndpointResolutionState=${result.llmEndpointResolutionState}`
+    );
+  }
   if (typeof result.llmReady === "boolean") {
     lines.push(`llmReady=${result.llmReady}`);
   } else {
     lines.push("llmReady=not-gated");
+  }
+  if (result.llmReady === false) {
+    lines.push(
+      `llmFailureReason=${result.llmFailureReason ?? "<none>"}`
+    );
   }
   if (result.command) {
     lines.push(`command=${result.command}`);
@@ -1562,12 +1796,13 @@ export function formatRuntimeHealthCheckResult(
 export async function runRuntimeBootstrapPreflight(): Promise<RuntimePreflight> {
   if (!shouldRunRuntimeBootstrap()) {
     return {
-      dockerCliInstalled: false,
-      dockerComposeAvailable: false,
-      dockerDaemonReachable: false,
+      dockerCliInstalled: null,
+      dockerComposeAvailable: null,
+      dockerDaemonReachable: null,
       ready: false,
       failureKind: "desktop-runtime-unavailable",
       detail: "window.__TAURI_IPC__ was not detected.",
+      checksExecuted: false,
     };
   }
 
@@ -1577,16 +1812,36 @@ export async function runRuntimeBootstrapPreflight(): Promise<RuntimePreflight> 
     );
     return normalizeRuntimePreflight(payload);
   } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.message
+        : String(error ?? "Unknown error");
+    const errorCode =
+      error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    const nativeBridgeUnavailable =
+      error instanceof NativeBridgeUnavailableError ||
+      errorCode === NATIVE_BRIDGE_FAILURE_KIND;
+    if (nativeBridgeUnavailable) {
+      return {
+        dockerCliInstalled: null,
+        dockerComposeAvailable: null,
+        dockerDaemonReachable: null,
+        ready: false,
+        failureKind: NATIVE_BRIDGE_FAILURE_KIND,
+        detail,
+        checksExecuted: false,
+      };
+    }
     return {
-      dockerCliInstalled: false,
-      dockerComposeAvailable: false,
-      dockerDaemonReachable: false,
+      dockerCliInstalled: null,
+      dockerComposeAvailable: null,
+      dockerDaemonReachable: null,
       ready: false,
       failureKind: "native-command-failed",
-      detail:
-        error instanceof Error
-          ? error.message
-          : String(error ?? "Unknown error"),
+      detail,
+      checksExecuted: false,
     };
   }
 }
@@ -1655,6 +1910,24 @@ export async function runSetupCli(): Promise<BootstrapStepResult> {
     return {
       ok: false,
       step: "setup",
+      detail:
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error"),
+    };
+  }
+}
+
+export async function runPullRuntimeImages(): Promise<BootstrapStepResult> {
+  try {
+    const payload = await invokeTauriCommand<unknown>(
+      "desktop_pull_registry_runtime_images"
+    );
+    return normalizeStepResult(payload, "pull-images");
+  } catch (error) {
+    return {
+      ok: false,
+      step: "pull-images",
       detail:
         error instanceof Error
           ? error.message

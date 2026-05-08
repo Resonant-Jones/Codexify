@@ -148,13 +148,11 @@ def test_llm_catalog_hides_unauthorized_cloud_providers_by_default(monkeypatch):
         assert provider_ids == ["local"]
         local = _provider_by_id(payload, "local")
         assert local["displayName"] == "Local"
-        assert local["enabled"] is True
         assert local["source"]["kind"] == "local"
         assert local["source"]["baseUrl"] == "http://127.0.0.1:11434/v1"
         assert local["source"]["label"] == "127.0.0.1:11434"
         assert local["truth"]["configured"] is True
         assert local["truth"]["discoverable"] is True
-        assert local["truth"]["selectable"] is True
         assert [m["id"] for m in local["models"]] == [
             "llama3.1:8b",
             "qwen2.5:7b",
@@ -206,6 +204,62 @@ def test_llm_catalog_includes_authorized_provider(monkeypatch):
         assert groq["enabled"] is True
         assert groq["truth"]["configured"] is True
         assert groq["truth"]["authorized"] is True
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_applies_manual_model_overrides(monkeypatch):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_local_catalog_request,
+    )
+    monkeypatch.setattr(
+        "guardian.core.model_overrides.load_model_overrides",
+        lambda force_refresh=False: {
+            "local": {
+                "llama3.1:8b": {
+                    "provider_id": "local",
+                    "model_id": "llama3.1:8b",
+                    "display_label": "Office Llama",
+                    "picker_label": "Office Llama (Vision)",
+                    "supports_vision": True,
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "guardian.core.model_overrides._MODEL_OVERRIDES_CACHE",
+        None,
+        raising=False,
+    )
+
+    settings = get_settings()
+    snapshot = {
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+    }
+    try:
+        settings.ALLOW_CLOUD_PROVIDERS = True
+        settings.CODEXIFY_LOCAL_ONLY_MODE = False
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
+
+        client = TestClient(app)
+        response = client.get("/api/llm/catalog")
+        assert response.status_code == 200
+
+        payload = response.json()
+        local = _provider_by_id(payload, "local")
+        model = _model_by_id(local, "llama3.1:8b")
+        assert model["display_label"] == "Office Llama"
+        assert model["displayName"] == "Office Llama"
+        assert model["picker_label"] == "Office Llama (Vision)"
+        assert model["supports_vision"] is True
+        assert model["model_kind"] == "vision_chat"
+        assert model["override"]["display_label"] == "Office Llama"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

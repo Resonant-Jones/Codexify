@@ -152,6 +152,10 @@ _FACT_RULES = [
     ),
 ]
 
+# Maximum length for personal_facts.value column (VARCHAR(255)).
+MAX_FACT_VALUE_LENGTH = 255
+
+
 # Third-person rules for ChatGPT "model_editable_context" (Custom Instructions).
 # These are user-authored facts about the user, phrased in third-person.
 # Confidence scores are higher than first-person rules because the user
@@ -535,6 +539,9 @@ def persist_personal_fact_candidates(
         stats["candidates"] += 1
         key = _normalize_text(raw_candidate.get("key")).lower()
         value = _normalize_text(raw_candidate.get("value"))
+        # Truncate to DB column width.
+        if len(value) > MAX_FACT_VALUE_LENGTH:
+            value = value[:MAX_FACT_VALUE_LENGTH]
         if not key or not value:
             continue
 

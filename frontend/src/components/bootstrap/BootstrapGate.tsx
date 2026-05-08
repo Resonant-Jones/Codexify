@@ -48,6 +48,7 @@ const PHASE_STEP_MAP: Record<
 > = {
   preflight: "checking-requirements",
   setup: "preparing-local-config",
+  "pull-images": "downloading-local-images",
   "compose-up": "starting-local-services",
   readiness: "waiting-for-ready",
 };
@@ -67,8 +68,13 @@ const PREFLIGHT_FAILURE_KINDS = new Set([
   "docker-cli-unavailable",
   "docker-cli-execution-failed",
   "docker-cli-found-but-unusable-from-packaged-context",
+  "native-bridge-unavailable",
   "docker-compose-unavailable",
   "docker-daemon-unavailable",
+  "runtime-compose-file-missing",
+  "runtime-images-missing",
+  "runtime-image-pull-failed",
+  "registry-runtime-unavailable",
   "docker-missing",
   "compose-missing",
   "docker-not-running",
@@ -150,7 +156,7 @@ function PhaseCard({ label, state, description }: PhaseCardProps) {
 
 function phaseStateFor(
   state: RuntimeBootstrapState,
-  step: "preflight" | "setup" | "compose-up" | "readiness"
+  step: "preflight" | "setup" | "pull-images" | "compose-up" | "readiness"
 ): PhaseCardState {
   const failureKind = state.failureKind ?? state.preflight?.failureKind;
 
@@ -179,6 +185,15 @@ function phaseStateFor(
     if (result?.ok) return "done";
     if (result && !result.ok) return "failed";
     return state.status === "checking-requirements" ? "pending" : "pending";
+  }
+
+  if (step === "pull-images") {
+    const result = state.stepResults["pull-images"];
+    if (state.status === "downloading-local-images") return "running";
+    if (result?.ok) return "done";
+    if (result && !result.ok) return "failed";
+    if (state.status === "preparing-local-config") return "pending";
+    return "pending";
   }
 
   if (step === "compose-up") {
@@ -224,6 +239,7 @@ export default function BootstrapGate({
   const isBusy =
     state.status === "checking-requirements" ||
     state.status === "preparing-local-config" ||
+    state.status === "downloading-local-images" ||
     state.status === "starting-local-services" ||
     state.status === "waiting-for-ready";
   const actionsBusy = isBusy || openingDocker || restartingServices;
@@ -261,10 +277,16 @@ export default function BootstrapGate({
         "Run the packaged-safe setup source so .env/bootstrap state comes from the resolved packaged runtime root, not duplicate Tauri logic.",
     },
     {
+      id: PHASE_STEP_MAP["pull-images"],
+      label: "Downloading local images",
+      description:
+        "Pull the registry-backed Codexify runtime images before Compose startup begins.",
+    },
+    {
       id: PHASE_STEP_MAP["compose-up"],
       label: "Starting local services",
       description:
-        "Bring the existing Docker Compose stack up from the Docker-compatible packaged runtime root.",
+        "Bring the existing Docker Compose stack up from the registry-backed packaged runtime root.",
     },
     {
       id: PHASE_STEP_MAP.readiness,
@@ -396,7 +418,7 @@ export default function BootstrapGate({
             )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {phaseCards.map((phase) => (
               <PhaseCard
                 key={phase.id}
@@ -407,6 +429,8 @@ export default function BootstrapGate({
                     ? "preflight"
                     : phase.id === PHASE_STEP_MAP.setup
                     ? "setup"
+                    : phase.id === PHASE_STEP_MAP["pull-images"]
+                    ? "pull-images"
                     : phase.id === PHASE_STEP_MAP["compose-up"]
                     ? "compose-up"
                     : "readiness"

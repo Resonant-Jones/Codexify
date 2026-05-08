@@ -4,8 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DocumentsView from "@/components/documents/DocumentsView";
 import type { ExtColors } from "@/types/ui";
 
-const { requestWorkspaceOpenMock } = vi.hoisted(() => ({
+const { requestWorkspaceOpenMock, uploaderMocks } = vi.hoisted(() => ({
   requestWorkspaceOpenMock: vi.fn(() => true),
+  uploaderMocks: {
+    configs: [] as Array<Record<string, unknown>>,
+    onDrop: vi.fn(),
+    onDragOver: vi.fn(),
+    pick: vi.fn(),
+  },
 }));
 
 vi.mock("@/features/workspace/state/useWorkspaceState", () => ({
@@ -13,11 +19,15 @@ vi.mock("@/features/workspace/state/useWorkspaceState", () => ({
 }));
 
 vi.mock("@/hooks/useUploader", () => ({
-  default: () => ({
-    onDrop: vi.fn(),
-    onDragOver: vi.fn(),
-    pick: vi.fn(),
-  }),
+  default: (config: Record<string, unknown>) => {
+    uploaderMocks.configs.push(config);
+    return {
+      handleFiles: vi.fn(),
+      onDrop: uploaderMocks.onDrop,
+      onDragOver: uploaderMocks.onDragOver,
+      pick: uploaderMocks.pick,
+    };
+  },
 }));
 
 const EXT_COLORS: ExtColors = {
@@ -62,31 +72,89 @@ describe("DocumentsView interactions", () => {
       setViewportWidth(1280);
     });
     requestWorkspaceOpenMock.mockReset();
+    uploaderMocks.configs = [];
+    uploaderMocks.onDrop.mockReset();
+    uploaderMocks.onDragOver.mockReset();
+    uploaderMocks.pick.mockReset();
     vi.restoreAllMocks();
   });
 
-  it("shows only the Thread and Project scope pills in the header", () => {
+  it("keeps DocumentsView focused on the center lane without a route-local rail", () => {
     render(
       <DocumentsView
         documents={[]}
         extColors={EXT_COLORS}
-        documentScope="thread"
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
       />
     );
 
-    expect(screen.getByRole("button", { name: "Thread" })).toHaveAttribute(
-      "data-state",
-      "active"
+    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+      "data-documents-layout",
+      "center_lane"
     );
-    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument();
+    expect(screen.getByTestId("documents-layout")).toHaveAttribute(
+      "data-workspace-anchor",
+      "app-shell-right"
+    );
+    expect(screen.getByTestId("documents-layout").style.flexGrow).toBe("1");
+    expect(screen.getByTestId("documents-layout").style.flexShrink).toBe("1");
+    expect(screen.getByTestId("documents-layout").style.flexBasis).toBe("0%");
+    expect(screen.getByTestId("documents-layout").style.minWidth).toBe("0");
+    expect(screen.getByTestId("documents-layout").style.maxWidth).toBe("100%");
+    expect(screen.getByTestId("documents-layout").style.padding).toBe("0px");
+    expect(screen.getByTestId("documents-layout").style.display).toBe("flex");
+    expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("documents-upload-affordance")).toBeInTheDocument();
+    fireEvent.drop(screen.getByTestId("documents-drop-zone"));
+    expect(uploaderMocks.onDrop).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "choose files" }));
+    expect(uploaderMocks.pick).toHaveBeenCalledTimes(1);
     expect(
       screen.queryByRole("button", { name: /Open in Workspace/i })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Open in Thread/i })
     ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Applet|Workbench/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Prioritized|Knowledge Base|cost tier|book badge/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it("preserves center lane usability when sidebar is dismissed in the shell", () => {
+    render(
+      <DocumentsView
+        documents={[]}
+        extColors={EXT_COLORS}
+      />
+    );
+
+    const layout = screen.getByTestId("documents-layout");
+    expect(layout).toHaveAttribute("data-documents-layout", "center_lane");
+    expect(layout.style.flex).toBe("1 1 0%");
+    expect(layout.style.minWidth).toBe("0");
+    expect(layout.style.maxWidth).toBe("100%");
+    expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+  });
+
+  it("forwards the selected project and thread into the uploader context", () => {
+    render(
+      <DocumentsView
+        documents={[]}
+        extColors={EXT_COLORS}
+        projectId={42}
+        threadId={101}
+      />
+    );
+
+    expect(uploaderMocks.configs).toHaveLength(1);
+    expect(uploaderMocks.configs[0]).toEqual(
+      expect.objectContaining({
+        tag: "upload",
+        projectId: 42,
+        threadId: 101,
+      })
+    );
   });
 
   it("opens the workspace on primary click", () => {
@@ -94,8 +162,6 @@ describe("DocumentsView interactions", () => {
       <DocumentsView
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
       />
     );
 
@@ -126,8 +192,6 @@ describe("DocumentsView interactions", () => {
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
         onOpenInThread={onOpenInThread}
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
       />
     );
 
@@ -155,16 +219,16 @@ describe("DocumentsView interactions", () => {
       <DocumentsView
         documents={[DOCUMENT]}
         extColors={EXT_COLORS}
-        onDocumentScopeChange={vi.fn()}
-        threadScopeEnabled
       />
     );
 
     await waitFor(() => {
       expect(screen.getByTestId("documents-layout")).toHaveAttribute(
         "data-documents-layout",
-        "mobile_list"
+        "mobile_stack"
       );
+      expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
+      expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
       expect(
         container.querySelector('[data-layout-mode="mobile-list"]')
       ).toBeTruthy();
