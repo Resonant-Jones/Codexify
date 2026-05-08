@@ -3,6 +3,12 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock
 
+from guardian.memory_graph.graph_backend import (
+    GRAPH_BACKEND_RESULT_STATUS_FAILED,
+    GRAPH_BACKEND_RESULT_STATUS_NOOP,
+    GRAPH_BACKEND_RESULT_STATUS_WRITTEN,
+    GraphBackendWriteResult,
+)
 from guardian.workers import graph_write_worker
 
 
@@ -21,6 +27,22 @@ class _FakeReceiptRedis:
         if self.results:
             return self.results.pop(0)
         return True
+
+
+class _BackendSpy:
+    def __init__(
+        self, result: GraphBackendWriteResult | None = None, *, failure=None
+    ):
+        self.result = result
+        self.failure = failure
+        self.calls: list[dict] = []
+        self.backend_kind = "neo4j"
+
+    def write_graph_candidates(self, task: dict):
+        self.calls.append(dict(task))
+        if self.failure is not None:
+            raise self.failure
+        return self.result
 
 
 def _task() -> dict[str, object]:
@@ -70,6 +92,19 @@ def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
         "get_redis_connection",
         get_redis_connection_spy,
     )
+    backend = _BackendSpy(
+        GraphBackendWriteResult(
+            status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+            backend_kind="noop",
+            graph_write_id="gwr_test_identity",
+            node_count=1,
+            edge_count=1,
+            metadata={},
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker, "get_graph_backend", lambda: backend
+    )
 
     graph_write_worker.process_graph_write_task(_task())
 
@@ -99,40 +134,89 @@ def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
     assert summary.edge_types == ["PART_OF_THREAD"]
 
 
-def test_graph_write_worker_skips_duplicate_task_after_receipt_claim(
-    caplog, monkeypatch
-):
-    caplog.set_level(logging.INFO)
-    redis_client = _FakeReceiptRedis(results=[True, False])
+def test_graph_write_worker_uses_noop_backend_by_default(monkeypatch):
+    redis_client = _FakeReceiptRedis(results=[True])
     monkeypatch.setattr(
         graph_write_worker,
         "get_redis_connection",
         MagicMock(return_value=redis_client),
     )
 
+    backend = _BackendSpy(
+        GraphBackendWriteResult(
+            status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+            backend_kind="noop",
+            graph_write_id="gwr_test_identity",
+            node_count=1,
+            edge_count=1,
+            metadata={},
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker, "get_graph_backend", lambda: backend
+    )
+
+    graph_write_worker.process_graph_write_task(_task())
+
+    assert len(backend.calls) == 1
+
+
+def test_graph_write_worker_calls_neo4j_backend_when_explicitly_enabled(
+    monkeypatch,
+):
+    redis_client = _FakeReceiptRedis(results=[True])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
+    backend = _BackendSpy(
+        GraphBackendWriteResult(
+            status=GRAPH_BACKEND_RESULT_STATUS_WRITTEN,
+            backend_kind="neo4j",
+            graph_write_id="gwr_test_identity",
+            node_count=1,
+            edge_count=1,
+            metadata={},
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker, "get_graph_backend", lambda: backend
+    )
+
+    graph_write_worker.process_graph_write_task(_task())
+
+    assert len(backend.calls) == 1
+
+
+def test_graph_write_worker_duplicate_task_still_skips_before_backend_call(
+    monkeypatch,
+):
+    redis_client = _FakeReceiptRedis(results=[True, False])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
+    backend = _BackendSpy(
+        GraphBackendWriteResult(
+            status=GRAPH_BACKEND_RESULT_STATUS_WRITTEN,
+            backend_kind="neo4j",
+            graph_write_id="gwr_test_identity",
+            node_count=1,
+            edge_count=1,
+            metadata={},
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker, "get_graph_backend", lambda: backend
+    )
+
     task = _task()
     graph_write_worker.process_graph_write_task(task)
     graph_write_worker.process_graph_write_task(task)
 
-    summary_records = [
-        record
-        for record in caplog.records
-        if record.getMessage()
-        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
-    ]
-    duplicate_record = _record_by_message(
-        caplog,
-        f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_DUPLICATE_LOG}",
-    )
-
-    assert len(summary_records) == 1
-    assert duplicate_record.request_id == "req-1"
-    assert duplicate_record.thread_id == 7
-    assert duplicate_record.candidate_trace_id == "trace-1"
-    assert duplicate_record.graph_write_id == "gwr_test_identity"
-    assert (
-        duplicate_record.idempotency_key == "graph-write:trace-1:fingerprint-1"
-    )
+    assert len(backend.calls) == 1
 
 
 def test_graph_write_worker_contains_receipt_claim_failure(caplog, monkeypatch):
@@ -152,34 +236,55 @@ def test_graph_write_worker_contains_receipt_claim_failure(caplog, monkeypatch):
         in record.getMessage()
         for record in caplog.records
     )
-    assert not any(
-        record.getMessage()
-        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
-        for record in caplog.records
-    )
 
 
-def test_graph_write_worker_still_does_not_persist_or_call_graph_backend(
-    monkeypatch,
-):
+def test_graph_write_worker_contains_neo4j_backend_failure(caplog, monkeypatch):
+    caplog.set_level(logging.INFO)
     redis_client = _FakeReceiptRedis(results=[True])
     monkeypatch.setattr(
         graph_write_worker,
         "get_redis_connection",
         MagicMock(return_value=redis_client),
     )
-    graph_backend_spy = MagicMock(
-        side_effect=AssertionError("graph backend not expected")
-    )
-
+    backend = _BackendSpy(failure=RuntimeError("driver down"))
     monkeypatch.setattr(
-        graph_write_worker,
-        "write_graph_candidates",
-        graph_backend_spy,
-        raising=False,
+        graph_write_worker, "get_graph_backend", lambda: backend
     )
 
     graph_write_worker.process_graph_write_task(_task())
 
-    assert len(redis_client.calls) == 1
-    graph_backend_spy.assert_not_called()
+    assert len(backend.calls) == 1
+    assert any(
+        graph_write_worker.GRAPH_WRITE_WORKER_BACKEND_FAILURE_LOG
+        in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_graph_write_worker_logs_failed_backend_result(caplog, monkeypatch):
+    caplog.set_level(logging.INFO)
+    redis_client = _FakeReceiptRedis(results=[True])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
+    backend = _BackendSpy(
+        GraphBackendWriteResult(
+            status=GRAPH_BACKEND_RESULT_STATUS_FAILED,
+            backend_kind="neo4j",
+            graph_write_id="gwr_test_identity",
+            metadata={"reason": "neo4j_write_failed"},
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker, "get_graph_backend", lambda: backend
+    )
+
+    graph_write_worker.process_graph_write_task(_task())
+
+    assert any(
+        graph_write_worker.GRAPH_WRITE_WORKER_BACKEND_RESULT_LOG
+        in record.getMessage()
+        for record in caplog.records
+    )

@@ -13,6 +13,10 @@ import logging
 import time
 from typing import Any
 
+from guardian.memory_graph.graph_backend import (
+    GRAPH_BACKEND_RESULT_STATUS_FAILED,
+)
+from guardian.memory_graph.graph_backend_factory import get_graph_backend
 from guardian.memory_graph.graph_write_identity import (
     build_graph_write_identity,
 )
@@ -27,6 +31,8 @@ GRAPH_WRITE_WORKER_DUPLICATE_LOG = "graph_write_worker_duplicate_task_skipped"
 GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG = (
     "graph_write_worker_receipt_claim_failed"
 )
+GRAPH_WRITE_WORKER_BACKEND_RESULT_LOG = "graph_write_worker_backend_result"
+GRAPH_WRITE_WORKER_BACKEND_FAILURE_LOG = "graph_write_worker_backend_failed"
 
 
 def _coerce_mapping_list(raw: Any) -> list[dict[str, Any]]:
@@ -144,6 +150,9 @@ def process_graph_write_task(task: dict) -> None:
         )
         return
 
+    backend = get_graph_backend()
+    backend_name = getattr(backend, "backend_kind", "unknown")
+
     node_types = sorted(
         {
             str(node.get("node_type") or "").strip()
@@ -172,6 +181,7 @@ def process_graph_write_task(task: dict) -> None:
             "warning_count": len(warnings),
             "node_types": node_types,
             "edge_types": edge_types,
+            "backend_kind": backend_name,
         },
     )
 
@@ -183,6 +193,51 @@ def process_graph_write_task(task: dict) -> None:
                 "thread_id": thread_id,
                 "candidate_trace_id": candidate_trace_id,
                 "warnings": list(warnings),
+            },
+        )
+
+    try:
+        backend_result = backend.write_graph_candidates(task)
+    except Exception:
+        logger.exception(
+            f"[graph-write] {GRAPH_WRITE_WORKER_BACKEND_FAILURE_LOG}",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+                "graph_write_id": graph_write_id,
+                "idempotency_key": idempotency_key,
+                "backend_kind": backend_name,
+            },
+        )
+        return
+
+    logger.info(
+        f"[graph-write] {GRAPH_WRITE_WORKER_BACKEND_RESULT_LOG}",
+        extra={
+            "request_id": request_id,
+            "thread_id": thread_id,
+            "candidate_trace_id": candidate_trace_id,
+            "graph_write_id": graph_write_id,
+            "idempotency_key": idempotency_key,
+            "backend_kind": backend_result.backend_kind,
+            "backend_status": backend_result.status,
+            "node_count": backend_result.node_count,
+            "edge_count": backend_result.edge_count,
+        },
+    )
+
+    if backend_result.status == GRAPH_BACKEND_RESULT_STATUS_FAILED:
+        logger.warning(
+            f"[graph-write] {GRAPH_WRITE_WORKER_BACKEND_FAILURE_LOG}",
+            extra={
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "candidate_trace_id": candidate_trace_id,
+                "graph_write_id": graph_write_id,
+                "idempotency_key": idempotency_key,
+                "backend_kind": backend_result.backend_kind,
+                "backend_metadata": dict(backend_result.metadata),
             },
         )
 
@@ -220,6 +275,8 @@ __all__ = [
     "GRAPH_WRITE_WORKER_WARNING_LOG",
     "GRAPH_WRITE_WORKER_DUPLICATE_LOG",
     "GRAPH_WRITE_WORKER_RECEIPT_CLAIM_FAILED_LOG",
+    "GRAPH_WRITE_WORKER_BACKEND_RESULT_LOG",
+    "GRAPH_WRITE_WORKER_BACKEND_FAILURE_LOG",
     "process_graph_write_task",
     "run_graph_write_worker",
 ]
