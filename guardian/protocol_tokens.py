@@ -270,6 +270,7 @@ IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
 
 __all__ = [
     "AcceptanceStatus",
+    "ContextRequestStatus",
     "TaskEventType",
     "ToolTurnState",
     "LoopStopReason",
@@ -312,6 +313,7 @@ __all__ = [
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",
     "TRACE_SNAPSHOT_ABSENCE_REASONS",
 ]

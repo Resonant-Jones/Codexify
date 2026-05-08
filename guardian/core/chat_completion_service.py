@@ -34,6 +34,12 @@ from guardian.command_bus.contracts import (
 from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
+from guardian.context.context_directive_resolver import (
+    CONTEXT_REQUEST_PLANS_ORIGIN_KEY,
+    SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
+    SUPPORTED_CONTEXT_REQUEST_INVOCATION,
+    SUPPORTED_CONTEXT_REQUEST_KIND,
+)
 from guardian.context.retrieval_router_policy import (
     RETRIEVAL_OVERRIDE_CONVERSATION,
     RETRIEVAL_OVERRIDE_NONE,
@@ -80,6 +86,7 @@ from guardian.core.provider_registry import (
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
     ErrorCode,
+    ContextRequestStatus,
     ImageRoutingPath,
     LoopStopReason,
     ContextRequestStatus,
@@ -498,6 +505,7 @@ def _context_request_plans_from_origin(origin: Any) -> list[dict[str, Any]]:
     for segment in text.split("|")[1:]:
         key, _, value = segment.partition("=")
         if key.strip() != "context_request_plans":
+        if key.strip() != CONTEXT_REQUEST_PLANS_ORIGIN_KEY:
             continue
         raw_value = unquote(value.strip())
         if not raw_value:
@@ -533,6 +541,101 @@ def _supported_obsidian_context_request_plans(task: Any) -> list[dict[str, Any]]
     for plan in raw_plans:
         if not isinstance(plan, dict):
             continue
+        if not isinstance(parsed, list):
+            return []
+        return [dict(plan) for plan in parsed if isinstance(plan, dict)]
+    return []
+
+
+def _supported_obsidian_context_request_plans(
+    task: Any,
+) -> list[dict[str, Any]]:
+    supported_plans: list[dict[str, Any]] = []
+    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
+        request_kind = str(
+            plan.get("request_kind") or plan.get("requestKind") or ""
+        ).strip().lower()
+        connector_id = str(
+            plan.get("connector_id") or plan.get("connectorId") or ""
+        ).strip().lower()
+        invocation = str(plan.get("invocation") or "").strip().lower()
+        query_text = str(
+            plan.get("query_text") or plan.get("queryText") or ""
+        ).strip()
+        if (
+            request_kind != SUPPORTED_CONTEXT_REQUEST_KIND
+            or connector_id != SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID
+            or invocation != SUPPORTED_CONTEXT_REQUEST_INVOCATION
+            or not query_text
+        ):
+            continue
+
+        normalized_plan = dict(plan)
+        normalized_plan["request_kind"] = SUPPORTED_CONTEXT_REQUEST_KIND
+        normalized_plan["connector_id"] = SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID
+        normalized_plan["invocation"] = SUPPORTED_CONTEXT_REQUEST_INVOCATION
+        normalized_plan["query_text"] = query_text
+        normalized_plan["status"] = (
+            str(normalized_plan.get("status") or "").strip()
+            or ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value
+        )
+        normalized_plan["execution_required"] = False
+        supported_plans.append(normalized_plan)
+    return supported_plans
+
+
+def _context_request_result_record(
+    plan: dict[str, Any],
+    *,
+    status: str,
+    result_count: int,
+    injected: bool,
+    error: str | None = None,
+) -> dict[str, Any]:
+    record = {
+        "request_kind": str(
+            plan.get("request_kind") or plan.get("requestKind") or ""
+        ).strip()
+        or SUPPORTED_CONTEXT_REQUEST_KIND,
+        "connector_id": str(
+            plan.get("connector_id") or plan.get("connectorId") or ""
+        ).strip()
+        or SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
+        "invocation": str(plan.get("invocation") or "").strip()
+        or SUPPORTED_CONTEXT_REQUEST_INVOCATION,
+        "query_text": str(
+            plan.get("query_text") or plan.get("queryText") or ""
+        ).strip(),
+        "status": status,
+        "result_count": int(result_count),
+        "injected": bool(injected),
+    }
+    if error:
+        record["error"] = error
+    return record
+
+
+def _sanitize_context_request_error(exc: Exception) -> str:
+    text = re.sub(r"/[^\s]+", "[redacted]", str(exc))
+    text = re.sub(r"[A-Za-z]:\\\\[^\s]+", "[redacted]", text)
+    return f"{exc.__class__.__name__}: {text}"
+
+
+async def _apply_context_request_plans(
+    *,
+    broker: ContextBroker,
+    task: Any,
+    bundle: dict[str, Any],
+    user_id: str,
+    project_id: int | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(bundle, dict):
+        return []
+
+    context_request_results: list[dict[str, Any]] = []
+    connector_context = list(bundle.get("connector_context") or [])
+
+    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
         request_kind = str(
             plan.get("request_kind") or plan.get("requestKind") or ""
         ).strip().lower()
@@ -553,6 +656,89 @@ def _supported_obsidian_context_request_plans(task: Any) -> list[dict[str, Any]]
     return supported
 
 
+        query_text = str(
+            plan.get("query_text") or plan.get("queryText") or ""
+        ).strip()
+
+        supported = (
+            request_kind == SUPPORTED_CONTEXT_REQUEST_KIND
+            and connector_id == SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID
+            and invocation == SUPPORTED_CONTEXT_REQUEST_INVOCATION
+        )
+
+        if not supported:
+            context_request_results.append(
+                _context_request_result_record(
+                    plan,
+                    status=ContextRequestStatus.FAILED.value,
+                    result_count=0,
+                    injected=False,
+                    error="unsupported_context_request_plan",
+                )
+            )
+            continue
+
+        normalized_plan = {
+            "request_kind": SUPPORTED_CONTEXT_REQUEST_KIND,
+            "connector_id": SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
+            "invocation": SUPPORTED_CONTEXT_REQUEST_INVOCATION,
+            "query_text": query_text,
+            "status": ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value,
+            "execution_required": False,
+        }
+
+        if not query_text:
+            context_request_results.append(
+                _context_request_result_record(
+                    normalized_plan,
+                    status=ContextRequestStatus.FAILED.value,
+                    result_count=0,
+                    injected=False,
+                    error="blank_query_text",
+                )
+            )
+            continue
+
+        try:
+            items = await broker.retrieve_obsidian_context_command(
+                query=query_text,
+                user_id=user_id,
+                project_id=project_id,
+                k=int(plan.get("k") or plan.get("limit") or 4),
+                retrieval_policy=plan.get("retrieval_policy")
+                if isinstance(plan.get("retrieval_policy"), dict)
+                else None,
+            )
+        except Exception as exc:
+            context_request_results.append(
+                _context_request_result_record(
+                    normalized_plan,
+                    status=ContextRequestStatus.FAILED.value,
+                    result_count=0,
+                    injected=False,
+                    error=_sanitize_context_request_error(exc),
+                )
+            )
+            continue
+
+        item_count = len(items)
+        if item_count:
+            connector_context.extend(items)
+            status = ContextRequestStatus.EXECUTED.value
+        else:
+            status = ContextRequestStatus.NO_RESULTS.value
+        context_request_results.append(
+            _context_request_result_record(
+                normalized_plan,
+                status=status,
+                result_count=item_count,
+                injected=bool(item_count),
+            )
+        )
+
+    bundle["connector_context"] = connector_context
+    bundle["context_request_results"] = context_request_results
+    return context_request_results
 def _image_attachment_count_from_origin(origin: Any) -> int | None:
     text = str(origin or "").strip()
     if not text:
@@ -2191,6 +2377,15 @@ def build_sanitized_payload_summary(
         (retrieval_meta.get("federated") or {}).get("injected")
     )
     linked_document_injected = bool(docs_meta.get("injected"))
+    connector_context_meta = retrieval_meta.get("connector_context") or {}
+    connector_context_injected = bool(
+        connector_context_meta.get("injected")
+    )
+    connector_context_count = (
+        len((bundle or {}).get("connector_context") or [])
+        if isinstance(bundle, dict)
+        else 0
+    )
 
     obsidian_context_meta = retrieval_meta.get("obsidian")
     obsidian_context_count = 0
@@ -2244,6 +2439,7 @@ def build_sanitized_payload_summary(
         ),
         "obsidian_count": obsidian_count,
         "linked_document_count": linked_document_count,
+        "connector_context_count": connector_context_count,
         "has_user_system_override": bool(
             (bundle or {}).get("user_system_override")
             if isinstance(bundle, dict)
@@ -2273,6 +2469,7 @@ def build_sanitized_payload_summary(
         "graph_injected": graph_injected,
         "federated_injected": federated_injected,
         "linked_document_injected": linked_document_injected,
+        "connector_context_injected": connector_context_injected,
         "obsidian_injected": obsidian_injected,
         "verified_personal_facts_injected": verified_personal_facts_injected,
         "verified_personal_fact_ids": verified_personal_fact_ids,
@@ -2295,6 +2492,7 @@ def build_sanitized_payload_summary(
             "graph_injected",
             "federated_injected",
             "linked_document_injected",
+            "connector_context_injected",
             "obsidian_injected",
             "verified_personal_facts_injected",
         )
@@ -3152,6 +3350,7 @@ async def build_messages_for_llm(
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
     trace_candidate: dict[str, Any] | None = None
+    assembly_succeeded = False
     retrieval_policy_obj: Any | None = None
     retrieval_policy: dict[str, Any] | None = None
     broker: ContextBroker | None = None
@@ -3204,6 +3403,7 @@ async def build_messages_for_llm(
             prompt_meta = dict(bundle.get("_prompt_meta") or {})
             prompt_meta["request_user_id"] = task_user_id
             bundle["_prompt_meta"] = prompt_meta
+        assembly_succeeded = True
     except Exception as exc:
         logger.warning(
             "[chat-completion] context assemble failed depth=%s err=%s",
@@ -3307,6 +3507,22 @@ async def build_messages_for_llm(
     if isinstance(trace, dict):
         trace = dict(trace)
         trace["context_request_results"] = list(context_request_results)
+    if assembly_succeeded and isinstance(bundle, dict):
+        try:
+            context_request_results = await _apply_context_request_plans(
+                broker=broker,
+                task=task,
+                bundle=bundle,
+                user_id=context_user_id,
+                project_id=project_id_for_prompt,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[chat-completion] context request plan application failed depth=%s err=%s",
+                depth,
+                exc,
+            )
+            context_request_results = []
 
     if (
         isinstance(bundle, dict)
@@ -3329,6 +3545,7 @@ async def build_messages_for_llm(
         "history": history_messages,
         "latest_turn": latest_turn,
         "retrieved_context": retrieved_context_messages,
+        "context_request_results": context_request_results,
     }
     completion_assembly.update(latest_turn_trace_fields)
     identity_context = {
@@ -4154,6 +4371,10 @@ def run_chat_completion_task(
         if isinstance(trace, dict):
             trace = dict(trace)
             trace["retrieval_posture"] = retrieval_posture
+    if isinstance(trace, dict) and trace.get("context_request_results") is not None:
+        payload_summary["context_request_results"] = list(
+            trace.get("context_request_results") or []
+        )
     model_selection = _build_model_selection_metadata(
         requested_provider=requested_provider,
         requested_model=requested_model,
