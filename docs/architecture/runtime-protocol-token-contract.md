@@ -28,6 +28,9 @@ inline literals.
 - Acceptance statuses:
   `accepted`, `accepted_degraded`
 
+- Context request plan/result statuses:
+  `accepted_not_executed`, `executed`, `no_results`, `failed`
+
 - Task event types:
   `task.created`, `task.completed`, `task.failed`,
   `task.cancelled`, `task.event`
