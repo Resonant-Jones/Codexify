@@ -23,6 +23,13 @@ export type ComposerSelectOption = {
   modelKind?: "chat" | "vision_chat" | "utility";
 };
 
+type ComposerSelectFooterAction = {
+  label: string;
+  description?: string;
+  disabled?: boolean;
+  onClick: () => void;
+};
+
 type ComposerSelectMenuProps = {
   ariaLabel: string;
   menuLabel: string;
@@ -33,6 +40,7 @@ type ComposerSelectMenuProps = {
   disabled?: boolean;
   emptyLabel?: string;
   openSignal?: number;
+  footerAction?: ComposerSelectFooterAction;
   onSelect: (value: string) => void;
 };
 
@@ -51,6 +59,7 @@ export function ComposerSelectMenu({
   disabled = false,
   emptyLabel = "No options available.",
   openSignal,
+  footerAction,
   onSelect,
 }: ComposerSelectMenuProps) {
   const [open, setOpen] = useState(false);
@@ -326,6 +335,33 @@ export function ComposerSelectMenu({
             {emptyLabel}
           </div>
         )}
+        {footerAction ? (
+          <div className="border-t border-[color-mix(in_oklab,var(--panel-border)_78%,var(--text)_22%)] p-2">
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                if (footerAction.disabled) return;
+                setOpen(false);
+                footerAction.onClick();
+              }}
+              disabled={footerAction.disabled}
+              className={cn(
+                "flex w-full flex-col items-start rounded-[0.8rem] px-2.5 py-2 text-left transition-colors",
+                footerAction.disabled
+                  ? "cursor-not-allowed opacity-45"
+                  : "hover:bg-[color-mix(in_oklab,var(--panel-bg)_78%,var(--text)_22%)]"
+              )}
+            >
+              <span className="text-[12px] font-medium">{footerAction.label}</span>
+              {footerAction.description ? (
+                <span className="mt-0.5 text-[11px]" style={{ color: "var(--muted)" }}>
+                  {footerAction.description}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

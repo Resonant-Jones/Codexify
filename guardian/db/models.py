@@ -478,6 +478,8 @@ class ChatMessage(Base):
         String(32), nullable=False, server_default="chat"
     )
     extra_meta: Mapped[dict] = mapped_column(
+        # Assistant-side coding_result rows use this JSONB blob for durable
+        # source-thread / source-message / attempt lineage and capture flags.
         JSONB, nullable=False, server_default="{}"
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -1307,6 +1309,47 @@ class InferenceProviderRuntime(Base):
             "health_status",
         ),
     )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class InferenceModelOverride(Base):
+    """User-editable model metadata overrides for provider catalogs."""
+
+    __tablename__ = "inference_model_overrides"
+
+    provider_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("inference_providers.provider_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    model_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    display_label: Mapped[str | None] = mapped_column(Text)
+    picker_label: Mapped[str | None] = mapped_column(Text)
+    supports_chat: Mapped[bool | None] = mapped_column(Boolean)
+    supports_vision: Mapped[bool | None] = mapped_column(Boolean)
+    supports_text_input: Mapped[bool | None] = mapped_column(Boolean)
+    model_kind: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    provider: Mapped[InferenceProvider] = relationship("InferenceProvider")
+
+    __table_args__ = (
+        CheckConstraint(
+            "model_kind IS NULL OR model_kind IN ('chat','vision_chat','utility')",
+            name="ck_inference_model_overrides_model_kind",
+        ),
+        Index("ix_inference_model_overrides_provider_id", "provider_id"),
+    )
+
     __mapper_args__ = {"eager_defaults": True}
 
 
@@ -3157,6 +3200,8 @@ class AgentEvent(Base):
     )
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload_json: Mapped[dict] = mapped_column(
+        # Agent orchestration events can carry source thread/message lineage
+        # and attempt metadata without widening the relational schema.
         "payload", JSONB, nullable=False, server_default="{}"
     )
     created_at: Mapped[datetime] = mapped_column(

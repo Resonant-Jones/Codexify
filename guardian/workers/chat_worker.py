@@ -31,7 +31,11 @@ from guardian.cognition.system_profiles.resolver import (
 from guardian.context.broker import ContextBroker
 from guardian.core import chat_completion_service as _chat_completion_service
 from guardian.core import dependencies, event_bus
-from guardian.core.ai_router import chat_with_ai, stream_local
+from guardian.core.ai_router import (
+    chat_with_ai,
+    resolve_local_execution_model,
+    stream_local,
+)
 from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
     ToolLoopExecutionError,
@@ -749,9 +753,6 @@ def _fallback_provider_candidates(
 
 
 def _assistant_message_audio_autogenerate_effective_enabled() -> bool:
-    raw = os.getenv("CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE")
-    if raw is None:
-        return True
     return assistant_message_audio_autogenerate_enabled()
 
 
@@ -1543,6 +1544,22 @@ def _run_chat_completion_task_compat(
     payload_summary["source_mode"] = trace_source_mode
     payload_summary["effective_source_mode"] = trace_source_mode
     payload_summary["effective_policy"] = effective_policy
+    retrieval_posture = _chat_completion_service._build_retrieval_posture(
+        source_mode=trace_source_mode,
+        retrieval_override=(
+            trace.get("retrieval_override")
+            if isinstance(trace, dict)
+            else None
+        ),
+        widen_reason=(
+            trace.get("widen_reason") if isinstance(trace, dict) else None
+        ),
+    )
+    if retrieval_posture is not None:
+        payload_summary["retrieval_posture"] = retrieval_posture
+        if isinstance(trace, dict):
+            trace = dict(trace)
+            trace["retrieval_posture"] = retrieval_posture
     if callable(state_callback):
         state_callback(
             TaskLifecycleState.AWAITING_MODEL,
@@ -1553,22 +1570,35 @@ def _run_chat_completion_task_compat(
         )
     settings = get_settings()
     turn_id = _extract_turn_id(task)
-    attempted_provider = provider
-    attempted_model = model
-    selection_source = str(
-        getattr(task, "selection_source", "") or ""
-    ).strip() or (
-        "explicit"
-        if (
-            _normalize_provider_override(
-                getattr(task, "requested_provider", None) or task.provider
-            )
-            or _normalize_model_override(
-                getattr(task, "requested_model", None) or task.model
-            )
-        )
-        else "default"
+    requested_provider = _normalize_provider_override(
+        getattr(task, "requested_provider", None)
+    ) or _normalize_provider_override(task.provider)
+    requested_model = _normalize_model_override(
+        getattr(task, "requested_model", None)
+    ) or _normalize_model_override(task.model)
+    attempted_provider = requested_provider or provider
+    attempted_model = requested_model or model
+    selection_source = (
+        str(getattr(task, "selection_source", "") or "").strip() or None
     )
+    model_resolution: dict[str, Any] | None = None
+    if provider == "local":
+        try:
+            local_model_resolution = resolve_local_execution_model(
+                settings=settings,
+                requested_model=requested_model or model,
+            )
+            model_resolution = local_model_resolution.as_dict()
+        except Exception:
+            model_resolution = None
+    if isinstance(model_resolution, dict):
+        resolution_source = str(model_resolution.get("source") or "").strip()
+        if resolution_source:
+            selection_source = resolution_source
+    if not selection_source:
+        selection_source = (
+            "explicit" if (requested_provider or requested_model) else "default"
+        )
     provider_pinned = bool(getattr(task, "provider_pinned", False))
     completion_truth = _completion_truth(
         accepted=True,
@@ -1643,7 +1673,11 @@ def _run_chat_completion_task_compat(
     fallback_reason: str | None = None
     failure_meta: dict[str, Any] = {}
     final_provider = provider
-    final_model = model
+    final_model = (
+        str(model_resolution.get("model") or "").strip()
+        if isinstance(model_resolution, dict)
+        else ""
+    ) or model
     try:
         completion_truth["attempted"] = True
         assistant_text = _execute_completion(provider, model)
@@ -1669,6 +1703,7 @@ def _run_chat_completion_task_compat(
                 "resolved_model": model,
                 "selection_source": selection_source,
                 "fallback_reason": fallback_reason,
+                "model_resolution": model_resolution,
                 "completion_truth": completion_truth,
             }
         )
@@ -1752,18 +1787,65 @@ def _run_chat_completion_task_compat(
 
     payload_summary.update(
         {
+            "requested_provider": requested_provider,
+            "requested_model": requested_model,
             "attempted_provider": attempted_provider,
             "attempted_model": attempted_model,
             "resolved_provider": provider,
             "resolved_model": model,
             "final_provider": final_provider,
             "final_model": final_model,
+            "selection_source": selection_source,
             "fallback_reason": fallback_reason,
             "completion_truth": completion_truth,
             "attempted_provider_truth": attempted_provider_truth,
             "final_provider_truth": final_provider_truth,
         }
     )
+    if isinstance(model_resolution, dict):
+        payload_summary["model_resolution"] = model_resolution
+
+    model_selection: dict[str, Any] = {
+        "requested_provider": requested_provider,
+        "requested_model": requested_model,
+        "attempted_provider": attempted_provider,
+        "attempted_model": attempted_model,
+        "resolved_provider": provider,
+        "resolved_model": model,
+        "final_provider": final_provider,
+        "final_model": final_model,
+        "selection_source": selection_source,
+        "fallback_reason": fallback_reason,
+    }
+    if isinstance(model_resolution, dict):
+        model_selection["model_resolution"] = dict(model_resolution)
+        source_reason = str(model_resolution.get("source") or "").strip()
+        if source_reason:
+            model_selection["policy_reason"] = source_reason
+        failure_kind = str(model_resolution.get("failure_kind") or "").strip()
+        if failure_kind:
+            model_selection["model_resolution_failure_kind"] = failure_kind
+        message = str(model_resolution.get("message") or "").strip()
+        if message:
+            model_selection["model_resolution_message"] = message
+    if not model_selection.get("policy_reason"):
+        if fallback_reason:
+            model_selection["policy_reason"] = fallback_reason
+        elif (
+            requested_model
+            and final_model
+            and requested_model != final_model
+        ):
+            model_selection["policy_reason"] = "requested_model_not_selected"
+        elif (
+            requested_provider
+            and final_provider
+            and requested_provider != final_provider
+        ):
+            model_selection["policy_reason"] = (
+                "requested_provider_not_selected"
+            )
+    payload_summary["model_selection"] = model_selection
 
     execution = {
         "attempted_provider": attempted_provider,
@@ -1777,12 +1859,15 @@ def _run_chat_completion_task_compat(
         "assistant_text": assistant_text,
         "provider": final_provider,
         "model": final_model,
+        "requested_provider": requested_provider,
+        "requested_model": requested_model,
         "attempted_provider": attempted_provider,
         "attempted_model": attempted_model,
         "resolved_provider": provider,
         "resolved_model": model,
         "selection_source": selection_source,
         "fallback_reason": fallback_reason,
+        "model_selection": model_selection,
         "upstream_status": failure_meta.get("upstream_status"),
         "provider_error": failure_meta.get("provider_error"),
         "transport_classification": failure_meta.get(
@@ -1825,6 +1910,44 @@ def _run_chat_completion_task_compat(
                 result[key] = value
         if completion_result.get("execution") is not None:
             result["execution"] = completion_result.get("execution")
+
+    # Final assembly boundary: re-normalize image-routing truth after the
+    # worker has merged the completion payload, payload summary, and nested
+    # trace, so persisted snapshots cannot retain stale
+    # "image_routing_not_evaluated" values for known image turns.
+    final_trace = result.get("trace")
+    if not isinstance(final_trace, dict) and isinstance(trace_fallback, dict):
+        final_trace = dict(trace_fallback)
+    (
+        image_attachment_count,
+        image_routing_path,
+        image_routing_absence_reason,
+    ) = _chat_completion_service._normalize_completion_image_routing_truth(
+        task=task,
+        provider=final_provider,
+        model=final_model,
+        settings=settings,
+        messages_for_llm=messages_for_llm,
+        routing_meta=None,
+        trace=final_trace,
+        payload_summary=payload_summary,
+        result=result,
+    )
+    payload_summary["image_attachment_count"] = image_attachment_count
+    payload_summary["image_routing_path"] = image_routing_path
+    payload_summary["image_routing_absence_reason"] = (
+        image_routing_absence_reason
+    )
+    result["image_attachment_count"] = image_attachment_count
+    result["image_routing_path"] = image_routing_path
+    result["image_routing_absence_reason"] = image_routing_absence_reason
+    if isinstance(final_trace, dict):
+        final_trace["image_attachment_count"] = image_attachment_count
+        final_trace["image_routing_path"] = image_routing_path
+        final_trace["image_routing_absence_reason"] = (
+            image_routing_absence_reason
+        )
+        result["trace"] = final_trace
     _sanitize_assistant_result_payload(result)
 
     if not persist_assistant_message:
@@ -1900,11 +2023,24 @@ def _run_chat_completion_task_compat(
                 "final_provider": final_provider,
                 "final_model": final_model,
                 "selection_source": selection_source,
+                "model_selection": result.get("model_selection"),
                 "fallback_reason": fallback_reason,
                 "payload_summary": payload_summary,
                 "completion_truth": completion_truth,
                 "attempted_provider_truth": attempted_provider_truth,
                 "final_provider_truth": final_provider_truth,
+                "retrieval_policy": result.get("retrieval_policy"),
+                "retrieval_posture": result.get("retrieval_posture"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
+                "retrieval_suppression": result.get("retrieval_suppression"),
+                "retrieval_executed": result.get("retrieval_executed"),
+                "retrieval_absence_reason": result.get(
+                    "retrieval_absence_reason"
+                ),
+                "image_routing_path": result.get("image_routing_path"),
+                "image_routing_absence_reason": result.get(
+                    "image_routing_absence_reason"
+                ),
                 "execution": execution,
                 **tool_loop_observability,
             },
@@ -2183,11 +2319,36 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             lifecycle_timings
         )
         result.update(lifecycle_timings_payload)
+        result_retrieval_posture = result.get("retrieval_posture")
+        if not isinstance(result_retrieval_posture, dict):
+            helper_payload_summary = result.get("payload_summary")
+            if isinstance(helper_payload_summary, dict):
+                maybe_posture = helper_payload_summary.get("retrieval_posture")
+                if isinstance(maybe_posture, dict):
+                    result_retrieval_posture = dict(maybe_posture)
+                    result["retrieval_posture"] = result_retrieval_posture
+        if not isinstance(result_retrieval_posture, dict):
+            trace_retrieval_posture = (
+                result_trace.get("retrieval_posture")
+                if isinstance(result_trace, dict)
+                else None
+            )
+            if isinstance(trace_retrieval_posture, dict):
+                result_retrieval_posture = dict(trace_retrieval_posture)
+                result["retrieval_posture"] = result_retrieval_posture
         if isinstance(result_trace, dict):
             result_trace = dict(result_trace)
             result_trace.update(lifecycle_timings_payload)
+            if isinstance(result_retrieval_posture, dict):
+                result_trace.setdefault(
+                    "retrieval_posture", dict(result_retrieval_posture)
+                )
         else:
             result_trace = dict(lifecycle_timings_payload)
+            if isinstance(result_retrieval_posture, dict):
+                result_trace["retrieval_posture"] = dict(
+                    result_retrieval_posture
+                )
         result["trace"] = result_trace
         message_id = _coerce_message_id(result.get("message_id"))
         if message_id is None:
@@ -2366,12 +2527,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "message_id": message_id,
                 "provider": result.get("provider"),
                 "model": result.get("model"),
+                "requested_provider": result.get("requested_provider"),
+                "requested_model": result.get("requested_model"),
+                "final_provider": result.get("final_provider"),
+                "final_model": result.get("final_model"),
                 "attempted_provider": result.get("attempted_provider"),
                 "attempted_model": result.get("attempted_model"),
                 "resolved_provider": result.get("resolved_provider"),
                 "resolved_model": result.get("resolved_model"),
                 "selection_source": result.get("selection_source"),
+                "model_selection": result.get("model_selection"),
                 "fallback_reason": result.get("fallback_reason"),
+                "model_selection": result.get("model_selection"),
                 "upstream_status": result.get("upstream_status"),
                 "provider_error": result.get("provider_error"),
                 "transport_classification": result.get(
@@ -2386,6 +2553,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "attempted_provider_truth"
                 ),
                 "final_provider_truth": result.get("final_provider_truth"),
+                "retrieval_policy": result.get("retrieval_policy"),
+                "retrieval_posture": result.get("retrieval_posture"),
+                "retrieval_provenance": result.get("retrieval_provenance"),
+                "retrieval_suppression": result.get("retrieval_suppression"),
+                "retrieval_executed": result.get("retrieval_executed"),
+                "retrieval_absence_reason": result.get(
+                    "retrieval_absence_reason"
+                ),
+                "image_routing_path": result.get("image_routing_path"),
+                "image_routing_absence_reason": result.get(
+                    "image_routing_absence_reason"
+                ),
                 "execution": result.get("execution"),
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),

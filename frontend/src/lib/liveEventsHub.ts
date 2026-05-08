@@ -1,4 +1,5 @@
 import { GuardianEventSource } from "@/lib/guardianEventSource";
+import type { RuntimeAuthSource } from "@/lib/runtimeAuth";
 import { getBackendOutageRemainingMs } from "@/lib/api";
 import type { LiveEvent, LiveEventEntity } from "@/lib/events/types";
 
@@ -20,16 +21,25 @@ export type LiveEventsHubConfig = {
   url: string;
   headers: Record<string, string>;
   withCredentials: boolean;
+  authSource: RuntimeAuthSource;
+  apiKeyPresent: boolean;
   onUnauthorized?: () => void;
 };
 
 export type LiveEventsHubEvent = LiveEvent;
 
 export type LiveEventsHubStatus = {
+  endpoint: string | null;
   readyState: 0 | 1 | 2;
   subscribers: number;
   lastEventId: string | null;
+  lastEventAt: number | null;
+  lastPingAt: number | null;
   lastErrorAt: number | null;
+  lastHttpStatus: number | null;
+  transportErrorClass: string | null;
+  authSource: RuntimeAuthSource;
+  apiKeyPresent: boolean;
   connectAttempt: number;
   retryMs: number;
   connectionStatus: HubConnectionStatus;
@@ -97,7 +107,11 @@ let connectionStatus: HubConnectionStatus = "disconnected";
 let connectAttempt = 0;
 let retryMs = INITIAL_RETRY_MS;
 let lastEventId: string | null = readStoredLastEventId();
+let lastEventAt: number | null = null;
+let lastPingAt: number | null = null;
 let lastErrorAt: number | null = null;
+let lastHttpStatus: number | null = null;
+let transportErrorClass: string | null = null;
 
 const seenEventIds = new Set<string>();
 const seenEventIdQueue: string[] = [];
@@ -160,10 +174,17 @@ function buildConfigKey(config: LiveEventsHubConfig): string {
 
 function statusSnapshot(): LiveEventsHubStatus {
   return {
+    endpoint: activeConfig?.url ?? null,
     readyState,
     subscribers: subscribers.size,
     lastEventId,
+    lastEventAt,
+    lastPingAt,
     lastErrorAt,
+    lastHttpStatus,
+    transportErrorClass,
+    authSource: activeConfig?.authSource ?? "unknown",
+    apiKeyPresent: Boolean(activeConfig?.apiKeyPresent),
     connectAttempt,
     retryMs,
     connectionStatus,
@@ -710,7 +731,11 @@ function hardReset(): void {
   activeConfig = null;
   activeConfigKey = "";
   lastEventId = readStoredLastEventId();
+  lastEventAt = null;
+  lastPingAt = null;
   lastErrorAt = null;
+  lastHttpStatus = null;
+  transportErrorClass = null;
   connectAttempt = 0;
   retryMs = INITIAL_RETRY_MS;
   connectionStatus = "disconnected";
@@ -778,7 +803,11 @@ function connect(config: LiveEventsHubConfig, reconnecting: boolean): void {
   const next = new GuardianEventSource(buildSourceUrl(config.url), {
     headers: config.headers,
     withCredentials: config.withCredentials,
-    onUnauthorized: config.onUnauthorized,
+    onUnauthorized: () => {
+      lastHttpStatus = 401;
+      transportErrorClass = null;
+      config.onUnauthorized?.();
+    },
     autoReconnect: false,
   });
   source = next;
@@ -787,6 +816,8 @@ function connect(config: LiveEventsHubConfig, reconnecting: boolean): void {
     if (abortSignal.aborted) return;
     readyState = GuardianEventSource.OPEN;
     connectionStatus = "connected";
+    lastHttpStatus = 200;
+    transportErrorClass = null;
     connectAttempt = 0;
     retryMs = INITIAL_RETRY_MS;
     notifyStatus();
@@ -795,6 +826,11 @@ function connect(config: LiveEventsHubConfig, reconnecting: boolean): void {
 
   sourceMessageListener = (evt: MessageEvent) => {
     if (abortSignal.aborted) return;
+    const now = Date.now();
+    lastEventAt = now;
+    if (evt.type === "ping") {
+      lastPingAt = now;
+    }
     const payload: LiveEventsHubRawEvent = {
       id: evt.lastEventId || null,
       type: evt.type || "message",
@@ -805,6 +841,7 @@ function connect(config: LiveEventsHubConfig, reconnecting: boolean): void {
       persistLastEventId(payload.id);
     }
     if (shouldDropEvent(payload)) return;
+    notifyStatus();
     publishEvent(payload);
   };
 
@@ -813,6 +850,7 @@ function connect(config: LiveEventsHubConfig, reconnecting: boolean): void {
     lastErrorAt = Date.now();
     readyState = GuardianEventSource.CLOSED;
     connectionStatus = "reconnecting";
+    transportErrorClass = "stream_error";
     notifyStatus();
     closeSource();
     scheduleReconnect();

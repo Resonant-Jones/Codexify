@@ -1,4 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import { act } from "@testing-library/react";
 
 vi.mock("@/lib/runtimeConfig", async () => {
   const actual = await vi.importActual<typeof import("@/lib/runtimeConfig")>(
@@ -19,8 +20,11 @@ import {
   mapRuntimePreflightFailureToState,
   getBootstrapDisplayCopy,
   getBootstrapRecoveryActions,
+  formatRuntimeReadinessResult,
   runPullRuntimeImages,
   runRuntimeBootstrapPreflight,
+  waitForRuntimeReady,
+  normalizeRuntimeReadiness,
   type RuntimePreflight,
 } from "@/lib/runtimeBootstrap";
 import {
@@ -29,10 +33,19 @@ import {
   isTauriRuntime,
 } from "@/lib/runtimeConfig";
 
+const flushPromises = async () => {
+  await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(0);
+};
+
 describe("runtime bootstrap preflight", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(isTauriRuntime).mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("classifies a native bridge import failure separately from Docker failures", async () => {
@@ -138,5 +151,121 @@ describe("runtime bootstrap preflight", () => {
     );
     expect(result.step).toBe("pull-images");
     expect(result.ok).toBe(true);
+  });
+
+  it("normalizes and formats packaged readiness diagnostics from the native dispatcher", () => {
+    const readiness = normalizeRuntimeReadiness({
+      ok: true,
+      ready: true,
+      backendReachable: true,
+      startupReady: true,
+      redisReady: true,
+      chatReady: true,
+      llmReady: true,
+      probeContext: "host-native",
+      llmStatus: "ok",
+      llmDetailsStatus: "online",
+      llmDetailsOk: true,
+      llmProvider: "local",
+      llmModel: "library2/ministral-3:8b",
+      llmProviderRuntimeAvailable: true,
+      llmEndpointResolutionState: "available",
+      llmFailureReason: null,
+      checks: [
+        {
+          endpoint: "http://127.0.0.1:8888/api/health/llm",
+          ok: true,
+          statusCode: 200,
+          detail: "HTTP/1.1 200 OK",
+          responseExcerpt: "{\"status\":\"ok\"}",
+        },
+      ],
+    });
+
+    expect(readiness.llmReady).toBe(true);
+    expect(readiness.probeContext).toBe("host-native");
+    expect(readiness.llmStatus).toBe("ok");
+    expect(readiness.llmDetailsStatus).toBe("online");
+    expect(readiness.llmDetailsOk).toBe(true);
+    expect(readiness.llmProvider).toBe("local");
+    expect(readiness.llmModel).toBe("library2/ministral-3:8b");
+    expect(readiness.llmProviderRuntimeAvailable).toBe(true);
+    expect(readiness.llmEndpointResolutionState).toBe("available");
+
+    const rendered = formatRuntimeReadinessResult(readiness);
+    expect(rendered).toContain("probeContext=host-native");
+    expect(rendered).toContain("llmStatus=ok");
+    expect(rendered).toContain("llmDetailsStatus=online");
+    expect(rendered).toContain("llmDetailsOk=true");
+    expect(rendered).toContain("llmProvider=local");
+    expect(rendered).toContain("llmModel=library2/ministral-3:8b");
+    expect(rendered).toContain("llmProviderRuntimeAvailable=true");
+    expect(rendered).toContain("llmEndpointResolutionState=available");
+    expect(rendered).toContain("llmReady=true");
+  });
+
+  it("keeps the startup gate moving when readiness turns green after an earlier red poll", async () => {
+    vi.useFakeTimers();
+    vi.mocked(invokeTauriCommand)
+      .mockResolvedValueOnce({
+        ok: false,
+        ready: false,
+        step: "health-check",
+        backendReachable: true,
+        startupReady: true,
+        redisReady: true,
+        chatReady: true,
+        llmReady: false,
+        probeContext: "host-native",
+        llmStatus: "ok",
+        llmDetailsStatus: "online",
+        llmDetailsOk: false,
+        llmProvider: "local",
+        llmModel: "library2/ministral-3:8b",
+        llmProviderRuntimeAvailable: false,
+        llmEndpointResolutionState: "unavailable",
+        llmFailureReason: "provider_runtime.available=false",
+        checks: [],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        ready: true,
+        step: "health-check",
+        backendReachable: true,
+        startupReady: true,
+        redisReady: true,
+        chatReady: true,
+        llmReady: true,
+        probeContext: "host-native",
+        llmStatus: "ok",
+        llmDetailsStatus: "online",
+        llmDetailsOk: true,
+        llmProvider: "local",
+        llmModel: "library2/ministral-3:8b",
+        llmProviderRuntimeAvailable: true,
+        llmEndpointResolutionState: "available",
+        checks: [],
+      });
+
+    const readinessPromise = waitForRuntimeReady({
+      timeoutMs: 6_000,
+      intervalMs: 500,
+    });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await flushPromises();
+    });
+
+    const result = await readinessPromise;
+
+    expect(result.ok).toBe(true);
+    expect(result.attempts).toBe(2);
+    expect(result.lastCheck.llmReady).toBe(true);
+    expect(result.lastCheck.llmFailureReason).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -243,6 +243,18 @@ audit-ritual-monthly:
 # Generate quarterly ritual agenda
 audit-ritual-quarterly:
 	$(PYTHON) scripts/audit/ritual.py --cadence quarterly
+
+# Build the public portal staging tree
+public-export:
+	bash scripts/release/export_public_directory.sh
+
+# Sync the public portal staging tree into a fresh repo path: make public-sync target=/path/to/repo
+public-sync:
+	@if [ -z "$(target)" ]; then \
+		echo "Usage: make public-sync target=/path/to/fresh-repo"; \
+		exit 1; \
+	fi
+	bash scripts/release/sync_public_directory.sh "$(target)"
 
 # Help target
 help:

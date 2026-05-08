@@ -139,6 +139,16 @@ def test_voice_capabilities_contract(test_client, monkeypatch):
     monkeypatch.setattr(
         "guardian.routes.voice._voice_worker_available", lambda: False
     )
+    monkeypatch.delenv("CODEXIFY_DEFAULT_VOICE", raising=False)
+
+    class _DummyTTSManager:
+        def list_voices(self, provider_name=None):
+            assert provider_name == "local_openai_compatible"
+            return ["alloy", "ember", "alloy"]
+
+    monkeypatch.setattr(
+        "guardian.routes.voice.TTSManager", lambda: _DummyTTSManager()
+    )
 
     response = test_client.get("/api/voice/capabilities")
 
@@ -154,6 +164,8 @@ def test_voice_capabilities_contract(test_client, monkeypatch):
     assert payload["providers_supported"]["stt"]
     assert payload["providers_configured"]["tts"] == "local_openai_compatible"
     assert payload["providers_configured"]["stt"] == "local_openai_compatible"
+    assert payload["voices"] == ["alloy", "ember"]
+    assert payload["voice_default"] == "alloy"
     assert payload["limits"]["max_upload_bytes"] == 15 * 1024 * 1024
     assert payload["limits"]["max_duration_s"] == 120
 

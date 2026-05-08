@@ -74,6 +74,16 @@ Source anchors:
 - The supported profile and provider registry answer “what should be allowed and treated as supported for this beta?”
 - None of those surfaces is sufficient alone. A green health check does not prove the mounted route surface matches the supported profile, and catalog presence does not prove that a provider path is part of the supported beta contract.
 
+### Provider governance note
+
+- The supported profile file is the beta release contract. It is the posture that the runtime must satisfy, not a loose hint about preferred defaults.
+- Catalog discovery is not support. A provider can be discovered, authorized, or even executable at a runtime layer without being part of the supported beta posture.
+- Provider health is not support by itself. `/health`, `/health/chat`, and `/api/health/llm` must be read alongside `/api/llm/catalog` to understand the actual beta posture.
+- Cloud-capable configuration must always be interpreted against the active supported-profile posture. If the profile is local-only, cloud-capable env flags or credentials are drift evidence, not beta approval.
+- For release proof, `/health`, `/api/health/llm`, and `/api/llm/catalog` should agree on the supported profile, the selected provider, and whether the runtime is release-hold or aligned.
+- Operator views such as `?include=all` may still show unsupported providers for diagnosis, but that inspection surface does not widen release support.
+- Default catalog and health truth should keep discovered inventory, configured provider, egress-allowed provider, supported-profile-approved provider, and executable provider distinct so operators can see exactly where posture diverges.
+
 ### Current operator limits without a full Command Center / Observability Deck
 
 - Operators can currently infer whether the selected provider is configured, credentialed, egress-allowed, and reachable enough for the active runtime path.
@@ -119,6 +129,18 @@ Source anchors:
 5. Manually verify the minimum beta-ready evidence before calling `go`.
    - Verify the supported-profile flags are active, internal-only/quarantined routes are not exposed on the supported beta surface, provider registry posture agrees with catalog and health, and the current audit window includes fresh live proof for assistant completion plus upload -> embed -> retrieve.
    - If any of those checks fail, or if the mismatch can only be explained through unsupported/internal surfaces, record the release as `hold`.
+
+### Workspace proof harness for release evidence
+
+- Use `scripts/proofs/prove_workspace_obsidian_e2e.py` when you need live evidence that a workspace-scoped completion can be influenced by an Obsidian-backed local note on the supported local Compose path.
+- The harness stages a scratch vault under `tmp/`, indexes it through `/api/obsidian/config` and `/api/obsidian/index`, then waits on the real task-event stream and verifies the persisted assistant message plus retrieval posture.
+- It is release evidence only. It does not prove sync automation, connector UX, packaged desktop behavior, or any non-Compose install mode.
+- Exact command:
+
+```bash
+BASE=http://localhost:8888 GUARDIAN_API_KEY="$(scripts/dev/dev-key.sh)" \
+python scripts/proofs/prove_workspace_obsidian_e2e.py
+```
 
 ### Storage, media, and embeddings
 
@@ -175,12 +197,14 @@ Graph-write enablement note:
 - Source/dev installs may still use the repository Compose path and local build workflow.
 - The launcher/wizard is responsible for creating local config, validating Compose, pulling the registry-backed runtime images, and starting services in the packaged path.
 - Packaged first-run users should not need Rust, pnpm, Python dev tooling, or a source checkout to reach a usable local runtime.
-- The backend registry image now has a compiled/frozen proof target built with PyInstaller at `backend/compiled_backend_entry.py`.
+- The backend registry image now has a compiled/frozen dispatcher target built with PyInstaller at `backend/compiled_runtime_entry.py`.
 - The proof target lives in `backend/Dockerfile` as `compiled-runtime` and keeps the source-backed runtime stage intact for dev and legacy Compose paths.
-- The proof image is intentionally backend-only for now; workers and migrator still remain source-backed in the existing Docker path until they are proven separately.
+- Packaged runtime now uses a single compiled dispatcher image, `codexify-runtime`, with role-specific commands such as `backend`, `migrator`, `model-prep`, and the worker roles.
+- The compiled runtime ships runtime-owned Alembic config plus the migration tree under `/app/runtime` so the migrator role can run without raw `/app/backend` or `/app/guardian` source paths.
 - The proof image still ships a small set of non-source runtime files needed by startup, including supported-profile YAML and bundled help content.
 - Packaged desktop auth handoff now flows through a Tauri command that returns a sanitized runtime auth/config payload for the local packaged runtime. The frontend consumes the handed-off `GUARDIAN_API_KEY` only in packaged mode, while diagnostics expose only presence and source metadata such as `envPath`, `runtimeRoot`, and `failureKind`.
 - The Guardian auth gate now derives from the same in-memory runtime API key that the desktop API client uses, so packaged desktop mode can satisfy local auth without `VITE_GUARDIAN_API_KEY`; the legacy Vite env key remains a dev-only fallback.
+- Packaged desktop live updates use the same authenticated SSE request path as the rest of the runtime client. If the event stream disconnects while `/health/chat` and `/api/health/llm` are still green, the shell should surface that as a separate live-update transport warning rather than a provider-health degradation, and the technical details should show the observed endpoint, auth source, HTTP status or transport error class, and polling timestamps without revealing raw credentials.
 
 ## Config Resolution Order and Defaults
 
@@ -244,6 +268,8 @@ Unverified:
 - `GET /api/events`
 - command bus run stream:
   - `GET /api/guardian/commands/runs/{run_id}/events`
+
+Packaged desktop runtime banners now expose sanitized health-poll diagnostics when degraded. Operators can read the banner's resolved API base URL, auth source, endpoint paths, HTTP status or transport error class, parsed status, parsed `ok` value, and poll timestamps without exposing raw credentials. Use those fields together with terminal probes when the packaged UI appears stale or disagrees with `/health/chat` and `/api/health/llm`.
 
 Primary anchors:
 - `guardian/routes/health.py`

@@ -15,7 +15,8 @@ interface DocumentsViewProps {
   extColors: ExtColors;
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
-  defaultProjectId?: number | string | null;
+  projectId?: number | string | null;
+  threadId?: number | string | null;
 }
 
 function getDocumentAccentColor(extColors: ExtColors, ext?: string): string {
@@ -133,14 +134,16 @@ export default function DocumentsView({
   extColors,
   onOpenInThread,
   onDeleteDocument,
-  defaultProjectId,
+  projectId,
+  threadId,
 }: DocumentsViewProps) {
   const mobileShellProfile = useMobileShellProfile();
   const shellViewportProfile = useShellViewportProfile();
   const isPhoneShell = mobileShellProfile.active;
   const uploader = useUploader({
     tag: "upload",
-    projectId: defaultProjectId ?? undefined,
+    projectId: projectId ?? undefined,
+    threadId: threadId ?? undefined,
     onImages: () => {},
     onDocuments: (items: DocumentUploadItem[]) => {
       const normalized = items.map((item, idx: number) => ({

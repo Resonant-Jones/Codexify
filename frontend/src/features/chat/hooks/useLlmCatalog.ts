@@ -25,6 +25,16 @@ export type LlmCatalogModel = {
   supportsVision?: boolean;
   supportsTextInput?: boolean;
   modelKind?: "chat" | "vision_chat" | "utility";
+  override?: {
+    displayLabel?: string | null;
+    pickerLabel?: string | null;
+    supportsChat?: boolean | null;
+    supportsVision?: boolean | null;
+    supportsTextInput?: boolean | null;
+    modelKind?: "chat" | "vision_chat" | "utility" | null;
+    notes?: string | null;
+    updatedAt?: string | null;
+  };
   capabilities?: {
     chat?: boolean;
     vision?: boolean;
@@ -125,7 +135,12 @@ function normalizeModel(
     displayLabel ??
     canonicalId;
   const alias = normalizeString(model.alias) ?? undefined;
-  const displayName = alias ?? displayLabel ?? pickerLabel ?? canonicalId;
+  const override =
+    model.override && typeof model.override === "object"
+      ? (model.override as Record<string, unknown>)
+      : null;
+  const displayName =
+    displayLabel ?? pickerLabel ?? alias ?? canonicalId;
   const runtime = model.runtime;
   const reasoning =
     runtime && typeof runtime === "object"
@@ -154,6 +169,9 @@ function normalizeModel(
   const modelKind =
     normalizeModelKind(model.model_kind ?? model.modelKind) ??
     (supportsChat ? (supportsVision ? "vision_chat" : "chat") : "utility");
+  const overrideModelKind = normalizeModelKind(
+    override?.modelKind ?? override?.model_kind
+  );
 
   return {
     id: canonicalId,
@@ -173,6 +191,31 @@ function normalizeModel(
     supportsVision,
     supportsTextInput,
     modelKind,
+    override:
+      override
+        ? {
+            displayLabel:
+              normalizeString(override.displayLabel ?? override.display_label) ??
+              null,
+            pickerLabel:
+              normalizeString(override.pickerLabel ?? override.picker_label) ??
+              null,
+            supportsChat:
+              normalizeBoolean(override.supportsChat ?? override.supports_chat) ??
+              null,
+            supportsVision:
+              normalizeBoolean(override.supportsVision ?? override.supports_vision) ??
+              null,
+            supportsTextInput:
+              normalizeBoolean(
+                override.supportsTextInput ?? override.supports_text_input
+              ) ?? null,
+            modelKind: overrideModelKind ?? null,
+            notes: normalizeString(override.notes) ?? null,
+            updatedAt:
+              normalizeString(override.updatedAt ?? override.updated_at) ?? null,
+          }
+        : undefined,
     capabilities:
       capabilities
         ? {

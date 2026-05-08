@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
 import ThreadList from "../ThreadList";
@@ -104,6 +105,23 @@ describe("ThreadList dark mode surface contract", () => {
     document.documentElement.classList.remove("dark");
   });
 
+  it("keeps thread rows compact and title-first", () => {
+    renderThreadList();
+
+    const guide = screen.getByTestId("thread-rail-guide");
+    const tile = screen.getByTestId("thread-tile-thread-1");
+
+    expect(guide).toHaveClass("bg-transparent", "shadow-none", "border-0", "rounded-none");
+    expect(guide.getAttribute("style")).toContain("background: transparent");
+    expect(guide.getAttribute("style")).toContain("box-shadow: none");
+    expect(tile).toHaveStyle({
+      minHeight: "44px",
+      background: "var(--panel-bg)",
+    });
+    expect(within(tile).getByText("Research notes")).toBeInTheDocument();
+    expect(within(tile).queryByText("Valid content should read as content.")).toBeNull();
+  });
+
   it("keeps the light-mode thread tile on the default panel background", () => {
     renderThreadList();
 
@@ -164,6 +182,95 @@ describe("ThreadList dark mode surface contract", () => {
     });
 
     expect(container.querySelector(".thread-title svg")).toBeNull();
+  });
+});
+
+describe("ThreadList thread actions menu", () => {
+  it("shows the kebab only on the selected thread and keeps the action menu usable", async () => {
+    const onSelect = vi.fn();
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const onArchiveToggle = vi.fn().mockResolvedValue(undefined);
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Updated research notes");
+    const user = userEvent.setup();
+
+    render(
+      <ThreadList
+        threads={[
+          createThread({ id: "thread-1", title: "First thread" }),
+          createThread({ id: "thread-2", title: "Second thread" }),
+        ]}
+        activeId={"thread-1"}
+        scopeLabel="General"
+        onSelect={onSelect}
+        onNewChat={vi.fn()}
+        onRename={onRename}
+        onArchiveToggle={onArchiveToggle}
+        onDelete={onDelete}
+      />
+    );
+
+    expect(screen.getAllByRole("button", { name: "Thread actions" })).toHaveLength(1);
+
+    const selectedRow = screen.getByTestId("thread-row-thread-1");
+    const selectedTile = within(selectedRow).getByTestId("thread-tile-thread-1");
+    const selectedTitle = within(selectedTile).getByText("First thread");
+    const selectedActions = within(selectedRow).getByRole("button", { name: "Thread actions" });
+
+    expect(selectedTile).toHaveStyle({ minHeight: "44px" });
+    expect(selectedActions).toHaveStyle({
+      background: "color-mix(in oklab, var(--panel-bg) 84%, var(--text) 16%)",
+    });
+    expect(selectedRow).toContainElement(selectedActions);
+    expect(
+      selectedTitle.compareDocumentPosition(selectedActions) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByTestId("thread-row-thread-2")?.contains(selectedActions)).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Thread actions" }));
+
+    const menu = await screen.findByRole("menu");
+    expect(menu).toBeVisible();
+
+    await user.click(within(menu).getByRole("button", { name: "Rename" }));
+
+    expect(promptSpy).toHaveBeenCalledWith("Rename thread", "First thread");
+    expect(onRename).toHaveBeenCalledWith("thread-1", "Updated research notes");
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onArchiveToggle).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    promptSpy.mockRestore();
+  });
+
+  it("reveals the action affordance while an unselected row has keyboard focus", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ThreadList
+        threads={[
+          createThread({ id: "thread-1", title: "First thread" }),
+          createThread({ id: "thread-2", title: "Second thread" }),
+        ]}
+        activeId={null}
+        scopeLabel="General"
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+        onRename={vi.fn().mockResolvedValue(undefined)}
+        onArchiveToggle={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Thread actions" })).toBeNull();
+
+    await user.tab();
+    await user.tab();
+
+    expect(await screen.findByRole("button", { name: "Thread actions" })).toBeVisible();
+    expect(screen.getByTestId("thread-row-thread-1")).toContainElement(
+      screen.getByRole("button", { name: "Thread actions" })
+    );
   });
 });
 

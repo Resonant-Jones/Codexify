@@ -27,6 +27,9 @@ import {
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
+import type {
+  RuntimeHealthStatus,
+} from "@/hooks/useRuntimeHealth";
 import {
   useSessionActiveDraft,
   useSessionActiveInferenceMode,
@@ -182,9 +185,8 @@ function normalizeThreadConfig(raw: unknown): ThreadConfig | null {
     modelId,
     inferenceMode,
     retrievalSource:
-      retrievalSource === "workspace" ||
       retrievalSource === "personal_knowledge"
-        ? "workspace"
+        ? "personal_knowledge"
         : "project",
     personaId,
   };
@@ -240,6 +242,8 @@ type GuardianChatWithSidebarProps = {
   onWorkspaceClose?: () => void;
   onWorkspaceOpenInThread?: (doc: DocumentLike | null) => void;
   providerRuntimeState?: ProviderRuntimeState | null;
+  runtimeHealth?: RuntimeHealthStatus | null;
+  onProjectChange?: (projectId: string | null, projectName: string | null) => void;
 };
 
 export default function GuardianChatWithSidebar({
@@ -256,6 +260,8 @@ export default function GuardianChatWithSidebar({
   onWorkspaceClose,
   onWorkspaceOpenInThread,
   providerRuntimeState = null,
+  runtimeHealth = null,
+  onProjectChange,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -277,6 +283,11 @@ export default function GuardianChatWithSidebar({
     setSelectedProjectId(id);
     setSelectedProjectName(name);
   }, []);
+
+  React.useEffect(() => {
+    if (selectedProjectId == null) return;
+    onProjectChange?.(selectedProjectId, selectedProjectName);
+  }, [onProjectChange, selectedProjectId, selectedProjectName]);
 
   // Persist sidebar visibility preference
   React.useEffect(() => {
@@ -1740,6 +1751,7 @@ export default function GuardianChatWithSidebar({
                   onWorkspaceToggle={onWorkspaceToggle}
                   workspaceOpen={workspaceOpen}
                   providerRuntimeState={providerRuntimeState}
+                  runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
                   onSendMessage={handleSendMessage}

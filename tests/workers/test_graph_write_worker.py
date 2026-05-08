@@ -7,6 +7,13 @@ from guardian.memory_graph.graph_backend import (
     GRAPH_BACKEND_RESULT_STATUS_FAILED,
     GRAPH_BACKEND_RESULT_STATUS_NOOP,
     GRAPH_BACKEND_RESULT_STATUS_WRITTEN,
+from guardian.core import graph_write_inspection_store
+from guardian.core.graph_write_inspection_store import (
+    GRAPH_WRITE_INSPECTION_STATUS_CLAIMED,
+    GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
+)
+from guardian.memory_graph.graph_backend import (
+    GRAPH_BACKEND_RESULT_STATUS_NOOP,
     GraphBackendWriteResult,
 )
 from guardian.workers import graph_write_worker
@@ -81,7 +88,7 @@ def _record_by_message(caplog, message: str):
     )
 
 
-def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
+def test_graph_write_worker_stores_inspection_snapshot_for_first_seen_task(
     caplog, monkeypatch
 ):
     caplog.set_level(logging.INFO)
@@ -104,6 +111,20 @@ def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
     )
     monkeypatch.setattr(
         graph_write_worker, "get_graph_backend", lambda: backend
+    graph_backend_adapter = MagicMock(
+        write_graph_task=MagicMock(
+            return_value=GraphBackendWriteResult(
+                status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+                graph_write_id="gwr_test_identity",
+                node_count=1,
+                edge_count=1,
+            )
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_graph_backend_adapter",
+        MagicMock(return_value=graph_backend_adapter),
     )
 
     graph_write_worker.process_graph_write_task(_task())
@@ -132,6 +153,18 @@ def test_graph_write_worker_claims_receipt_and_logs_summary_for_first_seen_task(
     assert summary.warning_count == 0
     assert summary.node_types == ["Document"]
     assert summary.edge_types == ["PART_OF_THREAD"]
+    graph_backend_adapter.write_graph_task.assert_called_once()
+
+    snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(7)
+    assert snapshot is not None
+    assert snapshot["thread_id"] == 7
+    assert snapshot["graph_write_id"] == "gwr_test_identity"
+    assert snapshot["receipt_status"] == GRAPH_WRITE_INSPECTION_STATUS_CLAIMED
+    assert snapshot["node_count"] == 1
+    assert snapshot["edge_count"] == 1
+    assert snapshot["warning_count"] == 0
+    assert snapshot["node_types"] == ["Document"]
+    assert snapshot["edge_types"] == ["PART_OF_THREAD"]
 
 
 def test_graph_write_worker_uses_noop_backend_by_default(monkeypatch):
@@ -191,8 +224,20 @@ def test_graph_write_worker_calls_neo4j_backend_when_explicitly_enabled(
 
 def test_graph_write_worker_duplicate_task_still_skips_before_backend_call(
     monkeypatch,
+def test_graph_write_worker_stores_duplicate_skipped_snapshot(
+    caplog, monkeypatch
 ):
     redis_client = _FakeReceiptRedis(results=[True, False])
+    graph_backend_adapter = MagicMock(
+        write_graph_task=MagicMock(
+            return_value=GraphBackendWriteResult(
+                status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+                graph_write_id="gwr_test_identity",
+                node_count=1,
+                edge_count=1,
+            )
+        )
+    )
     monkeypatch.setattr(
         graph_write_worker,
         "get_redis_connection",
@@ -210,6 +255,10 @@ def test_graph_write_worker_duplicate_task_still_skips_before_backend_call(
     )
     monkeypatch.setattr(
         graph_write_worker, "get_graph_backend", lambda: backend
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_graph_backend_adapter",
+        MagicMock(return_value=graph_backend_adapter),
     )
 
     task = _task()
@@ -217,6 +266,64 @@ def test_graph_write_worker_duplicate_task_still_skips_before_backend_call(
     graph_write_worker.process_graph_write_task(task)
 
     assert len(backend.calls) == 1
+    summary_records = [
+        record
+        for record in caplog.records
+        if record.getMessage()
+        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+    ]
+    duplicate_record = _record_by_message(
+        caplog,
+        f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_DUPLICATE_LOG}",
+    )
+    snapshot = graph_write_inspection_store.get_latest_graph_write_inspection(7)
+
+    assert len(summary_records) == 1
+    assert duplicate_record.request_id == "req-1"
+    assert duplicate_record.thread_id == 7
+    assert duplicate_record.candidate_trace_id == "trace-1"
+    assert duplicate_record.graph_write_id == "gwr_test_identity"
+    assert (
+        duplicate_record.idempotency_key == "graph-write:trace-1:fingerprint-1"
+    )
+    assert graph_backend_adapter.write_graph_task.call_count == 1
+    assert snapshot is not None
+    assert snapshot["receipt_status"] == (
+        GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED
+    )
+    assert snapshot["thread_id"] == 7
+    assert snapshot["graph_write_id"] == "gwr_test_identity"
+
+
+def test_graph_write_worker_contains_snapshot_store_failure(
+    caplog, monkeypatch
+):
+    caplog.set_level(logging.INFO)
+    redis_client = _FakeReceiptRedis(results=[True])
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_redis_connection",
+        MagicMock(return_value=redis_client),
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "store_graph_write_inspection_snapshot",
+        MagicMock(side_effect=RuntimeError("snapshot store failed")),
+    )
+
+    graph_write_worker.process_graph_write_task(_task())
+
+    assert any(
+        record.levelno >= logging.ERROR
+        and graph_write_worker.GRAPH_WRITE_WORKER_INSPECTION_STORE_FAILED_LOG
+        in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        record.getMessage()
+        == f"[graph-write] {graph_write_worker.GRAPH_WRITE_WORKER_SUMMARY_LOG}"
+        for record in caplog.records
+    )
 
 
 def test_graph_write_worker_contains_receipt_claim_failure(caplog, monkeypatch):
@@ -279,6 +386,18 @@ def test_graph_write_worker_logs_failed_backend_result(caplog, monkeypatch):
     )
     monkeypatch.setattr(
         graph_write_worker, "get_graph_backend", lambda: backend
+    graph_backend_spy = MagicMock(
+        return_value=GraphBackendWriteResult(
+            status=GRAPH_BACKEND_RESULT_STATUS_NOOP,
+            graph_write_id="gwr_test_identity",
+            node_count=1,
+            edge_count=1,
+        )
+    )
+    monkeypatch.setattr(
+        graph_write_worker,
+        "get_graph_backend_adapter",
+        graph_backend_spy,
     )
 
     graph_write_worker.process_graph_write_task(_task())
@@ -288,3 +407,5 @@ def test_graph_write_worker_logs_failed_backend_result(caplog, monkeypatch):
         in record.getMessage()
         for record in caplog.records
     )
+    assert len(redis_client.calls) == 1
+    graph_backend_spy.assert_called_once()

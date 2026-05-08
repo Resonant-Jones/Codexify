@@ -84,6 +84,8 @@ from guardian.services.media_identity import source_label_from_filename, utcnow
 logger = logging.getLogger(__name__)
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _GENERIC_UPLOAD_ERROR = "Upload failed. Please try again."
+_IMAGE_THREAD_ID_REQUIRED_ERROR = "thread_id_required"
+_IMAGE_THREAD_ID_REQUIRED_MESSAGE = "thread_id is required for image uploads."
 
 
 def _is_pytest() -> bool:
@@ -991,6 +993,16 @@ async def upload_image(
     Accepts: PNG, JPG, JPEG, WebP
     Stores in: /media/images/
     """
+    normalized_thread_id = _coerce_optional_positive_int(thread_id)
+    if normalized_thread_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail=_upload_error_detail(
+                _IMAGE_THREAD_ID_REQUIRED_ERROR,
+                _IMAGE_THREAD_ID_REQUIRED_MESSAGE,
+            ),
+        )
+
     # Validate file type
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
@@ -1006,22 +1018,21 @@ async def upload_image(
         effective_user_id = _resolve_effective_user_id(
             user_id,
             request_user_scope,
-            default_when_blank="default",
+            default_when_blank=_request_account_id(request_user_scope),
         )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-image"
         )
         db = _get_db()
         explicit_project_id = _coerce_optional_positive_int(project_id)
-        explicit_thread_id = _coerce_optional_positive_int(thread_id)
+        explicit_thread_id = normalized_thread_id
         if explicit_project_id is not None:
             _require_project_account_scope(
                 db, explicit_project_id, request_user_scope
             )
-        if explicit_thread_id is not None:
-            _require_thread_account_scope(
-                db, explicit_thread_id, request_user_scope
-            )
+        _require_thread_account_scope(
+            db, explicit_thread_id, request_user_scope
+        )
         resolved_project_id, resolved_thread_id = _resolve_upload_context(
             db, project_id, thread_id
         )
@@ -1382,6 +1393,12 @@ async def delete_image(
 @router.post(
     "/upload/document", response_model=DocumentUploadResponse, tags=["media"]
 )
+@router.post(
+    "/upload/file",
+    response_model=DocumentUploadResponse,
+    tags=["media"],
+    deprecated=True,
+)
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
@@ -1423,7 +1440,7 @@ async def upload_document(
         effective_user_id = _resolve_effective_user_id(
             user_id,
             request_user_scope,
-            default_when_blank="default",
+            default_when_blank=_request_account_id(request_user_scope),
         )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-document"
