@@ -1587,7 +1587,7 @@ class ContextBroker:
                 scoped_item["user_id"] = normalized_user_id
                 scoped_item["owner_user_id"] = normalized_user_id
                 filtered.append(scoped_item)
-            return filtered
+            return self._sort_retrieval_items(filtered)
         return []
 
     async def _retrieve_obsidian_documents(
