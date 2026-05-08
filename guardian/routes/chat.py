@@ -4341,7 +4341,6 @@ def get_latest_rag_trace(
                     completed_payload.get("retrieval_provenance"), dict
                 )
             )
-            if not trace_source_evidence:
             if not trace_source_evidence and not trace_unavailable_reason:
                 trace_unavailable_reason = (
                     TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value
