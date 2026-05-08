@@ -82,6 +82,7 @@ from guardian.protocol_tokens import (
     ErrorCode,
     ImageRoutingPath,
     LoopStopReason,
+    ContextRequestStatus,
     ToolLoopStopReason,
     ToolTurnState,
     TraceSuppressionReason,
@@ -487,6 +488,69 @@ def _retrieval_override_from_origin(origin: Any) -> dict[str, Any] | None:
             return None
         return parsed if isinstance(parsed, dict) else None
     return None
+
+
+def _context_request_plans_from_origin(origin: Any) -> list[dict[str, Any]]:
+    text = str(origin or "").strip()
+    if not text:
+        return []
+
+    for segment in text.split("|")[1:]:
+        key, _, value = segment.partition("=")
+        if key.strip() != "context_request_plans":
+            continue
+        raw_value = unquote(value.strip())
+        if not raw_value:
+            return []
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:
+            logger.debug(
+                "[chat-completion] failed to decode context request plans origin segment",
+                exc_info=True,
+            )
+            return []
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+        if isinstance(parsed, dict):
+            nested = parsed.get("context_request_plans") or parsed.get("plans")
+            if isinstance(nested, list):
+                return [item for item in nested if isinstance(item, dict)]
+        return []
+    return []
+
+
+def _supported_obsidian_context_request_plans(task: Any) -> list[dict[str, Any]]:
+    raw_plans = getattr(task, "context_request_plans", None)
+    if raw_plans is None:
+        raw_plans = _context_request_plans_from_origin(
+            getattr(task, "origin", None)
+        )
+    if not isinstance(raw_plans, list):
+        return []
+
+    supported: list[dict[str, Any]] = []
+    for plan in raw_plans:
+        if not isinstance(plan, dict):
+            continue
+        request_kind = str(
+            plan.get("request_kind") or plan.get("requestKind") or ""
+        ).strip().lower()
+        connector_id = str(
+            plan.get("connector_id") or plan.get("connectorId") or ""
+        ).strip().lower()
+        invocation = str(plan.get("invocation") or "").strip().lower()
+        status = str(plan.get("status") or "").strip().lower()
+        if request_kind != "read_only_context_request":
+            continue
+        if connector_id != "obsidian":
+            continue
+        if invocation != "turn_scoped":
+            continue
+        if status != ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value:
+            continue
+        supported.append(dict(plan))
+    return supported
 
 
 def _image_attachment_count_from_origin(origin: Any) -> int | None:
@@ -3090,6 +3154,7 @@ async def build_messages_for_llm(
     trace_candidate: dict[str, Any] | None = None
     retrieval_policy_obj: Any | None = None
     retrieval_policy: dict[str, Any] | None = None
+    broker: ContextBroker | None = None
     try:
         effective_source_mode = _resolve_effective_source_mode_for_assembly(
             source_mode,
@@ -3148,6 +3213,100 @@ async def build_messages_for_llm(
         bundle = {}
     else:
         trace_candidate = trace
+
+    context_request_results: list[dict[str, Any]] = []
+    supported_context_request_plans = _supported_obsidian_context_request_plans(
+        task
+    )
+    if isinstance(bundle, dict):
+        connector_context_items = [
+            item for item in (bundle.get("connector_context") or []) if isinstance(item, dict)
+        ]
+        if supported_context_request_plans:
+            if broker is None:
+                for plan in supported_context_request_plans:
+                    query_text = str(plan.get("query_text") or "").strip()
+                    context_request_results.append(
+                        {
+                            "request_kind": str(
+                                plan.get("request_kind")
+                                or "read_only_context_request"
+                            ),
+                            "connector_id": str(
+                                plan.get("connector_id") or "obsidian"
+                            ),
+                            "invocation": str(
+                                plan.get("invocation") or "turn_scoped"
+                            ),
+                            "query_text": query_text,
+                            "status": ContextRequestStatus.FAILED.value,
+                            "result_count": 0,
+                            "injected": False,
+                            "error": "broker_unavailable",
+                        }
+                    )
+            else:
+                for plan in supported_context_request_plans:
+                    query_text = str(plan.get("query_text") or "").strip()
+                    result_record: dict[str, Any] = {
+                        "request_kind": str(
+                            plan.get("request_kind")
+                            or "read_only_context_request"
+                        ),
+                        "connector_id": str(
+                            plan.get("connector_id") or "obsidian"
+                        ),
+                        "invocation": str(
+                            plan.get("invocation") or "turn_scoped"
+                        ),
+                        "query_text": query_text,
+                        "status": ContextRequestStatus.FAILED.value,
+                        "result_count": 0,
+                        "injected": False,
+                    }
+                    if not query_text:
+                        result_record["error"] = "blank_query"
+                        context_request_results.append(result_record)
+                        continue
+                    try:
+                        connector_results = await broker.retrieve_obsidian_context_command(
+                            query=query_text,
+                            user_id=context_user_id,
+                            project_id=project_id_for_prompt,
+                            k=4,
+                            retrieval_policy=retrieval_policy,
+                        )
+                        result_count = len(
+                            [
+                                item
+                                for item in connector_results
+                                if isinstance(item, dict)
+                            ]
+                        )
+                        result_record["result_count"] = result_count
+                        if result_count > 0:
+                            connector_context_items.extend(connector_results)
+                            result_record["status"] = (
+                                ContextRequestStatus.EXECUTED.value
+                            )
+                            result_record["injected"] = True
+                        else:
+                            result_record["status"] = (
+                                ContextRequestStatus.NO_RESULTS.value
+                            )
+                    except Exception as exc:
+                        result_record["status"] = (
+                            ContextRequestStatus.FAILED.value
+                        )
+                        result_record["result_count"] = 0
+                        result_record["injected"] = False
+                        result_record["error"] = type(exc).__name__
+                    context_request_results.append(result_record)
+        bundle["connector_context"] = connector_context_items
+        bundle["context_request_results"] = list(context_request_results)
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace["context_request_results"] = list(context_request_results)
 
     if (
         isinstance(bundle, dict)
@@ -3282,6 +3441,7 @@ async def build_messages_for_llm(
         trace.update(latest_turn_trace_fields)
         trace.update(routing_debug_metadata)
         trace.setdefault("source_mode", effective_source_mode)
+        trace["context_request_results"] = list(context_request_results)
 
     if retrieval_policy_obj is not None and isinstance(trace, dict):
         try:
