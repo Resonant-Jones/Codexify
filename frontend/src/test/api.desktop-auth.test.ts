@@ -28,6 +28,7 @@ describe("desktop auth headers", () => {
   const originalAdapter = api.defaults.adapter;
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     api.defaults.adapter = originalAdapter;
     setAuthToken(null);
     clearRuntimeApiKey();
@@ -68,6 +69,18 @@ describe("desktop auth headers", () => {
     expect(headers["Authorization"] ?? headers["authorization"]).toBeUndefined();
   });
 
+  it("defaults to attaching the dev key when proxy mode is unset", () => {
+    vi.unstubAllEnvs();
+    setAuthToken(null);
+    clearRuntimeApiKey();
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "default-dev-key");
+
+    const init = buildAuthenticatedFetchInit();
+    const headers = normalizeHeaders(init.headers);
+
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBe("default-dev-key");
+  });
+
   it("sends the runtime desktop key through the axios client even when a bearer token exists", async () => {
     setAuthToken("bearer-token");
     setRuntimeApiKey("desktop-key");
@@ -89,6 +102,57 @@ describe("desktop auth headers", () => {
     expect(capturedHeaders["Authorization"] ?? capturedHeaders["authorization"]).toBe(
       "Bearer bearer-token"
     );
+    expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
+      "desktop-key"
+    );
+  });
+
+  it("keeps the runtime desktop key on the health poll path even when a bearer token is stale", async () => {
+    setAuthToken("stale-bearer-token");
+    setRuntimeApiKey("desktop-key");
+
+    let capturedHeaders: Record<string, string> = {};
+    api.defaults.adapter = async (config) => {
+      capturedHeaders = normalizeHeaders(config.headers);
+      return {
+        data: { ok: true, status: "healthy" },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      };
+    };
+
+    await api.get("/health/chat");
+
+    expect(capturedHeaders["Authorization"] ?? capturedHeaders["authorization"]).toBe(
+      "Bearer stale-bearer-token"
+    );
+    expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
+      "desktop-key"
+    );
+  });
+
+  it("attaches the runtime desktop key to create-thread requests", async () => {
+    setRuntimeApiKey("desktop-key");
+
+    let capturedHeaders: Record<string, string> = {};
+    api.defaults.adapter = async (config) => {
+      capturedHeaders = normalizeHeaders(config.headers);
+      return {
+        data: { thread_id: 123, thread: { id: 123, title: "New Thread" } },
+        status: 201,
+        statusText: "Created",
+        headers: {},
+        config,
+      };
+    };
+
+    await api.post("/api/chat/threads", {
+      title: "New Thread",
+      user_id: "local",
+    });
+
     expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
       "desktop-key"
     );

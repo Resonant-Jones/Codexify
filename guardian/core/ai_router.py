@@ -25,6 +25,7 @@ from guardian.core.provider_registry import (
     provider_routing_requires_discovered_inventory,
     validate_provider_model_selection,
 )
+from guardian.protocol_tokens import ErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -860,6 +861,11 @@ def _messages_contain_image_payload(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
+def messages_contain_image_payload(messages: list[dict[str, Any]]) -> bool:
+    """Return True when provider-ready messages still contain image payloads."""
+    return _messages_contain_image_payload(messages)
+
+
 def _transform_messages_for_ollama_vision(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1156,6 +1162,15 @@ def resolve_local_execution_model(
         resolved,
         requested_model=requested_model,
     )
+    substitution_reason = None
+    if strict and requested:
+        configured_preview = candidates[0][0] if candidates else ""
+        if configured_preview and requested != configured_preview:
+            substitution_reason = (
+                f"requested model '{requested}' was overridden by "
+                f"configured local chat model '{configured_preview}' from "
+                "LOCAL_CHAT_MODEL"
+            )
     if not candidates:
         source_name = "LOCAL_CHAT_MODEL" if strict else "local_model"
         return LocalModelResolution(
@@ -1193,16 +1208,19 @@ def resolve_local_execution_model(
             if normalized
         }
         if strict and configured_model not in available_models:
+            message = (
+                f"Configured local chat model '{configured_model}' from "
+                f"{source} is not advertised by the reachable local runtime"
+            )
+            if substitution_reason:
+                message = f"{message} {substitution_reason}"
             return LocalModelResolution(
                 model=configured_model,
                 source=source,
                 strict=strict,
                 requested_model=requested or None,
                 failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
-                message=(
-                    f"Configured local chat model '{configured_model}' from "
-                    f"{source} is not advertised by the reachable local runtime"
-                ),
+                message=message,
                 endpoint_resolution=resolved_endpoint,
             )
         if not strict:
@@ -1233,6 +1251,7 @@ def resolve_local_execution_model(
         source=source,
         strict=strict,
         requested_model=requested or None,
+        message=substitution_reason,
         endpoint_resolution=resolved_endpoint,
     )
 
@@ -1263,6 +1282,51 @@ def _provider_failure_detail(
     if transport_classification:
         detail["transport_classification"] = transport_classification
     return detail
+
+
+def _image_turn_vision_unsupported_detail(
+    *,
+    provider: str,
+    model: str,
+    image_attachment_count: int | None = None,
+    capability_state: str | None = None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "error": "provider_request_failed",
+        "error_code": ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value,
+        "provider": provider,
+        "model": model,
+        "message": (
+            f"Selected model '{model}' for provider '{provider}' does not "
+            "support image turns."
+        ),
+    }
+    if isinstance(image_attachment_count, int):
+        detail["image_attachment_count"] = image_attachment_count
+    if capability_state:
+        detail["vision_capability_state"] = capability_state
+    return detail
+
+
+def resolve_model_vision_capability_state(
+    provider_id: str,
+    model_id: str | None,
+    settings: Settings,
+) -> bool | None:
+    try:
+        from guardian.core.llm_catalog import (
+            resolve_model_vision_capability_state as _resolve_model_vision_capability_state,
+        )
+    except Exception:
+        return None
+    try:
+        return _resolve_model_vision_capability_state(
+            provider_id,
+            model_id,
+            settings,
+        )
+    except Exception:
+        return None
 
 
 def _classify_transport_error(exc: Exception) -> str:
@@ -1386,6 +1450,29 @@ def chat_with_ai(
                 "model setting (e.g. LOCAL_LLM_MODEL / DEFAULT_LOCAL_MODEL)."
             ),
         )
+
+    image_payload_present = _messages_contain_image_payload(messages)
+    if image_payload_present:
+        vision_support_state = resolve_model_vision_capability_state(
+            provider_name,
+            target_model,
+            settings,
+        )
+        if vision_support_state is False:
+            raise HTTPException(
+                status_code=400,
+                detail=_image_turn_vision_unsupported_detail(
+                    provider=provider_name,
+                    model=target_model,
+                    image_attachment_count=sum(
+                        1
+                        for message in messages
+                        if isinstance(message, dict)
+                        and _content_has_image_payload(message.get("content"))
+                    ),
+                    capability_state="unsupported",
+                ),
+            )
 
     if provider_routing_requires_discovered_inventory(provider_name):
         valid, reason = validate_provider_model_selection(
@@ -1857,8 +1944,6 @@ def call_local(
     compat_first = compat_first or bool(
         getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
     )
-    if _messages_contain_image_payload(adapted_messages):
-        compat_first = True
 
     # Optional last-resort fallback to /api/generate (disabled by default).
     enable_generate_fallback = bool(
@@ -2077,8 +2162,6 @@ def stream_local(
     compat_first = compat_first or bool(
         getattr(settings, "LOCAL_PREFER_OPENAI_COMPAT", False)
     )
-    if _messages_contain_image_payload(adapted_messages):
-        compat_first = True
 
     response: Optional[requests.Response] = None
     current_url = ""

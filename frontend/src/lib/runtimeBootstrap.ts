@@ -75,6 +75,15 @@ export type RuntimeReadinessResult = BootstrapStepResult & {
   redisReady: boolean;
   chatReady: boolean;
   llmReady?: boolean;
+  probeContext?: "host-native" | "container-local" | "frontend" | "unknown";
+  llmStatus?: string | null;
+  llmDetailsStatus?: string | null;
+  llmDetailsOk?: boolean | null;
+  llmProvider?: string | null;
+  llmModel?: string | null;
+  llmProviderRuntimeAvailable?: boolean | null;
+  llmEndpointResolutionState?: string | null;
+  llmFailureReason?: string | null;
   checks: HealthEndpointCheck[];
 };
 
@@ -228,6 +237,23 @@ function normalizeOptionalBoolean(value: unknown): boolean | undefined {
   if (value === true) return true;
   if (value === false) return false;
   return undefined;
+}
+
+function normalizeOptionalBooleanOrNull(value: unknown): boolean | null {
+  if (value === true) return true;
+  if (value === false) return false;
+  return null;
+}
+
+function normalizeProbeContext(
+  value: unknown
+): "host-native" | "container-local" | "frontend" | "unknown" | undefined {
+  return value === "host-native" ||
+    value === "container-local" ||
+    value === "frontend" ||
+    value === "unknown"
+    ? value
+    : undefined;
 }
 
 function normalizeBootstrapLogService(
@@ -419,6 +445,25 @@ export function normalizeRuntimeReadiness(
     redisReady: asBoolean(source.redisReady ?? source.redis_ready),
     chatReady: asBoolean(source.chatReady ?? source.chat_ready),
     llmReady: normalizeOptionalBoolean(source.llmReady ?? source.llm_ready),
+    probeContext: normalizeProbeContext(source.probeContext ?? source.probe_context),
+    llmStatus: normalizeText(source.llmStatus ?? source.llm_status),
+    llmDetailsStatus: normalizeText(
+      source.llmDetailsStatus ?? source.llm_details_status
+    ),
+    llmDetailsOk: normalizeOptionalBooleanOrNull(
+      source.llmDetailsOk ?? source.llm_details_ok
+    ),
+    llmProvider: normalizeText(source.llmProvider ?? source.llm_provider),
+    llmModel: normalizeText(source.llmModel ?? source.llm_model),
+    llmProviderRuntimeAvailable: normalizeOptionalBooleanOrNull(
+      source.llmProviderRuntimeAvailable ??
+        source.llm_provider_runtime_available
+    ),
+    llmEndpointResolutionState: normalizeText(
+      source.llmEndpointResolutionState ??
+        source.llm_endpoint_resolution_state
+    ),
+    llmFailureReason: normalizeText(source.llmFailureReason ?? source.llm_failure_reason),
     checks: rawChecks.map((item) => normalizeEndpointCheck(item)),
   };
 }
@@ -1676,10 +1721,43 @@ export function formatRuntimeReadinessResult(
   if (result.failureKind) {
     lines.push(`failureKind=${result.failureKind}`);
   }
+  if (result.probeContext) {
+    lines.push(`probeContext=${result.probeContext}`);
+  }
+  if (result.llmStatus) {
+    lines.push(`llmStatus=${result.llmStatus}`);
+  }
+  if (result.llmDetailsStatus) {
+    lines.push(`llmDetailsStatus=${result.llmDetailsStatus}`);
+  }
+  if (typeof result.llmDetailsOk === "boolean") {
+    lines.push(`llmDetailsOk=${result.llmDetailsOk}`);
+  }
+  if (result.llmProvider) {
+    lines.push(`llmProvider=${result.llmProvider}`);
+  }
+  if (result.llmModel) {
+    lines.push(`llmModel=${result.llmModel}`);
+  }
+  if (typeof result.llmProviderRuntimeAvailable === "boolean") {
+    lines.push(
+      `llmProviderRuntimeAvailable=${result.llmProviderRuntimeAvailable}`
+    );
+  }
+  if (result.llmEndpointResolutionState) {
+    lines.push(
+      `llmEndpointResolutionState=${result.llmEndpointResolutionState}`
+    );
+  }
   if (typeof result.llmReady === "boolean") {
     lines.push(`llmReady=${result.llmReady}`);
   } else {
     lines.push("llmReady=not-gated");
+  }
+  if (result.llmReady === false) {
+    lines.push(
+      `llmFailureReason=${result.llmFailureReason ?? "<none>"}`
+    );
   }
   if (result.command) {
     lines.push(`command=${result.command}`);

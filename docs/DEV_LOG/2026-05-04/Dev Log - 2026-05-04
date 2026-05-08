@@ -1,0 +1,67 @@
+Dev Log - 2026-05-04
+
+Summary
+
+contract hardening and runtime truth day
+
+Today was about tightening the intent spine and then proving the supported path on current `main`. The code work made scheduling requests flow through the same cross-surface envelope as other Guardian actions, which removes one more parallel path and reduces ambiguity about where a request is interpreted, validated, and dispatched.
+
+The second half of the day was about evidence. A live supported-path proof was captured on the current `main` tip, so the release story now has fresh runtime confirmation instead of only code-level intent. That matters because the current phase still depends on live posture matching the supported local-first contract.
+
+What I completed
+
+Intent spine routing
+- Routed chat scheduling through the intent spine so scheduling now follows the same governed dispatch path as the rest of the cross-surface control plane.
+- Updated the Guardian chat flow, schedule action hook, and API plumbing so the frontend sends the right shape and the backend contracts stay aligned.
+- Tightened the intent-spine contracts and added coverage on both the frontend and backend sides to keep the envelope behavior explicit.
+
+Scheduling surface cleanup
+- Adjusted the scheduling action and related Guardian chat tests to reflect the new request path.
+- Kept the change focused on the scheduling seam rather than broad chat behavior, which made the contract shift smaller and easier to verify.
+
+Live supported-path proof
+- Captured fresh supported-path proof on current `main` and committed it as a dated architecture artifact.
+- This updated the short-horizon truth record so release interpretation can lean on current evidence instead of stale assumptions.
+
+Important outcome
+
+Scheduling is no longer just a special-case chat action. It now sits inside the same intent spine that governs other cross-surface requests, which makes the control plane more coherent and less likely to drift.
+
+The system also stopped relying only on prior documentation to imply readiness. There is now fresh proof on the current `main` tip, which gives the release story enough structural truth to talk about the supported path with less hand-waving.
+
+Commits
+
+- `d22dbc08a` - `docs(proof): capture live supported-path proof on current main`
+- `232b3ad3d` - `Route chat scheduling through intent spine`
+
+Notes
+
+- The proof work is stronger than a doc refresh, but the evidence should still be read as runtime proof captured into docs, not as a blanket claim that every release condition is cleared.
+- `docs/architecture/00-current-state.md` still says the live backend posture, chat/retrieval/upload flow, and coding-result return path all need fresh live confirmation before signoff. This day improved that picture, but it does not erase those gates by itself.
+
+Next likely moves
+
+- Re-run the remaining live supported-path checks against the exact current `main` tip.
+- Verify backend supported-profile posture against the local-only beta contract.
+- Exercise chat, retrieval, and upload/embedding behavior on the live stack.
+- Re-check the coding-result return path end to end for duplicate-delivery risk.
+- Confirm provider catalog and health surfaces still match the supported profile.
+
+Closing thought
+
+Today narrowed the gap between what the system says it does and what it has actually been proven to do. The important change is not flashier behavior; it is a cleaner control plane and a fresher truth record for the release path.
+
+Narrative Log - 2026-05-04
+
+This was a contract-and-proof day. The main job was not adding surface area; it was removing ambiguity. First the request path for scheduling was pulled into the intent spine, then the current `main` tip was backed by a fresh supported-path proof artifact. Those two moves stack cleanly: one makes the control plane more honest, the other makes the release story more current.
+
+The scheduling change matters because it removes a side route. Before this, scheduling lived too close to being a special-case chat behavior. After the change, it is just another governed intent flowing through the same envelope as the rest of the system. That is a small structural shift, but it is the kind that prevents drift later. When cross-surface behavior shares the same dispatch and validation rules, it becomes easier to reason about permissions, identity, and failure handling without recreating policy in each entrypoint.
+
+The tests and API updates followed the same logic. They were there to keep the seam explicit, not to broaden chat coverage for its own sake. That is usually where the useful work lives in a system like this: not in adding new features, but in making sure the existing ones land in the right place and still mean what the code says they mean.
+
+The other half of the day was about evidence. The live supported-path proof was captured on the current `main` tip and written back into the architecture record. That matters because release truth here is not supposed to rest on architecture intent alone. The system still needs live posture, and the current-state doc still treats that as a gate. So the proof artifact is valuable not because it claims everything is finished, but because it sharpens the boundary between what is established and what still needs verification.
+
+What changed today is subtle but real. The system is a little less dependent on implicit behavior, and a little more able to explain itself. Scheduling now follows the same governed path as other intent-driven actions, and the release record now has fresher evidence for the supported path. That is the kind of progress that does not look dramatic in a diff, but changes how much the system can be trusted.
+
+
+::inbox-item{title="Daily dev log captured" summary="Current main proof and intent-spine routing are recorded; next is live verification"}

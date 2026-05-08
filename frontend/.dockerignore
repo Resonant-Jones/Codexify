@@ -3,7 +3,10 @@
 
 # Allow Dockerfile and this ignore file
 !Dockerfile
+!Dockerfile.webui
 !.dockerignore
+!package.json
+!pnpm-lock.yaml
 
 # Allow the app itself
 !src/
