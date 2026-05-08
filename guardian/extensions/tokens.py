@@ -175,6 +175,25 @@ class CapabilityManualDispatchIdempotencyClassToken(str, Enum):
     SINGLE_COMMAND_BUS_INVOCATION = "single_command_bus_invocation"
 
 
+class CapabilityAssistantReentryOutcome(str, Enum):
+    """Canonical reentry outcomes for one-turn assistant continuation."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+    FAILED_CLOSED = "failed_closed"
+
+
+class CapabilityAssistantReentryFailureReason(str, Enum):
+    """Canonical failure reasons for assistant reentry normalization."""
+
+    OWNER_MISMATCH = "owner_mismatch"
+    INCONSISTENT_PROVENANCE = "inconsistent_provenance"
+    REINJECTION_RESULT_INCONSISTENT = "reinjection_result_inconsistent"
+    REINJECTION_RESULT_SHAPE_MISMATCH = "reinjection_result_shape_mismatch"
+    MISSING_MANIFEST_SNAPSHOT = "missing_manifest_snapshot"
+    AMBIGUOUS_REINJECTION_SOURCE = "ambiguous_reinjection_source"
+
+
 EXTENSION_TARGET_SURFACES: frozenset[str] = frozenset(
     surface.value for surface in ExtensionTargetSurface
 )
@@ -237,6 +256,12 @@ CAPABILITY_MANUAL_DISPATCH_SOURCE_TOKENS: frozenset[str] = frozenset(
 )
 CAPABILITY_MANUAL_DISPATCH_IDEMPOTENCY_CLASS_TOKENS: frozenset[str] = frozenset(
     token.value for token in CapabilityManualDispatchIdempotencyClassToken
+)
+CAPABILITY_ASSISTANT_REENTRY_OUTCOMES: frozenset[str] = frozenset(
+    outcome.value for outcome in CapabilityAssistantReentryOutcome
+)
+CAPABILITY_ASSISTANT_REENTRY_FAILURE_REASONS: frozenset[str] = frozenset(
+    reason.value for reason in CapabilityAssistantReentryFailureReason
 )
 
 
@@ -427,6 +452,24 @@ def normalize_capability_manual_dispatch_idempotency_class_token(
     )
 
 
+def normalize_capability_assistant_reentry_outcome(value: str | None) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_ASSISTANT_REENTRY_OUTCOMES,
+        kind="capability_assistant_reentry_outcome",
+    )
+
+
+def normalize_capability_assistant_reentry_failure_reason(
+    value: str | None,
+) -> str:
+    return _normalize_token(
+        value,
+        allowed=CAPABILITY_ASSISTANT_REENTRY_FAILURE_REASONS,
+        kind="capability_assistant_reentry_failure_reason",
+    )
+
+
 __all__ = [
     "ExtensionTargetSurface",
     "ExtensionProposalScope",
@@ -449,6 +492,8 @@ __all__ = [
     "CapabilityManualDispatchDenyReasonToken",
     "CapabilityManualDispatchSourceToken",
     "CapabilityManualDispatchIdempotencyClassToken",
+    "CapabilityAssistantReentryOutcome",
+    "CapabilityAssistantReentryFailureReason",
     "ExtensionTokenError",
     "EXTENSION_TARGET_SURFACES",
     "EXTENSION_PROPOSAL_SCOPES",
@@ -471,6 +516,8 @@ __all__ = [
     "CAPABILITY_MANUAL_DISPATCH_DENY_REASON_TOKENS",
     "CAPABILITY_MANUAL_DISPATCH_SOURCE_TOKENS",
     "CAPABILITY_MANUAL_DISPATCH_IDEMPOTENCY_CLASS_TOKENS",
+    "CAPABILITY_ASSISTANT_REENTRY_OUTCOMES",
+    "CAPABILITY_ASSISTANT_REENTRY_FAILURE_REASONS",
     "normalize_extension_target_surface",
     "normalize_extension_proposal_scope",
     "normalize_extension_proposal_status",
@@ -492,4 +539,6 @@ __all__ = [
     "normalize_capability_manual_dispatch_deny_reason_token",
     "normalize_capability_manual_dispatch_source_token",
     "normalize_capability_manual_dispatch_idempotency_class_token",
+    "normalize_capability_assistant_reentry_outcome",
+    "normalize_capability_assistant_reentry_failure_reason",
 ]

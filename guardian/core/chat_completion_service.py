@@ -431,6 +431,16 @@ def _source_mode_from_origin(origin: Any) -> str:
     return SOURCE_MODE_PROJECT
 
 
+def _requested_source_mode_from_task(task: Any) -> str | None:
+    explicit_source_mode = normalize_source_mode(
+        getattr(task, "requested_source_mode", None)
+    )
+    if explicit_source_mode:
+        return explicit_source_mode
+    origin_source_mode = _source_mode_from_origin(getattr(task, "origin", None))
+    return normalize_source_mode(origin_source_mode)
+
+
 def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
     text = str(origin or "").strip()
     if not text:
@@ -989,7 +999,8 @@ def resolve_thread_completion_settings(
             )
         )
         source_mode = normalize_source_mode(
-            _thread_config_value(
+            requested_source_mode
+            or _thread_config_value(
                 thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS
             )
             or SOURCE_MODE_PROJECT
@@ -1354,6 +1365,9 @@ def _merge_retrieval_suppression_summaries(
         "count": len(merged_items) if merged_items else sum(counts_by_reason.values()),
         "items": merged_items,
         "counts_by_reason": counts_by_reason,
+    }
+
+
 def _semantic_suppression_trace_item(
     item: dict[str, Any],
     *,
@@ -1375,22 +1389,23 @@ def _semantic_suppression_trace_item(
 def _filter_image_refusal_semantic_context(
     semantic_items: Any,
     latest_user_meta: dict[str, Any] | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    if not _image_attachments_from_meta(latest_user_meta):
-        return [item for item in semantic_items or [] if isinstance(item, dict)], None
-    filtered: list[dict[str, Any]] = []
-    suppressed_items: list[dict[str, Any]] = []
     *,
     suppression_trace: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any] | None]:
     if not _image_attachments_from_meta(latest_user_meta):
         filtered = [item for item in semantic_items or [] if isinstance(item, dict)]
         if isinstance(suppression_trace, dict):
             suppression_trace.setdefault("items", [])
             suppression_trace.setdefault("summary", {"total_suppressed": 0})
-        return filtered
+            return filtered
+        return filtered, None
+
     filtered: list[dict[str, Any]] = []
-    suppressed: list[dict[str, Any]] = []
+    suppressed_trace_items: list[dict[str, Any]] = []
+    suppressed_items: list[dict[str, Any]] = []
+    suppression_reason = (
+        TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
+    )
     for item in semantic_items or []:
         if not isinstance(item, dict):
             continue
@@ -1398,48 +1413,42 @@ def _filter_image_refusal_semantic_context(
             suppressed_items.append(
                 _build_retrieval_suppression_item(
                     item,
-                    suppression_reason=TraceSuppressionReason
-                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
-                    policy_reason=TraceSuppressionReason
-                    .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value,
+                    suppression_reason=suppression_reason,
+                    policy_reason=suppression_reason,
                     retrieval_lane=str(item.get("retrieval_lane") or "thread_semantic"),
                     thread_id=item.get("thread_id"),
                     project_id=item.get("project_id"),
                     retrieval_policy=item.get("retrieval_policy")
                     if isinstance(item.get("retrieval_policy"), dict)
                     else None,
-            suppressed.append(
+                )
+            )
+            suppressed_trace_items.append(
                 _semantic_suppression_trace_item(
                     item,
-                    suppression_reason=(
-                        "assistant_vision_refusal_on_image_turn"
-                    ),
+                    suppression_reason=suppression_reason,
                 )
             )
             continue
         filtered.append(item)
+
     suppression_summary = _merge_retrieval_suppression_summaries(
         None
         if not suppressed_items
         else {
             "count": len(suppressed_items),
             "items": suppressed_items,
-            "counts_by_reason": {
-                TraceSuppressionReason
-                .ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value: len(
-                    suppressed_items
-                )
-            },
+            "counts_by_reason": {suppression_reason: len(suppressed_items)},
         }
     )
-    return filtered, suppression_summary
     if isinstance(suppression_trace, dict):
-        suppression_trace["items"] = suppressed
+        suppression_trace["items"] = suppressed_trace_items
         suppression_trace["summary"] = {
-            "total_suppressed": len(suppressed),
-            "assistant_vision_refusal_on_image_turn": len(suppressed),
+            "total_suppressed": len(suppressed_trace_items),
+            suppression_reason: len(suppressed_trace_items),
         }
-    return filtered
+        return filtered
+    return filtered, suppression_summary
 
 
 def _format_image_label(attachment: dict[str, Any]) -> str:
@@ -2421,7 +2430,6 @@ def _build_retrieval_provenance(
 
 
 def _build_model_selection_metadata(
-def _build_model_selection_trace(
     *,
     requested_provider: str | None,
     requested_model: str | None,
@@ -2514,6 +2522,18 @@ def _build_model_selection_trace(
         ):
             payload["policy_reason"] = "requested_provider_not_selected"
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def _build_model_selection_trace(
+    *,
+    requested_provider: str | None,
+    requested_model: str | None,
+    attempted_provider: str | None,
+    attempted_model: str | None,
+    final_provider: str | None,
+    final_model: str | None,
+    selection_source: str | None,
+    fallback_reason: str | None,
 ) -> dict[str, Any]:
     settings = get_settings()
     normalized_requested_provider = (
@@ -2888,16 +2908,12 @@ async def build_messages_for_llm(
         requested_provider=task.provider,
         requested_model=task.model,
         requested_reasoning_mode=task.reasoning_mode,
-        requested_source_mode=_source_mode_from_origin(
-            getattr(task, "origin", None)
-        ),
+        requested_source_mode=_requested_source_mode_from_task(task),
         settings=settings,
     )
     provider = thread_execution.provider
     routing_debug_metadata = _task_routing_debug_metadata(task)
-    requested_source_mode = _source_mode_from_origin(
-        getattr(task, "origin", None)
-    )
+    requested_source_mode = _requested_source_mode_from_task(task)
     effective_source_mode = _effective_source_mode_for_broker_assembly(
         thread_execution.source_mode,
         routing_debug_metadata.get("retrieval_override"),
