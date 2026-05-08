@@ -51,6 +51,8 @@ Use this note as the local map for all ADRs.
 15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
 16. [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] — user-governed continuity control plane for scope, decay, import treatment, exclusions, inspection, and reset semantics.
 17. [[017-Graph-Write-Idempotency-and-Receipt-Semantics|ADR-017 Graph Write Idempotency and Receipt Semantics]] — deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
+18. [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] — canonical live-proof harness for the `retrievalSource="workspace"` seam on the supported local Compose path; release-evidence tool only.
+19. [[025-neo4j-graph-backend-adapter-flagged-off-by-default|ADR-025 Neo4j Graph Backend Adapter Flagged Off By Default]] — first real graph persistence adapter behind explicit default-off backend selection.
 18. [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] — latest-per-thread graph-lane inspection snapshots for operator/debug visibility without promoting graph truth.
 19. [[019-Graph-Backend-Adapter-Contract|ADR-019 Graph Backend Adapter Contract]] — typed graph backend seam with a default no-op implementation mounted after inspection.
 20. [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]] — Guardian-owned contract for coding-agent execution attempts, future Pi SDK adapters, and result ingestion before user-visible output.
@@ -228,6 +230,25 @@ Primary companion notes:
   * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 
+* [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] links to:
+
+  * [[016-workspace-retrieval-source-for-local-knowledge|ADR-016 Workspace Retrieval Source for Local Knowledge]]
+  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
+  * [[flows|Critical Flows]]
+  * [[config-and-ops|Config and Ops]]
+  * [[00-current-state]]
+  * [[scripts/proofs/README.md Proof Harness README]]
+
+* [[025-neo4j-graph-backend-adapter-flagged-off-by-default|ADR-025 Neo4j Graph Backend Adapter Flagged Off By Default]] links to:
+
+  * [[007-Memory-Graph-Derived-Write-Hook|Memory Graph Derived Write Hook]]
+  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
+  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
+  * [[config-and-ops|Config and Ops]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
 * [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] links to:
 
   * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
