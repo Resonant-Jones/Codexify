@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-05-05
+Last updated: 2026-05-08
 Source anchors:
 - Makefile
 - package.json
@@ -140,10 +140,17 @@ Source anchors:
 | Variable | Current behavior | Anchors |
 |---|---|---|
 | `GUARDIAN_ENABLE_GRAPH_CONTEXT` | Enables graph snippets during context assembly | `guardian/context/broker.py`, `guardian/core/config.py` |
+| `CODEXIFY_ENABLE_GRAPH_WRITES` | Explicit default-off gate for derived graph-write persistence. `false` keeps `NoOpGraphBackend`; `true` allows backend selection via `CODEXIFY_GRAPH_BACKEND`. | `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py`, `guardian/workers/graph_write_worker.py` |
+| `CODEXIFY_GRAPH_BACKEND` | Derived graph-write backend selector (`noop` or `neo4j`). Only honored when `CODEXIFY_ENABLE_GRAPH_WRITES=true`; reachable Neo4j alone is not enablement. | `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py` |
 | `GUARDIAN_FEDERATION_ENABLED` | Master feature gate for federation routes | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | trust policy envs | Signed policy, node allowlist, and federation auth requirements are env-driven | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | `GUARDIAN_COMMAND_BUS_LOOPBACK_BASE` | Base URL for command bus loopback execution | `guardian/command_bus/loopback_http_adapter.py`, `docker-compose.yml` |
 | WebSocket rate-limit envs | Guard `/api/ws/rpc` connection and payload behavior | `guardian/routes/websocket.py`, `guardian/core/config.py` |
+
+Graph-write enablement note:
+- Supported beta behavior remains unchanged by default on `main`.
+- Neo4j being reachable in local Compose does not implicitly turn on graph writes.
+- Postgres remains canonical truth even when `CODEXIFY_ENABLE_GRAPH_WRITES=true`.
 
 ### Frontend and desktop runtime
 

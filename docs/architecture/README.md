@@ -85,6 +85,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
 - [Continuity Governance Surface Contract](./adr/016-continuity-governance-surface-contract.md): user-governed continuity control plane for scope, intensity, decay, import treatment, exclusions, inspectability, and reset semantics.
 - [Graph Write Idempotency and Receipt Semantics](./adr/017-graph-write-idempotency-and-receipt-semantics.md): deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
+- [Neo4j Graph Backend Adapter Flagged Off By Default ADR](./adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md): first real graph persistence adapter behind explicit default-off runtime selection.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.
