@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-07
+2026-05-08
 
 ## Interpretation rule
 This file is authoritative for:
@@ -15,7 +15,7 @@ This file is authoritative for:
 ## Current phase
 Codexify is in late beta hardening on `main`. The codebase now carries the local Docker Compose path, packaged tester-facing delivery surfaces, and a coding-result return path that routes assistant results back through Guardian into the source thread. Release truth still depends on the live runtime matching the supported local-first posture, not just on docs or build artifacts.
 
-Fresh live proof on 2026-05-05 now confirms the supported local-first posture on the current tip, including provider/catalog/health alignment, upload -> embed -> retrieve, image-turn containment, coding-result return, and runtime-target normalization. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. That proof is evidence of the supported path, not release signoff.
+Fresh live proof on 2026-05-08 now partially confirms the supported local-first posture on the current `main` tip (`9ca4caf56`), including provider/catalog/health alignment, chat completion with RAG trace, image-turn containment, coding-result return lineage/idempotency (code inspection), and runtime-target normalization. The upload -> embed -> retrieve path is **blocked**: `GET /api/documents/{id}` returns 404 after successful upload, preventing verification of embedding readiness and sentinel retrieval. The evidence is recorded in `docs/architecture/2026-05-08-supported-profile-live-proof.md` with a PARTIAL verdict. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. These proofs are evidence of the supported path, not release signoff.
 
 - Coding worker results now ingest back through Guardian with lineage and idempotency guards.
 - Public webUI beta handoff docs and the GHCR pullability note remain on `main`.
@@ -47,9 +47,11 @@ Fresh live proof on 2026-05-05 now confirms the supported local-first posture on
 - The coding-result return path now has fresh live verification on the current tip.
 
 ## This week's priorities
-1. Keep the fresh supported-path proof artifact synchronized with future runtime changes.
-2. Watch for any future drift between supported-profile, catalog, and health surfaces.
-3. Preserve the proven coding-result return path and runtime-target contract under regression protection.
+1. Investigate and resolve the document retrieval 404 blocker: `GET /api/documents/{id}` returns 404 after successful upload via `POST /api/media/upload/document`.
+2. Re-run the full supported-path proof after the document retrieval fix.
+3. Keep the fresh supported-path proof artifact synchronized with future runtime changes.
+4. Watch for any future drift between supported-profile, catalog, and health surfaces.
+5. Preserve the proven coding-result return path and runtime-target contract under regression protection.
 
 ## Release definition right now
 - [x] Supported-profile flags match the beta contract on the live runtime.
