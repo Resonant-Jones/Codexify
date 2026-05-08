@@ -35,7 +35,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
 - Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
 - Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. Direct document upload returned `upload_failed` because backend schema consistency checks require missing `agent_extension_*` tables, so retrieval was not reached.
-- The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
+- The bounded tool-loop metadata seam is now preserved additively in backend code, but the supported Compose runtime still needs a fresh live rerun before the one-turn / hard-stop behavior can be claimed on `main`.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
 - Built-in system docs/help are seeded at startup and available to retrieval.
 - The import embed worker can drain a live backlog without breaking chat or health surfaces.
@@ -73,7 +73,7 @@ Codexify is in local-beta hardening on `main`. The supported path is still the l
 ## This week's priorities
 1. ~~Resolve Ollama model name mismatch~~ — **Done 2026-04-14:** `LOCAL_CHAT_MODEL` in `.env.example` updated to `gemma4-e4b-hauhau:latest`. Live verification still required.
 2. Repair the live runtime schema consistency gap that blocks document upload and retrieval (`agent_extension_*` tables missing during upload/document fetch).
-3. Repair the bounded tool-loop path that currently fails with `tool_command_execution_failed` and does not preserve the claimed hard-stop / blocked-result behavior.
+3. Re-run the bounded tool-loop live proof on the supported runtime after the metadata-seam fix.
 4. Update the completion-service seam (`guardian/core/chat_completion_service.py`) to emit `payload_summary["retrieval_posture"]` so the diagnostics route's fast path becomes functional.
 5. Re-run the supported local Compose beta proof on `main` once the above are resolved; verify chat completion, retrieval-posture populated state, and all health surfaces pass.
 
