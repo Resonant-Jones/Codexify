@@ -282,6 +282,19 @@ This contract is intentionally inert in the current phase:
 The adapter gives future persistence code a stable typed seam while the worker
 remains inspection-only today.
 
+### 5.9 Graph-Write Runtime Gate
+
+Real graph persistence exists behind a runtime gate on the supported Docker
+Compose path. The supported-path default remains disabled:
+
+- `CODEXIFY_ENABLE_GRAPH_WRITES=false` (default)
+- `CODEXIFY_GRAPH_BACKEND=noop` (default)
+
+The factory in `guardian/memory_graph/graph_backend_factory.py` is fail-closed
+and returns `NoopGraphBackendAdapter` unless both flags are explicitly enabled.
+Neo4j container presence in the Compose topology does not imply graph-write
+enablement.
+
 ## 6. Invariants
 
 The Memory Graph layer must preserve these invariants:

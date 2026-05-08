@@ -52,6 +52,14 @@ VECTOR_STORE_PROOF_STATUS_READY = "ready"
 VECTOR_STORE_PROOF_STATUS_UNPROVEN = "unproven"
 VECTOR_STORE_PROOF_STATUS_MISMATCH = "mismatch"
 
+GRAPH_BACKEND_NOOP = "noop"
+GRAPH_BACKEND_NEO4J = "neo4j"
+VALID_GRAPH_BACKENDS: tuple[str, ...] = (
+    GRAPH_BACKEND_NOOP,
+    GRAPH_BACKEND_NEO4J,
+)
+DEFAULT_GRAPH_BACKEND = GRAPH_BACKEND_NOOP
+
 
 def _normalize_model_setting(value: str | None) -> str:
     normalized = str(value or "").strip()
@@ -506,6 +514,22 @@ class Settings(BaseSettings):
     GUARDIAN_ENABLE_GRAPH_CONTEXT: bool = Field(
         default=False,
         description="Enable using graph-derived context during completions.",
+    )
+    CODEXIFY_ENABLE_GRAPH_WRITES: bool = Field(
+        default=False,
+        description=(
+            "Master runtime gate for graph-write persistence. When false, "
+            "the graph backend factory always returns NoopGraphBackendAdapter "
+            "regardless of CODEXIFY_GRAPH_BACKEND or Neo4j availability."
+        ),
+    )
+    CODEXIFY_GRAPH_BACKEND: str = Field(
+        default="noop",
+        description=(
+            "Graph backend adapter selection. Valid values: 'noop' (default), 'neo4j'. "
+            "Only effective when CODEXIFY_ENABLE_GRAPH_WRITES=true. "
+            "Neo4j container presence alone does not enable graph writes."
+        ),
     )
     GUARDIAN_DEV_MODE: bool = Field(
         default=False,
