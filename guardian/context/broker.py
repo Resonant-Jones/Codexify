@@ -1790,6 +1790,57 @@ class ContextBroker:
                 annotated.append(annotated_item)
 
         return annotated
+        """Fetch turn-scoped Obsidian connector context for a context command."""
+        normalized_query = str(query or "").strip()
+        if not normalized_query or k <= 0:
+            return []
+
+        resolved_user_id = str(user_id or "").strip()
+        if not resolved_user_id:
+            raise ValueError("ContextBroker requires user_id")
+
+        resolved_project_id = _coerce_int(project_id)
+        items = await self._retrieve_obsidian_documents(
+            normalized_query,
+            user_id=resolved_user_id,
+            project_scope=resolved_project_id,
+            k=k,
+        )
+        if not items:
+            return []
+
+        annotated_items: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            annotated_item = dict(item)
+            metadata = annotated_item.get("metadata")
+            if isinstance(metadata, dict):
+                metadata = dict(metadata)
+            else:
+                metadata = {}
+
+            metadata.setdefault("source_type", "obsidian")
+            metadata["connector_id"] = "obsidian"
+            metadata["retrieval_lane"] = "connector_context"
+            metadata["context_command"] = "turn_scoped"
+            metadata["user_id"] = resolved_user_id
+            if resolved_project_id is not None:
+                metadata["project_id"] = resolved_project_id
+            if isinstance(retrieval_policy, dict) and retrieval_policy:
+                metadata["retrieval_policy"] = dict(retrieval_policy)
+
+            annotated_item["metadata"] = metadata
+            annotated_item.setdefault("source_type", "obsidian")
+            annotated_item["connector_id"] = "obsidian"
+            annotated_item["retrieval_lane"] = "connector_context"
+            annotated_item["context_command"] = "turn_scoped"
+            annotated_item["user_id"] = resolved_user_id
+            if resolved_project_id is not None:
+                annotated_item["project_id"] = resolved_project_id
+            annotated_items.append(annotated_item)
+
+        return annotated_items
 
     async def _search_memory(
         self,

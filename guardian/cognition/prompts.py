@@ -325,6 +325,18 @@ def _format_memory_anchor(item: Dict[str, Any]) -> str | None:
     )
 
 
+def _connector_context_label(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return "unknown"
+
+    connector_id = _clean_text(item.get("connector_id"))
+    if not connector_id:
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            connector_id = _clean_text(metadata.get("connector_id"))
+    return connector_id.lower() or "unknown"
+
+
 def _connector_context_text(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return ""
@@ -339,6 +351,18 @@ def _connector_context_text(item: Dict[str, Any]) -> str:
         metadata = item.get("meta")
     if isinstance(metadata, dict):
         for key in ("content", "snippet", "text"):
+    if isinstance(metadata, dict):
+        for key in (
+            "content",
+            "snippet",
+            "text",
+            "excerpt",
+            "body",
+            "note",
+            "title",
+            "filename",
+            "name",
+        ):
             value = _clean_text(metadata.get(key))
             if value:
                 return value
@@ -406,6 +430,7 @@ def build_context_system_message_with_meta(
                     if isinstance(item, dict)
                 ]
             ),
+            "count": len(bundle.get("connector_context", []) or []),
             "injected": False,
             "connectors": {},
         },
@@ -524,6 +549,27 @@ def build_context_system_message_with_meta(
                 context_parts.append(
                     f"**Connector Context: {_connector_context_label(connector_id)}**\n"
                     + "\n".join(f"- {snippet}" for snippet in snippets)
+    connector_context = bundle.get("connector_context")
+    if isinstance(connector_context, list) and connector_context:
+        connector_groups: dict[str, list[str]] = {}
+        connector_counts: dict[str, int] = {}
+        for item in connector_context:
+            connector_label = _connector_context_label(item)
+            connector_counts[connector_label] = (
+                connector_counts.get(connector_label, 0) + 1
+            )
+            text = _connector_context_text(item)
+            if not text:
+                continue
+            connector_groups.setdefault(connector_label, []).append(
+                f"- {text}"
+            )
+        meta["connector_context"]["connectors"] = connector_counts
+        if connector_groups:
+            for connector_label, lines in connector_groups.items():
+                heading = connector_label.replace("_", " ").strip().title()
+                context_parts.append(
+                    f"**Connector Context: {heading}**\n" + "\n".join(lines)
                 )
             meta["connector_context"]["injected"] = True
 
