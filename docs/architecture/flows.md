@@ -216,9 +216,14 @@ Sequence:
 7. Optional thread/project link rows are created so the RAG path can see the document later.
 
 Outputs:
-- Upload response containing asset/document metadata
+- Upload response containing explicit `document_id` and `media_asset_id` plus backward-compatible `id`
 - Updated `uploaded_documents` row with parse and embedding lifecycle fields
 - Vector index entries for searchable document content
+
+Supported readback contract:
+- `GET /api/documents/{id}` is the supported document detail route for upload -> embed -> retrieve proof.
+- The detail route resolves document identity by `uploaded_documents.id` and preserves compatibility lookup by `asset_id`.
+- The detail payload is expected to include embedding lifecycle visibility (`embedding_status`, `embedding_error`, `embedding_started_at`, `embedding_completed_at`) without requiring direct DB inspection.
 
 Failure modes:
 - Unsupported MIME/type returns `400`

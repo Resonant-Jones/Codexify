@@ -79,4 +79,3 @@ def test_full_upload_embed_retrieve_proof_requires_all_contract_evidence():
     )
     assert passed is True
     assert failures == []
-
