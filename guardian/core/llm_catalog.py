@@ -22,9 +22,11 @@ from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
 from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
 from guardian.core.provider_registry import PROVIDER_ORDER as _PROVIDER_ORDER
 from guardian.core.provider_registry import (
+    _apply_model_override,
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
+    resolve_model_capability_state as resolve_model_capability_state_registry,
     resolve_provider_capability,
 )
 from guardian.core.provider_registry import (
@@ -131,6 +133,44 @@ def _local_model_capabilities(
         "supports_text_input": True,
         "model_kind": "vision_chat" if supports_vision else "chat",
     }
+
+
+def resolve_model_vision_capability_state(
+    provider_id: str,
+    model_id: str | None,
+    settings: Settings | None = None,
+) -> bool | None:
+    provider = normalize_provider(provider_id)
+    target_model = normalize_model_id(model_id)
+    if not provider or not target_model:
+        return None
+
+    resolved_settings = settings or get_settings()
+    if provider == "local":
+        try:
+            local_models, _endpoint_resolution, _resolution = (
+                _fetch_local_models(resolved_settings)
+            )
+        except Exception:
+            return None
+        for item in local_models:
+            if normalize_model_id(item.get("id")) != target_model:
+                continue
+            value = item.get("supports_vision")
+            if isinstance(value, bool) and value is True:
+                return True
+            return None
+        heuristic = _local_model_capabilities(target_model, target_model)
+        if bool(heuristic.get("supports_vision")):
+            return True
+        return None
+
+    return resolve_model_capability_state_registry(
+        provider,
+        target_model,
+        "vision",
+        resolved_settings,
+    )
 
 
 def _split_local_model_id(model_id: str) -> tuple[str | None, str, str | None]:
@@ -381,14 +421,44 @@ def _fetch_local_models(
         source = str(identity.get("source") or "").strip()
         if source:
             entry["source"] = source
+        entry["vision_capability_state"] = (
+            "supported"
+            if local_capabilities["supports_vision"]
+            else "unknown"
+        )
         entry["runtime"] = describe_local_runtime(name, settings=settings)
         entries.append(entry)
+    entries = _apply_local_model_overrides(entries)
     if endpoint_resolution.get("state") != "available" and names:
         logger.warning(
             "Local model discovery degraded; using configured/local fallback names. resolution=%s",
             endpoint_resolution,
         )
     return entries, endpoint_resolution, local_model_resolution
+
+
+def _apply_local_model_overrides(
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    try:
+        from backend.model_overrides import get_model_override_map
+    except Exception:
+        return entries
+
+    override_map = get_model_override_map()
+    local_overrides = override_map.get("local", {})
+    if not local_overrides:
+        return entries
+
+    merged: list[dict[str, Any]] = []
+    for entry in entries:
+        model_id = normalize_model_id(entry.get("id"))
+        override = local_overrides.get(model_id or "")
+        if override:
+            merged.append(_apply_model_override(entry, override))
+        else:
+            merged.append(dict(entry))
+    return merged
 
 
 def _cloud_models(
@@ -432,6 +502,11 @@ def _cloud_models(
             )
         if not supports_chat or model_kind == "utility":
             continue
+        vision_support_state = resolve_model_vision_capability_state(
+            provider_id,
+            model_id,
+            settings,
+        )
         entry = _base_model_entry(
             model_id=model_id,
             display_name=str(item.get("displayName") or model_id).strip(),
@@ -449,6 +524,12 @@ def _cloud_models(
         capability_status = str(item.get("_capability") or "").strip().lower()
         if capability_status in {"confirmed", "inferred", "unsupported"}:
             entry["_capability"] = capability_status
+        if vision_support_state is True:
+            entry["vision_capability_state"] = "supported"
+        elif vision_support_state is False:
+            entry["vision_capability_state"] = "unsupported"
+        else:
+            entry["vision_capability_state"] = "unknown"
         entries.append(entry)
     return entries
 
@@ -546,6 +627,31 @@ def _provider_entry(
         if provider_id == "local"
         else capability
     )
+    truth = build_provider_truth(
+        provider_id,
+        settings,
+        capability=provider_capability,
+        discoverable=(
+            str(endpoint_resolution.get("state") or "").strip()
+            == "available"
+            if endpoint_resolution is not None
+            else str(
+                (capability.get("model_index") or {}).get("state") or ""
+            ).strip()
+            == "available"
+        ),
+        selectable=bool(enabled),
+    )
+    supported_profile_name = truth.get("supported_profile_name")
+    supported_profile_approved = truth.get("supported_profile_approved")
+    if not include_all and provider_id != "local" and not authorized:
+        return None
+    if (
+        not include_all
+        and supported_profile_name is not None
+        and not bool(supported_profile_approved)
+    ):
+        return None
     entry: dict[str, Any] = {
         "id": provider_id,
         "displayName": _PROVIDER_LABELS.get(provider_id, provider_id.title()),
@@ -556,21 +662,7 @@ def _provider_entry(
         "available": available,
         "models": models,
         "model_index": dict(capability["model_index"]),
-        "truth": build_provider_truth(
-            provider_id,
-            settings,
-            capability=provider_capability,
-            discoverable=(
-                str(endpoint_resolution.get("state") or "").strip()
-                == "available"
-                if endpoint_resolution is not None
-                else str(
-                    (capability.get("model_index") or {}).get("state") or ""
-                ).strip()
-                == "available"
-            ),
-            selectable=bool(enabled),
-        ),
+        "truth": truth,
     }
     source = _provider_source(provider_id, settings)
     if source is not None:

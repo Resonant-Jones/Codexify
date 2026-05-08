@@ -1,0 +1,179 @@
+# syntax=docker/dockerfile:1.6
+ARG NODE_IMAGE=node:20-alpine
+
+FROM ${NODE_IMAGE} AS builder
+
+WORKDIR /app
+
+# Pin pnpm for reproducible Vite builds.
+RUN corepack enable && corepack prepare pnpm@10.18.2 --activate
+
+# Toolchain for native modules used by the frontend build graph.
+RUN apk add --no-cache python3 make g++ linux-headers
+
+COPY package.json ./package.json
+COPY pnpm-lock.yaml ./pnpm-lock.yaml
+
+RUN pnpm install --include=dev
+
+COPY src ./src
+# The app's build script runs from ./src, so make the root install visible there too.
+RUN ln -s ../node_modules ./src/node_modules
+
+# The webUI bundle runs behind the compose nginx front door on the same origin.
+ENV VITE_WEBUI_COMPOSE_BUNDLE=1
+
+RUN pnpm run build
+
+FROM nginx:1.27-alpine AS runtime
+
+COPY --from=builder /app/src/dist /usr/share/nginx/html
+
+RUN cat > /etc/nginx/conf.d/default.conf <<'EOF'
+server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  client_max_body_size 100m;
+
+  location = /api {
+    return 301 /api/;
+  }
+
+  location = /api/ws {
+    return 301 /api/ws/;
+  }
+
+  location = /api/collab/ws {
+    return 301 /api/collab/ws/;
+  }
+
+  location ^~ /api/ws/ {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+  }
+
+  location ^~ /api/collab/ws/ {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+  }
+
+  location ^~ /api/events {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+  }
+
+  location ^~ /api/ {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+  }
+
+  location ^~ /health {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location ^~ /media/ {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location = /ping {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location = /docs {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location = /redoc {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location = /openapi.json {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location = /metrics {
+    proxy_pass http://backend:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+EOF
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

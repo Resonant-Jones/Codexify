@@ -65,6 +65,12 @@ class PersonalFactStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class TraceSuppressionReason(str, Enum):
+    ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN = (
+        "assistant_vision_refusal_on_image_turn"
+    )
+
+
 DELEGATION_SUMMARY_OUTCOME_TYPE = "task_summary"
 
 
@@ -135,6 +141,12 @@ class ErrorCode(str, Enum):
     CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED = (
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
+    CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED = (
+        "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
+    )
+    CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING = (
+        "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING"
+    )
     DELEGATION_EXECUTOR_UNSUPPORTED = "DELEGATION_EXECUTOR_UNSUPPORTED"
     DELEGATION_EXECUTOR_NOT_FOUND = "DELEGATION_EXECUTOR_NOT_FOUND"
     DELEGATION_EXECUTOR_TIMEOUT = "DELEGATION_EXECUTOR_TIMEOUT"
@@ -147,6 +159,25 @@ class EmbeddingLifecycleStatus(str, Enum):
     PROCESSING = "processing"
     READY = "ready"
     FAILED = "failed"
+
+
+class TraceSnapshotAbsenceReason(str, Enum):
+    TRACE_SOURCE_UNAVAILABLE = "trace_source_unavailable"
+    TRACE_SNAPSHOT_MISSING = "trace_snapshot_missing"
+    IMAGE_ROUTING_NOT_EVALUATED = "image_routing_not_evaluated"
+    VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED = (
+        "vision_model_selected_but_image_payload_not_routed"
+    )
+    LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL = (
+        "local_model_substitution_selected_nonvision_model"
+    )
+    RETRIEVAL_NOT_EXECUTED = "retrieval_not_executed"
+    RETRIEVAL_NO_CANDIDATES = "retrieval_no_candidates"
+
+
+class ImageRoutingPath(str, Enum):
+    NATIVE_MULTIMODAL_VISION = "native_multimodal_vision"
+    INTERPRETER = "interpreter"
 
 
 ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
@@ -169,6 +200,9 @@ DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
 )
 PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in PersonalFactStatus}
+)
+TRACE_SUPPRESSION_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in TraceSuppressionReason}
 )
 DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
@@ -217,6 +251,12 @@ ERROR_CODES: frozenset[str] = frozenset(
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
+TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in TraceSnapshotAbsenceReason}
+)
+IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
+    {path.value for path in ImageRoutingPath}
+)
 
 __all__ = [
     "AcceptanceStatus",
@@ -226,6 +266,7 @@ __all__ = [
     "ToolLoopStopReason",
     "DelegationJobStatus",
     "PersonalFactStatus",
+    "TraceSuppressionReason",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
     "ExecutorId",
@@ -238,6 +279,8 @@ __all__ = [
     "DelegationEventType",
     "ErrorCode",
     "EmbeddingLifecycleStatus",
+    "ImageRoutingPath",
+    "TraceSnapshotAbsenceReason",
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
@@ -245,6 +288,7 @@ __all__ = [
     "TOOL_LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
+    "TRACE_SUPPRESSION_REASONS",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",
     "EXECUTOR_RELEASE_POSTURES",
@@ -258,4 +302,6 @@ __all__ = [
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "IMAGE_ROUTING_PATHS",
+    "TRACE_SNAPSHOT_ABSENCE_REASONS",
 ]

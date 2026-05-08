@@ -10,6 +10,7 @@ const BUNDLE_RESOURCE_PATHS: &[&str] = &[
     "backend",
     "docker",
     "docker-compose.runtime.yml",
+    "frontend",          // WebUI source + Dockerfile for docker-compose webui service
     "guardian",
     "plugins",
     "pytest.ini",

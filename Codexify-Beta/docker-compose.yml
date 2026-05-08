@@ -1,0 +1,456 @@
+name: codexify
+
+x-postgres-env: &postgres_env
+  POSTGRES_USER: ${POSTGRES_USER:-codexify}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codexify}
+  POSTGRES_DB: ${POSTGRES_DB:-Codexify}
+  PGHOST: db
+  PGPORT: "5432"
+  PGUSER: ${POSTGRES_USER:-codexify}
+  PGPASSWORD: ${POSTGRES_PASSWORD:-codexify}
+  PGDATABASE: ${POSTGRES_DB:-Codexify}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+  GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+
+x-host-gateway: &host_gateway
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  db:
+    image: postgres:15
+    env_file: .env
+    environment:
+      <<: *postgres_env
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER:-codexify}\" -d \"$${POSTGRES_DB:-Codexify}\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports: ["5433:5432"]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  neo4j:
+    image: neo4j:5
+    profiles: ["graph"]
+    pull_policy: never
+    environment:
+      NEO4J_server_default__listen__address: 0.0.0.0
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASS:-codexify-local-dev}"
+    ports: ["7474:7474", "7687:7687"]
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687
+          -u "$$(echo $$NEO4J_AUTH | cut -d/ -f1)"
+          -p "$$(echo $$NEO4J_AUTH | cut -d/ -f2-)"
+          'RETURN 1' || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "512mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    expose:
+      - "6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  graph-init:
+    image: neo4j:5
+    profiles: ["graph"]
+    pull_policy: never
+    env_file: .env
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - |-
+        set -e
+        echo "[graph-init] Applying Neo4j constraints + seed nodes..."
+        if [ -z "$${NEO4J_PASS:-}" ]; then
+          echo "[graph-init] ERROR: NEO4J_PASS is not set (expected via env_file: .env)"
+          exit 1
+        fi
+        cat <<'CYPHER' | /var/lib/neo4j/bin/cypher-shell -a bolt://neo4j:7687 -u "$${NEO4J_USER:-neo4j}" -p "$${NEO4J_PASS}"
+        CREATE CONSTRAINT user_id_unique     IF NOT EXISTS FOR (u:User)    REQUIRE u.id IS UNIQUE;
+        CREATE CONSTRAINT project_id_unique  IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE;
+        CREATE CONSTRAINT thread_id_unique   IF NOT EXISTS FOR (t:Thread)  REQUIRE t.id IS UNIQUE;
+        CREATE CONSTRAINT message_id_unique  IF NOT EXISTS FOR (m:Message) REQUIRE m.id IS UNIQUE;
+        CREATE INDEX project_name_idx IF NOT EXISTS FOR (p:Project) ON (p.name);
+        CREATE INDEX person_name_idx  IF NOT EXISTS FOR (p:Person)  ON (p.name);
+        MERGE (me:User {id:'me'}) ON CREATE SET me.name = 'Resonant Jones';
+        MERGE (p:Project {id:'proj-loose-threads'}) ON CREATE SET p.name = 'Loose Threads', p.createdAt = datetime();
+        MERGE (me)-[:OWNS]->(p);
+        CYPHER
+        echo "[graph-init] Done."
+
+  migrator:
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      ALEMBIC_CONFIG: /app/runtime/alembic.ini
+      ENABLE_BLIP_MODEL: "false"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-local}"
+      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-replace-with-long-random-value}"
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      EMBEDDER_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
+      EMBEDDING_BACKEND: "local"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
+      CODEXIFY_USE_OPENAI: "0"
+    restart: "no"
+    command: ["migrator"]
+
+  model-prep:
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
+    working_dir: /app
+    volumes:
+      - codexify_models:/models
+      - hf_cache:/root/.cache/huggingface
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-0}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      EMBED_MODEL_ID: "${EMBED_MODEL_ID:-BAAI/bge-large-en-v1.5}"
+      EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+    restart: "no"
+    command: ["model-prep"]
+
+  backend:
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
+    working_dir: /app
+    <<: *host_gateway
+    ports: ["8888:8888"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/ping', timeout=2).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    env_file: .env
+    volumes:
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+      - codexify_chroma:/app/.chroma
+      - codexify_media:/app/data/media
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      PORT: "8888"
+      HOME: /home/codexify
+      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
+      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
+      CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
+      STORAGE_BASE_PATH: /app/data/media
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+      ENABLE_CONNECTOR_WORKER: "false"
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: "${LLM_PROVIDER:-local}"
+      EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
+      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      LOCAL_EMBEDDINGS_REQUIRED: "${LOCAL_EMBEDDINGS_REQUIRED:-0}"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      CODEXIFY_VOICE_ROUTES_ENABLED: "${CODEXIFY_VOICE_ROUTES_ENABLED:-true}"
+      CODEXIFY_VOICE_TURNS_ENABLED: "${CODEXIFY_VOICE_TURNS_ENABLED:-false}"
+      CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
+      CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_CHAT_MODEL: "${OPENAI_CHAT_MODEL:-gpt-5.1}"
+      OPENAI_EMBED_MODEL: "${OPENAI_EMBED_MODEL:-text-embedding-3-small}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      ANTHROPIC_CHAT_MODEL: "${ANTHROPIC_CHAT_MODEL:-claude-4-5-sonnet-latest}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GEMINI_CHAT_MODEL: "${GEMINI_CHAT_MODEL:-gemini-1.5-flash}"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      model-prep:
+        condition: service_completed_successfully
+    command: ["backend"]
+
+  worker-warmup:
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
+    working_dir: /app
+    <<: *host_gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
+    env_file: .env
+    volumes:
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HOME: /home/codexify
+      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
+      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-local}"
+      EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+    restart: unless-stopped
+    command: ["worker-warmup"]
+
+  worker-chat:
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
+    working_dir: /app
+    <<: *host_gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
+    env_file: .env
+    volumes:
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+      - codexify_chroma:/app/.chroma
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HOME: /home/codexify
+      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
+      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE: "false"
+      REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+    restart: unless-stopped
+    command: ["worker-chat"]
+
+  worker-document-embed:
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
+    working_dir: /app
+    <<: *host_gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
+    env_file: .env
+    volumes:
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+      - codexify_chroma:/app/.chroma
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
+      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+    restart: unless-stopped
+    command: ["worker-document-embed"]
+
+  worker-chat-embed:
+    image: ghcr.io/resonant-jones/codexify-runtime:local-beta
+    working_dir: /app
+    <<: *host_gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      model-prep:
+        condition: service_completed_successfully
+    env_file: .env
+    volumes:
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+      - codexify_chroma:/app/.chroma
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      LLM_PROVIDER: "local"
+      EMBED_PROVIDER: "local"
+      CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
+      GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
+      CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
+      AI_BACKEND: "${AI_BACKEND:-ollama}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-library2/ministral-3:8b}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
+      LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
+      LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
+      CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
+      REDIS_URL: redis://redis:6379/0
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /models
+      CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
+      CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
+      CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+    restart: unless-stopped
+    command: ["worker-chat-embed"]
+
+  frontend:
+    image: ghcr.io/resonant-jones/codexify-webui:local-beta
+    ports: ["3000:80"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  neo4j_data:
+  hf_cache:
+  codexify_models:
+  codexify_chroma:
+  codexify_media:
+  codexify_cli_home:

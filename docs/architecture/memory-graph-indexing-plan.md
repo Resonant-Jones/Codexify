@@ -15,7 +15,9 @@ Source anchors:
 - guardian/tasks/types.py
 - guardian/memory_graph/graph_write_identity.py
 - guardian/queue/graph_write_receipts.py
+- guardian/core/graph_write_inspection_store.py
 - docs/architecture/adr/011-graph-write-task-seam-and-worker-scaffold.md
+- docs/architecture/adr/018-graph-write-inspection-surface.md
 
 ## 1. Purpose and Scope
 
@@ -252,6 +254,35 @@ This is a provenance-preserving, replay-safe control-plane seam:
 The Neo4j adapter path now provides idempotent `MERGE`-based writes that
 preserve graph-write provenance metadata, but retrieval consumption remains
 deferred.
+
+### 5.7 Graph-Write Inspection Snapshot Surface
+
+The current implementation path now also includes a latest-per-thread
+graph-write inspection snapshot surface.
+
+This surface is for operator/debug visibility only:
+
+- it summarizes receipt outcome
+- it records thread-scoped graph-shape counts and type sets
+- it remains operational and ephemeral
+- it does not promote graph truth
+
+Durable graph persistence and canonical graph inspection remain deferred.
+
+### 5.8 Graph Backend Adapter Contract
+
+The current implementation path now also includes a bounded graph backend
+adapter contract mounted behind the graph-write worker.
+
+This contract is intentionally inert in the current phase:
+
+- the default implementation is no-op
+- adapter results are derived and non-canonical
+- adapter results do not affect retrieval or export
+- adapter calls do not create graph truth
+
+The adapter gives future persistence code a stable typed seam while the worker
+remains inspection-only today.
 
 ## 6. Invariants
 

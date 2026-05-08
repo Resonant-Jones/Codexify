@@ -1,10 +1,26 @@
 /**
  * useLiveEvents - shared SSE hook backed by a per-tab singleton hub.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
 import type { LiveEvent } from "@/lib/events/types";
-import { getRuntimeConfigSync, resolveSseEndpoint } from "@/lib/runtimeConfig";
+import {
+  getDesktopRuntimeAuthConfig,
+  getRuntimeConfigHydrationFailureKind,
+  getRuntimeConfigSync,
+  getRuntimeConfigVersion,
+  getRuntimeConfigHydrationState,
+  isTauriRuntime,
+  resolveSseEndpoint,
+  subscribeRuntimeConfigState,
+} from "@/lib/runtimeConfig";
 import {
   checkAuthGate,
   markAuthUnauthenticatedFrom401,
@@ -13,13 +29,28 @@ import {
 import { SessionSpine } from "@/state/session/SessionSpine";
 import {
   LiveEventsHubEvent,
+  getLiveEventsHubStatus,
   subscribeLiveEventsHub,
   subscribeLiveEventsHubStatus,
+  type LiveEventsHubStatus,
 } from "@/lib/liveEventsHub";
 import {
   LIVE_EVENT_CONNECTION_STATES,
   LiveEventConnectionState,
 } from "@/contracts/runtimeTokens";
+import {
+  getAuthToken,
+  getDevApiKey,
+  readRuntimeApiKey,
+} from "@/lib/api";
+import {
+  resolveRuntimeAuthSource,
+  type RuntimeAuthSource,
+} from "@/lib/runtimeAuth";
+import {
+  getRuntimeAuthVersion,
+  subscribeRuntimeAuthState,
+} from "@/lib/runtimeAuth";
 
 const LAST_EVENT_DEBOUNCE_MS = 50;
 const CONNECTED_DEBOUNCE_MS = 200;
@@ -33,18 +64,77 @@ export interface UseLiveEventsResult {
   connectionStatus: ConnectionStatus;
   statusUpdatedAt: number | null;
   lastEvent: LiveEvent | null;
+  diagnostics: LiveEventsDiagnostics;
   subscribe: (eventType: string, handler: (event: LiveEvent) => void) => () => void;
+}
+
+export type LiveEventsDiagnostics = {
+  endpoint: string | null;
+  connectionState: ConnectionStatus;
+  lastEventAt: number | null;
+  lastPingAt: number | null;
+  statusUpdatedAt: number | null;
+  lastHttpStatus: number | null;
+  transportErrorClass: string | null;
+  authSource: RuntimeAuthSource;
+  apiKeyPresent: boolean;
+  hydrationState: "pending" | "ready" | "failed";
+  nativeCommandStatus: string | null;
+  reconnectAttempts: number;
+  retryMs: number;
+  subscribers: number;
+  readyState: 0 | 1 | 2;
+  lastErrorAt: number | null;
+  lastEventId: string | null;
+};
+
+function resolveLiveEventsAuthSource(): RuntimeAuthSource {
+  const hydrationState = getRuntimeConfigHydrationState();
+  if (hydrationState === "pending") {
+    return "unknown";
+  }
+  const desktopAuthConfig = getDesktopRuntimeAuthConfig();
+  const runtimeDesktopKeyPresent = Boolean(
+    desktopAuthConfig?.apiKeyPresent || readRuntimeApiKey()
+  );
+  const devKeyPresent = Boolean(getDevApiKey().trim());
+  const bearerPresent = Boolean(getAuthToken());
+  return resolveRuntimeAuthSource({
+    isTauriRuntime: isTauriRuntime(),
+    runtimeDesktopKeyPresent,
+    devKeyPresent,
+    bearerPresent,
+    desktopAuthConfigKnown: Boolean(desktopAuthConfig),
+  });
 }
 
 export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEventsResult {
   const { passive = false } = options;
   const auth = useAuthState();
+  const runtimeAuthVersion = useSyncExternalStore(
+    subscribeRuntimeAuthState,
+    getRuntimeAuthVersion,
+    getRuntimeAuthVersion
+  );
+  const runtimeConfigVersion = useSyncExternalStore(
+    subscribeRuntimeConfigState,
+    getRuntimeConfigVersion,
+    getRuntimeConfigVersion
+  );
+  const runtimeConfigHydrationState = useSyncExternalStore(
+    subscribeRuntimeConfigState,
+    getRuntimeConfigHydrationState,
+    getRuntimeConfigHydrationState
+  );
   const [connected, setConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     LIVE_EVENT_CONNECTION_STATES.DISCONNECTED
   );
   const [statusUpdatedAt, setStatusUpdatedAt] = useState<number>(() => Date.now());
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null);
+  const [hubStatus, setHubStatus] = useState<LiveEventsHubStatus>(
+    () => getLiveEventsHubStatus()
+  );
   const listenersRef = useRef<Map<string, Set<(event: LiveEvent) => void>>>(
     new Map()
   );
@@ -56,7 +146,10 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
   const pendingLastEventRef = useRef<LiveEvent | null>(null);
   const lastEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const streamUrl = useMemo(() => resolveSseEndpoint(getRuntimeConfigSync()), []);
+  const streamUrl = useMemo(
+    () => resolveSseEndpoint(getRuntimeConfigSync()),
+    [runtimeConfigVersion]
+  );
 
   const isSameEvent = useCallback((prev: LiveEvent | null, next: LiveEvent) => {
     if (!prev) return false;
@@ -173,6 +266,32 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       return;
     }
 
+    if (runtimeConfigHydrationState === "pending") {
+      if (connectedTimerRef.current) {
+        clearTimeout(connectedTimerRef.current);
+        connectedTimerRef.current = null;
+      }
+      pendingConnectedRef.current = null;
+      connectedRef.current = false;
+      setConnected(false);
+      setConnectionStatus(LIVE_EVENT_CONNECTION_STATES.CONNECTING);
+      setStatusUpdatedAt(Date.now());
+      return;
+    }
+
+    if (runtimeConfigHydrationState === "failed") {
+      if (connectedTimerRef.current) {
+        clearTimeout(connectedTimerRef.current);
+        connectedTimerRef.current = null;
+      }
+      pendingConnectedRef.current = null;
+      connectedRef.current = false;
+      setConnected(false);
+      setConnectionStatus(LIVE_EVENT_CONNECTION_STATES.DISCONNECTED);
+      setStatusUpdatedAt(Date.now());
+      return;
+    }
+
     if (!checkAuthGate(auth, "SSE connect")) {
       if (connectedTimerRef.current) {
         clearTimeout(connectedTimerRef.current);
@@ -196,10 +315,16 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       Accept: "text/event-stream",
       "Cache-Control": "no-cache",
     };
+    const apiKeyPresent = Boolean(
+      getDesktopRuntimeAuthConfig()?.apiKeyPresent ||
+        readRuntimeApiKey() ||
+        getDevApiKey().trim()
+    );
 
     let cancelled = false;
     const unsubscribeStatus = subscribeLiveEventsHubStatus((status) => {
       if (cancelled || isUnmountedRef.current) return;
+      setHubStatus(status);
       setConnectionStatus((prev) => {
         if (prev === status.connectionStatus) return prev;
         setStatusUpdatedAt(Date.now());
@@ -216,6 +341,8 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
         url: streamUrl,
         headers,
         withCredentials: authInit.credentials === "include",
+        authSource: resolveLiveEventsAuthSource(),
+        apiKeyPresent,
         onUnauthorized: () => {
           markAuthUnauthenticatedFrom401();
         },
@@ -236,9 +363,55 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     auth.status,
     auth.token,
     handleHubEvent,
+    runtimeAuthVersion,
+    runtimeConfigHydrationState,
     streamUrl,
     updateConnected,
   ]);
+
+  const diagnostics = useMemo<LiveEventsDiagnostics>(
+    () => ({
+      endpoint: hubStatus.endpoint ?? streamUrl,
+      connectionState: connectionStatus,
+      lastEventAt: hubStatus.lastEventAt,
+      lastPingAt: hubStatus.lastPingAt,
+      statusUpdatedAt,
+      lastHttpStatus: hubStatus.lastHttpStatus,
+      transportErrorClass: hubStatus.transportErrorClass,
+      authSource: hubStatus.authSource,
+      apiKeyPresent: hubStatus.apiKeyPresent,
+      hydrationState: runtimeConfigHydrationState,
+      nativeCommandStatus:
+        runtimeConfigHydrationState === "failed"
+          ? getRuntimeConfigHydrationFailureKind() ?? "failed"
+          : runtimeConfigHydrationState,
+      reconnectAttempts: hubStatus.connectAttempt,
+      retryMs: hubStatus.retryMs,
+      subscribers: hubStatus.subscribers,
+      readyState: hubStatus.readyState,
+      lastErrorAt: hubStatus.lastErrorAt,
+      lastEventId: hubStatus.lastEventId,
+    }),
+    [
+      connectionStatus,
+      hubStatus.apiKeyPresent,
+      hubStatus.authSource,
+      hubStatus.connectAttempt,
+      hubStatus.endpoint,
+      hubStatus.lastErrorAt,
+      hubStatus.lastEventAt,
+      hubStatus.lastEventId,
+      hubStatus.lastHttpStatus,
+      hubStatus.lastPingAt,
+      hubStatus.readyState,
+      hubStatus.retryMs,
+      hubStatus.subscribers,
+      hubStatus.transportErrorClass,
+      statusUpdatedAt,
+      runtimeConfigHydrationState,
+      streamUrl,
+    ]
+  );
 
   const subscribe = useCallback(
     (eventType: string, handler: (event: LiveEvent) => void) => {
@@ -263,6 +436,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
     connectionStatus,
     statusUpdatedAt,
     lastEvent: passive ? lastEventRef.current : lastEvent,
+    diagnostics,
     subscribe,
   };
 }
