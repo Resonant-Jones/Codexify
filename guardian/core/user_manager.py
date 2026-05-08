@@ -23,6 +23,13 @@ def _resolve_default_user_id() -> str:
 
 
 def _bootstrap_password_hash() -> str:
+    """
+    Generate an unpredictable bootstrap password hash.
+
+    The canonical default user remains seedable for ownership boundaries, but
+    the bootstrap credential itself must not be a fixed, guessable value.
+    """
+    return hash_password(secrets.token_urlsafe(32))
     bootstrap_password = (os.getenv(BOOTSTRAP_PASSWORD_ENV) or "").strip()
     if not bootstrap_password:
         # Fail closed: the canonical local owner still exists, but it is not

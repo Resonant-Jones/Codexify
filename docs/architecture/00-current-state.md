@@ -46,6 +46,8 @@ As of 2026-05-08 follow-up implementation, the document identity/readback contra
 - Supported beta posture is intended to be local-only, but the live backend container currently reports `CODEXIFY_BETA_CORE_ONLY=false`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and `ALLOW_CLOUD_PROVIDERS=true`, so the running stack is not in the supported posture.
 - Chat acceptance, worker execution, and Postgres persistence still work for plain chat completion on the current live runtime.
 - Single-user ownership on the chat path normalizes browser display labels to `local`; that seam did not leak the display label into persisted thread ownership in this run.
+- Upload -> parse -> embed -> retrieve is not currently proven on the live runtime. Direct document upload returned `upload_failed` because backend schema consistency checks require missing `agent_extension_*` tables, so retrieval was not reached.
+- The bounded tool-loop metadata seam is now preserved additively in backend code, but the supported Compose runtime still needs a fresh live rerun before the one-turn / hard-stop behavior can be claimed on `main`.
 - Upload -> parse -> embed -> retrieve is now proven again on the live runtime for the supported local Compose path. The earlier `agent_extension_*` schema gap that blocked document upload on the supported path is repaired on the supported local Compose stack, and the 2026-05-08 recheck confirmed document readback plus supported retrieval on the current tip.
 - The bounded tool-loop slice is not currently behaving as claimed on the live runtime: the one-turn case fails with `tool_command_execution_failed`, and the hard-stop / blocked-result prompts collapse into plain answers instead of staying bounded.
 - Retrieval assembly now keeps user boundaries explicit in the broker and records widening reasons so trace output stays truthful.
@@ -100,6 +102,11 @@ As of 2026-05-08 follow-up implementation, the document identity/readback contra
 - A live proof attempt on 2026-05-05 still showed the coding worker failing before returning a `coding_result` because `/app/codex_runner/src/agent-wrapper.js` was missing in the running worker image. The packaging blocker has been fixed in `docker-compose.runtime.yml` by changing `worker-coding` from a pre-built image reference to a local `build: {context: ., dockerfile: backend/Dockerfile, target: runtime}` which mirrors the pattern used in `docker-compose.yml` and ensures `codex_runner/` is included in the image. Docker is not available in this environment for live rerun, so packaging proof is pending. Backend-seam tests now prove Guardian result persistence, but the live coding-result return path remains not release-ready until live proof confirms source-thread injection and idempotency.
 
 ## This week's priorities
+1. ~~Resolve Ollama model name mismatch~~ — **Done 2026-04-14:** `LOCAL_CHAT_MODEL` in `.env.example` updated to `gemma4-e4b-hauhau:latest`. Live verification still required.
+2. Repair the live runtime schema consistency gap that blocks document upload and retrieval (`agent_extension_*` tables missing during upload/document fetch).
+3. Re-run the bounded tool-loop live proof on the supported runtime after the metadata-seam fix.
+4. Update the completion-service seam (`guardian/core/chat_completion_service.py`) to emit `payload_summary["retrieval_posture"]` so the diagnostics route's fast path becomes functional.
+5. Re-run the supported local Compose beta proof on `main` once the above are resolved; verify chat completion, retrieval-posture populated state, and all health surfaces pass.
 1. Re-run live supported-path proof on the current `main` tip.
 2. Confirm the backend is in the supported local-only posture.
 3. Verify chat completion, retrieval posture, and upload -> embed -> retrieve on the live stack.
