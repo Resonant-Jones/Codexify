@@ -3,6 +3,7 @@
 Workspace + Obsidian End-to-End Live Proof Harness
 
 PURPOSE
+=======
 This harness validates the supported local Compose path for the
 `retrievalSource="workspace"` seam. It proves that an ingested
 Obsidian-backed local note can influence a real Guardian assistant
@@ -19,6 +20,7 @@ This harness is a RELEASE-EVIDENCE TOOL. It does NOT prove:
 This harness validates ONLY the supported local Docker Compose path.
 
 CURRENT-TRUTH ANCHORS
+=====================
 - `retrievalSource="workspace"` is a live backend meaning for
   user-bounded local knowledge, including Obsidian-backed notes.
 - Chat completion is queue-backed; route acceptance is NOT completion.
@@ -28,6 +30,7 @@ CURRENT-TRUTH ANCHORS
   for supported source modes.
 
 RUNTIME CONTRACT
+================
 The harness reads the following runtime surfaces:
 - `/health` — basic backend readiness
 - `/health/chat` — Redis, queue, and worker heartbeat health
@@ -41,6 +44,7 @@ The harness reads the following runtime surfaces:
 - `POST /api/obsidian/index` — Obsidian index trigger on configured vault
 
 ACCEPTANCE SEMANTICS (per ADR-001 / flows.md)
+=============================================
 Route acceptance means:
 - Turn lock acquired
 - Task enqueued to Redis
@@ -56,10 +60,12 @@ An honest E2E validator MUST wait for task completion and verify
 the assistant response and retrieval evidence.
 
 ENVIRONMENT
+===========
 BASE              — backend base URL (default: http://localhost:8888)
 GUARDIAN_API_KEY  — required; falls back to scripts/dev/dev-key.sh
 
 EXIT BEHAVIOR
+=============
 Exits 0   — all proof conditions met:
             1. Health checks pass
             2. Sentinel note ingested
@@ -72,6 +78,7 @@ Exits 0   — all proof conditions met:
 Exits !=0 — any proof condition fails (see failure classes below)
 
 FAILURE CLASSES
+===============
 1. HEALTH_CHECK_FAILED  — backend health surfaces not ready
 2. INGESTION_FAILED     — Obsidian index trigger failed
 3. ACCEPTANCE_FAILED   — POST /complete did not return 200/task_id
@@ -92,12 +99,6 @@ BASE=http://localhost:8888 GUARDIAN_API_KEY="$(cat ~/.codex_guardian_key)" \
 # In a release-evidence workflow:
 # Run the harness after a clean Compose start. Attach stdout/stderr
 # and the git commit hash to the evidence pack.
-"""Release-evidence harness for the supported local Compose path.
-
-This script proves that an Obsidian-backed local note, indexed through the
-supported Obsidian control plane, can influence a real Guardian completion on
-the supported local Compose path. It does not widen the release promise to
-packaged desktop, webUI-only, or other install modes.
 """
 
 from __future__ import annotations
@@ -727,6 +728,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 import subprocess
 import sys
 import tempfile
@@ -1493,9 +1495,7 @@ def _workspace_evidence_snapshot(
         "linked_document_count": int(
             payload_summary.get("linked_document_count") or 0
         ),
-        "retrieval_injected": bool(
-            payload_summary.get("retrieval_injected")
-        ),
+        "retrieval_injected": bool(payload_summary.get("retrieval_injected")),
         "obsidian_injected": bool(payload_summary.get("obsidian_injected")),
     }
 
@@ -1719,9 +1719,7 @@ def run_proof(base_url: str, api_key: str) -> tuple[dict[str, Any], str]:
                 if isinstance(task_completed_payload, dict)
                 else None
             )
-            trace_snapshot = _workspace_evidence_snapshot(
-                trace_payload_summary
-            )
+            trace_snapshot = _workspace_evidence_snapshot(trace_payload_summary)
             if any(
                 worker_snapshot[key] != trace_snapshot[key]
                 for key in (
