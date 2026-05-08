@@ -33,6 +33,9 @@ Codexify is in late beta hardening on `main`. The codebase now carries the local
 - Executable backend-seam evaluation suites continue to provide coverage for: identity-boundary proof (project scope containment, explicit widening, exclusion filters), supported-path golden tasks (completion acceptance, RAG trace isolation, Obsidian ingest→retrieve seam), and broker/source-mode matrix reconciliation.
 - Fresh live proof was re-run on the exact current `main` tip. Chat completion still works and the chat ownership seam normalizes a browser display label to `local`, and the supported local Compose migrator now reaches the merged extension/eval head cleanly so the expected `agent_extension_*` tables are present again. The live backend container still needs a separate supported-profile recheck, and the bounded tool-loop cases still regress instead of matching the claimed supported-path behavior.
 Fresh live proof on 2026-05-05 now confirmed the supported local-first posture on the current tip, including provider/catalog/health alignment, upload -> embed -> retrieve, image-turn containment, coding-result return, and runtime-target normalization. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. On 2026-05-08, the document upload -> embed -> retrieve seam was rechecked and the previously blocked document readback/retrieval path was re-proven on the supported local Compose path. That proof is evidence of the supported path, not release signoff.
+Fresh live proof on 2026-05-08 now partially confirms the supported local-first posture on the current `main` tip (`9ca4caf56`), including provider/catalog/health alignment, chat completion with RAG trace, image-turn containment, coding-result return lineage/idempotency (code inspection), and runtime-target normalization. The upload -> embed -> retrieve path is **blocked**: `GET /api/documents/{id}` returns 404 after successful upload, preventing verification of embedding readiness and sentinel retrieval. The evidence is recorded in `docs/architecture/2026-05-08-supported-profile-live-proof.md` with a PARTIAL verdict. On 2026-05-07, the workspace-local Obsidian E2E proof harness also passed on the supported local Compose path, and the evidence is recorded in `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`. These proofs are evidence of the supported path, not release signoff.
+
+As of 2026-05-08 follow-up implementation, the document identity/readback contract has been repaired in code: upload responses now expose explicit `document_id` and `media_asset_id`, and a supported `GET /api/documents/{id}` detail route resolves by document ID (with asset-ID compatibility lookup) while preserving account ownership checks and embedding lifecycle fields. A fresh live Compose re-proof is still pending because backend startup is currently blocked by a pre-existing merge-artifact syntax error in `guardian/core/config.py`.
 
 - Coding worker results now ingest back through Guardian with lineage and idempotency guards.
 - Public webUI beta handoff docs and the GHCR pullability note remain on `main`.
@@ -79,9 +82,11 @@ Fresh live proof on 2026-05-05 now confirmed the supported local-first posture o
 - The coding-result return path now has fresh live verification on the current tip.
 
 ## This week's priorities
-1. Keep the fresh supported-path proof artifact synchronized with future runtime changes.
-2. Watch for any future drift between supported-profile, catalog, and health surfaces.
-3. Preserve the proven coding-result return path and runtime-target contract under regression protection.
+1. Investigate and resolve the document retrieval 404 blocker: `GET /api/documents/{id}` returns 404 after successful upload via `POST /api/media/upload/document`.
+2. Re-run the full supported-path proof after the document retrieval fix once backend startup is restored.
+3. Keep the fresh supported-path proof artifact synchronized with future runtime changes.
+4. Watch for any future drift between supported-profile, catalog, and health surfaces.
+5. Preserve the proven coding-result return path and runtime-target contract under regression protection.
 
 ## Release definition right now
 - [x] Supported-profile flags match the beta contract on the live runtime.
