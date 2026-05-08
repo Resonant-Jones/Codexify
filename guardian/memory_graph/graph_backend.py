@@ -24,6 +24,7 @@ class GraphBackendWriteResult:
     graph_write_id: str
     node_count: int
     edge_count: int
+    backend_kind: str = ""
     warnings: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
