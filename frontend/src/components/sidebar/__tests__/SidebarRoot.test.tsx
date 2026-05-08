@@ -19,6 +19,7 @@ const mockSetProvenanceFilter = vi.fn();
 const mockSidebarState = vi.hoisted(() => ({
   currentProjectId: null as string | null,
   provenanceFilter: null as string | null,
+  projectList: [] as Array<{ id: string; name: string; icon?: string; description?: string }>,
 }));
 
 vi.mock("../useSidebarThreads", () => ({
@@ -43,7 +44,7 @@ vi.mock("../useSidebarThreads", () => ({
 
 vi.mock("../useProjectsCache", () => ({
   default: () => ({
-    projectList: [],
+    projectList: mockSidebarState.projectList,
     setProjectList: vi.fn(),
     refreshProjectsFromServer: vi.fn(),
     looseCount: 0,
@@ -65,6 +66,7 @@ describe("SidebarRoot provenance filter wiring", () => {
     window.localStorage.setItem("cfy.sidebarTab", "threads");
     mockSidebarState.currentProjectId = null;
     mockSidebarState.provenanceFilter = "chatgpt";
+    mockSidebarState.projectList = [];
   });
 
   it("renders the canonical source dock and forwards stable keys", () => {
@@ -95,5 +97,44 @@ describe("SidebarRoot provenance filter wiring", () => {
 
     expect(screen.getByTestId("project-list")).toBeInTheDocument();
     expect(screen.queryByRole("toolbar", { name: "Imported source filter" })).not.toBeInTheDocument();
+  });
+
+  it("shows a dismissible Project Knowledge Base notice once", () => {
+    mockSidebarState.currentProjectId = "project-42";
+    mockSidebarState.projectList = [{ id: "project-42", name: "Launch Project" }];
+
+    const firstRender = render(
+      <SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+
+    expect(
+      screen.getByTestId("project-knowledge-base-entry")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Project Documents and the Project Knowledge Base live in the Projects rail on the left\./i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/System Docs stay in Settings > Data/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Dismiss Project Knowledge Base notice" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Project Knowledge Base notice" }));
+
+    expect(screen.queryByTestId("project-knowledge-base-entry")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("cfy.sidebar.projectKnowledgeBaseNoticeDismissed")).toBe(
+      "true"
+    );
+
+    firstRender.unmount();
+
+    render(<SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+
+    expect(screen.queryByTestId("project-knowledge-base-entry")).not.toBeInTheDocument();
   });
 });

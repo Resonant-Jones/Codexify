@@ -18,23 +18,25 @@ pub fn run() {
                     .build(),
             )?;
             let handle = app.handle().clone();
-            let bootstrap_runtime = commands::resolve_bootstrap_runtime(&handle);
-            commands::prime_packaged_runtime_environment(&bootstrap_runtime);
+            let bootstrap_runtime = initialize_bootstrap_runtime(&handle);
             commands::prime_packaged_launcher_startup_state(&bootstrap_runtime);
             app.manage(bootstrap_runtime);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::desktop_get_runtime_config,
+            commands::desktop_get_runtime_auth_config,
             commands::desktop_get_launcher_startup_handoff,
             commands::desktop_fetch_media,
             commands::desktop_get_api_key,
             commands::desktop_set_api_key,
             commands::desktop_clear_api_key,
             commands::desktop_open_external,
+            commands::desktop_open_webui,
             commands::desktop_open_docker_desktop,
             commands::desktop_runtime_preflight_check,
             commands::desktop_run_setup_cli,
+            commands::desktop_pull_registry_runtime_images,
             commands::desktop_compose_up,
             commands::desktop_get_bootstrap_logs,
             commands::desktop_restart_runtime_services,

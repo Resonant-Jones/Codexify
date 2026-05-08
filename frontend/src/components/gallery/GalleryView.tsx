@@ -93,10 +93,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
     const qs = params.toString();
     fetch(
       `/api/media/images${qs ? `?${qs}` : ""}`,
-      buildAuthenticatedFetchInit(
-        { method: "GET" },
-        { forceApiKey: true }
-      )
+      buildAuthenticatedFetchInit({ method: "GET" })
     )
       .then((resp) => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

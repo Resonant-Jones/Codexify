@@ -126,6 +126,9 @@ gitleaks-report.*
 # local reports
 /docs/work/reports/
 
+# public export staging
+/Public-Directory/
+
 # Local temp artifacts
 /guardian/temp/
 /guardian/temp/*.json

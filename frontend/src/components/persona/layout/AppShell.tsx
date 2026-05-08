@@ -38,6 +38,7 @@ import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
+import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import {
   MOBILE_MOTION,
@@ -49,10 +50,13 @@ import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
-import useRuntimeHealth from "@/hooks/useRuntimeHealth";
+import useRuntimeHealth, {
+  formatRuntimeHealthDiagnostics,
+} from "@/hooks/useRuntimeHealth";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
 import {
   describeProviderState,
+  LIVE_EVENT_CONNECTION_STATES,
   PROVIDER_RUNTIME_STATES,
   RUNTIME_HEALTH_FAILURE_KINDS,
   RUNTIME_HEALTH_STATUSES,
@@ -291,7 +295,7 @@ function resolvePersistedFlowBuilderMode(): FlowBuilderMode {
 }
 
 function isWorkspaceShellView(view: AppShellView): view is WorkspaceShellView {
-  return view === "dashboard" || view === "documents" || view === "guardian";
+  return view === "documents" || view === "guardian";
 }
 
 function normalizeDoc(raw: any, idx = 0): DocItem {
@@ -631,6 +635,17 @@ function findDefaultProjectId(projects: any[]): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function hasProjectId(projects: any[], projectId: number | null): boolean {
+  if (!Array.isArray(projects) || projectId == null) return false;
+  return projects.some((project) => {
+    const rawId = project?.id ?? project?.project_id ?? null;
+    const parsed = Number(rawId);
+    return Number.isFinite(parsed) && parsed === projectId;
+  });
+}
+
+type GeneralProjectIdSource = "storage" | "validated" | "user";
+
 /* ─────────────────────────────────────────────────────────────────────────────
    🧠 SECTION: Theme Preference Handling
    This function takes in any value and ensures it matches one of our accepted
@@ -720,6 +735,31 @@ function writeSessionOverride(v: Resolved | null) {
     window.localStorage.setItem(SESSION_KEY, v)
     window.localStorage.setItem(SESSION_UNTIL, String(nextLocalMidnight()))
   }
+}
+
+function resolveProviderRuntimeState(
+  runtimeHealth: {
+    backendReachable: boolean | null;
+    failureKind: RuntimeHealthFailureKindToken | null;
+    status: RuntimeHealthStatusToken;
+    diagnostics: { hydrationState: "pending" | "ready" | "failed" };
+  }
+): ProviderRuntimeState {
+  if (runtimeHealth.diagnostics.hydrationState === "pending") {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (runtimeHealth.status === RUNTIME_HEALTH_STATUSES.HEALTHY) {
+    return PROVIDER_RUNTIME_STATES.ONLINE;
+  }
+  if (
+    runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.BACKEND_UNREACHABLE
+  ) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  if (runtimeHealth.backendReachable === false) {
+    return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+  return PROVIDER_RUNTIME_STATES.DEGRADED;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1099,8 +1139,13 @@ export default function AppShell({
     if (typeof window === "undefined") return;
 
     const syncRouteState = () => {
-      setActiveRouteThreadId(readRouteThreadId());
       const routeView = resolveViewFromPathname(window.location.pathname);
+      const routeThreadId = readRouteThreadId();
+      if (routeThreadId != null) {
+        setActiveRouteThreadId(routeThreadId);
+      } else if (routeView !== "documents") {
+        setActiveRouteThreadId(null);
+      }
       if (routeView) {
         setView(routeView);
       }
@@ -1157,9 +1202,15 @@ export default function AppShell({
   const [generalProjectId, setGeneralProjectId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem("cfy.generalProjectId");
+    if (raw == null) return null;
     const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   });
+  const [generalProjectIdSource, setGeneralProjectIdSource] =
+    useState<GeneralProjectIdSource>(() => {
+      if (typeof window === "undefined") return "validated";
+      return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
+    });
   const hasFetchedGeneralProjectRef = React.useRef(false);
   const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
   const [documentScope, setDocumentScope] = useState<DocumentScope>(
@@ -1168,7 +1219,13 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const syncRouteThread = () => {
-      setActiveRouteThreadId(readRouteThreadId());
+      const routeView = resolveViewFromPathname(window.location.pathname);
+      const routeThreadId = readRouteThreadId();
+      if (routeThreadId != null) {
+        setActiveRouteThreadId(routeThreadId);
+      } else if (routeView !== "documents") {
+        setActiveRouteThreadId(null);
+      }
     };
     syncRouteThread();
     window.addEventListener("popstate", syncRouteThread);
@@ -1213,6 +1270,50 @@ export default function AppShell({
     }
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [activeRouteThreadId]);
+  const navigateToThread = useCallback((threadId: string | number | null) => {
+    setView("guardian");
+    if (typeof window === "undefined") return;
+
+    const normalizedThreadId =
+      threadId == null ? null : Number.parseInt(String(threadId), 10);
+    const nextPath = resolvePathForView(
+      "guardian",
+      normalizedThreadId != null && Number.isFinite(normalizedThreadId)
+        ? normalizedThreadId
+        : null
+    );
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
+  const handleDocumentsSidebarProjectChange = useCallback(
+    (projectId: string | null) => {
+      const normalizedProjectId =
+        projectId == null ? null : Number.parseInt(String(projectId), 10);
+      setGeneralProjectIdSource("user");
+      setGeneralProjectId(
+        normalizedProjectId != null && Number.isFinite(normalizedProjectId)
+          ? normalizedProjectId
+          : null
+      );
+      setDocumentScope(
+        projectId == null && activeRouteThreadId != null ? "thread" : "project"
+      );
+    },
+    [activeRouteThreadId]
+  );
+  const handleGuardianProjectChange = useCallback(
+    (projectId: string | null) => {
+      if (projectId == null) return;
+      const normalizedProjectId = Number.parseInt(String(projectId), 10);
+      if (Number.isFinite(normalizedProjectId) && normalizedProjectId > 0) {
+        setGeneralProjectIdSource("user");
+        setGeneralProjectId(normalizedProjectId);
+      }
+    },
+    []
+  );
   const openSettings = useCallback(() => navigateToView("settings"), [navigateToView]);
   const [documentsSource, setDocumentsSource] = useState<"default" | "cache" | "backend">(() => {
     if (typeof window === "undefined") return "default";
@@ -1233,15 +1334,28 @@ export default function AppShell({
       window.localStorage.setItem("cfy.defaultProjectId", String(generalProjectId));
     } catch {}
   }, [generalProjectId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (generalProjectId != null) return;
+    try {
+      window.localStorage.removeItem("cfy.generalProjectId");
+      window.localStorage.removeItem("cfy.defaultProjectId");
+    } catch {}
+  }, [generalProjectId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (generalProjectId != null && generalProjectIdSource !== "storage") {
+        window.localStorage.setItem("cfy.generalProjectIdTrusted", "1");
+      } else {
+        window.localStorage.removeItem("cfy.generalProjectIdTrusted");
+      }
+    } catch {}
+  }, [generalProjectId, generalProjectIdSource]);
 
   useEffect(() => {
     let cancelled = false;
     if (startupLocked) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (generalProjectId != null) {
       return () => {
         cancelled = true;
       };
@@ -1267,9 +1381,14 @@ export default function AppShell({
           : Array.isArray(payload?.projects)
           ? payload.projects
           : [];
-        const defaultProject = findDefaultProjectId(list);
-        if (defaultProject != null) {
-          setGeneralProjectId(defaultProject);
+        if (list.length > 0) {
+          const defaultProject = findDefaultProjectId(list);
+          const currentProjectValid = hasProjectId(list, generalProjectId);
+          const nextProjectId = currentProjectValid ? generalProjectId : defaultProject;
+          if (nextProjectId !== generalProjectId) {
+            setGeneralProjectId(nextProjectId);
+          }
+          setGeneralProjectIdSource("validated");
         }
       } catch (err) {
         if (cancelled) return;
@@ -1313,9 +1432,9 @@ export default function AppShell({
           (thread: any) => Number(thread?.id) === activeRouteThreadId
         );
         const projectRaw = hit?.project_id ?? hit?.projectId ?? null;
-        const parsed = Number(projectRaw);
+        const parsed = projectRaw == null ? NaN : Number(projectRaw);
         if (cancelled) return;
-        setActiveThreadProjectId(Number.isFinite(parsed) ? parsed : null);
+        setActiveThreadProjectId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
       } catch (err) {
         if (cancelled) return;
         setActiveThreadProjectId(null);
@@ -1327,8 +1446,8 @@ export default function AppShell({
     };
   }, [activeRouteThreadId, auth, startupLocked]);
   const effectiveDocumentsProjectId = useMemo<number | null>(
-    () => activeThreadProjectId ?? generalProjectId,
-    [activeThreadProjectId, generalProjectId]
+    () => activeThreadProjectId ?? (generalProjectIdSource === "storage" ? null : generalProjectId),
+    [activeThreadProjectId, generalProjectId, generalProjectIdSource]
   );
   useEffect(() => {
     let cancelled = false;
@@ -1883,10 +2002,34 @@ export default function AppShell({
     return () => window.removeEventListener("cfy:gallery:add", onAdd as EventListener);
   }, []);
 
+  useEffect(() => {
+    const onOpenProjectKnowledgeBase = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        projectId?: string | number | null;
+      }>).detail;
+      const projectId = Number(detail?.projectId);
+      if (Number.isFinite(projectId) && projectId > 0) {
+        setGeneralProjectIdSource("user");
+        setGeneralProjectId(projectId);
+      }
+      navigateToView("documents");
+    };
+
+    window.addEventListener(
+      "cfy:project-kb:open",
+      onOpenProjectKnowledgeBase as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "cfy:project-kb:open",
+        onOpenProjectKnowledgeBase as EventListener
+      );
+  }, [navigateToView]);
+
   // Gallery uploader
   const galleryUploader = useUploader({
     tag: "upload",
-    projectId: generalProjectId ?? undefined,
+    projectId: generalProjectIdSource === "storage" ? undefined : generalProjectId ?? undefined,
     onImages: (items) =>
       setGallery((prev) => {
         const normalizedItems = items
@@ -2013,6 +2156,42 @@ export default function AppShell({
       window.clearTimeout(timer);
     };
   }, [isPhoneShell, workspaceDrawerOpen]);
+  const [documentsSidebarOpen, setDocumentsSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const raw = window.localStorage.getItem("cfy.documentsSidebarOpen");
+    return raw === "false" ? false : true;
+  });
+  const [documentsSidebarOverlayOpen, setDocumentsSidebarOverlayOpen] = useState(false);
+  const documentsSidebarVisible = !isPhoneShell && documentsSidebarOpen;
+  const documentsSidebarOverlayVisible = isPhoneShell && documentsSidebarOverlayOpen;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("cfy.documentsSidebarOpen", String(documentsSidebarOpen));
+  }, [documentsSidebarOpen]);
+
+  useEffect(() => {
+    if (view !== "documents") return;
+    if (isPhoneShell) return;
+    if (workspaceLayoutMode !== "workspace_focus") return;
+    const vw = window.innerWidth;
+    if (vw < 1200 && documentsSidebarOpen) {
+      setDocumentsSidebarOpen(false);
+    }
+  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
+
+  const toggleDocumentsSidebar = useCallback(() => {
+    if (isPhoneShell) {
+      setDocumentsSidebarOverlayOpen((prev) => !prev);
+      return;
+    }
+    setDocumentsSidebarOpen((prev) => !prev);
+  }, [isPhoneShell]);
+
+  const closeDocumentsSidebarOverlay = useCallback(() => {
+    setDocumentsSidebarOverlayOpen(false);
+  }, []);
+
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
   const [showImgGenGallery, setShowImgGenGallery] = useState(false);
@@ -2327,8 +2506,11 @@ export default function AppShell({
     : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
   const runtimeDegraded =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED &&
+    runtimeHealth.diagnostics.hydrationState !== "pending";
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
+  const runtimeHydrationState = runtimeHealth.diagnostics.hydrationState;
+  const now = Date.now();
   const runtimeDetail =
     typeof process !== "undefined" &&
     process.env &&
@@ -2336,11 +2518,21 @@ export default function AppShell({
     runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       ? runtimeHealth.llmDetail
       : null;
+  const runtimeDiagnosticLines =
+    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED
+      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+      : [];
+  const liveUpdatesDisconnected =
+    runtimeHealth.diagnostics.liveEvents.connectionState ===
+      LIVE_EVENT_CONNECTION_STATES.DISCONNECTED &&
+    typeof runtimeHealth.diagnostics.liveEvents.statusUpdatedAt === "number" &&
+    now - runtimeHealth.diagnostics.liveEvents.statusUpdatedAt > 45_000;
+  const liveUpdateDiagnosticLines =
+    !runtimeDegraded && liveUpdatesDisconnected
+      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+      : [];
 
-  const providerRuntimeState: ProviderRuntimeState =
-    runtimeHealth.backendReachable === false
-      ? PROVIDER_RUNTIME_STATES.OFFLINE
-      : PROVIDER_RUNTIME_STATES.DEGRADED;
+  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
 
   const runtimePresentation = describeProviderState(providerRuntimeState);
 
@@ -2445,16 +2637,56 @@ export default function AppShell({
       }}
     />
   ) : null;
+  const documentsSidebarToggle = view === "documents" ? (
+    <PhonePressButton
+      type="button"
+      isPhoneShell={isPhoneShell}
+      className="pill-tab shrink-0 whitespace-nowrap"
+      data-state={documentsSidebarOpen || documentsSidebarOverlayOpen ? "active" : "inactive"}
+      data-testid="documents-sidebar-toggle"
+      aria-pressed={documentsSidebarOpen || documentsSidebarOverlayOpen}
+      aria-label={
+        isPhoneShell
+          ? documentsSidebarOverlayOpen
+            ? "Close sidebar"
+            : "Open sidebar"
+          : documentsSidebarOpen
+            ? "Hide sidebar"
+            : "Show sidebar"
+      }
+      title={
+        isPhoneShell
+          ? documentsSidebarOverlayOpen
+            ? "Close sidebar"
+            : "Open sidebar"
+          : documentsSidebarOpen
+            ? "Hide sidebar"
+            : "Show sidebar"
+      }
+      onClick={toggleDocumentsSidebar}
+    >
+      {isPhoneShell ? (
+        <span className="inline-flex items-center" style={{ gap: "6px" }}>
+          <span className="h-4 w-4" aria-hidden="true">☰</span>
+          <span>{documentsSidebarOverlayOpen ? "Close" : "Sidebar"}</span>
+        </span>
+      ) : (
+        documentsSidebarOpen ? "Hide Sidebar" : "Show Sidebar"
+      )}
+    </PhonePressButton>
+  ) : null;
   const desktopHeaderUtilityActions = (
     <>
       {settingsUtilityAction}
       {workspaceDrawerToggle}
+      {documentsSidebarToggle}
       {shareUtilityAction}
     </>
   );
   const mobileHeaderUtilityActions = (
     <>
       {workspaceDrawerToggle}
+      {documentsSidebarToggle}
       {settingsUtilityAction}
       {shareUtilityAction}
     </>
@@ -2728,9 +2960,58 @@ export default function AppShell({
                 {runtimePresentation.detail}
               </div>
             )}
+            {runtimeDiagnosticLines.length > 0 ? (
+              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+                <summary className="cursor-pointer select-none opacity-80">
+                  Technical details
+                </summary>
+                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                  {runtimeDiagnosticLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
       )}
+      {liveUpdatesDisconnected && !runtimeDegraded ? (
+        <div className="relative z-10 w-full mt-3">
+          <div
+            className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+            style={{
+              borderColor: "var(--panel-border)",
+              background:
+                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+              color: "var(--text)",
+            }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold tracking-wide">
+                Live updates disconnected
+              </span>
+              <span className="opacity-80">
+                state: {runtimeHealth.diagnostics.liveEvents.connectionState}
+              </span>
+            </div>
+            <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
+              Guardian is healthy, but the live event stream has not stayed connected.
+            </div>
+            {liveUpdateDiagnosticLines.length > 0 ? (
+              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+                <summary className="cursor-pointer select-none opacity-80">
+                  Technical details
+                </summary>
+                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                  {liveUpdateDiagnosticLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
@@ -2771,7 +3052,7 @@ export default function AppShell({
           )}
           {!startupLocked && view === "documents" && (
             <div
-              className="isolate"
+              className="h-full w-full isolate"
               data-active-view="documents"
               data-active-view-contract="left-center-right"
               data-thread-rail="present"
@@ -2791,7 +3072,6 @@ export default function AppShell({
                 className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
-                {/* LIST COLUMN (left) */}
                 <div
                   data-testid="workspace-primary-pane"
                   data-pane-basis={
@@ -2804,37 +3084,153 @@ export default function AppShell({
                       ? primaryPaneMinWidth
                       : "0px"
                   }
-                  className="min-w-0 min-h-0 overflow-visible rounded-[var(--radius)]"
-                  style={{
-                    padding: "var(--board-edge)",
-                    width: "var(--w, auto)",
-                    maxWidth: "var(--max-w, none)",
-                    minWidth: "var(--min-w, 0)",
-                    height: "var(--h, auto)",
-                    minHeight: "var(--min-h, 0)",
-                    maxHeight: "var(--max-h, none)",
-                    ["--min-h"]: shellViewportProfile.contentMinHeight,
-                    borderRadius: "var(--card-radius)",
-                    ...workspacePrimaryPaneStyle,
-                  }}
+                  className="min-h-0 min-w-0 relative"
+                  style={workspacePrimaryPaneStyle}
                 >
-                  <FrameCard
-                    fill
-                    refractiveFallback
-                    shimmerMode="subtle"
-                    className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+                  <div
+                    className={
+                      isPhoneShell
+                        ? "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                        : documentsSidebarVisible
+                          ? "grid h-full w-full min-h-0 overflow-hidden"
+                          : "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                    }
+                    data-testid="documents-shared-shell"
+                    data-documents-shared-shell="sidebar-center"
+                    style={
+                      isPhoneShell
+                        ? undefined
+                        : documentsSidebarVisible
+                          ? {
+                              gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+                              gap: "var(--gutter)",
+                            }
+                          : undefined
+                    }
                   >
-                    <DocumentsView
-                      documents={allDocuments}
-                      extColors={extColors}
-                      onOpenInThread={openDocInThread}
-                      onDeleteDocument={deleteDocument}
-                      defaultProjectId={generalProjectId}
-                      documentScope={documentScope}
-                      onDocumentScopeChange={setDocumentScope}
-                      threadScopeEnabled={activeRouteThreadId != null}
-                    />
-                  </FrameCard>
+                    {!isPhoneShell && documentsSidebarVisible && (
+                      <div
+                        className="relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)] overflow-hidden"
+                        data-testid="documents-shared-sidebar-pane"
+                        data-shared-sidebar="true"
+                      >
+                        <FrameCard
+                          fill
+                          refractiveFallback
+                          shimmerMode="subtle"
+                          liquidBezelWidth={3}
+                          className="flex h-full w-full min-h-0 flex-col box-border"
+                          style={{
+                            borderRadius: "var(--card-radius)",
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: "var(--panel-border)",
+                          }}
+                        >
+                        <SidebarRoot
+                            threads={[]}
+                            activeId={
+                              activeRouteThreadId == null
+                                ? null
+                                : String(activeRouteThreadId)
+                            }
+                            onSelect={(id) => navigateToThread(id)}
+                            onNewChat={() => navigateToThread(null)}
+                            projectId={
+                              effectiveDocumentsProjectId == null
+                                ? null
+                                : String(effectiveDocumentsProjectId)
+                            }
+                            onProjectChange={handleDocumentsSidebarProjectChange}
+                          />
+                        </FrameCard>
+                      </div>
+                    )}
+                    {!isPhoneShell && !documentsSidebarVisible && (
+                      <button
+                        type="button"
+                        className="absolute left-0 top-0 z-10 flex h-full w-6 items-center justify-center border-0 bg-transparent opacity-0 transition-opacity duration-200 hover:opacity-100 focus:opacity-100"
+                        data-testid="documents-sidebar-edge-affordance"
+                        aria-label="Show sidebar"
+                        title="Show sidebar"
+                        onClick={toggleDocumentsSidebar}
+                        style={{ background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)" }}
+                      >
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>▶</span>
+                      </button>
+                    )}
+                    <FrameCard
+                      fill
+                      refractiveFallback
+                      shimmerMode="subtle"
+                      className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+                    >
+                      <DocumentsView
+                        documents={allDocuments}
+                        extColors={extColors}
+                        onOpenInThread={openDocInThread}
+                        onDeleteDocument={deleteDocument}
+                        projectId={effectiveDocumentsProjectId}
+                        threadId={activeRouteThreadId}
+                      />
+                    </FrameCard>
+                  </div>
+                  {documentsSidebarOverlayVisible && (
+                    <div
+                      data-testid="documents-sidebar-overlay"
+                      data-overlay-mode="mobile"
+                      className="absolute inset-0 z-20 flex items-stretch bg-black/35 backdrop-blur-sm"
+                    >
+                      <button
+                        type="button"
+                        aria-label="Close sidebar"
+                        className="absolute inset-0 border-0 bg-transparent p-0"
+                        onClick={closeDocumentsSidebarOverlay}
+                      />
+                      <div
+                        data-testid="documents-sidebar-overlay-pane"
+                        data-overlay="true"
+                        className="relative z-10 h-full min-h-0 overflow-visible rounded-[var(--card-radius)]"
+                        style={{
+                          width: "clamp(300px, 80vw, 360px)",
+                          minWidth: 0,
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <FrameCard
+                          fill
+                          refractiveFallback
+                          shimmerMode="subtle"
+                          liquidBezelWidth={3}
+                          className="flex h-full w-full min-h-0 flex-col box-border"
+                          style={{
+                            borderRadius: "var(--card-radius)",
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: "var(--panel-border)",
+                          }}
+                        >
+                        <SidebarRoot
+                            threads={[]}
+                            activeId={
+                              activeRouteThreadId == null
+                                ? null
+                                : String(activeRouteThreadId)
+                            }
+                            onSelect={(id) => navigateToThread(id)}
+                            onNewChat={() => navigateToThread(null)}
+                            projectId={
+                              effectiveDocumentsProjectId == null
+                                ? null
+                                : String(effectiveDocumentsProjectId)
+                            }
+                            onProjectChange={handleDocumentsSidebarProjectChange}
+                          />
+                        </FrameCard>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {sharedWorkspaceDrawer}
               </div>
@@ -2959,8 +3355,10 @@ export default function AppShell({
                         onWorkspaceToggle={toggleWorkspaceDrawer}
                         workspaceOpen={workspaceDrawerOpen}
                         providerRuntimeState={providerRuntimeState}
+                        runtimeHealth={runtimeHealth}
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
+                        onProjectChange={handleGuardianProjectChange}
                       />
                     </ErrorBoundary>
                   </div>

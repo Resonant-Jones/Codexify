@@ -1,6 +1,6 @@
 import * as React from "react";
 import clsx from "clsx";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Project } from "@/types/common";
 import type { Thread } from "@/types/ui";
@@ -114,6 +114,7 @@ async function createProjectApi(payload: ProjectCreatePayload) {
 }
 
 const SIDEBAR_RAIL = "px-3";
+const PROJECT_KB_NOTICE_DISMISSED_KEY = "cfy.sidebar.projectKnowledgeBaseNoticeDismissed";
 
 export default function SidebarRoot({
   threads,
@@ -140,6 +141,14 @@ export default function SidebarRoot({
   const [showProjectModal, setShowProjectModal] = React.useState(false);
   const [savingProject, setSavingProject] = React.useState(false);
   const [projectModalError, setProjectModalError] = React.useState<string | null>(null);
+  const [showProjectKnowledgeBaseNotice, setShowProjectKnowledgeBaseNotice] = React.useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(PROJECT_KB_NOTICE_DISMISSED_KEY) !== "true";
+    } catch {
+      return true;
+    }
+  });
 
   const {
     projectList,
@@ -491,18 +500,61 @@ export default function SidebarRoot({
         </div>
 
         {tab === "projects" ? (
-          <ProjectList
-            projects={projectList}
-            search={q}
-            currentId={currentProjectId}
-            onPick={(id) => { setScope(id); setTab("threads"); }}
-            onDeleteProject={handleDeleteProject}
-            onOpenNewProject={() => {
-              setProjectModalError(null);
-              setShowProjectModal(true);
-            }}
-            className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
-          />
+          <div className="space-y-3">
+            {showProjectKnowledgeBaseNotice ? (
+              <div
+                className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[var(--chip-bg)] p-[var(--card-pad)]"
+                data-testid="project-knowledge-base-entry"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                      Project Knowledge Base
+                    </div>
+                    <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+                      Project Documents and the Project Knowledge Base live in
+                      the Projects rail on the left.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
+                    style={{
+                      borderColor: "var(--panel-border)",
+                      color: "var(--muted)",
+                    }}
+                    aria-label="Dismiss Project Knowledge Base notice"
+                    title="Dismiss"
+                    onClick={() => {
+                      setShowProjectKnowledgeBaseNotice(false);
+                      try {
+                        localStorage.setItem(PROJECT_KB_NOTICE_DISMISSED_KEY, "true");
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  >
+                    <X size={12} strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                </div>
+                <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+                  System Docs stay in Settings &gt; Data.
+                </p>
+              </div>
+            ) : null}
+            <ProjectList
+              projects={projectList}
+              search={q}
+              currentId={currentProjectId}
+              onPick={(id) => { setScope(id); setTab("threads"); }}
+              onDeleteProject={handleDeleteProject}
+              onOpenNewProject={() => {
+                setProjectModalError(null);
+                setShowProjectModal(true);
+              }}
+              className={clsx("flex-1 min-h-0 mt-[5px]", columnClass)}
+            />
+          </div>
         ) : (
           <ThreadList
             threads={filteredThreads}

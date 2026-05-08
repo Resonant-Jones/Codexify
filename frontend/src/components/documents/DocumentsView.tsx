@@ -1,24 +1,22 @@
-import React, { useMemo } from "react";
 import { BookOpen, ChevronRight, FileText } from "lucide-react";
+import React, { useMemo } from "react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
-import useUploader from "@/hooks/useUploader";
-import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
-import TileShell from "@/components/surface/TileShell";
-import { DocumentLike, type DocumentScope } from "@/types/documents";
-import { ExtColors } from "@/types/ui";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useShellViewportProfile } from "@/components/persona/layout/shellBreakpointContract";
+import TileShell from "@/components/surface/TileShell";
+import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
+import useUploader from "@/hooks/useUploader";
+import { DocumentLike } from "@/types/documents";
+import { ExtColors } from "@/types/ui";
 
 interface DocumentsViewProps {
   documents: DocumentLike[];
   extColors: ExtColors;
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
-  defaultProjectId?: number | string | null;
-  documentScope?: DocumentScope;
-  onDocumentScopeChange?: (mode: DocumentScope) => void;
-  threadScopeEnabled?: boolean;
+  projectId?: number | string | null;
+  threadId?: number | string | null;
 }
 
 function getDocumentAccentColor(extColors: ExtColors, ext?: string): string {
@@ -30,6 +28,20 @@ type MobileDocumentRowProps = {
   doc: DocumentLike;
   extColors: ExtColors;
   onClick: () => void;
+};
+
+type DocumentUploadItem = {
+  id?: string | number;
+  name?: string;
+  title?: string;
+  filename?: string;
+  ext?: string;
+  extension?: string;
+  project_id?: number | string | null;
+  projectId?: number | string | null;
+  thread_id?: number | string | null;
+  threadId?: number | string | null;
+  [key: string]: unknown;
 };
 
 function MobileDocumentRow({
@@ -113,54 +125,51 @@ function MobileDocumentRow({
  * DocumentsView
  *
  * Structure:
- * - Shell-free inner layout
- *   - Header (title + scope pill)
- *   - Content area (scrollable grid of documents)
- *   - Footer (upload UI + controls)
+ * - Shell-owned primary pane
+ *   - Center Documents panel for upload affordance and document grid/list
+ *   - Left sidebar and right Workspace remain anchored by AppShell
  */
 export default function DocumentsView({
   documents,
   extColors,
   onOpenInThread,
   onDeleteDocument,
-  defaultProjectId,
-  documentScope = "project",
-  onDocumentScopeChange,
-  threadScopeEnabled = true,
+  projectId,
+  threadId,
 }: DocumentsViewProps) {
   const mobileShellProfile = useMobileShellProfile();
   const shellViewportProfile = useShellViewportProfile();
   const isPhoneShell = mobileShellProfile.active;
-  const documentsCardPadding = mobileShellProfile.documents.contentPadding;
-  const surfaceActionClusterStyle: React.CSSProperties = {
-    paddingInline: mobileShellProfile.surfaceActions.clusterPaddingX,
-    paddingBlock: mobileShellProfile.surfaceActions.clusterPaddingY,
-  };
   const uploader = useUploader({
     tag: "upload",
-    projectId: defaultProjectId ?? undefined,
+    projectId: projectId ?? undefined,
+    threadId: threadId ?? undefined,
     onImages: () => {},
-    onDocuments: (items) => {
-      const normalized = (items || []).map((item: any, idx: number) => ({
+    onDocuments: (items: DocumentUploadItem[]) => {
+      const normalized = items.map((item, idx: number) => ({
         ...item,
-        id: item?.id || item?.name || `upload-${idx}`,
-        name: item?.name || item?.title || item?.filename || "Untitled",
-        title: item?.title || item?.name || item?.filename || "Untitled",
-        ext: item?.ext || item?.extension || "md",
+        id: item.id || item.name || `upload-${idx}`,
+        name: item.name || item.title || item.filename || "Untitled",
+        title: item.title || item.name || item.filename || "Untitled",
+        ext: item.ext || item.extension || "md",
         type: "file",
-        projectId: item?.project_id ?? item?.projectId,
-        threadId: item?.thread_id ?? item?.threadId ?? null,
+        projectId: item.project_id ?? item.projectId,
+        threadId: item.thread_id ?? item.threadId ?? null,
       }));
       try {
         window.dispatchEvent(
           new CustomEvent("cfy:documents:add", { detail: { items: normalized } })
         );
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     },
     onAnyUpload: () => {
       try {
         localStorage.setItem("cfy.hasUserUpload", "true");
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     },
   });
 
@@ -179,11 +188,6 @@ export default function DocumentsView({
     () => (realDocuments.length > 0 ? realDocuments : (documents ?? [])),
     [documents, realDocuments]
   );
-
-  const scopePills = [
-    { key: "thread" as const, label: "Thread", disabled: !threadScopeEnabled },
-    { key: "project" as const, label: "Project", disabled: false },
-  ];
 
   const contentAreaClassName = "flex-1 min-h-0 overflow-auto";
   const footerClassName = isPhoneShell
@@ -233,143 +237,138 @@ export default function DocumentsView({
     shellViewportProfile.documentsGridColumns,
   ]);
 
-  const documentsLayoutMode = isPhoneShell ? "mobile_list" : "desktop_grid";
+  const documentsLayoutMode = isPhoneShell
+    ? "mobile_stack"
+    : "center_lane";
   const documentsRootStyle: React.CSSProperties = isPhoneShell
-    ? { padding: documentsCardPadding }
-    : {
-        padding: documentsCardPadding,
-        flex: "3 1 0%",
-        flexBasis: "74%",
-        minWidth: "clamp(28rem, 54vw, 72rem)",
-        maxWidth: "78%",
+    ? {
+        padding: 0,
+        flex: "1 1 0%",
+        minWidth: 0,
+        maxWidth: "100%",
         alignSelf: "stretch",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+    }
+    : {
+        padding: 0,
+        width: "100%",
+        flex: "1 1 0%",
+        minWidth: 0,
+        maxWidth: "100%",
+        alignSelf: "stretch",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
       };
 
   return (
     <section
-      className="flex h-full w-full min-h-0 flex-col gap-[var(--shell-gap)]"
+      className="h-full w-full min-h-0 gap-[var(--shell-gap)]"
       style={documentsRootStyle}
       data-documents-layout={documentsLayoutMode}
+      data-workspace-anchor="app-shell-right"
       data-testid="documents-layout"
     >
       <div
-        className={`flex-shrink-0 ${
-          isPhoneShell
-            ? "flex flex-col items-start gap-[var(--card-pad)]"
-            : "flex flex-wrap items-center justify-between gap-[var(--shell-gap)]"
-        }`}
+        className="flex min-h-0 min-w-0 w-full flex-col gap-[var(--shell-gap)] overflow-hidden"
+        data-testid="documents-center-panel"
+        style={{
+          background: "var(--panel-bg)",
+          border: "1px solid var(--panel-border)",
+          borderRadius: "var(--card-radius)",
+          padding: "var(--card-pad)",
+        }}
       >
-        <h2
-          className="text-lg font-semibold tracking-tight leading-none"
-          style={{ color: "var(--text)" }}
-        >
-          Documents
-        </h2>
-        <div
-          style={{
-            padding: 6,
-            boxSizing: "border-box",
-            width: isPhoneShell ? "100%" : undefined,
-            display: isPhoneShell ? "block" : "inline-flex",
-            alignSelf: isPhoneShell ? "stretch" : "flex-start",
-          }}
-        >
-          <div
-            className={`glass-pill h-auto ${isPhoneShell ? "w-full justify-between flex-wrap" : ""}`}
-            style={surfaceActionClusterStyle}
+        <div className="flex-shrink-0">
+          <h2
+            className="text-lg font-semibold tracking-tight leading-none"
+            style={{ color: "var(--text)" }}
           >
-            {scopePills.map(({ key, label, disabled }) => (
-              <button
-                key={key}
-                type="button"
-                className="pill-tab text-xs"
-                data-state={documentScope === key ? "active" : undefined}
-                disabled={disabled}
-                onClick={() => {
-                  if (disabled) return;
-                  onDocumentScopeChange?.(key);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+            Documents
+          </h2>
         </div>
-      </div>
 
-      <div
-        className={contentAreaClassName}
-        style={{ overflowX: "hidden" }}
-        data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
-        onDrop={uploader.onDrop}
-        onDragOver={uploader.onDragOver}
-      >
-        {docItems.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
-              No documents yet. Drag files here or use the button below to get started.
+        <div
+          className={contentAreaClassName}
+          style={{ overflowX: "hidden" }}
+          data-layout-mode={isPhoneShell ? "mobile-list" : "grid"}
+          data-testid="documents-drop-zone"
+          onDrop={uploader.onDrop}
+          onDragOver={uploader.onDragOver}
+        >
+          {docItems.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-sm leading-6 opacity-70" style={{ color: "var(--muted)" }}>
+                No documents yet. Drag files here or use the button below to get started.
+              </div>
             </div>
-          </div>
-        ) : (
-          <div style={documentsGridStyle}>
-            {docItems.map((d) => {
-              const key = d.id || `${d.title}.${d.ext}`;
+          ) : (
+            <div style={documentsGridStyle}>
+              {docItems.map((d) => {
+                const key = d.id || `${d.title}.${d.ext}`;
 
-              return (
-                <div key={key} className="relative">
-                  {isPhoneShell ? (
-                    <MobileDocumentRow
-                      doc={d}
-                      extColors={extColors}
-                      onClick={() => handleDocumentClick(d)}
-                    />
-                  ) : (
-                    <DocumentTile
-                      file={{
-                        name: d.title,
-                        ext: d.ext,
-                        embeddingStatus: d.embeddingStatus,
-                        embeddingError: d.embeddingError,
-                      }}
-                      onClick={() => handleDocumentClick(d)}
-                      onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
-                      contextMenuItems={
-                        d.type === "codex_entry" || !onOpenInThread
-                          ? []
-                          : [
-                              {
-                                label: "Open in Thread",
-                                onSelect: () => onOpenInThread(d),
-                              },
-                            ]
-                      }
-                    />
-                  )}
-                  {d.mock ? (
-                    <span
-                      className="absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[10px]"
-                      style={{
-                        background: "rgba(255,255,255,0.2)",
-                        color: "#111",
-                        borderColor: "rgba(255,255,255,0.5)",
-                      }}
-                    >
-                      Mock
-                    </span>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                return (
+                  <div key={key} className="relative">
+                    {isPhoneShell ? (
+                      <MobileDocumentRow
+                        doc={d}
+                        extColors={extColors}
+                        onClick={() => handleDocumentClick(d)}
+                      />
+                    ) : (
+                      <DocumentTile
+                        file={{
+                          name: d.title,
+                          ext: d.ext,
+                          embeddingStatus: d.embeddingStatus,
+                          embeddingError: d.embeddingError,
+                        }}
+                        onClick={() => handleDocumentClick(d)}
+                        onDeleted={onDeleteDocument ? () => onDeleteDocument(d) : undefined}
+                        contextMenuItems={
+                          d.type === "codex_entry" || !onOpenInThread
+                            ? []
+                            : [
+                                {
+                                  label: "Open in Thread",
+                                  onSelect: () => onOpenInThread(d),
+                                },
+                              ]
+                        }
+                      />
+                    )}
+                    {d.mock ? (
+                      <span
+                        className="absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[10px]"
+                        style={{
+                          background: "var(--chip-bg)",
+                          color: "var(--text)",
+                          borderColor: "var(--panel-border)",
+                        }}
+                      >
+                        Mock
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-      <div className={footerClassName} style={{ color: "var(--muted)" }}>
-        <div className={`flex items-center gap-[var(--shell-gap)] ${isPhoneShell ? "flex-wrap" : ""}`}>
-          <span>Drag & drop files here, or</span>
-          <button type="button" className="underline hover:opacity-80" onClick={uploader.pick}>
-            choose files
-          </button>
+        <div
+          className={footerClassName}
+          style={{ color: "var(--muted)" }}
+          data-testid="documents-upload-affordance"
+        >
+          <div className={`flex items-center gap-[var(--shell-gap)] ${isPhoneShell ? "flex-wrap" : ""}`}>
+            <span>Drag & drop files here, or</span>
+            <button type="button" className="underline hover:opacity-80" onClick={uploader.pick}>
+              choose files
+            </button>
+          </div>
         </div>
       </div>
     </section>

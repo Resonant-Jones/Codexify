@@ -84,6 +84,8 @@ from guardian.services.media_identity import source_label_from_filename, utcnow
 logger = logging.getLogger(__name__)
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _GENERIC_UPLOAD_ERROR = "Upload failed. Please try again."
+_IMAGE_THREAD_ID_REQUIRED_ERROR = "thread_id_required"
+_IMAGE_THREAD_ID_REQUIRED_MESSAGE = "thread_id is required for image uploads."
 
 
 def _is_pytest() -> bool:
@@ -143,6 +145,8 @@ class ImageUploadResponse(BaseModel):
 
 class DocumentUploadResponse(BaseModel):
     id: str
+    document_id: str
+    media_asset_id: str | None = None
     project_id: int
     thread_id: Optional[int] = None
     src_url: str
@@ -160,6 +164,8 @@ class DocumentUploadResponse(BaseModel):
 
 class DocumentDetailResponse(BaseModel):
     id: str
+    document_id: str
+    media_asset_id: str | None = None
     project_id: int
     thread_id: Optional[int] = None
     src_url: str
@@ -362,16 +368,32 @@ def _project_is_visible_to_scope(
 
 
 def _get_project_record(db, project_id: int) -> dict[str, Any] | None:
-    try:
-        with db.get_session() as session:
-            project = (
-                session.query(Project).filter(Project.id == project_id).first()
-            )
-            if project is None:
-                return None
-            return _normalize_project_row(project)
-    except Exception:
-        return None
+    projects: list[dict[str, Any]] = []
+    if hasattr(db, "list_projects"):
+        try:
+            projects = db.list_projects() or []
+        except Exception:
+            projects = []
+    if not projects and hasattr(db, "get_session"):
+        try:
+            with db.get_session() as session:
+                rows = session.query(Project).all()
+                projects = [
+                    _normalize_project_row(row)
+                    for row in rows
+                ]
+        except Exception:
+            projects = []
+
+    for project in projects:
+        row = _normalize_project_row(project)
+        try:
+            row_id = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if row_id == int(project_id):
+            return row
+    return None
 
 
 def _require_project_account_scope(
@@ -481,12 +503,28 @@ def _require_generated_image_account_scope(
 
 def _require_uploaded_document_account_scope(
     db,
-    document_id: str,
+    document_identity: str,
     request_user_scope: RequestUserScope,
 ) -> UploadedDocument:
+    identity = str(document_identity or "").strip()
+    if not identity:
+        raise HTTPException(status_code=404, detail="Document not found")
+
     with db.get_session() as session:
         document = (
-            session.query(UploadedDocument).filter_by(id=document_id).first()
+            session.query(UploadedDocument)
+            .filter(
+                UploadedDocument.deleted_at.is_(None),
+                or_(
+                    UploadedDocument.id == identity,
+                    UploadedDocument.asset_id == identity,
+                ),
+            )
+            .order_by(
+                (UploadedDocument.id == identity).desc(),
+                UploadedDocument.created_at.desc(),
+            )
+            .first()
         )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -885,6 +923,8 @@ def _document_upload_response_from_row(
 ) -> DocumentUploadResponse:
     return DocumentUploadResponse(
         id=document.id,
+        document_id=document.id,
+        media_asset_id=document.asset_id,
         project_id=int(document.project_id or fallback_project_id),
         thread_id=(
             requested_thread_id
@@ -924,6 +964,8 @@ def _document_detail_response_from_row(
 ) -> DocumentDetailResponse:
     return DocumentDetailResponse(
         id=document.id,
+        document_id=document.id,
+        media_asset_id=document.asset_id,
         project_id=int(document.project_id or fallback_project_id),
         thread_id=document.thread_id,
         src_url=_signed_src_url(document.src_url),
@@ -991,6 +1033,16 @@ async def upload_image(
     Accepts: PNG, JPG, JPEG, WebP
     Stores in: /media/images/
     """
+    normalized_thread_id = _coerce_optional_positive_int(thread_id)
+    if normalized_thread_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail=_upload_error_detail(
+                _IMAGE_THREAD_ID_REQUIRED_ERROR,
+                _IMAGE_THREAD_ID_REQUIRED_MESSAGE,
+            ),
+        )
+
     # Validate file type
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
@@ -1006,22 +1058,21 @@ async def upload_image(
         effective_user_id = _resolve_effective_user_id(
             user_id,
             request_user_scope,
-            default_when_blank="default",
+            default_when_blank=_request_account_id(request_user_scope),
         )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-image"
         )
         db = _get_db()
         explicit_project_id = _coerce_optional_positive_int(project_id)
-        explicit_thread_id = _coerce_optional_positive_int(thread_id)
+        explicit_thread_id = normalized_thread_id
         if explicit_project_id is not None:
             _require_project_account_scope(
                 db, explicit_project_id, request_user_scope
             )
-        if explicit_thread_id is not None:
-            _require_thread_account_scope(
-                db, explicit_thread_id, request_user_scope
-            )
+        _require_thread_account_scope(
+            db, explicit_thread_id, request_user_scope
+        )
         resolved_project_id, resolved_thread_id = _resolve_upload_context(
             db, project_id, thread_id
         )
@@ -1382,6 +1433,12 @@ async def delete_image(
 @router.post(
     "/upload/document", response_model=DocumentUploadResponse, tags=["media"]
 )
+@router.post(
+    "/upload/file",
+    response_model=DocumentUploadResponse,
+    tags=["media"],
+    deprecated=True,
+)
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
@@ -1423,7 +1480,7 @@ async def upload_document(
         effective_user_id = _resolve_effective_user_id(
             user_id,
             request_user_scope,
-            default_when_blank="default",
+            default_when_blank=_request_account_id(request_user_scope),
         )
         human_label = source_label_from_filename(
             filename, fallback="uploaded-document"
@@ -1853,6 +1910,8 @@ async def upload_document(
 
         return DocumentUploadResponse(
             id=doc_id,
+            document_id=doc_id,
+            media_asset_id=str(asset_metadata.get("asset_id") or "") or None,
             project_id=resolved_project_id,
             thread_id=resolved_thread_id,
             src_url=_signed_src_url(src_url),

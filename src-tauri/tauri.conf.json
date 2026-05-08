@@ -32,7 +32,7 @@
       "./target/bundle-resources/.env.template": ".env.template",
       "./target/bundle-resources/backend": "backend",
       "./target/bundle-resources/docker": "docker",
-      "./target/bundle-resources/docker-compose.yml": "docker-compose.yml",
+      "./target/bundle-resources/docker-compose.runtime.yml": "docker-compose.runtime.yml",
       "./target/bundle-resources/guardian": "guardian",
       "./target/bundle-resources/plugins": "plugins",
       "./target/bundle-resources/pytest.ini": "pytest.ini",

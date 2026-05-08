@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SettingsView from "./SettingsView";
@@ -236,6 +236,34 @@ describe("SettingsView save flow", () => {
     });
   });
 
+  it("frames System Docs as constitutional overlays on the Data tab", async () => {
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("tab", { name: /^data$/i }));
+
+    expect(
+      screen.getByTestId("settings-system-docs-surface")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /System Docs are high-authority constitutional overlays for the assistant prompt\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /They are not the normal place for project documents or project knowledge ingestion\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Project-local working docs will live in a separate Project Knowledge Base surface in the project menu\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/project document ingestion lane/i)
+    ).not.toBeInTheDocument();
+  });
+
   it("does not expose Diagnostics and falls back when it was persisted", async () => {
     window.sessionStorage.setItem(SETTINGS_TAB_STORAGE_KEY, "diagnostics");
 
@@ -271,7 +299,7 @@ describe("SettingsView save flow", () => {
         options?: boolean | AddEventListenerOptions
       ) {
         if (
-          this.getAttribute("data-testid") === "settings-panel-shell" &&
+          this.getAttribute("data-testid") === "settings-panel-scroll-body" &&
           type === "scroll"
         ) {
           scrollListeners.push(listener as EventListener);
@@ -297,10 +325,10 @@ describe("SettingsView save flow", () => {
         ).toBeInTheDocument();
       });
       await waitFor(() => {
-        expect(scrollListeners.length).toBeGreaterThanOrEqual(2);
+        expect(scrollListeners.length).toBeGreaterThanOrEqual(1);
       });
 
-      const shell = screen.getByTestId("settings-panel-shell");
+      const shell = screen.getByTestId("settings-panel-scroll-body");
       let scrollTop = 0;
       Object.defineProperty(shell, "scrollTop", {
         get: () => scrollTop,

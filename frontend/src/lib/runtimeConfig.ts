@@ -1,7 +1,13 @@
 import { combineBaseAndPath } from "@/lib/urlJoin";
+import {
+  invokeTauriCommand as invokeNativeTauriCommand,
+  NativeBridgeUnavailableError,
+} from "@/lib/tauriBridge";
+export { NativeBridgeUnavailableError, NATIVE_BRIDGE_FAILURE_KIND } from "@/lib/tauriBridge";
 
 export type RuntimeMode = "web" | "tauri";
 export type AuthMode = "local" | "remote";
+export type RuntimeConfigHydrationState = "pending" | "ready" | "failed";
 
 export interface RuntimeConfig {
   mode: RuntimeMode;
@@ -14,6 +20,15 @@ export interface RuntimeConfig {
 
 type TauriRuntimeConfig = Partial<RuntimeConfig>;
 
+export type DesktopRuntimeAuthConfig = RuntimeConfig & {
+  apiKeyPresent: boolean;
+  apiKey: string | null;
+  envPath: string | null;
+  runtimeRoot: string | null;
+  failureKind: string | null;
+  runtimeContext: string | null;
+};
+
 export type LauncherStartupHandoff = {
   shouldRunWizard: boolean;
   setupComplete: boolean;
@@ -21,6 +36,14 @@ export type LauncherStartupHandoff = {
   envPath: string | null;
   handoffTarget: string | null;
   detail: string;
+  setupReadiness: LauncherSetupReadiness | null;
+};
+
+export type LauncherSetupReadiness = {
+  state: string;
+  explanation: string;
+  recommendedAction: string;
+  details: string | null;
 };
 
 export type DesktopStartupRoutingStatus =
@@ -35,6 +58,7 @@ export type DesktopStartupRoutingDecision = {
   setupComplete: boolean;
   handoffTarget: string | null;
   detail: string;
+  setupReadiness: LauncherSetupReadiness | null;
 };
 
 const DESKTOP_BACKEND_STORAGE_KEY = "cfy.desktop.backendBaseUrl";
@@ -42,13 +66,26 @@ const DESKTOP_SHARE_STORAGE_KEY = "cfy.desktop.sharePublicBaseUrl";
 
 let runtimeConfigCache: RuntimeConfig | null = null;
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
+let desktopRuntimeAuthConfigCache: DesktopRuntimeAuthConfig | null = null;
+let runtimeConfigHydrationState: RuntimeConfigHydrationState = defaultMode() === "tauri" ? "pending" : "ready";
+let runtimeConfigHydrationFailureKind: string | null = null;
+let runtimeConfigVersion = 0;
+const runtimeConfigListeners = new Set<() => void>();
 
-type TauriCoreApi = {
-  invoke: <T = unknown>(
-    command: string,
-    payload?: Record<string, unknown>
-  ) => Promise<T>;
-};
+function emitRuntimeConfigChange(): void {
+  runtimeConfigVersion += 1;
+  for (const listener of runtimeConfigListeners) {
+    listener();
+  }
+}
+
+function setRuntimeConfigHydrationState(
+  state: RuntimeConfigHydrationState,
+  failureKind: string | null = null
+): void {
+  runtimeConfigHydrationState = state;
+  runtimeConfigHydrationFailureKind = failureKind;
+}
 
 function readRuntimeEnv(name: string, fallback = ""): string {
   const viteEnv =
@@ -86,6 +123,10 @@ function normalizeNullableText(value: unknown): string | null {
   return normalized || null;
 }
 
+function asBoolean(value: unknown): boolean {
+  return value === true;
+}
+
 function normalizeRuntimeProfile(value: unknown): string {
   return normalizeNullableText(value) ?? "unknown";
 }
@@ -116,7 +157,7 @@ function resolveDesktopStartupRoutingDetail(
       "desktop launcher is configured, but the local runtime is not ready",
     "ready-handoff": "desktop launcher handoff is ready",
     "launcher-unavailable":
-      "desktop launcher startup state is unavailable",
+      "Codexify could not read or refresh launcher setup readiness yet. Retry setup checks from the desktop launcher and review Docker, Ollama, config, backend, and frontend readiness.",
   };
 
   return (
@@ -125,28 +166,28 @@ function resolveDesktopStartupRoutingDetail(
   );
 }
 
+function buildDesktopStartupRoutingDecision(
+  handoff: LauncherStartupHandoff | null
+): DesktopStartupRoutingDecision | null {
+  if (!handoff) return null;
+
+  const status = resolveDesktopStartupRoutingStatus(handoff);
+  return {
+    status,
+    shouldRunWizard: status === "setup-incomplete",
+    setupComplete: handoff.setupComplete,
+    handoffTarget: handoff.handoffTarget,
+    detail: resolveDesktopStartupRoutingDetail(status, handoff),
+    setupReadiness: handoff.setupReadiness,
+  };
+}
+
 export function isTauriRuntime(): boolean {
   if (typeof window === "undefined") return false;
   return (
     typeof (window as any).__TAURI_IPC__ !== "undefined" ||
     typeof (window as any).__TAURI_INTERNALS__ !== "undefined"
   );
-}
-
-function readInjectedTauriCore(): TauriCoreApi | null {
-  if (typeof window === "undefined") return null;
-  const candidate = (window as any).__CFY_TAURI_CORE__;
-  if (!candidate || typeof candidate.invoke !== "function") return null;
-  return candidate as TauriCoreApi;
-}
-
-async function loadTauriCore(): Promise<TauriCoreApi> {
-  const injected = readInjectedTauriCore();
-  if (injected) return injected;
-  const imported = (await new Function(
-    'return import("@tauri-apps/api/core")'
-  )()) as TauriCoreApi;
-  return imported;
 }
 
 function normalizeLauncherStartupHandoff(
@@ -162,6 +203,22 @@ function normalizeLauncherStartupHandoff(
   const shouldRunWizard =
     asBoolean(source.shouldRunWizard) || !setupComplete || !handoffTarget;
   const detail = normalizeNullableText(source.detail);
+  const readinessSource =
+    source.setupReadiness && typeof source.setupReadiness === "object"
+      ? (source.setupReadiness as Record<string, unknown>)
+      : null;
+  const setupReadiness = readinessSource
+    ? {
+        state: normalizeNullableText(readinessSource.state) ?? "unknown",
+        explanation:
+          normalizeNullableText(readinessSource.explanation) ??
+          "Codexify is checking local setup readiness.",
+        recommendedAction:
+          normalizeNullableText(readinessSource.recommendedAction) ??
+          "Retry setup after checking local services.",
+        details: normalizeNullableText(readinessSource.details),
+      }
+    : null;
 
   return {
     shouldRunWizard,
@@ -174,18 +231,54 @@ function normalizeLauncherStartupHandoff(
       (shouldRunWizard
         ? "launcher startup state favors wizard/recovery"
         : "launcher startup state resolved"),
+    setupReadiness,
+  };
+}
+
+function normalizeDesktopRuntimeAuthConfig(
+  payload: unknown
+): DesktopRuntimeAuthConfig | null {
+  if (!payload || typeof payload !== "object") return null;
+  const source = payload as Record<string, unknown>;
+  const backendBaseUrl = normalizeNullableText(source.backendBaseUrl);
+  const apiBaseUrl = normalizeNullableText(source.apiBaseUrl);
+  const sseUrl = normalizeNullableText(source.sseUrl);
+  const sharePublicBaseUrl = normalizeNullableText(source.sharePublicBaseUrl);
+  const authMode = coerceAuthMode(
+    normalizeNullableText(source.authMode) ?? "local"
+  );
+
+  if (!backendBaseUrl || !apiBaseUrl || !sseUrl || !sharePublicBaseUrl) {
+    return null;
+  }
+
+  return {
+    mode: "tauri",
+    backendBaseUrl,
+    apiBaseUrl,
+    sseUrl,
+    sharePublicBaseUrl,
+    authMode,
+    apiKeyPresent: asBoolean(source.apiKeyPresent),
+    apiKey: normalizeNullableText(source.apiKey),
+    envPath: normalizeNullableText(source.envPath),
+    runtimeRoot: normalizeNullableText(source.runtimeRoot),
+    failureKind: normalizeNullableText(source.failureKind),
+    runtimeContext: normalizeNullableText(source.runtimeContext),
   };
 }
 
 export async function readDesktopLauncherStartupHandoff(): Promise<LauncherStartupHandoff | null> {
   if (!isTauriRuntime()) return null;
   try {
-    const core = await loadTauriCore();
-    const payload = await core.invoke<unknown>(
+    const payload = await invokeNativeTauriCommand<unknown>(
       "desktop_get_launcher_startup_handoff"
     );
     return normalizeLauncherStartupHandoff(payload);
-  } catch {
+  } catch (error) {
+    if (error instanceof NativeBridgeUnavailableError) {
+      throw error;
+    }
     return null;
   }
 }
@@ -194,24 +287,18 @@ export async function readDesktopStartupRoutingDecision(): Promise<DesktopStartu
   if (!isTauriRuntime()) return null;
 
   const handoff = await readDesktopLauncherStartupHandoff();
-  const status = resolveDesktopStartupRoutingStatus(handoff);
-  if (!handoff) {
-    return {
-      status,
-      shouldRunWizard: false,
-      setupComplete: false,
-      handoffTarget: null,
-      detail: resolveDesktopStartupRoutingDetail(status, handoff),
-    };
+  const decision = buildDesktopStartupRoutingDecision(handoff);
+  if (!handoff || handoff.setupReadiness) {
+    return decision;
   }
 
-  return {
-    status,
-    shouldRunWizard: status === "setup-incomplete",
-    setupComplete: handoff.setupComplete,
-    handoffTarget: handoff.handoffTarget,
-    detail: resolveDesktopStartupRoutingDetail(status, handoff),
-  };
+  const refreshedHandoff = await readDesktopLauncherStartupHandoff();
+  const refreshedDecision = buildDesktopStartupRoutingDecision(refreshedHandoff);
+  if (refreshedDecision?.setupReadiness) {
+    return refreshedDecision;
+  }
+
+  return refreshedDecision ?? decision;
 }
 
 function readDesktopStorage(key: string): string {
@@ -240,6 +327,10 @@ function defaultMode(): RuntimeMode {
   return isTauriRuntime() ? "tauri" : "web";
 }
 
+function isWebUiComposeBundle(): boolean {
+  return readRuntimeEnv("VITE_WEBUI_COMPOSE_BUNDLE") === "1";
+}
+
 function defaultBackendBaseUrl(mode: RuntimeMode): string {
   const envBackend = readRuntimeEnv("VITE_GUARDIAN_API_BASE") || readRuntimeEnv("GUARDIAN_API_BASE");
   if (isAbsoluteUrl(envBackend)) {
@@ -247,6 +338,10 @@ function defaultBackendBaseUrl(mode: RuntimeMode): string {
   }
   if (mode === "tauri") {
     return "http://127.0.0.1:8888";
+  }
+  if (isWebUiComposeBundle() && typeof window !== "undefined" && window.location?.origin) {
+    // The standalone webUI bundle is same-origin behind nginx, so browser requests stay on the bundle host.
+    return normalizeBase(window.location.origin, "");
   }
   return envBackend || "";
 }
@@ -272,7 +367,7 @@ function resolveDesktopBackendBaseUrl(
     return normalizeBase(tauriBackend, mode === "tauri" ? "" : defaultBackendBaseUrl(mode));
   }
 
-  return mode === "tauri" ? "" : defaultBackendBaseUrl(mode);
+  return mode === "tauri" ? defaultBackendBaseUrl(mode) : defaultBackendBaseUrl(mode);
 }
 
 function resolveApiBaseUrl(mode: RuntimeMode, backendBaseUrl: string, explicit: string): string {
@@ -280,17 +375,17 @@ function resolveApiBaseUrl(mode: RuntimeMode, backendBaseUrl: string, explicit: 
   if (isAbsoluteUrl(candidate)) {
     return normalizeBase(candidate, combineBaseAndPath(backendBaseUrl, "/api"));
   }
+  if (mode === "tauri") {
+    return normalizeBase(
+      combineBaseAndPath(backendBaseUrl, "/api"),
+      "http://127.0.0.1:8888/api"
+    );
+  }
   if (candidate.startsWith("/")) {
     return normalizeBase(candidate, "/api");
   }
   if (candidate) {
     return normalizeBase(`/${candidate}`, "/api");
-  }
-  if (mode === "tauri" && !backendBaseUrl) {
-    return "/api";
-  }
-  if (mode === "tauri") {
-    return normalizeBase(combineBaseAndPath(backendBaseUrl, "/api"), "http://127.0.0.1:8888/api");
   }
   return "/api";
 }
@@ -331,22 +426,117 @@ function defaultSharePublicBaseUrl(mode: RuntimeMode): string {
 }
 
 async function readTauriRuntimeConfig(): Promise<TauriRuntimeConfig | null> {
-  if (!isTauriRuntime()) return null;
-  try {
-    const core = await loadTauriCore();
-    const payload = await core.invoke<any>("desktop_get_runtime_config");
-    if (!payload || typeof payload !== "object") return null;
-    return {
-      mode: "tauri",
-      backendBaseUrl: String(payload.backendBaseUrl ?? "").trim(),
-      apiBaseUrl: String(payload.apiBaseUrl ?? "").trim(),
-      sseUrl: String(payload.sseUrl ?? "").trim(),
-      sharePublicBaseUrl: String(payload.sharePublicBaseUrl ?? "").trim(),
-      authMode: String(payload.authMode ?? "").trim().toLowerCase() === "remote" ? "remote" : "local",
-    };
-  } catch {
+  if (!isTauriRuntime()) {
+    desktopRuntimeAuthConfigCache = null;
+    try {
+      const { clearRuntimeApiKey } = await import("@/lib/runtimeAuth");
+      clearRuntimeApiKey();
+    } catch {
+      // Ignore cache wiring failures; the web runtime can still proceed.
+    }
     return null;
   }
+  try {
+    const payload = await invokeNativeTauriCommand<unknown>(
+      "desktop_get_runtime_auth_config"
+    );
+    const authConfig = normalizeDesktopRuntimeAuthConfig(payload);
+    desktopRuntimeAuthConfigCache = authConfig;
+    if (authConfig?.apiKey) {
+      try {
+        const { setRuntimeApiKey } = await import("@/lib/runtimeAuth");
+        setRuntimeApiKey(authConfig.apiKey);
+      } catch {
+        // Ignore auth cache wiring failures; the runtime config itself still resolves.
+      }
+    } else if (authConfig) {
+      try {
+        const { clearRuntimeApiKey } = await import("@/lib/runtimeAuth");
+        clearRuntimeApiKey();
+      } catch {
+        // Ignore cache wiring failures; the runtime config itself still resolves.
+      }
+    }
+    if (authConfig) {
+      return {
+        mode: authConfig.mode,
+        backendBaseUrl: authConfig.backendBaseUrl,
+        apiBaseUrl: authConfig.apiBaseUrl,
+        sseUrl: authConfig.sseUrl,
+        sharePublicBaseUrl: authConfig.sharePublicBaseUrl,
+        authMode: authConfig.authMode,
+      };
+    }
+
+    const legacyPayload = await invokeNativeTauriCommand<any>(
+      "desktop_get_runtime_config"
+    );
+    if (!legacyPayload || typeof legacyPayload !== "object") return null;
+    desktopRuntimeAuthConfigCache = {
+      mode: "tauri",
+      backendBaseUrl: String(legacyPayload.backendBaseUrl ?? "").trim(),
+      apiBaseUrl: String(legacyPayload.apiBaseUrl ?? "").trim(),
+      sseUrl: String(legacyPayload.sseUrl ?? "").trim(),
+      sharePublicBaseUrl: String(legacyPayload.sharePublicBaseUrl ?? "").trim(),
+      authMode:
+        String(legacyPayload.authMode ?? "")
+          .trim()
+          .toLowerCase() === "remote"
+          ? "remote"
+          : "local",
+      apiKeyPresent: false,
+      apiKey: null,
+      envPath: null,
+      runtimeRoot: null,
+      failureKind: null,
+      runtimeContext: "packaged",
+    };
+    try {
+      const { clearRuntimeApiKey } = await import("@/lib/runtimeAuth");
+      clearRuntimeApiKey();
+    } catch {
+      // Ignore cache wiring failures; the runtime config itself still resolves.
+    }
+    return {
+      mode: "tauri",
+      backendBaseUrl: desktopRuntimeAuthConfigCache.backendBaseUrl,
+      apiBaseUrl: desktopRuntimeAuthConfigCache.apiBaseUrl,
+      sseUrl: desktopRuntimeAuthConfigCache.sseUrl,
+      sharePublicBaseUrl: desktopRuntimeAuthConfigCache.sharePublicBaseUrl,
+      authMode: desktopRuntimeAuthConfigCache.authMode,
+    };
+  } catch (error) {
+    if (error instanceof NativeBridgeUnavailableError) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+export function getDesktopRuntimeAuthConfig(): DesktopRuntimeAuthConfig | null {
+  return desktopRuntimeAuthConfigCache;
+}
+
+export function getRuntimeConfigHydrationState(): RuntimeConfigHydrationState {
+  if (runtimeConfigHydrationState === "pending" && !isTauriRuntime()) {
+    return "ready";
+  }
+  return runtimeConfigHydrationState;
+}
+
+export function getRuntimeConfigHydrationFailureKind(): string | null {
+  return runtimeConfigHydrationFailureKind;
+}
+
+export function getRuntimeConfigVersion(): number {
+  return runtimeConfigVersion;
+}
+
+export function subscribeRuntimeConfigState(listener: () => void): () => void {
+  runtimeConfigListeners.add(listener);
+  return () => {
+    runtimeConfigListeners.delete(listener);
+  };
 }
 
 function buildRuntimeConfig(
@@ -411,15 +601,40 @@ export async function initRuntimeConfig(options: { force?: boolean } = {}): Prom
   }
 
   const mode = defaultMode();
+  if (mode === "tauri") {
+    setRuntimeConfigHydrationState("pending");
+  } else {
+    setRuntimeConfigHydrationState("ready");
+  }
   runtimeConfigPromise = (async () => {
-    const [launcherStartup, tauriConfig] = await Promise.all([
-      readDesktopLauncherStartupHandoff(),
-      readTauriRuntimeConfig(),
-    ]);
-    const config = buildRuntimeConfig(mode, tauriConfig, launcherStartup);
-    runtimeConfigCache = config;
-    runtimeConfigPromise = null;
-    return config;
+    try {
+      const [launcherStartup, tauriConfig] = await Promise.all([
+        readDesktopLauncherStartupHandoff(),
+        readTauriRuntimeConfig(),
+      ]);
+      const config = buildRuntimeConfig(mode, tauriConfig, launcherStartup);
+      runtimeConfigCache = config;
+      if (mode === "tauri") {
+        setRuntimeConfigHydrationState(
+          tauriConfig ? "ready" : "failed",
+          tauriConfig ? null : (desktopRuntimeAuthConfigCache?.failureKind ?? null)
+        );
+      } else {
+        setRuntimeConfigHydrationState("ready");
+      }
+      emitRuntimeConfigChange();
+      return config;
+    } catch (error) {
+      const failureKind =
+        error instanceof NativeBridgeUnavailableError
+          ? error.code
+          : "runtime-config-hydration-failed";
+      setRuntimeConfigHydrationState("failed", failureKind);
+      emitRuntimeConfigChange();
+      throw error;
+    } finally {
+      runtimeConfigPromise = null;
+    }
   })();
 
   return runtimeConfigPromise;
@@ -507,10 +722,12 @@ export async function openExternalUrl(url: string): Promise<boolean> {
 
   if (isTauriRuntime()) {
     try {
-      const core = await loadTauriCore();
-      await core.invoke("desktop_open_external", { url: trimmed });
+      await invokeNativeTauriCommand("desktop_open_external", { url: trimmed });
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof NativeBridgeUnavailableError) {
+        return false;
+      }
       return false;
     }
   }
@@ -527,8 +744,9 @@ export async function invokeTauriCommand<T = unknown>(
   payload?: Record<string, unknown>
 ): Promise<T> {
   if (!isTauriRuntime()) {
-    throw new Error("Tauri command invocation requested outside desktop runtime");
+    throw new NativeBridgeUnavailableError(
+      "Tauri native bridge is unavailable outside the desktop runtime."
+    );
   }
-  const core = await loadTauriCore();
-  return core.invoke<T>(command, payload);
+  return invokeNativeTauriCommand<T>(command, payload);
 }

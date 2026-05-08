@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -17,7 +18,10 @@ from guardian.db.models import (
     AgentRunArtifact,
     AgentRunAttempt,
     AgentRunStep,
+    ChatMessage,
+    ChatThread,
 )
+from guardian.agents.events import build_coding_result_lineage_payload
 
 
 def _utc_now() -> datetime:
@@ -34,6 +38,31 @@ def deterministic_worktree_id(
     seed = f"{deployment_id}:{run_id}:{step_index}".encode()
     digest = hashlib.sha256(seed).hexdigest()
     return digest[:24]
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if coerced > 0 else None
+
+
+def _normalize_coding_result_status(status: Any) -> str:
+    value = str(status or "").strip().lower()
+    return value or "error"
+
+
+def _should_persist_coding_result_message(status: str) -> bool:
+    return _normalize_coding_result_status(status) in {
+        "ok",
+        "success",
+        "succeeded",
+        "completed",
+        "partial",
+        "partial_success",
+        "partial-success",
+    }
 
 
 @dataclass
@@ -91,6 +120,7 @@ class AgentStore:
                     "trust_state": row.trust_state,
                     "status": row.status,
                     "spec_hash": row.spec_hash,
+                    "spec_json": dict(row.spec_json or {}),
                 }
 
         data = {
@@ -124,6 +154,7 @@ class AgentStore:
                     "trust_state": row.trust_state,
                     "status": row.status,
                     "spec_hash": row.spec_hash,
+                    "spec_json": dict(row.spec_json or {}),
                 }
         return self._mem_deployments.get(deployment_id)
 
@@ -806,6 +837,332 @@ class AgentStore:
                     for row in rows
                 ]
         return []
+
+    def store_coding_result(
+        self,
+        *,
+        run_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+        request_id: str | None = None,
+        thread_id: int | None,
+        source_message_id: int | None,
+        result_status: str,
+        result_summary: str,
+        adapter_kind: str | None = None,
+        adapter_session_ref: str | None = None,
+        files_changed: list[str] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+        errors: list[str] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> dict[str, Any]:
+        """Store coding result and inject into source thread.
+
+        Per ADR-020: results must return through Guardian before user-visible output.
+        """
+        normalized_status = _normalize_coding_result_status(result_status)
+        persist_message = _should_persist_coding_result_message(
+            normalized_status
+        )
+        normalized_files_changed = [
+            str(item).strip()
+            for item in (files_changed or [])
+            if str(item).strip()
+        ]
+        artifact_rows = [
+            dict(artifact) if isinstance(artifact, dict) else {"value": str(artifact)}
+            for artifact in (artifacts or [])
+        ]
+        if not normalized_files_changed:
+            normalized_files_changed = [
+                artifact.get("path", artifact.get("name", ""))
+                for artifact in artifact_rows
+                if isinstance(artifact, dict) and artifact.get("path")
+            ]
+        run = self.get_run(run_id)
+        deployment = None
+        if run and run.get("deployment_id"):
+            deployment = self.get_deployment(str(run["deployment_id"]))
+
+        deployment_spec: dict[str, Any] = {}
+        if isinstance(deployment, dict):
+            deployment_spec = dict(deployment.get("spec_json") or {})
+        adapter_kind = (
+            str(adapter_kind or deployment_spec.get("adapter_kind") or "")
+            .strip()
+            or None
+        )
+        expected_thread_id = (
+            _coerce_positive_int(
+                deployment_spec.get("source_thread_id")
+                or deployment_spec.get("thread_id")
+            )
+            or thread_id
+        )
+        expected_source_message_id = _coerce_positive_int(
+            deployment_spec.get("source_message_id") or source_message_id
+        )
+        expected_user_id = str(deployment_spec.get("user_id") or "").strip() or None
+        expected_project_id = _coerce_positive_int(
+            deployment_spec.get("project_id")
+        )
+
+        commit_hash = None
+        validation_results = None
+        for artifact in artifact_rows:
+            if commit_hash is None:
+                candidate = artifact.get("commit_hash") or artifact.get(
+                    "git_commit"
+                )
+                if isinstance(candidate, str) and candidate.strip():
+                    commit_hash = candidate.strip()
+            if validation_results is None and artifact.get("validation_results") is not None:
+                validation_results = artifact.get("validation_results")
+
+        result_payload = {
+            "run_id": run_id,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "request_id": request_id,
+            "thread_id": expected_thread_id,
+            "source_message_id": expected_source_message_id,
+            "adapter_kind": adapter_kind,
+            "user_id": expected_user_id,
+            "project_id": expected_project_id,
+            "status": normalized_status,
+            "coding_result_status": normalized_status,
+            "summary": result_summary,
+            "files_changed": normalized_files_changed,
+            "artifacts": artifact_rows,
+            "errors": errors or [],
+            "error_code": error_code,
+            "error_message": error_message,
+            "commit_hash": commit_hash,
+            "validation_results": validation_results,
+            "adapter_session_ref": adapter_session_ref,
+            "result_captured_by_guardian": True,
+        }
+
+        message_id = None
+        delivery_reason = None
+        delivery_ok = False
+        if persist_message and expected_thread_id is not None and self._has_db():
+            message_id, delivery_reason = self._inject_coding_result_into_thread(
+                thread_id=expected_thread_id,
+                run_id=run_id,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                request_id=request_id,
+                source_message_id=expected_source_message_id,
+                expected_user_id=expected_user_id,
+                expected_project_id=expected_project_id,
+                adapter_kind=adapter_kind,
+                status=normalized_status,
+                summary=result_summary,
+                files_changed=normalized_files_changed,
+                artifacts=artifact_rows,
+                errors=errors or [],
+                commit_hash=commit_hash,
+                validation_results=validation_results,
+                adapter_session_ref=adapter_session_ref,
+                error_code=error_code,
+                error_message=error_message,
+            )
+            delivery_ok = message_id is not None
+        elif expected_thread_id is None:
+            delivery_reason = "missing_source_thread"
+        elif not persist_message:
+            delivery_reason = "result_status_not_persisted_as_assistant_message"
+        else:
+            delivery_reason = "delivery_database_unavailable"
+
+        final_status = (
+            "succeeded"
+            if persist_message and delivery_ok
+            else "failed"
+        )
+        self.update_run_status(
+            run_id=run_id,
+            status=final_status,
+            error=error_message or delivery_reason or (errors[0] if errors else None),
+        )
+
+        artifact_payload = dict(result_payload)
+        artifact_payload["message_id"] = message_id
+        artifact_payload["delivery_ok"] = delivery_ok
+        artifact_payload["delivery_reason"] = delivery_reason
+        if self._has_db():
+            existing_artifact = None
+            for row in self.list_artifacts(
+                run_id=run_id, artifact_type="coding_result"
+            ):
+                content = row.get("content_json")
+                if not isinstance(content, dict):
+                    continue
+                if (
+                    content.get("coding_task_id") == coding_task_id
+                    and content.get("attempt_id") == attempt_id
+                ):
+                    existing_artifact = row
+                    break
+            if existing_artifact is None:
+                self.add_artifact(
+                    run_id=run_id,
+                    step_index=None,
+                    artifact_type="coding_result",
+                    content_json=artifact_payload,
+                )
+
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "status": normalized_status,
+            "message_id": message_id,
+            "delivery_ok": delivery_ok,
+            "delivery_reason": delivery_reason,
+            "files_changed": normalized_files_changed,
+            "artifacts_count": len(artifact_rows),
+            "commit_hash": commit_hash,
+            "validation_results": validation_results,
+            "result_payload": result_payload,
+        }
+
+    def _inject_coding_result_into_thread(
+        self,
+        *,
+        thread_id: int,
+        run_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+        request_id: str | None,
+        source_message_id: int | None,
+        expected_user_id: str | None,
+        expected_project_id: int | None,
+        adapter_kind: str | None,
+        status: str,
+        summary: str,
+        files_changed: list[str],
+        artifacts: list[dict[str, Any]],
+        errors: list[str],
+        commit_hash: str | None = None,
+        validation_results: Any | None = None,
+        adapter_session_ref: str | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> tuple[int | None, str | None]:
+        if not self._has_db():
+            return None, "delivery_database_unavailable"
+
+        with self.db.get_session() as session:
+            existing = None
+            for candidate in (
+                session.query(ChatMessage)
+                .filter_by(thread_id=thread_id, kind="coding_result")
+                .order_by(ChatMessage.id.asc())
+                .all()
+            ):
+                if isinstance(candidate.extra_meta, dict) and str(
+                    candidate.extra_meta.get("run_id") or ""
+                ) == run_id:
+                    existing = candidate
+                    break
+            if existing:
+                return existing.id, None
+
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if thread is None:
+                return None, "source_thread_missing"
+            if expected_user_id and str(thread.user_id) != expected_user_id:
+                return None, "source_thread_scope_mismatch"
+            if expected_project_id is not None and (
+                thread.project_id is None
+                or int(thread.project_id) != int(expected_project_id)
+            ):
+                return None, "source_project_scope_mismatch"
+            if source_message_id is not None:
+                source_message = (
+                    session.query(ChatMessage)
+                    .filter_by(id=int(source_message_id))
+                    .first()
+                )
+                if (
+                    source_message is None
+                    or int(source_message.thread_id) != int(thread_id)
+                ):
+                    return None, "source_message_missing"
+
+            extra_meta = build_coding_result_lineage_payload(
+                run_id=run_id,
+                queue_task_id=None,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                request_id=request_id,
+                source_thread_id=thread_id,
+                source_message_id=source_message_id,
+                adapter_kind=adapter_kind,
+            )
+            extra_meta.update(
+                {
+                    "type": "coding_result",
+                    "user_id": expected_user_id,
+                    "project_id": expected_project_id,
+                    "status": status,
+                    "coding_result_status": status,
+                    "files_changed": list(files_changed),
+                    "artifacts": list(artifacts),
+                    "adapter_session_ref": adapter_session_ref,
+                    "result_captured_by_guardian": True,
+                    "error_code": error_code,
+                    "error_message": error_message,
+                }
+            )
+            if commit_hash:
+                extra_meta["commit_hash"] = commit_hash
+            if validation_results is not None:
+                extra_meta["validation_results"] = validation_results
+
+            content_parts = [f"## Coding Task Result\n\n"]
+            content_parts.append(f"**Status**: {status.upper()}\n\n")
+            content_parts.append(f"**Summary**: {summary}\n\n")
+
+            if commit_hash:
+                content_parts.append(f"**Commit Hash**: `{commit_hash}`\n\n")
+
+            if files_changed:
+                content_parts.append("**Files Changed**:\n")
+                for f in files_changed:
+                    content_parts.append(f"- `{f}`\n")
+                content_parts.append("\n")
+
+            if validation_results is not None:
+                content_parts.append("**Validation Results**:\n")
+                content_parts.append(
+                    f"```json\n{json.dumps(validation_results, indent=2, sort_keys=True)}\n```\n\n"
+                )
+
+            if artifacts:
+                content_parts.append("**Artifacts**:\n")
+                for a in artifacts:
+                    name = a.get("name", a.get("path", a.get("value", "unnamed")))
+                    content_parts.append(f"- {name}\n")
+                content_parts.append("\n")
+
+            if errors:
+                content_parts.append("**This task requires attention.**\n")
+                content_parts.append("Please review the errors above.\n")
+
+            message = ChatMessage(
+                thread_id=thread_id,
+                user_id=thread.user_id,
+                role="assistant",
+                content="".join(content_parts),
+                kind="coding_result",
+                extra_meta=extra_meta,
+            )
+            session.add(message)
+            session.commit()
+            return message.id, None
 
 
 store = AgentStore()

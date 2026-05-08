@@ -32,6 +32,46 @@ function getDocumentAccentColor(extColors: ExtColors, ext?: string): string {
   return extColors[normalizedExt] ?? extColors.md ?? "#6B7280";
 }
 
+function unwrapDashboardDocumentsPayload(value: any): any[] {
+  const unwrap = (candidate: any): any => {
+    if (!candidate || typeof candidate !== "object") return candidate;
+    return (
+      candidate.documents ??
+      candidate.items ??
+      candidate.data ??
+      candidate.results ??
+      candidate
+    );
+  };
+
+  const candidate1 = Array.isArray(value) ? value : unwrap(value);
+  const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
+  return Array.isArray(candidate2) ? candidate2 : [];
+}
+
+function normalizeDashboardDocument(value: any): DocumentFile | null {
+  const name = value?.filename || value?.name || value?.title || "Untitled";
+  if (typeof name !== "string" || !name.trim()) return null;
+  return {
+    id: typeof value?.id === "string" ? value.id : undefined,
+    name,
+    ext: value?.ext || value?.extension || inferDocumentExtension(name),
+    src_url:
+      typeof value?.src_url === "string"
+        ? value.src_url
+        : typeof value?.srcUrl === "string"
+          ? value.srcUrl
+          : typeof value?.src === "string"
+            ? value.src
+            : typeof value?.url === "string"
+              ? value.url
+              : undefined,
+    type: "file" as const,
+    embeddingStatus: value?.embedding_status || value?.embeddingStatus,
+    embeddingError: value?.embedding_error || value?.embeddingError,
+  };
+}
+
 function MobileRecentDocumentRow({
   doc,
   extColors,
@@ -201,15 +241,7 @@ export default function DashboardView({
       try {
         const res = await api.get("/media/documents", { params: { limit: 4 } });
         const data = res?.data;
-
-        const unwrap = (value: any): any => {
-          if (!value || typeof value !== "object") return value;
-          return (value as any).documents ?? (value as any).items ?? (value as any).data ?? (value as any).results ?? value;
-        };
-
-        const candidate1 = Array.isArray(data) ? data : unwrap(data);
-        const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
-        const docs: any[] = Array.isArray(candidate2) ? candidate2 : [];
+        const docs = unwrapDashboardDocumentsPayload(data);
 
         if (docs.length === 0 && data != null) {
           try {
@@ -223,28 +255,7 @@ export default function DashboardView({
         }
 
         const normalizedDocs = docs
-          .map((d: any) => {
-            const name = d?.filename || d?.name || d?.title || "Untitled";
-            if (typeof name !== "string" || !name.trim()) return null;
-            return {
-              id: typeof d?.id === "string" ? d.id : undefined,
-              name,
-              ext: d?.ext || d?.extension || inferDocumentExtension(name),
-              src_url:
-                typeof d?.src_url === "string"
-                  ? d.src_url
-                  : typeof d?.srcUrl === "string"
-                    ? d.srcUrl
-                    : typeof d?.src === "string"
-                      ? d.src
-                      : typeof d?.url === "string"
-                        ? d.url
-                        : undefined,
-              type: "file" as const,
-              embeddingStatus: d?.embedding_status || d?.embeddingStatus,
-              embeddingError: d?.embedding_error || d?.embeddingError,
-            };
-          })
+          .map(normalizeDashboardDocument)
           .filter((doc: DocumentFile | null): doc is DocumentFile => !!doc);
 
         if (!cancelled) setRecentDocs(normalizedDocs);

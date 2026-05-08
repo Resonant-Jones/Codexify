@@ -1,22 +1,23 @@
 import { Check } from "lucide-react";
 
-type FlowBuilderStage = {
-  id: string;
-  label: string;
-  description: string;
-  chip: string;
-};
+import {
+  type FlowDraftSelection,
+  type FlowDraftStageProgress,
+  type FlowDraftValidationSummary,
+} from "../model/flowDraft";
 
 type FlowBuilderParameterRailProps = {
-  onSelectStage: (stageId: string) => void;
-  selectedStageId: string;
-  stages: FlowBuilderStage[];
+  currentSelection: FlowDraftSelection;
+  onSelectStage: (stageId: FlowDraftSelection["stageId"]) => void;
+  stageProgress: FlowDraftStageProgress[];
+  validationSummary: FlowDraftValidationSummary;
 };
 
 export default function FlowBuilderParameterRail({
+  currentSelection,
   onSelectStage,
-  selectedStageId,
-  stages,
+  stageProgress,
+  validationSummary,
 }: FlowBuilderParameterRailProps) {
   return (
     <aside
@@ -39,16 +40,16 @@ export default function FlowBuilderParameterRail({
       </div>
 
       <div className="flex-1 space-y-2 p-4">
-        {stages.map((stage, index) => {
-          const active = stage.id === selectedStageId;
+        {stageProgress.map((stageItem) => {
+          const active = stageItem.stage.id === currentSelection.stageId;
 
           return (
             <button
-              key={stage.id}
+              key={stageItem.stage.id}
               type="button"
-              data-testid={`flow-builder-stage-${stage.id}`}
+              data-testid={`flow-builder-stage-${stageItem.stage.id}`}
               aria-pressed={active}
-              onClick={() => onSelectStage(stage.id)}
+              onClick={() => onSelectStage(stageItem.stage.id)}
               className={[
                 "flex w-full items-start gap-3 rounded-[var(--tile-radius,19px)] border px-4 py-4 text-left transition",
                 active ? "shadow-[0_14px_32px_rgba(0,0,0,0.22)]" : "hover:-translate-y-[1px]",
@@ -70,30 +71,72 @@ export default function FlowBuilderParameterRail({
                   color: active ? "var(--text)" : "var(--muted)",
                 }}
               >
-                {active ? <Check className="h-4 w-4" /> : stage.chip}
+                {active ? <Check className="h-4 w-4" /> : stageItem.stage.chip}
               </span>
 
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-semibold tracking-[-0.02em]">{stage.label}</span>
-                  <span
-                    className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]"
-                    style={{
-                      borderColor: "var(--chip-border)",
-                      background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
-                      color: "var(--muted)",
-                    }}
-                  >
-                    {index + 1}
+                  <span className="text-sm font-semibold tracking-[-0.02em]">
+                    {stageItem.stage.label}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]"
+                      style={{
+                        borderColor: "var(--chip-border)",
+                        background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+                        color: "var(--muted)",
+                      }}
+                    >
+                      {stageItem.index + 1}
+                    </span>
+                    {stageItem.issueCount > 0 ? (
+                      <span
+                        data-testid={`flow-builder-stage-issues-${stageItem.stage.id}`}
+                        className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]"
+                        style={{
+                          borderColor: "color-mix(in oklab, var(--accent) 55%, var(--panel-border))",
+                          background: "color-mix(in oklab, var(--accent) 14%, var(--panel-bg))",
+                          color: "var(--text)",
+                        }}
+                      >
+                        {stageItem.issueCount} issue{stageItem.issueCount === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
                   </span>
                 </span>
                 <span className="mt-2 block text-sm leading-6" style={{ color: "var(--muted)" }}>
-                  {stage.description}
+                  {stageItem.stage.description}
                 </span>
               </span>
             </button>
           );
         })}
+      </div>
+
+      <div className="border-t border-[var(--panel-border)] p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.2em]"
+            style={{
+              borderColor: "var(--chip-border)",
+              background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+              color: "var(--muted)",
+            }}
+          >
+            Validation {validationSummary.label}
+          </span>
+          <span
+            className="rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.2em]"
+            style={{
+              borderColor: "var(--chip-border)",
+              background: "color-mix(in oklab, var(--chip-bg) 88%, transparent)",
+              color: "var(--muted)",
+            }}
+          >
+            Stage {currentSelection.stage.label}
+          </span>
+        </div>
       </div>
     </aside>
   );
