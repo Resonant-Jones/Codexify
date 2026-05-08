@@ -85,11 +85,10 @@ from guardian.core.provider_registry import (
 )
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
-    ErrorCode,
     ContextRequestStatus,
+    ErrorCode,
     ImageRoutingPath,
     LoopStopReason,
-    ContextRequestStatus,
     ToolLoopStopReason,
     ToolTurnState,
     TraceSnapshotAbsenceReason,
@@ -504,7 +503,6 @@ def _context_request_plans_from_origin(origin: Any) -> list[dict[str, Any]]:
 
     for segment in text.split("|")[1:]:
         key, _, value = segment.partition("=")
-        if key.strip() != "context_request_plans":
         if key.strip() != CONTEXT_REQUEST_PLANS_ORIGIN_KEY:
             continue
         raw_value = unquote(value.strip())
@@ -528,7 +526,9 @@ def _context_request_plans_from_origin(origin: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _supported_obsidian_context_request_plans(task: Any) -> list[dict[str, Any]]:
+def _supported_obsidian_context_request_plans(
+    task: Any,
+) -> list[dict[str, Any]]:
     raw_plans = getattr(task, "context_request_plans", None)
     if raw_plans is None:
         raw_plans = _context_request_plans_from_origin(
@@ -551,13 +551,19 @@ def _supported_obsidian_context_request_plans(
     task: Any,
 ) -> list[dict[str, Any]]:
     supported_plans: list[dict[str, Any]] = []
-    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
-        request_kind = str(
-            plan.get("request_kind") or plan.get("requestKind") or ""
-        ).strip().lower()
-        connector_id = str(
-            plan.get("connector_id") or plan.get("connectorId") or ""
-        ).strip().lower()
+    for plan in _context_request_plans_from_origin(
+        getattr(task, "origin", None)
+    ):
+        request_kind = (
+            str(plan.get("request_kind") or plan.get("requestKind") or "")
+            .strip()
+            .lower()
+        )
+        connector_id = (
+            str(plan.get("connector_id") or plan.get("connectorId") or "")
+            .strip()
+            .lower()
+        )
         invocation = str(plan.get("invocation") or "").strip().lower()
         query_text = str(
             plan.get("query_text") or plan.get("queryText") or ""
@@ -635,13 +641,19 @@ async def _apply_context_request_plans(
     context_request_results: list[dict[str, Any]] = []
     connector_context = list(bundle.get("connector_context") or [])
 
-    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
-        request_kind = str(
-            plan.get("request_kind") or plan.get("requestKind") or ""
-        ).strip().lower()
-        connector_id = str(
-            plan.get("connector_id") or plan.get("connectorId") or ""
-        ).strip().lower()
+    for plan in _context_request_plans_from_origin(
+        getattr(task, "origin", None)
+    ):
+        request_kind = (
+            str(plan.get("request_kind") or plan.get("requestKind") or "")
+            .strip()
+            .lower()
+        )
+        connector_id = (
+            str(plan.get("connector_id") or plan.get("connectorId") or "")
+            .strip()
+            .lower()
+        )
         invocation = str(plan.get("invocation") or "").strip().lower()
         status = str(plan.get("status") or "").strip().lower()
         if request_kind != "read_only_context_request":
@@ -652,13 +664,6 @@ async def _apply_context_request_plans(
             continue
         if status != ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value:
             continue
-        supported.append(dict(plan))
-    return supported
-
-
-        query_text = str(
-            plan.get("query_text") or plan.get("queryText") or ""
-        ).strip()
 
         supported = (
             request_kind == SUPPORTED_CONTEXT_REQUEST_KIND
@@ -739,6 +744,8 @@ async def _apply_context_request_plans(
     bundle["connector_context"] = connector_context
     bundle["context_request_results"] = context_request_results
     return context_request_results
+
+
 def _image_attachment_count_from_origin(origin: Any) -> int | None:
     text = str(origin or "").strip()
     if not text:
@@ -2375,9 +2382,7 @@ def build_sanitized_payload_summary(
     )
     linked_document_injected = bool(docs_meta.get("injected"))
     connector_context_meta = retrieval_meta.get("connector_context") or {}
-    connector_context_injected = bool(
-        connector_context_meta.get("injected")
-    )
+    connector_context_injected = bool(connector_context_meta.get("injected"))
     connector_context_count = (
         len((bundle or {}).get("connector_context") or [])
         if isinstance(bundle, dict)
@@ -3417,7 +3422,9 @@ async def build_messages_for_llm(
     )
     if isinstance(bundle, dict):
         connector_context_items = [
-            item for item in (bundle.get("connector_context") or []) if isinstance(item, dict)
+            item
+            for item in (bundle.get("connector_context") or [])
+            if isinstance(item, dict)
         ]
         if supported_context_request_plans:
             if broker is None:
@@ -3466,12 +3473,14 @@ async def build_messages_for_llm(
                         context_request_results.append(result_record)
                         continue
                     try:
-                        connector_results = await broker.retrieve_obsidian_context_command(
-                            query=query_text,
-                            user_id=context_user_id,
-                            project_id=project_id_for_prompt,
-                            k=4,
-                            retrieval_policy=retrieval_policy,
+                        connector_results = (
+                            await broker.retrieve_obsidian_context_command(
+                                query=query_text,
+                                user_id=context_user_id,
+                                project_id=project_id_for_prompt,
+                                k=4,
+                                retrieval_policy=retrieval_policy,
+                            )
                         )
                         result_count = len(
                             [
@@ -3483,18 +3492,18 @@ async def build_messages_for_llm(
                         result_record["result_count"] = result_count
                         if result_count > 0:
                             connector_context_items.extend(connector_results)
-                            result_record["status"] = (
-                                ContextRequestStatus.EXECUTED.value
-                            )
+                            result_record[
+                                "status"
+                            ] = ContextRequestStatus.EXECUTED.value
                             result_record["injected"] = True
                         else:
-                            result_record["status"] = (
-                                ContextRequestStatus.NO_RESULTS.value
-                            )
+                            result_record[
+                                "status"
+                            ] = ContextRequestStatus.NO_RESULTS.value
                     except Exception as exc:
-                        result_record["status"] = (
-                            ContextRequestStatus.FAILED.value
-                        )
+                        result_record[
+                            "status"
+                        ] = ContextRequestStatus.FAILED.value
                         result_record["result_count"] = 0
                         result_record["injected"] = False
                         result_record["error"] = type(exc).__name__
@@ -4380,7 +4389,10 @@ def run_chat_completion_task(
         if isinstance(trace, dict):
             trace = dict(trace)
             trace["retrieval_posture"] = retrieval_posture
-    if isinstance(trace, dict) and trace.get("context_request_results") is not None:
+    if (
+        isinstance(trace, dict)
+        and trace.get("context_request_results") is not None
+    ):
         payload_summary["context_request_results"] = list(
             trace.get("context_request_results") or []
         )
