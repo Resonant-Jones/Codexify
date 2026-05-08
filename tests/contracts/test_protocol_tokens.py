@@ -1,5 +1,6 @@
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
     DELEGATION_JOB_STATUSES,
@@ -21,6 +22,7 @@ from guardian.protocol_tokens import (
     TOOL_TURN_STATES,
     TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
+    ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
     DelegationJobStatus,
@@ -49,6 +51,21 @@ def test_acceptance_status_tokens() -> None:
     assert AcceptanceStatus.ACCEPTED.value == "accepted"
     assert AcceptanceStatus.ACCEPTED_DEGRADED.value == "accepted_degraded"
     assert ACCEPTANCE_STATUSES == {"accepted", "accepted_degraded"}
+
+
+def test_context_request_status_tokens() -> None:
+    assert ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value == (
+        "accepted_not_executed"
+    )
+    assert ContextRequestStatus.EXECUTED.value == "executed"
+    assert ContextRequestStatus.NO_RESULTS.value == "no_results"
+    assert ContextRequestStatus.FAILED.value == "failed"
+    assert CONTEXT_REQUEST_STATUSES == {
+        "accepted_not_executed",
+        "executed",
+        "no_results",
+        "failed",
+    }
 
 
 def test_task_event_tokens() -> None:
