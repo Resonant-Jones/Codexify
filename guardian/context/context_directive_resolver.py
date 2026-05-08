@@ -1,3 +1,5 @@
+"""Normalize narrow context-request directives into completion plans."""
+
 """Normalize narrow context directives into turn-scoped request plans."""
 
 from __future__ import annotations
@@ -172,101 +174,110 @@ __all__ = [
 ]
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Literal, Mapping
+from typing import Any, Mapping
 
-ContextDirectiveKind = Literal["connector_context"]
-ConnectorId = Literal["obsidian"]
-InvocationScope = Literal["turn_scoped"]
-ContextRequestKind = Literal["read_only_context_request"]
-ContextRequestStatus = Literal["accepted_not_executed"]
+from guardian.protocol_tokens import ContextRequestStatus
 
-
-@dataclass(frozen=True)
-class ContextDirective:
-    kind: ContextDirectiveKind
-    connector_id: ConnectorId
-    invocation: InvocationScope
-    query_text: str
+_SUPPORTED_KIND = "connector_context"
+_SUPPORTED_REQUEST_KIND = "read_only_context_request"
+_SUPPORTED_CONNECTOR_ID = "obsidian"
+_SUPPORTED_INVOCATION = "turn_scoped"
+_SUPPORTED_STATUS = ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value
 
 
-@dataclass(frozen=True)
-class ContextRequestPlan:
-    request_kind: ContextRequestKind
-    connector_id: ConnectorId
-    invocation: InvocationScope
-    query_text: str
-    status: ContextRequestStatus
-    execution_required: bool
+def _clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        return " ".join(str(value).split()).strip()
+    except Exception:
+        return ""
 
 
-def _normalize_context_directive(
-    directive: ContextDirective | Mapping[str, Any],
-) -> ContextDirective:
-    if isinstance(directive, ContextDirective):
-        kind = directive.kind
-        connector_id = directive.connector_id
-        invocation = directive.invocation
-        query_text = directive.query_text
-    elif isinstance(directive, Mapping):
-        kind = directive.get("kind")
-        connector_id = directive.get("connector_id")
-        invocation = directive.get("invocation")
-        query_text = directive.get("query_text")
-    else:
-        raise ValueError("context directive must be mapping or ContextDirective")
+def _normalize_directive(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, Mapping):
+        return None
 
-    if kind != "connector_context":
-        raise ValueError(f"unsupported context directive kind: {kind!r}")
-    if connector_id != "obsidian":
-        raise ValueError(f"unsupported connector_id: {connector_id!r}")
-    if invocation != "turn_scoped":
-        raise ValueError(f"unsupported invocation scope: {invocation!r}")
-    if not isinstance(query_text, str):
-        raise ValueError("context directive query_text must be a string")
+    kind = _clean_text(raw.get("kind")).lower()
+    request_kind = _clean_text(
+        raw.get("request_kind") or raw.get("requestKind")
+    ).lower()
+    connector_id = _clean_text(
+        raw.get("connector_id") or raw.get("connectorId")
+    ).lower()
+    invocation = _clean_text(raw.get("invocation")).lower()
+    query_text = _clean_text(raw.get("query_text") or raw.get("queryText"))
+    status = _clean_text(raw.get("status")).lower()
 
-    normalized_query_text = query_text.strip()
-    if not normalized_query_text:
-        raise ValueError("context directive query_text cannot be blank")
+    if kind == _SUPPORTED_KIND:
+        if connector_id != _SUPPORTED_CONNECTOR_ID:
+            return None
+        if invocation != _SUPPORTED_INVOCATION:
+            return None
+        if not query_text:
+            return None
+        return {
+            "request_kind": _SUPPORTED_REQUEST_KIND,
+            "connector_id": _SUPPORTED_CONNECTOR_ID,
+            "invocation": _SUPPORTED_INVOCATION,
+            "query_text": query_text,
+            "status": _SUPPORTED_STATUS,
+            "execution_required": False,
+        }
 
-    return ContextDirective(
-        kind="connector_context",
-        connector_id="obsidian",
-        invocation="turn_scoped",
-        query_text=normalized_query_text,
-    )
+    if request_kind == _SUPPORTED_REQUEST_KIND:
+        if connector_id != _SUPPORTED_CONNECTOR_ID:
+            return None
+        if invocation != _SUPPORTED_INVOCATION:
+            return None
+        if not query_text:
+            return None
+        if status and status != _SUPPORTED_STATUS:
+            return None
+        return {
+            "request_kind": _SUPPORTED_REQUEST_KIND,
+            "connector_id": _SUPPORTED_CONNECTOR_ID,
+            "invocation": _SUPPORTED_INVOCATION,
+            "query_text": query_text,
+            "status": _SUPPORTED_STATUS,
+            "execution_required": bool(
+                raw.get("execution_required", False)
+            ),
+        }
+
+    return None
 
 
 def resolve_context_request_plans(
-    directives: list[ContextDirective | Mapping[str, Any]],
-) -> list[ContextRequestPlan]:
-    plans: list[ContextRequestPlan] = []
+    context_directives: Any,
+) -> list[dict[str, Any]]:
+    """Normalize supported context directives into accepted plans."""
+
+    if context_directives is None:
+        return []
+
+    if isinstance(context_directives, list):
+        directives = list(context_directives)
+    elif isinstance(context_directives, dict):
+        directives = [context_directives]
+    else:
+        return []
+
+    plans: list[dict[str, Any]] = []
     for directive in directives:
-        normalized = _normalize_context_directive(directive)
-        plans.append(
-            ContextRequestPlan(
-                request_kind="read_only_context_request",
-                connector_id="obsidian",
-                invocation="turn_scoped",
-                query_text=normalized.query_text,
-                status="accepted_not_executed",
-                execution_required=False,
-            )
-        )
+        plan = _normalize_directive(directive)
+        if plan is not None:
+            plans.append(plan)
     return plans
 
 
 def serialize_context_request_plans(
-    plans: list[ContextRequestPlan],
+    plans: list[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    return [
-        {
-            "request_kind": plan.request_kind,
-            "connector_id": plan.connector_id,
-            "invocation": plan.invocation,
-            "query_text": plan.query_text,
-            "status": plan.status,
-            "execution_required": plan.execution_required,
-        }
-        for plan in plans
-    ]
+    return [dict(plan) for plan in plans if isinstance(plan, Mapping)]
+
+
+__all__ = [
+    "resolve_context_request_plans",
+    "serialize_context_request_plans",
+]

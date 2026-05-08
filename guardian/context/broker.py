@@ -1705,6 +1705,91 @@ class ContextBroker:
         k: int = 4,
         retrieval_policy: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        """Run the turn-scoped Obsidian connector context command."""
+
+        normalized_query = str(query or "").strip()
+        if not normalized_query:
+            return []
+
+        retrieved = await self._retrieve_obsidian_documents(
+            normalized_query,
+            user_id=str(user_id or "").strip(),
+            project_scope=project_id,
+            k=k,
+            retrieval_policy=retrieval_policy,
+        )
+        if not retrieved:
+            return []
+
+        annotated: list[dict[str, Any]] = []
+        for item in retrieved:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata")
+            if isinstance(metadata, dict):
+                metadata_copy = dict(metadata)
+            else:
+                metadata_copy = {}
+            meta = item.get("meta")
+            if isinstance(meta, dict):
+                meta_copy = dict(meta)
+            else:
+                meta_copy = dict(metadata_copy)
+
+            project_value = _coerce_int(project_id)
+            if project_value is not None:
+                metadata_copy.setdefault("project_id", project_value)
+                meta_copy.setdefault("project_id", project_value)
+
+            metadata_copy.setdefault("source_type", "obsidian")
+            metadata_copy["connector_id"] = "obsidian"
+            metadata_copy["retrieval_lane"] = "connector_context"
+            metadata_copy["context_command"] = True
+            meta_copy.setdefault("source_type", "obsidian")
+            meta_copy["connector_id"] = "obsidian"
+            meta_copy["retrieval_lane"] = "connector_context"
+            meta_copy["context_command"] = True
+
+            annotated_item = _annotate_retrieval_item(
+                item,
+                source_type=str(
+                    item.get("source_type")
+                    or metadata_copy.get("source_type")
+                    or "obsidian"
+                ).strip()
+                or "obsidian",
+                role=str(
+                    item.get("role")
+                    or metadata_copy.get("role")
+                    or "document"
+                ).strip()
+                or "document",
+                thread_id=_coerce_int(
+                    item.get("thread_id") or metadata_copy.get("thread_id")
+                ),
+                project_id=project_value
+                or _coerce_int(
+                    item.get("project_id") or metadata_copy.get("project_id")
+                ),
+                retrieval_lane="connector_context",
+                connector_id="obsidian",
+                context_command=True,
+                context_request_kind="read_only_context_request",
+                retrieval_policy=dict(retrieval_policy or {}),
+            )
+            if isinstance(annotated_item, dict):
+                annotated_item["source_type"] = metadata_copy["source_type"]
+                annotated_item["retrieval_lane"] = "connector_context"
+                annotated_item["connector_id"] = "obsidian"
+                annotated_item["context_command"] = True
+                annotated_item["context_request_kind"] = (
+                    "read_only_context_request"
+                )
+                annotated_item["metadata"] = metadata_copy
+                annotated_item["meta"] = meta_copy
+                annotated.append(annotated_item)
+
+        return annotated
         """Fetch turn-scoped Obsidian connector context for a context command."""
         normalized_query = str(query or "").strip()
         if not normalized_query or k <= 0:
