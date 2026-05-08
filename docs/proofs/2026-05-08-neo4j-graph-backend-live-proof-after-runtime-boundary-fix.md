@@ -1,326 +1,275 @@
-# Neo4j Graph Backend Live Proof: After Runtime Boundary Fix
-
-**Artifact date:** 2026-05-08
-**Branch:** `main`
-**HEAD commit:** `f947a4072`
-**Runtime path:** Local Docker Compose (backend, db, redis, neo4j, workers)
-**Proof window:** 2026-05-08T14:30Z to 2026-05-08T14:50Z
-
----
+# 2026-05-08 Neo4j Graph Backend Live Proof After Runtime Boundary Fix
 
 ## Scope
 
-This artifact captures a fresh Neo4j graph backend live proof on the current `main` tip after the runtime flag boundary repair (ADR-026) and the graph backend syntax error fixes (`f947a4072`).
+Re-run live proof on the exact current `main` tip to verify:
 
-It verifies:
+1. default-off runtime uses no-op graph backend behavior on the supported Compose path and does not write fresh graph data
+2. explicit-on runtime routes graph-write lane through adapter selection and can write Neo4j-derived graph data without changing canonical chat truth
+3. duplicate/replay semantics remain safe under explicit-on mode
 
-1. Default-off behavior (`CODEXIFY_ENABLE_GRAPH_WRITES=false`, `CODEXIFY_GRAPH_BACKEND=noop`) truly selects the no-op graph backend on the supported Compose path.
-2. Explicit-on behavior (`CODEXIFY_ENABLE_GRAPH_WRITES=true`, `CODEXIFY_GRAPH_BACKEND=neo4j`) reaches Neo4j through the adapter seam.
-3. Chat completion succeeds in both modes.
-4. The graph-write factory boundary is correctly enforced.
-
-This is a runtime-evidence artifact. No runtime code, retrieval contracts, export semantics, UI behavior, or ADR contracts were changed in this task.
-
----
+This is a docs-and-runtime-evidence task only. No runtime implementation, retrieval contracts, export/restore semantics, UI surface, or architecture contracts were edited.
 
 ## Environment
 
-### Runtime path
+- branch: `main`
+- exact HEAD commit: `8654bcc22d18ce77279e9a759a4c1cb641e06b22`
+- compose services used:
+  - `db`
+  - `redis`
+  - `neo4j`
+  - `backend`
+  - `worker-chat`
+  - `worker-document-embed`
+  - `worker-chat-embed`
+  - `worker-warmup`
+  - `graph-backfill` (included because it is present in Compose and mutates graph state)
+- env loading ritual used:
+  - attempted: `set -a; source .env; set +a`
+  - observed failure: `.env:79: command not found: gemma4-e4b-hauhau:latest` (space after `=` in `.env` model vars)
+  - operational fallback used for proof execution: Compose `env_file` loading + explicit shell `export CODEXIFY_*` flags + `KEY="$(scripts/dev/dev-key.sh)"`
+- default-off graph flags:
+  - `CODEXIFY_ENABLE_GRAPH_WRITES=false`
+  - `CODEXIFY_GRAPH_BACKEND=noop`
+- explicit-on graph flags:
+  - `CODEXIFY_ENABLE_GRAPH_WRITES=true`
+  - `CODEXIFY_GRAPH_BACKEND=neo4j`
 
-Supported local Docker Compose stack from the repository root.
+## Exact Commands
 
-Observed live services during the proof session:
-
-- `codexify-db-1` (healthy)
-- `codexify-redis-1` (healthy)
-- `codexify-neo4j-1` (healthy)
-- `codexify-backend-1` (healthy)
-- `codexify-worker-chat-1` (running)
-- `codexify-worker-chat-embed-1` (running)
-- `codexify-worker-document-embed-1` (running)
-- `codexify-worker-warmup-1` (running)
-- Ad hoc graph workers: `candidate_ingest_worker`, `graph_write_worker` (exec inside backend container)
-
-### Env loading ritual
-
-```sh
+```bash
+# attempted env ritual (fails in this checkout)
 set -a; source .env; set +a
-```
 
-### Default-off flags (pass 1)
-
-```sh
-export CODEXIFY_ENABLE_GRAPH_WRITES=false
-export CODEXIFY_GRAPH_BACKEND=noop
-```
-
-### Explicit-on flags (pass 2)
-
-```sh
-export CODEXIFY_ENABLE_GRAPH_WRITES=true
-export CODEXIFY_GRAPH_BACKEND=neo4j
-```
-
-### Active model
-
-`gemma4-e4b-hauhau:latest` via local provider at `100.109.4.57:11434`.
-
-### Neo4j credentials
-
-- `NEO4J_USER=neo4j`
-- `NEO4J_PASS=codexify`
-
----
-
-## Exact Commands Run
-
-### Default-off pass
-
-```sh
-set -a; source .env; set +a
-export CODEXIFY_ENABLE_GRAPH_WRITES=false
-export CODEXIFY_GRAPH_BACKEND=noop
-docker compose up -d backend
-# Wait for health...
-curl -s http://localhost:8888/health | python3 -m json.tool
-curl -s http://localhost:8888/health/chat | python3 -m json.tool
-curl -s http://localhost:8888/api/health/llm | python3 -m json.tool
-docker compose config | grep -E "CODEXIFY_ENABLE_GRAPH_WRITES|CODEXIFY_GRAPH_BACKEND" -n
-
-# Verify runtime settings
-docker compose exec -T backend python -c "
-from guardian.core.config import settings
-print(f'CODEXIFY_ENABLE_GRAPH_WRITES: {settings.CODEXIFY_ENABLE_GRAPH_WRITES}')
-print(f'CODEXIFY_GRAPH_BACKEND: {settings.CODEXIFY_GRAPH_BACKEND}')
-"
-
-# Sentinel chat turn
 BASE=http://localhost:8888
 KEY="$(scripts/dev/dev-key.sh)"
-SENTINEL="DEFAULT_OFF_SENTINEL_2026_05_08_RERUN"
-THREAD=$(curl -fsS -X POST "$BASE/api/chat/threads" -H "content-type: application/json" -H "X-API-Key: $KEY" -d "{\"summary\":\"default-off-rerun\"}")
-THREAD_ID=$(printf '%s' "$THREAD" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
-curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/messages" -H "content-type: application/json" -H "X-API-Key: $KEY" -d "{\"role\":\"user\",\"content\":\"$SENTINEL What is 2+2?\"}"
-COMPLETE=$(curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/complete" -H "content-type: application/json" -H "X-API-Key: $KEY" -d '{}')
-# Wait 60s for completion...
-curl -fsS -H "X-API-Key: $KEY" "$BASE/api/chat/$THREAD_ID/messages?limit=5"
 
-# Neo4j sentinel check
+# -------------------------
+# default-off pass
+# -------------------------
+export CODEXIFY_ENABLE_GRAPH_WRITES=false
+export CODEXIFY_GRAPH_BACKEND=noop
+
+docker compose down
+docker compose up -d db redis neo4j
+docker compose run --rm migrator
+docker compose up -d backend worker-chat worker-document-embed worker-chat-embed worker-warmup graph-backfill
+
+docker compose ps
+docker compose config | grep -E "CODEXIFY_ENABLE_GRAPH_WRITES|CODEXIFY_GRAPH_BACKEND|NEO4J_URI|NEO4J_USER|NEO4J_DATABASE" -n
+
+curl -s "$BASE/health" | jq
+curl -s "$BASE/health/chat" | jq
+curl -s "$BASE/api/health/llm" | jq
+
+THREAD_JSON="$(curl -fsS -X POST "$BASE/api/chat/threads" -H "content-type: application/json" -H "X-API-Key: $KEY" -d '{"summary":"default-off-runtime-boundary-proof"}')"
+THREAD_ID="$(printf '%s' "$THREAD_JSON" | jq -r '.id')"
+SENTINEL_DEFAULT_OFF="DEFAULT_OFF_SENTINEL_1778254885"
+
+curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/messages" -H "content-type: application/json" -H "X-API-Key: $KEY" -d "{\"role\":\"user\",\"content\":\"$SENTINEL_DEFAULT_OFF\"}"
+COMPLETE_JSON="$(curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/complete" -H "content-type: application/json" -H "X-API-Key: $KEY" -d '{}')"
+TASK_ID="$(printf '%s' "$COMPLETE_JSON" | jq -r '.task_id')"
+
+timeout 40 curl -sN -H "X-API-Key: $KEY" "$BASE/api/tasks/$TASK_ID/events"
+curl -fsS -H "X-API-Key: $KEY" "$BASE/api/chat/$THREAD_ID/messages?limit=50" | jq
+curl -fsS -H "X-API-Key: $KEY" "$BASE/api/chat/$THREAD_ID/debug/graph-write/latest" | jq
+
+NUSER="$(grep -E '^NEO4J_USER=' .env | tail -n1 | cut -d= -f2- | xargs)"; [ -n "$NUSER" ] || NUSER=neo4j
 NPASS="$(grep -E '^NEO4J_PASS=' .env | tail -n1 | cut -d= -f2-)"
-docker compose exec -T neo4j /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u neo4j -p "$NPASS" \
-  "MATCH (n) WHERE any(k IN keys(n) WHERE toString(n[k]) CONTAINS '$SENTINEL') RETURN labels(n) AS lbls, n LIMIT 5;"
-```
+docker compose exec -T neo4j /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u "$NUSER" -p "$NPASS" \
+  "MATCH (n) WHERE any(k IN keys(n) WHERE toString(n[k]) CONTAINS '$SENTINEL_DEFAULT_OFF') RETURN count(n) AS sentinel_hits;"
 
-### Explicit-on pass
+docker compose logs backend worker-chat graph-backfill --since=10m
 
-```sh
-set -a; source .env; set +a
+# -------------------------
+# explicit-on pass
+# -------------------------
 export CODEXIFY_ENABLE_GRAPH_WRITES=true
 export CODEXIFY_GRAPH_BACKEND=neo4j
-docker compose down backend
-docker compose up -d backend
-# Wait for health...
 
-# Verify runtime settings
-docker compose exec -T backend python -c "
-from guardian.core.config import settings
-print(f'CODEXIFY_ENABLE_GRAPH_WRITES: {settings.CODEXIFY_ENABLE_GRAPH_WRITES}')
-print(f'CODEXIFY_GRAPH_BACKEND: {settings.CODEXIFY_GRAPH_BACKEND}')
-"
+docker compose down
+docker compose up -d db redis neo4j
+docker compose run --rm migrator
+docker compose up -d backend worker-chat worker-document-embed worker-chat-embed worker-warmup graph-backfill
 
-# Sentinel chat turn
-SENTINEL="EXPLICIT_ON_NEO4J_SENTINEL_2026_05_08"
-THREAD=$(curl -fsS -X POST "$BASE/api/chat/threads" -H "content-type: application/json" -H "X-API-Key: $KEY" -d "{\"summary\":\"explicit-on-neo4j\"}")
-THREAD_ID=$(printf '%s' "$THREAD" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
-curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/messages" -H "content-type: application/json" -H "X-API-Key: $KEY" -d "{\"role\":\"user\",\"content\":\"$SENTINEL What is 5+5?\"}"
-COMPLETE=$(curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/complete" -H "content-type: application/json" -H "X-API-Key: $KEY" -d '{}')
-# Wait 60s for completion...
-curl -fsS -H "X-API-Key: $KEY" "$BASE/api/chat/$THREAD_ID/messages?limit=5"
+docker compose ps
+docker compose config | grep -E "CODEXIFY_ENABLE_GRAPH_WRITES|CODEXIFY_GRAPH_BACKEND|NEO4J_URI|NEO4J_USER|NEO4J_DATABASE" -n
 
-# Neo4j sentinel check
-docker compose exec -T neo4j /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u neo4j -p "$NPASS" \
-  "MATCH (n) WHERE any(k IN keys(n) WHERE toString(n[k]) CONTAINS '$SENTINEL') RETURN labels(n) AS lbls, n LIMIT 5;"
+curl -s "$BASE/health" | jq
+curl -s "$BASE/health/chat" | jq
+curl -s "$BASE/api/health/llm" | jq
 
-# Neo4j node/edge inventory
-docker compose exec -T neo4j /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u neo4j -p "$NPASS" \
-  "MATCH (n) RETURN labels(n) AS lbls, count(n) AS cnt ORDER BY cnt DESC;"
-docker compose exec -T neo4j /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u neo4j -p "$NPASS" \
-  "MATCH ()-[r]->() RETURN type(r) AS edge_type, count(r) AS cnt ORDER BY cnt DESC;"
+THREAD_JSON="$(curl -fsS -X POST "$BASE/api/chat/threads" -H "content-type: application/json" -H "X-API-Key: $KEY" -d '{"summary":"explicit-on-runtime-boundary-proof"}')"
+THREAD_ID="$(printf '%s' "$THREAD_JSON" | jq -r '.id')"
+SENTINEL_EXPLICIT_ON="EXPLICIT_ON_SENTINEL_1778255077"
+
+curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/messages" -H "content-type: application/json" -H "X-API-Key: $KEY" -d "{\"role\":\"user\",\"content\":\"$SENTINEL_EXPLICIT_ON\"}"
+COMPLETE_JSON="$(curl -fsS -X POST "$BASE/api/chat/$THREAD_ID/complete" -H "content-type: application/json" -H "X-API-Key: $KEY" -d '{}')"
+TASK_ID="$(printf '%s' "$COMPLETE_JSON" | jq -r '.task_id')"
+
+timeout 40 curl -sN -H "X-API-Key: $KEY" "$BASE/api/tasks/$TASK_ID/events"
+curl -fsS -H "X-API-Key: $KEY" "$BASE/api/chat/$THREAD_ID/messages?limit=50" | jq
+curl -fsS -H "X-API-Key: $KEY" "$BASE/api/chat/$THREAD_ID/debug/graph-write/latest" | jq
+
+docker compose exec -T neo4j /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u "$NUSER" -p "$NPASS" \
+  "MATCH (n) WHERE any(k IN keys(n) WHERE toString(n[k]) CONTAINS '$SENTINEL_EXPLICIT_ON') RETURN labels(n) AS labels, properties(n) AS props LIMIT 5;"
+
+docker compose logs backend worker-chat graph-backfill --since=10m
+
+# duplicate/replay probe under explicit-on mode
+# (bounded direct graph_write_worker seam to capture receipt behavior)
+docker compose exec -d backend sh -lc 'timeout 20 python -m guardian.workers.graph_write_worker > /tmp/graph_write_worker_proof.log 2>&1'
+PAYLOAD='{"thread_id":1227,"project_id":1,"nodes":[{"id":"n-proof-dup-2","label":"ProofNode","properties":{"sentinel":"REPLAY_PROOF_SENTINEL_2"}}],"edges":[],"warnings":[],"idempotency_key":"proof-dup-neo4j-20260508-b","graph_write_id":"gwr-proof-dup-20260508-b","source":"proof-manual"}'
+docker compose exec -T redis redis-cli RPUSH codexify:queue:graph-write "$PAYLOAD"
+docker compose exec -T redis redis-cli RPUSH codexify:queue:graph-write "$PAYLOAD"
+sleep 8
+docker compose exec -T backend sh -lc 'cat /tmp/graph_write_worker_proof.log'
+curl -fsS -H "X-API-Key: $KEY" "$BASE/api/chat/1227/debug/graph-write/latest" | jq
+
+docker compose exec -T neo4j /var/lib/neo4j/bin/cypher-shell -a bolt://localhost:7687 -u "$NUSER" -p "$NPASS" \
+  "MATCH (n {id:'n-proof-dup-2'}) RETURN count(n) AS dup2_nodes;"
+
+make docs
+git diff --check
 ```
-
----
 
 ## Default-Off Proof
 
 ### Runtime behavior
 
-- `/health` returned `status: ok`
-- `/health/chat` returned `status: healthy`, worker fresh, queue empty
-- `/api/health/llm` returned `status: ok`, provider `local`, model `gemma4-e4b-hauhau:latest`
-- Backend settings confirmed:
-  - `CODEXIFY_ENABLE_GRAPH_WRITES: False`
-  - `CODEXIFY_GRAPH_BACKEND: noop`
-- `docker compose config` showed graph flags on 4 services (backend, worker-warmup, worker-chat, graph-backfill):
+- Compose env wiring rendered with default-off flags:
   - `CODEXIFY_ENABLE_GRAPH_WRITES: "false"`
   - `CODEXIFY_GRAPH_BACKEND: noop`
+- Health surfaces were up:
+  - `/health.status=ok`
+  - `/health/chat.status=healthy`
+  - `/api/health/llm.status=ok`
+
+### Backend selection evidence
+
+- Config evidence confirms default-off values in rendered Compose config.
+- Thread inspection surface stayed empty:
+  - `GET /api/chat/1226/debug/graph-write/latest` returned:
+    - `status: "empty"`
+    - `graph_write_inspection: null`
+- No direct `[graph-backend] ... NoopGraphBackendAdapter selected` line was emitted in backend/worker-chat logs for this chat turn.
 
 ### Chat success evidence
 
-- Thread `1223` created
-- User message posted with sentinel `DEFAULT_OFF_SENTINEL_2026_05_08_RERUN`
-- Task completed successfully
-- Assistant message persisted: `4`
-- Chat completion succeeded normally
-
-### Graph-write factory selection evidence
-
-- Backend settings confirmed `CODEXIFY_GRAPH_BACKEND: noop`
-- The graph-write factory (`guardian/memory_graph/graph_backend_factory.py`) returns `NoopGraphBackendAdapter` when `CODEXIFY_ENABLE_GRAPH_WRITES=false`
-- Worker-chat emitted `graph_write_candidate_emitted` log events (derived candidates enqueued to Redis)
-- The graph-write worker factory path is correctly selecting noop
+- Chat completion enqueue succeeded (`task_id=239eda54-4c96-44c1-b169-a7f819f4f476`), but task failed at runtime:
+  - `task.failed`
+  - error: `_build_model_selection_trace() missing 3 required keyword-only arguments: 'resolved_provider', 'resolved_model', and 'model_resolution'`
+- Message list for thread `1226` contains only the user message (no assistant persistence).
 
 ### Neo4j non-write evidence
 
-**IMPORTANT DISTINCTION**: Neo4j query for the default-off sentinel returned 1 hit:
+Expected: fresh default-off sentinel should produce `sentinel_hits=0`.
 
+Observed query result for `DEFAULT_OFF_SENTINEL_1778254885`:
+
+```text
+sentinel_hits
+1
 ```
-["MessageNode"], (:MessageNode {message_id: "50229", content: "DEFAULT_OFF_SENTINEL_2026_05_08_RERUN What is 2+2?..."})
-```
 
-This MessageNode was created by the **graph context logging path** (`GUARDIAN_ENABLE_GRAPH_CONTEXT=True`), NOT by the graph-write worker factory. These are two separate mechanisms:
-
-1. **Graph context logging** (`GUARDIAN_ENABLE_GRAPH_CONTEXT`): An older mechanism that writes MessageNode/ThreadNode to Neo4j for context retrieval during chat completion. This is controlled by `GUARDIAN_ENABLE_GRAPH_CONTEXT` and `GUARDIAN_GRAPH_LOGGING_MODE`, not by the ADR-026 graph-write factory flags.
-
-2. **Graph-write worker factory** (`CODEXIFY_ENABLE_GRAPH_WRITES` / `CODEXIFY_GRAPH_BACKEND`): The new ADR-026 mechanism that controls the queue-backed graph-write worker processing candidate traces. This factory correctly returns `NoopGraphBackendAdapter` when disabled.
-
-The graph-write factory boundary (ADR-026 scope) is correctly enforcing default-off. The graph context logging is a separate, pre-existing mechanism that was not modified by ADR-026.
-
----
+Interpretation: default-off non-write requirement was not met on this run.
 
 ## Explicit-On Neo4j Proof
 
 ### Runtime behavior
 
-- Backend restarted with `CODEXIFY_ENABLE_GRAPH_WRITES=true` and `CODEXIFY_GRAPH_BACKEND=neo4j`
-- `/health` returned `status: ok`
-- Backend settings confirmed:
-  - `CODEXIFY_ENABLE_GRAPH_WRITES: True`
+- Compose env wiring rendered with explicit-on values:
+  - `CODEXIFY_ENABLE_GRAPH_WRITES: "true"`
   - `CODEXIFY_GRAPH_BACKEND: neo4j`
+- `/health.status=ok`, `/api/health/llm.status=ok`, but `/health/chat.status=unhealthy` during first probe window (`worker heartbeat missing`), then worker resumed and executed task.
+
+### Backend selection evidence
+
+Bounded graph-write worker probe log under explicit-on mode:
+
+```text
+[graph-backend] CODEXIFY_GRAPH_BACKEND=neo4j requested but Neo4jGraphBackendAdapter is not available; falling back to noop.
+```
+
+Interpretation: adapter seam selected explicit-on intent but failed closed to noop in the `graph_write_worker` lane.
 
 ### Chat success evidence
 
-- Thread `1225` created
-- User message posted with sentinel `EXPLICIT_ON_NEO4J_SENTINEL_2026_05_08`
-- Task completed successfully
-- Assistant message persisted: `10`
-- Chat completion succeeded normally with graph writes enabled
-
-### Neo4j query evidence
-
-- Pre-test MessageNode count: 25
-- Post-test sentinel query found the explicit-on sentinel in Neo4j:
-
-```
-["MessageNode"], (:MessageNode {message_id: "50233", content: "EXPLICIT_ON_NEO4J_SENTINEL_2026_05_08 What is 5+5?..."})
-```
-
-- Neo4j node inventory:
-  - MessageNode: 26
-  - ThreadNode: 12
-  - User: 1
-  - Project: 1
-  - UserNode: 1
-
-- Neo4j edge inventory:
-  - SENT_BY: 26
-  - PART_OF: 26
-  - OWNS: 1
+- Completion was accepted and queued (`task_id=2e212d79-3acb-4b9d-87c9-434567476418`) but failed with the same runtime exception as default-off.
+- Message list for thread `1227` contains only the user message (no assistant persistence).
 
 ### Graph-write worker evidence
 
-- Worker-chat emitted `graph_write_candidate_emitted` for the explicit-on thread
-- Graph workers (candidate_ingest_worker, graph_write_worker) started inside backend container
-- Neo4j received node/edge write intent for the sentinel message
+Bounded probe log (`python -m guardian.workers.graph_write_worker` inside backend container):
 
----
+```text
+[graph-write] graph_write_worker_inspected_task
+[graph-write] graph_write_worker_duplicate_task_skipped
+```
+
+This demonstrates receipt/duplicate handling in the graph-write queue seam.
+
+### Neo4j query evidence
+
+Sentinel query for `EXPLICIT_ON_SENTINEL_1778255077` returned:
+
+```text
+labels, props
+["MessageNode"], { ..., content: "EXPLICIT_ON_SENTINEL_1778255077" }
+```
+
+At the same time, bounded replay payload node probe returned:
+
+```text
+dup2_nodes
+0
+```
+
+Interpretation: Neo4j received sentinel-linked writes during the explicit-on window, but those writes were not proven to come from `graph_write_worker` adapter invocation (which fell back to noop). They are consistent with parallel `graph-backfill` graph mutation activity.
 
 ## Duplicate / Replay Safety Check
 
-The duplicate/replay safety is enforced by the Redis-backed receipt claim mechanism in `guardian/queue/graph_write_receipts.py`:
+- Duplicate payload (same `idempotency_key` and `graph_write_id`) was pushed twice to `codexify:queue:graph-write`.
+- Evidence:
+  - `graph_write_worker_duplicate_task_skipped` appears in the bounded worker log.
+  - inspection route response shows:
+    - `receipt_status: "duplicate_skipped"`
+    - `graph_write_id: "gwr-proof-dup-20260508-b"`
+- Neo4j duplicate node count for probe node id `n-proof-dup-2`:
+  - `dup2_nodes=0`
 
-- Each graph-write task has an `idempotency_key` derived from the candidate trace identity
-- The first-seen task claims the receipt via Redis `SET NX`
-- Duplicate tasks are detected before backend invocation and logged as `graph_write_worker_duplicate_task_skipped`
-- This mechanism was proven in the unit tests (`tests/workers/test_graph_write_worker.py`)
-
-Live duplicate replay was not exercised in this proof window because the graph-write workers were started ad hoc inside the backend container and the Redis queue was consumed before duplicate submission could be demonstrated. The unit test proof remains the canonical evidence for duplicate/replay safety.
-
----
+Conclusion: duplicate was skipped before backend write in this seam, and duplicate graph data was avoided for the replay probe.
 
 ## Observed Failures / Degraded Signals / Unknowns
 
-### Pre-existing syntax errors (fixed during this proof session)
-
-The following merge conflict residue was discovered and fixed during the proof session to enable backend startup:
-
-- `guardian/routes/chat.py:4344`: Duplicate orphaned `if` statement (removed)
-- `guardian/core/chat_completion_service.py:1394-1395`: Duplicate return type annotation (removed)
-- `guardian/core/chat_completion_service.py:1403-1409`: Duplicate variable declarations (removed)
-- `guardian/core/chat_completion_service.py:2434`: Orphaned duplicate function definition (removed)
-- `guardian/core/chat_completion_service.py:2531-2532`: Orphaned duplicate function definition (removed)
-
-These were pre-existing merge conflict residue, not caused by ADR-026 or this proof task. They are fixed in this session but not committed as part of the proof artifact.
-
-### Graph context vs graph-write factory distinction
-
-The Neo4j MessageNode writes observed in both passes come from the `GUARDIAN_ENABLE_GRAPH_CONTEXT` path, not from the graph-write worker factory. This is a pre-existing architectural distinction:
-
-- ADR-026 controls the graph-write worker factory (`CODEXIFY_ENABLE_GRAPH_WRITES` / `CODEXIFY_GRAPH_BACKEND`)
-- The graph context logging (`GUARDIAN_ENABLE_GRAPH_CONTEXT`) is a separate, older mechanism
-- Both mechanisms write to Neo4j, but through different code paths
-- The graph-write factory boundary is correctly enforced; the graph context logging was not modified by ADR-026
-
-### Compose config vs runtime env
-
-`docker compose config` shows the compose-file defaults (`false`/`noop`), but the actual runtime environment can be overridden via shell exports. The explicit-on pass used shell exports to override the compose defaults. The running backend confirmed the overridden values via `settings.CODEXIFY_ENABLE_GRAPH_WRITES` and `settings.CODEXIFY_GRAPH_BACKEND`.
-
----
+1. `.env` shell-loading ritual fails due malformed model-value lines (`LOCAL_CHAT_MODEL= gemma...`).
+2. Both default-off and explicit-on chat completion probes failed with the same worker exception in `_build_model_selection_trace(...)`.
+3. Default-off sentinel still appeared in Neo4j (`sentinel_hits=1`), violating non-write expectation.
+4. Explicit-on graph-write worker adapter path did not reach Neo4j backend; it fell back to noop (`Neo4jGraphBackendAdapter is not available`).
+5. Neo4j writes observed in explicit-on window are likely driven by `graph-backfill` and/or other graph lane paths, not proven adapter-seam writes for the chat task under test.
 
 ## Release-Truth Interpretation
 
-### What this proves
+### what this proves
 
-- The graph-write factory boundary (ADR-026) is correctly enforced on the supported Compose path
-- Default-off (`CODEXIFY_ENABLE_GRAPH_WRITES=false`) selects `NoopGraphBackendAdapter`
-- Explicit-on (`CODEXIFY_ENABLE_GRAPH_WRITES=true`, `CODEXIFY_GRAPH_BACKEND=neo4j`) reaches Neo4j
-- Chat completion succeeds in both modes
-- The factory selection is runtime-visible and auditable via backend settings inspection
+- Compose runtime wiring now renders both default-off and explicit-on graph flags as configured.
+- Graph-write receipt duplicate handling remains active in the explicit-on queue seam (`duplicate_skipped`).
+- Neo4j mutation still occurs in this runtime topology (at least via backfill-linked activity).
 
-### What this does not prove
+### what this does not prove
 
-- This proof does not widen the supported beta promise by itself
-- Neo4j graph writes remain optional and explicit-gate only
-- Postgres remains canonical truth
-- Retrieval, export/restore, and UI surfaces were not changed by this proof
-- The graph context logging path (`GUARDIAN_ENABLE_GRAPH_CONTEXT`) was not modified or re-proven
-- Live duplicate/replay safety was not exercised in this window (unit tests remain canonical evidence)
-- The pre-existing syntax errors fixed during this session are not yet committed
-
----
+- It does **not** prove default-off no-op behavior prevents fresh Neo4j writes on the supported path.
+- It does **not** prove explicit-on adapter-seam Neo4j writes succeed from `graph_write_worker`; current evidence shows fallback to noop in that seam.
+- It does **not** widen supported beta promise.
+- It does **not** change or prove retrieval, export/restore, or UI behavior.
+- Postgres remains canonical chat truth; graph activity remains derived/optional from a release-claim perspective.
 
 ## Final Result
 
-**PASS** (with caveats)
+`FAIL`
 
-The graph-write runtime flag boundary (ADR-026 scope) is correctly enforced:
+Rationale:
 
-- **Default-off**: Factory returns `NoopGraphBackendAdapter` when `CODEXIFY_ENABLE_GRAPH_WRITES=false`
-- **Explicit-on**: Factory selects Neo4j backend when both flags are enabled
-- **Chat completion**: Succeeds in both modes
-- **Compose wiring**: Graph flags visible on 4 services in `docker compose config`
-
-Caveats:
-
-- Neo4j MessageNode writes in both passes come from the graph context logging path (`GUARDIAN_ENABLE_GRAPH_CONTEXT`), not the graph-write factory. This is a pre-existing architectural distinction, not a failure.
-- Pre-existing merge conflict residue was discovered and fixed during this session but is not yet committed.
-- Live duplicate/replay safety was not exercised; unit tests remain canonical evidence.
+- Required default-off non-write proof failed (`sentinel_hits=1` for fresh sentinel).
+- Required explicit-on adapter-seam Neo4j write proof failed (bounded worker lane fell back to noop due unavailable `Neo4jGraphBackendAdapter`).
+- Chat completion persistence requirement was degraded in both passes due a runtime exception unrelated to this docs task.
