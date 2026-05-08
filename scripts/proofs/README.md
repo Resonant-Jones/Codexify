@@ -14,7 +14,7 @@ Each harness exercises a specific runtime seam end-to-end on the live stack. The
 
 **What it proves:**
 1. Health surfaces (`/health`, `/health/chat`, `/api/health/llm`) are healthy.
-2. A sentinel note can be ingested through the Obsidian ingest path.
+2. Obsidian indexing can be triggered through the supported `/api/obsidian/index` route.
 3. A chat thread and message can be created.
 4. A completion request with `retrievalSource="workspace"` is accepted (task_id returned).
 5. The task reaches terminal state (not just acceptance).
@@ -57,7 +57,7 @@ BASE=http://localhost:8888 \
 | Exit code | Category | Meaning |
 |---|---|---|
 | 2 | `HEALTH_CHECK_FAILED` | One or more health surfaces returned non-2xx |
-| 3 | `INGESTION_FAILED` | Sentinel note not accepted by `/api/obsidian/ingest` |
+| 3 | `INGESTION_FAILED` | Obsidian index trigger failed on `/api/obsidian/index` |
 | 4 | `ACCEPTANCE_FAILED` | Completion request returned non-200 or no task_id |
 | 5 | `COMPLETION_TIMEOUT` | Task did not reach terminal state within 120s |
 | 6 | `RESPONSE_VERDICT_FAILED` | Assistant response missing sentinel-derived content |

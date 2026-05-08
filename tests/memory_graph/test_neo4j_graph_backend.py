@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 from guardian.memory_graph.graph_backend import (
     GRAPH_BACKEND_RESULT_STATUS_FAILED,
@@ -90,6 +91,12 @@ def test_neo4j_graph_backend_writes_nodes_and_edges_idempotently() -> None:
     assert len(node_ops) == 4
     assert len(edge_ops) == 2
     assert all(op[1]["node_key"] in {"n1", "n2"} for op in node_ops)
+    assert all(isinstance(op[1]["metadata_json"], str) for op in node_ops)
+    assert all(isinstance(op[1]["metadata_json"], str) for op in edge_ops)
+    assert json.loads(node_ops[0][1]["metadata_json"]) in (
+        {"k": "v"},
+        {},
+    )
 
 
 def test_neo4j_graph_backend_returns_written_result() -> None:
