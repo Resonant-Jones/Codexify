@@ -328,7 +328,10 @@ services:
     command: ["worker-chat"]
 
   worker-coding:
-    image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
     working_dir: /app
     depends_on:
       redis:

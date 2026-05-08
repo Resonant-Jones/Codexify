@@ -136,4 +136,3 @@ async def test_get_uploaded_document_detail_not_found():
             )
 
     assert exc_info.value.status_code == 404
-
