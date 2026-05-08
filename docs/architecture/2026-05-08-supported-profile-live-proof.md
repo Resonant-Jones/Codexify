@@ -349,3 +349,34 @@ This proof does not prove:
 - that the upload -> embed -> retrieve path is functional on this tip
 - that the coding-result return path works end-to-end in the live worker runtime
 - that all future runtime changes will preserve this exact evidence without re-running the proof
+
+---
+
+## 2026-05-08 Follow-up Recheck (Document Identity Contract Repair)
+
+### Scope of follow-up
+
+- Implemented repair for upload/detail identity seam:
+  - upload response now exposes `document_id` and `media_asset_id` explicitly (while preserving `id` for compatibility)
+  - supported `GET /api/documents/{id}` detail route now exists and resolves uploaded-document identity
+  - detail/readback keeps embedding lifecycle fields operator-visible
+- Added deterministic proof-contract tests requiring all four gates:
+  - upload acceptance
+  - document detail readback
+  - embedding readiness
+  - retrieval sentinel evidence
+
+### Recheck result
+
+**UNABLE TO RE-PROVE LIVE IN THIS WINDOW (environment blocker).**
+
+- Attempted supported-path restart:
+  - `docker compose restart backend worker-document-embed`
+- Backend failed to boot after restart due to pre-existing merge-artifact syntax error:
+  - `guardian/core/config.py` contains conflict marker text causing `SyntaxError` at import time
+  - this prevents `/api` route availability for live upload -> embed -> retrieve rerun
+
+### Follow-up verdict impact
+
+- The original 2026-05-08 PARTIAL verdict section above is preserved as historical truth.
+- This follow-up establishes code-level contract repair and test-level proof logic, but does **not** upgrade runtime verdict because live Compose verification was blocked by unrelated startup breakage.

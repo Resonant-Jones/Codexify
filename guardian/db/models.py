@@ -1798,7 +1798,9 @@ class UploadedDocument(Base):
 
     __tablename__ = "uploaded_documents"
 
+    # Origin identity for document-centric APIs (for example GET /api/documents/{id}).
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    # Canonical media-asset linkage used for dedupe/provenance.
     asset_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("media_assets.id", ondelete="SET NULL")
     )

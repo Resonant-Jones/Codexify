@@ -83,6 +83,25 @@ class DocumentGenerateResponse(BaseModel):
     model: str | None = None
 
 
+class UploadedDocumentDetailResponse(BaseModel):
+    id: str
+    document_id: str
+    media_asset_id: str | None = None
+    project_id: int
+    thread_id: int | None = None
+    src_url: str
+    filename: str
+    filesize: int
+    mime_type: str
+    source_tag: str | None = None
+    parsed_text: str | None = None
+    embedding_status: str | None = None
+    embedding_error: str | None = None
+    embedding_started_at: str | None = None
+    embedding_completed_at: str | None = None
+    created_at: str
+
+
 # Module-level database instance (will be set by guardian_api.py)
 _db: GuardianDB | None = None
 
@@ -218,6 +237,48 @@ def _ensure_project_document_link(
             attached_by=attached_by,
         )
     )
+
+
+def _resolve_uploaded_document_for_scope(
+    session: Session,
+    document_identity: str,
+    request_user_scope: RequestUserScope,
+):
+    identity = (document_identity or "").strip()
+    if not identity:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+    document = (
+        session.query(models.UploadedDocument)
+        .filter(
+            models.UploadedDocument.deleted_at.is_(None),
+            (
+                (models.UploadedDocument.id == identity)
+                | (models.UploadedDocument.asset_id == identity)
+            ),
+        )
+        .order_by(
+            (models.UploadedDocument.id == identity).desc(),
+            models.UploadedDocument.created_at.desc(),
+        )
+        .first()
+    )
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+    if request_user_scope.multi_user_enabled:
+        account_id = _request_account_id(request_user_scope)
+        owner_id = str(getattr(document, "user_id", "") or "").strip()
+        if owner_id != account_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Document does not belong to the authenticated account",
+            )
+    return document
 
 
 @router.post("/api/documents/autosave", response_model=AutosaveResponse)
@@ -651,3 +712,47 @@ async def get_thread_documents(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve thread documents: {str(e)}",
         )
+
+
+@router.get(
+    "/api/documents/{document_id}",
+    response_model=UploadedDocumentDetailResponse,
+)
+async def get_uploaded_document_detail(
+    document_id: str,
+    _api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    db = _get_db()
+    with db.get_session() as session:
+        document = _resolve_uploaded_document_for_scope(
+            session, document_id, request_user_scope
+        )
+        return {
+            "id": document.id,
+            "document_id": document.id,
+            "media_asset_id": document.asset_id,
+            "project_id": int(document.project_id or 0),
+            "thread_id": document.thread_id,
+            "src_url": document.src_url,
+            "filename": document.filename,
+            "filesize": document.filesize,
+            "mime_type": document.mime_type,
+            "source_tag": document.source_tag,
+            "parsed_text": document.parsed_text,
+            "embedding_status": document.embedding_status,
+            "embedding_error": document.embedding_error,
+            "embedding_started_at": (
+                document.embedding_started_at.isoformat()
+                if document.embedding_started_at
+                else None
+            ),
+            "embedding_completed_at": (
+                document.embedding_completed_at.isoformat()
+                if document.embedding_completed_at
+                else None
+            ),
+            "created_at": (
+                document.created_at.isoformat() if document.created_at else ""
+            ),
+        }
