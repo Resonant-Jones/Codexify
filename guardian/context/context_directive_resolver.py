@@ -1,7 +1,5 @@
 """Normalize narrow context-request directives into completion plans."""
 
-"""Normalize narrow context directives into turn-scoped request plans."""
-
 from __future__ import annotations
 
 import json
@@ -172,7 +170,6 @@ __all__ = [
     "encode_context_request_plans_origin_segment",
     "context_request_plans_from_origin",
 ]
-from __future__ import annotations
 
 from typing import Any, Mapping
 
@@ -240,9 +237,7 @@ def _normalize_directive(raw: Any) -> dict[str, Any] | None:
             "invocation": _SUPPORTED_INVOCATION,
             "query_text": query_text,
             "status": _SUPPORTED_STATUS,
-            "execution_required": bool(
-                raw.get("execution_required", False)
-            ),
+            "execution_required": bool(raw.get("execution_required", False)),
         }
 
     return None
