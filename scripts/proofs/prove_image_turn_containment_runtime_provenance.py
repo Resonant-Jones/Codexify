@@ -22,9 +22,7 @@ import requests
 FRESH_HEARTBEAT_THRESHOLD_SECONDS = 10.0
 DEAD_HEARTBEAT_THRESHOLD_SECONDS = 60.0
 
-REQUIRED_IMAGE_ROUTING_FIX_COMMIT = (
-    "2bce6aeb9416a25d77b931b4974db7573e8951b8"
-)
+REQUIRED_IMAGE_ROUTING_FIX_COMMIT = "2bce6aeb9416a25d77b931b4974db7573e8951b8"
 
 RUNTIME_COMMIT_SOURCE_AUTHORITATIVE = "authoritative_runtime_commit"
 RUNTIME_COMMIT_SOURCE_BUILD_METADATA = "build_metadata_commit"
@@ -240,7 +238,9 @@ def _git_is_ancestor(
         return None
     except Exception as exc:  # pragma: no cover - defensive fallback
         if errors is not None:
-            errors.append(f"{' '.join(command)} failed: {type(exc).__name__}: {exc}")
+            errors.append(
+                f"{' '.join(command)} failed: {type(exc).__name__}: {exc}"
+            )
         return None
 
 
@@ -533,12 +533,14 @@ def _collect_service_provenance(
         service_info.get("build_metadata_candidates") or []
     )
 
-    authoritative_runtime_commit, authoritative_runtime_marker = (
-        _pick_authoritative_endpoint_commit(endpoint_markers)
-    )
-    endpoint_build_metadata_commit, endpoint_build_metadata_version = (
-        _pick_endpoint_build_metadata(endpoint_markers)
-    )
+    (
+        authoritative_runtime_commit,
+        authoritative_runtime_marker,
+    ) = _pick_authoritative_endpoint_commit(endpoint_markers)
+    (
+        endpoint_build_metadata_commit,
+        endpoint_build_metadata_version,
+    ) = _pick_endpoint_build_metadata(endpoint_markers)
     build_metadata_commit = service_info.get("build_metadata_commit")
     if not build_metadata_commit:
         build_metadata_commit = endpoint_build_metadata_commit
@@ -610,9 +612,9 @@ def _collect_service_provenance(
     service_info["container_created_at_parsed"] = (
         created_at.isoformat() if created_at is not None else None
     )
-    service_info["container_rebuilt_after_expected_commit_timestamp"] = (
-        container_rebuilt_after_expected_commit_timestamp
-    )
+    service_info[
+        "container_rebuilt_after_expected_commit_timestamp"
+    ] = container_rebuilt_after_expected_commit_timestamp
     return service_info
 
 
@@ -644,7 +646,10 @@ def _health_ok(
     if status_code != 200:
         return False, f"{name} returned {status_code}"
     if body.get("status") != required_status:
-        return False, f"{name} status {body.get('status')!r} != {required_status!r}"
+        return (
+            False,
+            f"{name} status {body.get('status')!r} != {required_status!r}",
+        )
     return True, f"{name} healthy"
 
 
@@ -671,7 +676,12 @@ def collect_runtime_provenance(
 
     errors: list[str] = []
     warnings: list[str] = []
-    health_paths = ["/health", "/health/chat", "/api/health/llm", "/api/llm/catalog"]
+    health_paths = [
+        "/health",
+        "/health/chat",
+        "/api/health/llm",
+        "/api/llm/catalog",
+    ]
     health_payloads: dict[str, dict[str, Any]] = {
         path: _json_response(
             f"{base_url}{path}",
@@ -726,13 +736,27 @@ def collect_runtime_provenance(
     ]
 
     backend_logs = _run_command_stdout(
-        [*compose_prefix, "logs", "--no-color", "--tail", "200", backend_service],
+        [
+            *compose_prefix,
+            "logs",
+            "--no-color",
+            "--tail",
+            "200",
+            backend_service,
+        ],
         cwd=repo_root,
         run_command=run_command,
         errors=errors,
     )
     worker_logs = _run_command_stdout(
-        [*compose_prefix, "logs", "--no-color", "--tail", "200", worker_service],
+        [
+            *compose_prefix,
+            "logs",
+            "--no-color",
+            "--tail",
+            "200",
+            worker_service,
+        ],
         cwd=repo_root,
         run_command=run_command,
         errors=errors,
@@ -765,7 +789,9 @@ def collect_runtime_provenance(
         "GET /health", health_payloads["/health"], required_status="ok"
     )
     worker_health_ok, worker_health_reason = _health_ok(
-        "GET /health/chat", health_payloads["/health/chat"], required_status="healthy"
+        "GET /health/chat",
+        health_payloads["/health/chat"],
+        required_status="healthy",
     )
     llm_health_ok, llm_health_reason = _health_ok(
         "GET /api/health/llm",
@@ -885,7 +911,8 @@ def collect_runtime_provenance(
                         if local_head_contains_required_lineage_commit is True
                         else (
                             f"local HEAD {local_head} does not contain {required_lineage_commit_resolved}"
-                            if local_head_contains_required_lineage_commit is False
+                            if local_head_contains_required_lineage_commit
+                            is False
                             else "required lineage check unavailable"
                         )
                     )
@@ -923,7 +950,9 @@ def collect_runtime_provenance(
                 )
                 is True,
                 "detail": str(
-                    backend.get("container_rebuilt_after_expected_commit_timestamp")
+                    backend.get(
+                        "container_rebuilt_after_expected_commit_timestamp"
+                    )
                 ),
             },
             {
@@ -933,7 +962,9 @@ def collect_runtime_provenance(
                 )
                 is True,
                 "detail": str(
-                    worker.get("container_rebuilt_after_expected_commit_timestamp")
+                    worker.get(
+                        "container_rebuilt_after_expected_commit_timestamp"
+                    )
                 ),
             },
         ]
@@ -987,14 +1018,15 @@ def _format_human_report(report: dict[str, Any]) -> str:
         f"{report.get('expected_commit_timestamp') or 'unavailable'}"
     )
     lines.append(
-        "  runtime_commit_source: "
-        f"{report.get('runtime_commit_source')}"
+        "  runtime_commit_source: " f"{report.get('runtime_commit_source')}"
     )
     for service_name in ("backend", "worker"):
         service = report.get(service_name) or {}
         lines.append(f"  {service_name}:")
         lines.append(f"    container_id: {service.get('container_id')}")
-        lines.append(f"    container_image_id: {service.get('container_image_id')}")
+        lines.append(
+            f"    container_image_id: {service.get('container_image_id')}"
+        )
         lines.append(
             "    container_created_at: "
             f"{service.get('container_created_at')}"
@@ -1013,8 +1045,7 @@ def _format_human_report(report: dict[str, Any]) -> str:
             f"{service.get('build_metadata_commit')}"
         )
         lines.append(
-            "    log_hint_commit: "
-            f"{service.get('log_hint_commit')}"
+            "    log_hint_commit: " f"{service.get('log_hint_commit')}"
         )
         lines.append(
             "    untrusted_log_hint_commit: "

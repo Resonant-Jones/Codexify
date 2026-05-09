@@ -144,7 +144,9 @@ def test_health_root_sanitizes_supported_profile_state(client, monkeypatch):
     try:
         _apply_supported_profile_local_runtime(settings)
         _install_supported_profile_manifest()
-        guardian_api._refresh_supported_profile_state(guardian_api.app, settings)
+        guardian_api._refresh_supported_profile_state(
+            guardian_api.app, settings
+        )
 
         response = client.get("/health")
         assert response.status_code == 200
@@ -203,7 +205,9 @@ def test_api_health_llm_exposes_selected_provider_alignment(
     try:
         _apply_supported_profile_local_runtime(settings)
         _install_supported_profile_manifest()
-        guardian_api._refresh_supported_profile_state(guardian_api.app, settings)
+        guardian_api._refresh_supported_profile_state(
+            guardian_api.app, settings
+        )
 
         response = client.get("/api/health/llm")
         assert response.status_code == 200
@@ -271,7 +275,9 @@ def test_api_health_llm_reports_cloud_capable_posture_as_release_hold(
         _install_supported_profile_manifest()
         settings.GROQ_API_KEY = "test-groq-key"
         settings.GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-        guardian_api._refresh_supported_profile_state(guardian_api.app, settings)
+        guardian_api._refresh_supported_profile_state(
+            guardian_api.app, settings
+        )
 
         response = client.get("/api/health/llm")
         assert response.status_code == 200

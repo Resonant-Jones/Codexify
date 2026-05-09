@@ -43,9 +43,7 @@ _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
 _THREAD_CANDIDATE_LIMIT = 500
 _PERSONAL_FACT_LIMIT = 12
 _WORKSPACE_RETRIEVAL_PROBE_TIMEOUT_SECONDS = 5.0
-_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV = (
-    "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE"
-)
+_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV = "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE"
 
 
 class EffectiveRetrievalPolicy(TypedDict):
@@ -201,6 +199,8 @@ def _build_policy_suppression_summary(
             "allow_global_widening": allow_global_widening,
         },
     }
+
+
 def _workspace_retrieval_probe_base_url() -> str | None:
     base_url = str(
         os.getenv(_WORKSPACE_RETRIEVAL_PROBE_BASE_URL_ENV) or ""
@@ -290,7 +290,9 @@ def _serialize_rag_trace_document(item: Any) -> dict[str, Any]:
     return {
         "id": str(item.get("id", "")) if isinstance(item, dict) else "",
         "title": str(
-            metadata.get("filename", "unknown") if isinstance(item, dict) else "unknown"
+            metadata.get("filename", "unknown")
+            if isinstance(item, dict)
+            else "unknown"
         ),
         "score": score,
         "snippet": (
@@ -302,9 +304,7 @@ def _serialize_rag_trace_document(item: Any) -> dict[str, Any]:
             item.get("source_type") or metadata.get("source_type") or ""
         ).strip()
         or None,
-        "role": str(
-            item.get("role") or metadata.get("role") or ""
-        ).strip()
+        "role": str(item.get("role") or metadata.get("role") or "").strip()
         or None,
         "thread_id": _coerce_int(
             item.get("thread_id") or metadata.get("thread_id")
@@ -684,9 +684,11 @@ class ContextBroker:
             base_policy,
             retrieval_override,
         )
-        policy_source_mode = str(
-            effective_policy.get("source_mode") or source_mode
-        ).strip().lower()
+        policy_source_mode = (
+            str(effective_policy.get("source_mode") or source_mode)
+            .strip()
+            .lower()
+        )
         if policy_source_mode == "thread":
             policy_source_mode = SOURCE_MODE_CONVERSATION
         effective_source_mode = normalize_source_mode(policy_source_mode)
@@ -1228,9 +1230,7 @@ class ContextBroker:
                     item
                     for item in context.get("semantic", [])
                     if isinstance(item, dict)
-                    and str(item.get("namespace") or "").startswith(
-                        "thread:"
-                    )
+                    and str(item.get("namespace") or "").startswith("thread:")
                 ]
             ),
             "obsidian_semantic": len(
@@ -1759,9 +1759,7 @@ class ContextBroker:
                 ).strip()
                 or "obsidian",
                 role=str(
-                    item.get("role")
-                    or metadata_copy.get("role")
-                    or "document"
+                    item.get("role") or metadata_copy.get("role") or "document"
                 ).strip()
                 or "document",
                 thread_id=_coerce_int(
@@ -1782,9 +1780,9 @@ class ContextBroker:
                 annotated_item["retrieval_lane"] = "connector_context"
                 annotated_item["connector_id"] = "obsidian"
                 annotated_item["context_command"] = True
-                annotated_item["context_request_kind"] = (
-                    "read_only_context_request"
-                )
+                annotated_item[
+                    "context_request_kind"
+                ] = "read_only_context_request"
                 annotated_item["metadata"] = metadata_copy
                 annotated_item["meta"] = meta_copy
                 annotated.append(annotated_item)
@@ -2045,22 +2043,30 @@ class ContextBroker:
         if not isinstance(metadata, dict):
             metadata = {}
 
-        role = str(
-            item.get("role")
-            or metadata.get("role")
-            or metadata.get("author_role")
-            or metadata.get("speaker_role")
-            or metadata.get("source_role")
-            or ""
-        ).strip().lower()
-        scope = str(
-            item.get("scope")
-            or metadata.get("scope")
-            or item.get("source")
-            or metadata.get("source")
-            or metadata.get("document_scope")
-            or ""
-        ).strip().lower()
+        role = (
+            str(
+                item.get("role")
+                or metadata.get("role")
+                or metadata.get("author_role")
+                or metadata.get("speaker_role")
+                or metadata.get("source_role")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
+        scope = (
+            str(
+                item.get("scope")
+                or metadata.get("scope")
+                or item.get("source")
+                or metadata.get("source")
+                or metadata.get("document_scope")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
         if role == "assistant":
             return 2
         if role == "user":
@@ -2157,7 +2163,9 @@ class ContextBroker:
             return [], WIDEN_REASON_NONE, diagnostics
 
         widen_reason = self._determine_widen_reason(primary_hits, k)
-        is_memory_search = getattr(search_fn, "__name__", "") == "_search_memory"
+        is_memory_search = (
+            getattr(search_fn, "__name__", "") == "_search_memory"
+        )
         primary_lane = "memory" if is_memory_search else "thread_semantic"
         primary_policy_reason = search_trace.get("reason") or "local_hits"
 
@@ -2192,17 +2200,9 @@ class ContextBroker:
                             or item.get("metadata", {}).get("role")
                             or item.get("metadata", {}).get("author_role")
                             or item.get("metadata", {}).get("speaker_role")
-                            or (
-                                "memory"
-                                if is_memory_search
-                                else "retrieval"
-                            )
+                            or ("memory" if is_memory_search else "retrieval")
                         ).strip()
-                        or (
-                            "memory"
-                            if is_memory_search
-                            else "retrieval"
-                        ),
+                        or ("memory" if is_memory_search else "retrieval"),
                         thread_id=source_thread_id,
                         project_id=project_id,
                         retrieval_lane=retrieval_lane,
@@ -2347,9 +2347,7 @@ class ContextBroker:
             )
             merged_hits = self._dedupe_retrieval_items(
                 [*merged_hits, *candidate_hits]
-            )[
-                :k
-            ]
+            )[:k]
             if len(merged_hits) >= k:
                 break
 

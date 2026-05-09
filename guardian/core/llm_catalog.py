@@ -26,9 +26,11 @@ from guardian.core.provider_registry import (
     get_provider_model_descriptors,
     normalize_model_id,
     normalize_provider,
-    resolve_model_capability_state as resolve_model_capability_state_registry,
-    resolve_provider_capability,
 )
+from guardian.core.provider_registry import (
+    resolve_model_capability_state as resolve_model_capability_state_registry,
+)
+from guardian.core.provider_registry import resolve_provider_capability
 from guardian.core.provider_registry import (
     resolve_provider_for_model as resolve_provider_for_model_registry,
 )
@@ -148,9 +150,11 @@ def resolve_model_vision_capability_state(
     resolved_settings = settings or get_settings()
     if provider == "local":
         try:
-            local_models, _endpoint_resolution, _resolution = (
-                _fetch_local_models(resolved_settings)
-            )
+            (
+                local_models,
+                _endpoint_resolution,
+                _resolution,
+            ) = _fetch_local_models(resolved_settings)
         except Exception:
             return None
         for item in local_models:
@@ -422,9 +426,7 @@ def _fetch_local_models(
         if source:
             entry["source"] = source
         entry["vision_capability_state"] = (
-            "supported"
-            if local_capabilities["supports_vision"]
-            else "unknown"
+            "supported" if local_capabilities["supports_vision"] else "unknown"
         )
         entry["runtime"] = describe_local_runtime(name, settings=settings)
         entries.append(entry)
@@ -632,8 +634,7 @@ def _provider_entry(
         settings,
         capability=provider_capability,
         discoverable=(
-            str(endpoint_resolution.get("state") or "").strip()
-            == "available"
+            str(endpoint_resolution.get("state") or "").strip() == "available"
             if endpoint_resolution is not None
             else str(
                 (capability.get("model_index") or {}).get("state") or ""

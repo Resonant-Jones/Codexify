@@ -109,7 +109,9 @@ def normalize_context_request_plan(raw_plan: Any) -> dict[str, Any] | None:
             "invocation": _SUPPORTED_INVOCATION,
             "query_text": query_text,
             "status": _SUPPORTED_STATUS,
-            "execution_required": bool(raw_plan.get("execution_required", False)),
+            "execution_required": bool(
+                raw_plan.get("execution_required", False)
+            ),
         }
 
     return None

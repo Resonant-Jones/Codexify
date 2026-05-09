@@ -27,13 +27,17 @@ def test_image_turn_refusal_history_is_skipped_only_when_images_exist() -> None:
         refusal_message,
         latest_user_meta,
     )
-    assert not chat_completion_service._should_skip_history_message_for_image_turn(
-        non_refusal_message,
-        latest_user_meta,
+    assert (
+        not chat_completion_service._should_skip_history_message_for_image_turn(
+            non_refusal_message,
+            latest_user_meta,
+        )
     )
-    assert not chat_completion_service._should_skip_history_message_for_image_turn(
-        refusal_message,
-        None,
+    assert (
+        not chat_completion_service._should_skip_history_message_for_image_turn(
+            refusal_message,
+            None,
+        )
     )
 
 
@@ -59,7 +63,10 @@ def test_image_turn_refusal_semantic_context_is_filtered() -> None:
         {"content": "plain text fallback", "label": "fallback"},
     ]
 
-    filtered, suppression = chat_completion_service._filter_image_refusal_semantic_context(
+    (
+        filtered,
+        suppression,
+    ) = chat_completion_service._filter_image_refusal_semantic_context(
         semantic_items,
         latest_user_meta,
     )
@@ -78,7 +85,10 @@ def test_non_image_turn_context_is_left_alone() -> None:
         {"content": "This chart looks like a rising trend.", "label": "signal"},
     ]
 
-    filtered, suppression = chat_completion_service._filter_image_refusal_semantic_context(
+    (
+        filtered,
+        suppression,
+    ) = chat_completion_service._filter_image_refusal_semantic_context(
         semantic_items,
         None,
     )
@@ -87,7 +97,9 @@ def test_non_image_turn_context_is_left_alone() -> None:
     assert suppression is None
 
 
-def test_image_turn_refusal_semantic_context_records_suppression_trace() -> None:
+def test_image_turn_refusal_semantic_context_records_suppression_trace() -> (
+    None
+):
     latest_user_meta = {
         "attachments": [
             {

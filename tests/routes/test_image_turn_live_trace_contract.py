@@ -6,8 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 from guardian.core.dependencies import RequestUserScope
-from guardian.protocol_tokens import ImageRoutingPath
-from guardian.protocol_tokens import TraceSnapshotAbsenceReason
+from guardian.protocol_tokens import (
+    ImageRoutingPath,
+    TraceSnapshotAbsenceReason,
+)
 from guardian.routes import chat
 
 
@@ -162,9 +164,12 @@ def test_live_rag_trace_exposes_image_turn_completion_metadata(monkeypatch):
     assert trace["retrieval_provenance"]["retrieval_status"] == (
         "workspace_local_success"
     )
-    assert trace["retrieval_suppression"]["counts_by_reason"][
-        "assistant_vision_refusal_on_image_turn"
-    ] == 1
+    assert (
+        trace["retrieval_suppression"]["counts_by_reason"][
+            "assistant_vision_refusal_on_image_turn"
+        ]
+        == 1
+    )
     assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
     assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
     assert trace["completion"]["selection_source"] == "LOCAL_LLM_MODEL"
@@ -269,9 +274,10 @@ def test_live_rag_trace_exposes_sanitized_policy_provenance_and_image_metadata(
     assert trace["retrieval_summary"]["graph_count"] == 1
     assert trace["retrieval_summary"]["source_mode"] == "workspace"
     assert trace["retrieval_summary"]["retrieval_target"] == "latest_turn"
-    assert trace["retrieval_summary"][
-        "retrieval_query_matches_latest_turn"
-    ] is True
+    assert (
+        trace["retrieval_summary"]["retrieval_query_matches_latest_turn"]
+        is True
+    )
     assert trace["retrieval_summary"]["source_hit_counts"] == {
         "semantic_total": 1,
         "thread_semantic": 0,
@@ -456,7 +462,10 @@ def test_live_rag_trace_promotes_containment_fields(monkeypatch):
     assert trace["retrieval_policy"] == retrieval_policy
     assert trace["retrieval_provenance"] == retrieval_provenance
     assert trace["retrieval_suppression"] == retrieval_suppression
-    assert trace["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    assert (
+        trace["image_routing_path"]
+        == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
     assert trace["image_routing_absence_reason"] is None
     assert trace["retrieval_executed"] is True
     assert trace["model_selection"] == model_selection
@@ -478,7 +487,9 @@ def test_live_rag_trace_returns_empty_surface_without_trace(
 
     chat._thread_latest_task[thread_id] = task_id
     monkeypatch.setattr(chat, "_fetch_thread_metadata", lambda _thread_id: {})
-    monkeypatch.setattr(chat, "_get_task_completed_payload", lambda _task_id: None)
+    monkeypatch.setattr(
+        chat, "_get_task_completed_payload", lambda _task_id: None
+    )
     monkeypatch.setattr(
         chat,
         "get_latest_eval_diagnostics",
@@ -559,7 +570,9 @@ def test_live_rag_trace_promotes_eval_snapshot_when_task_trace_missing(
 ):
     chat._thread_latest_task[103] = "task-103"
 
-    monkeypatch.setattr(chat, "_get_task_completed_payload", lambda _task_id: None)
+    monkeypatch.setattr(
+        chat, "_get_task_completed_payload", lambda _task_id: None
+    )
 
     snapshot_trace = {
         "retrieval_policy": {
@@ -635,8 +648,13 @@ def test_live_rag_trace_promotes_eval_snapshot_when_task_trace_missing(
 
     trace = chat.get_latest_rag_trace(103, api_key="test-key")
     assert trace["retrieval_policy"] == snapshot_trace["retrieval_policy"]
-    assert trace["retrieval_provenance"] == snapshot_trace["retrieval_provenance"]
-    assert trace["retrieval_suppression"] == snapshot_trace["retrieval_suppression"]
+    assert (
+        trace["retrieval_provenance"] == snapshot_trace["retrieval_provenance"]
+    )
+    assert (
+        trace["retrieval_suppression"]
+        == snapshot_trace["retrieval_suppression"]
+    )
     assert trace["retrieval_executed"] is True
     assert trace["image_routing_absence_reason"] == (
         "local_model_substitution_selected_nonvision_model"
@@ -774,8 +792,13 @@ def test_live_rag_trace_merges_eval_snapshot_into_minimal_task_trace(
 
     trace = chat.get_latest_rag_trace(104, api_key="test-key")
     assert trace["retrieval_policy"] == snapshot_trace["retrieval_policy"]
-    assert trace["retrieval_provenance"] == snapshot_trace["retrieval_provenance"]
-    assert trace["retrieval_suppression"] == snapshot_trace["retrieval_suppression"]
+    assert (
+        trace["retrieval_provenance"] == snapshot_trace["retrieval_provenance"]
+    )
+    assert (
+        trace["retrieval_suppression"]
+        == snapshot_trace["retrieval_suppression"]
+    )
     assert trace["retrieval_executed"] is True
     assert trace.get("retrieval_absence_reason") is None
     assert trace["image_routing_absence_reason"] == (
@@ -874,9 +897,12 @@ def test_live_rag_trace_falls_back_to_eval_snapshot(monkeypatch):
 
     trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
     assert trace["retrieval_policy"] == {"source_mode": "project"}
-    assert trace["retrieval_suppression"]["counts_by_reason"][
-        "assistant_vision_refusal_on_image_turn"
-    ] == 1
+    assert (
+        trace["retrieval_suppression"]["counts_by_reason"][
+            "assistant_vision_refusal_on_image_turn"
+        ]
+        == 1
+    )
     assert trace["image_routing_path"] == "interpreter"
     assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
     assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
@@ -944,7 +970,9 @@ def test_eval_diagnostics_route_promotes_snapshot_fields(monkeypatch):
             "verdicts": [],
         }
 
-    monkeypatch.setattr(chat, "get_latest_eval_diagnostics", _fake_get_latest_eval_diagnostics)
+    monkeypatch.setattr(
+        chat, "get_latest_eval_diagnostics", _fake_get_latest_eval_diagnostics
+    )
 
     scope = RequestUserScope(
         user_id="local",
@@ -971,7 +999,9 @@ def test_live_rag_trace_reports_empty_shell_reason_when_no_sources(monkeypatch):
         "get_latest_eval_diagnostics",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(chat, "_thread_trace_entry", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        chat, "_thread_trace_entry", lambda *args, **kwargs: None
+    )
 
     trace = chat.get_latest_rag_trace(thread_id, api_key="test-key")
     assert trace["documents"] == []

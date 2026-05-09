@@ -133,6 +133,8 @@ def test_default_user_bootstrap_does_not_seed_known_password(monkeypatch):
     assert user["id"] == "local"
     assert user["username"] == "local"
     assert not verify_password("local", user["password_hash"])
+
+
 def test_default_local_bootstrap_is_canonical_but_not_guessable(monkeypatch):
     monkeypatch.delenv("GUARDIAN_BOOTSTRAP_PASSWORD", raising=False)
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
@@ -143,7 +145,9 @@ def test_default_local_bootstrap_is_canonical_but_not_guessable(monkeypatch):
 
     from guardian.routes import auth as auth_routes
 
-    with patch.object(auth_routes, "load_guardian_db_from_env", return_value=auth_db):
+    with patch.object(
+        auth_routes, "load_guardian_db_from_env", return_value=auth_db
+    ):
         seeded_user = get_or_create_default_user(auth_db)
 
         assert seeded_user["id"] == "local"
@@ -172,14 +176,14 @@ def test_local_bootstrap_uses_operator_secret_when_provided(monkeypatch):
     from guardian import guardian_api
     from guardian.routes import auth as auth_routes
 
-    with patch.object(auth_routes, "load_guardian_db_from_env", return_value=auth_db):
+    with patch.object(
+        auth_routes, "load_guardian_db_from_env", return_value=auth_db
+    ):
         seeded_user = get_or_create_default_user(auth_db)
 
         assert seeded_user["id"] == "local"
         assert seeded_user["username"] == "local"
-        assert verify_password(
-            "operator-secret", seeded_user["password_hash"]
-        )
+        assert verify_password("operator-secret", seeded_user["password_hash"])
 
         client = TestClient(guardian_api.app)
         login_response = client.post(
