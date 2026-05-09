@@ -380,3 +380,41 @@ This proof does not prove:
 
 - The original 2026-05-08 PARTIAL verdict section above is preserved as historical truth.
 - This follow-up establishes code-level contract repair and test-level proof logic, but does **not** upgrade runtime verdict because live Compose verification was blocked by unrelated startup breakage.
+
+---
+
+## 2026-05-09 Synchronized-Tip Recheck (codex/refresh-currentstate-truth)
+
+**Branch:** `codex/refresh-currentstate-truth`
+**HEAD commit under test:** `bc2b672d2`
+**Runtime path:** Local Docker Compose (supported path)
+
+### Recheck scope
+
+- Re-run upload -> document readback -> embedding readiness -> retrieval evidence after syncing this branch to current `origin/main`.
+- Keep proof on supported HTTP surfaces only (`/api/media/upload/document`, `/api/documents/{id}`, `/api/chat/...`).
+- Do not treat DB inspection as release evidence.
+
+### Observed evidence
+
+- Upload succeeded via `POST /api/media/upload/document` with explicit identity fields:
+  - `id`: `727d621e-b1be-4439-bfbd-b073cd59edd4`
+  - `document_id`: `727d621e-b1be-4439-bfbd-b073cd59edd4`
+  - `media_asset_id`: `b92bcf39-b38c-4a11-b1af-a481e84cd4ff`
+- Supported readback succeeded via `GET /api/documents/{id}`:
+  - status `200`
+  - correct document identity returned
+  - embedding lifecycle fields present
+- Embedding readiness became observable:
+  - `embedding_status` transitioned to `ready`
+  - `embedding_started_at` and `embedding_completed_at` populated
+- Retrieval/chat sentinel evidence succeeded on the same thread:
+  - thread id: `1240`
+  - completion task id: `faf86495-fcfc-4bd5-b2c3-b07591906fb0`
+  - assistant response: `SYNC_TIP_SENTINEL_2026_05_08`
+  - sentinel confirmed in assistant output
+
+### Recheck verdict impact
+
+- For the synchronized tip under test (`bc2b672d2`), the upload -> embed -> retrieve seam is re-proven on the supported local Compose path.
+- This updates the upload/readback truth for this tip, but does **not** by itself claim full release readiness or erase other historical caveats in this artifact.
