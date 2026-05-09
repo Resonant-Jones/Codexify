@@ -1,5 +1,4 @@
-"""Default graph backend that intentionally performs no persistence."""
-"""Default no-op graph backend adapter."""
+"""Default no-op graph backend implementations."""
 
 from __future__ import annotations
 
@@ -8,6 +7,8 @@ from typing import Any
 from guardian.memory_graph.graph_backend import (
     GRAPH_BACKEND_KIND_NOOP,
     GRAPH_BACKEND_RESULT_STATUS_NOOP,
+    GRAPH_BACKEND_RESULT_STATUS_SKIPPED,
+    GraphBackendAdapter,
     GraphBackendWriteResult,
 )
 
@@ -34,13 +35,6 @@ class NoOpGraphBackend:
             metadata={"reason": "graph_writes_disabled"},
         )
 
-
-__all__ = ["NoOpGraphBackend"]
-    GRAPH_BACKEND_RESULT_STATUS_NOOP,
-    GRAPH_BACKEND_RESULT_STATUS_SKIPPED,
-    GraphBackendAdapter,
-    GraphBackendWriteResult,
-)
 
 _NOOP_GRAPH_BACKEND_ADAPTER: GraphBackendAdapter | None = None
 
@@ -101,4 +95,8 @@ def get_graph_backend_adapter() -> GraphBackendAdapter:
     return _NOOP_GRAPH_BACKEND_ADAPTER
 
 
-__all__ = ["NoopGraphBackendAdapter", "get_graph_backend_adapter"]
+__all__ = [
+    "NoOpGraphBackend",
+    "NoopGraphBackendAdapter",
+    "get_graph_backend_adapter",
+]

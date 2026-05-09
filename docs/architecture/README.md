@@ -50,11 +50,14 @@ If you are working on continuity governance, working-set decay, or import-aware 
 
 If you are working on the continuity control plane itself, including scope, intensity, decay, import treatment, exclusions, inspection, and reset semantics, continue with [`ADR-016: Continuity Governance Surface Contract`](./adr/016-continuity-governance-surface-contract.md) after ADR-015. That ADR defines the user-governed surface that configures continuity behavior without collapsing it into persona ownership or deep identity consent.
 
+If you are working on Pi SDK integration, external coding-agent harnesses, or Pi-like execution, start with [`Pi Invocation Boundary Contract`](./pi-invocation-boundary-contract.md) and then apply Guardian-mediated coding-agent execution doctrine (ADR-020 when present in this repo lineage). Treat provider/model integration (including Minimax) as a separate provider-lane concern.
 If you are working on graph-write replay safety or receipt semantics for the inspection-only graph lane, continue with [`ADR-017: Graph Write Idempotency and Receipt Semantics`](./adr/017-graph-write-idempotency-and-receipt-semantics.md) after ADR-011. That ADR defines deterministic graph-write identity and ephemeral receipt claims without introducing graph truth.
 
 If you are working on the latest graph-write inspection snapshot surface or its debug route, continue with [`ADR-018: Graph Write Inspection Surface`](./adr/018-graph-write-inspection-surface.md) after ADR-017. That ADR defines the latest-per-thread operator snapshot without promoting graph truth.
 
 If you are working on the backend graph adapter seam or the no-op default implementation, continue with [`ADR-019: Graph Backend Adapter Contract`](./adr/019-graph-backend-adapter-contract.md) after ADR-018. That ADR defines the typed persistence seam without changing the current inspection-only runtime.
+
+If you are working on the graph-write runtime flag boundary, default-off enforcement on the supported Compose path, or the factory selection contract, continue with [`ADR-026: Graph Write Runtime Flag Boundary on Supported Compose Path`](./adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md) after ADR-019. That ADR repairs the runtime/config boundary so the documented default-off contract is actually enforced.
 
 ## KB Validity and Diagram Source Sets
 
@@ -104,6 +107,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Search-as-RAG Provider Adapter Contract](./web-search-provider-adapter-contract.md): architecture/specification contract for future Search-as-RAG provider adapters; not current runtime support.
 - [Web Evidence Intake Gate Contract](./web-evidence-intake-gate-contract.md): future pre-synthesis safety and provenance gate for web-derived evidence; not current runtime support.
 - [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md): canonical architecture note for bounded generated extensions, plugin forge flow, and sovereignty boundaries.
+- [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): canonical boundary for future Guardian-mediated invocation of Pi-like external coding-agent harnesses, including command authority, result return, lineage, and provider-lane separation.
 - [ADR-020 Guardian Mediated Coding Agent Execution Contract](./adr/020-guardian-mediated-coding-agent-execution-contract.md): contract-only seam for Guardian-mediated coding-agent requests and results, including future Pi SDK adapters.
 - [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): Codexify-native boundary contract for future Pi-like harness invocation, Guardian ownership, provider-lane separation, and bounded result return.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
@@ -114,6 +118,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Neo4j Graph Backend Adapter Flagged Off By Default ADR](./adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md): first real graph persistence adapter behind explicit default-off runtime selection.
 - [Graph Write Inspection Surface](./adr/018-graph-write-inspection-surface.md): latest-per-thread graph-write inspection snapshots for operator/debug visibility, ephemeral and non-canonical.
 - [Graph Backend Adapter Contract](./adr/019-graph-backend-adapter-contract.md): typed graph backend seam with a default no-op implementation, mounted after inspection.
+- [Graph Write Runtime Flag Boundary](./adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md): default-off graph-write runtime boundary enforcement on the supported Docker Compose path.
 - [Delegation Runtime Contract](./delegation-runtime.md): current delegation seam, runtime contract, and source-thread provenance rules.
 - [Delegation Operator Manual](./delegation-operator-manual.md): operator procedure for supervised delegation, recovery, and summary persistence.
 - [Chat Runtime Gap Analysis](./chat-runtime-gap-analysis.md): companion note explaining why the runtime contract exists and which ambiguity classes it is intended to shrink.

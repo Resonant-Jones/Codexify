@@ -121,6 +121,19 @@ This adapter seam is deliberately inert in the current phase:
 The adapter contract exists so later graph persistence can attach to a stable
 typed seam without changing the current inspection-only behavior.
 
+### Runtime gate for graph backend selection
+
+Graph backend selection is runtime-gated and default-off on the supported
+Docker Compose path. The factory in
+`guardian/memory_graph/graph_backend_factory.py` returns
+`NoopGraphBackendAdapter` unless both:
+
+- `CODEXIFY_ENABLE_GRAPH_WRITES=true`
+- `CODEXIFY_GRAPH_BACKEND=neo4j`
+
+Neo4j container presence alone does not enable graph writes. Invalid backend
+values or missing flags fail closed to noop.
+
 ## Graph-Write Task Hand-Off
 
 Candidate ingest now hands non-empty graph candidates to a dedicated

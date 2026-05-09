@@ -1,4 +1,3 @@
-"""Graph backend adapter contract for derived graph-write tasks."""
 """Typed adapter contract for future graph persistence backends."""
 
 from __future__ import annotations
@@ -22,20 +21,10 @@ GRAPH_BACKEND_RESULT_STATUS_FAILED = "failed"
 @dataclass(frozen=True)
 class GraphBackendWriteResult:
     status: str
-    backend_kind: str
-    graph_write_id: str
-    node_count: int = 0
-    edge_count: int = 0
-GRAPH_BACKEND_RESULT_STATUS_NOOP = "noop"
-GRAPH_BACKEND_RESULT_STATUS_SKIPPED = "skipped"
-
-
-@dataclass
-class GraphBackendWriteResult:
-    status: str
     graph_write_id: str
     node_count: int
     edge_count: int
+    backend_kind: str = ""
     warnings: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -46,6 +35,8 @@ class GraphBackendAdapter(Protocol):
     def write_graph_candidates(
         self, graph_write_task: dict[str, Any]
     ) -> GraphBackendWriteResult:
+        ...
+
     def write_graph_task(self, task: dict) -> GraphBackendWriteResult:
         ...
 
@@ -58,8 +49,6 @@ __all__ = [
     "GRAPH_BACKEND_RESULT_STATUS_SKIPPED",
     "GRAPH_BACKEND_RESULT_STATUS_WRITTEN",
     "SUPPORTED_GRAPH_BACKEND_KINDS",
-    "GRAPH_BACKEND_RESULT_STATUS_NOOP",
-    "GRAPH_BACKEND_RESULT_STATUS_SKIPPED",
     "GraphBackendAdapter",
     "GraphBackendWriteResult",
 ]

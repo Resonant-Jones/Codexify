@@ -1,27 +1,37 @@
-# Daily Audit — 2026-05-06
+# Daily Audit — 2026-05-08
 
 ## Repo Status
-- Date: 2026-05-06
+- Date: 2026-05-08
 - Phase: `evening`
-- Branch: `detached@e20f3aa`
-- HEAD: `e20f3aacd0f01126ff33c77ed524b477fad11ba8`
-- Worktree: clean
+- Branch: `codex/run-readiness-audit`
+- HEAD: `6e0fca808c3e48d8d543da2499cdb181c4107de4`
+- Worktree: dirty
+- Status lines:
+  - `M  docs/architecture/2026-05-08-supported-profile-live-proof.md`
+  - `M  docs/architecture/flows.md`
+  - `MM guardian/db/models.py`
+  - `M  guardian/routes/documents.py`
+  - `M  guardian/routes/media.py`
+  - `M  guardian/workers/document_embed_worker.py`
+  - `M  tests/proofs/test_supported_profile_live_proof_contract.py`
+  - `M  tests/routes/test_documents.py`
+  - `M  tests/routes/test_media_upload.py`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
 - Attempted commands:
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/9763/Codexify/scripts/audit_platform_readiness.py --json` -> exit 1 (json probe)
-  - `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/9763/Codexify/scripts/audit_platform_readiness.py` -> exit 1 (plain)
-- Summary counts: PASS 38, WARN 12, FAIL 1
-- Strongest evidence: `Core Loop Integrity`, `Primitive Stability`, `Observability`
-- Weakest signals: `Extension Boundary`, `Federation Readiness`, `Governance Readiness`
+  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json` -> exit 0 (json probe)
+  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
+- Summary counts: PASS 42, WARN 12, FAIL 0
+- Strongest evidence: `Extension Boundary`, `Core Loop Integrity`, `Primitive Stability`
+- Weakest signals: `Federation Readiness`, `Governance Readiness`, `Alternate Surface Readiness`
 
 ### Current Suggested Score Bands
 | Domain | Band |
 | --- | --- |
 | `Core Loop Integrity` | 1-2 likely |
 | `Primitive Stability` | 1-2 likely |
-| `Extension Boundary` | 0-1 likely |
+| `Extension Boundary` | 1-2 likely |
 | `Observability` | 1-2 likely |
 | `Durability & Recovery` | 1-2 likely |
 | `Alternate Surface Readiness` | manual review required |
@@ -45,38 +55,44 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 16
-- Unique files changed: 33
-- Files changed: `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/sidebar/ThreadList.tsx`, `frontend/src/components/sidebar/__tests__/ThreadList.test.tsx`, `guardian/core/graph_write_inspection_store.py`, `tests/routes/test_graph_write_inspection.py`, `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/routes/health.py`, `guardian/server/app.py`, `tests/server/test_core_route_wiring.py`, `.playwright-mcp/page-2026-05-06T16-49-35-311Z.yml`, `.playwright-mcp/page-2026-05-06T17-15-15-134Z.yml`, `docs/DEV_LOG/2026-05-05/Dev Log - 2026-05-05`, `frontend/src/features/workspace/components/WorkspaceDrawer.tsx`, `guardian/core/chat_completion_service.py`, `guardian/core/llm_catalog.py`, `guardian/routes/chat.py`, `tests/core/test_chat_completion_service_image_routing.py`, `tests/providers/test_vision_capability_validation.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py`, `guardian/core/provider_truth.py`, `guardian/tests/core/test_provider_truth.py`, `guardian/tests/test_health_endpoints.py`, `docs/architecture/runtime-protocol-token-contract.md`, `guardian/core/ai_router.py`, `guardian/protocol_tokens.py`, `tests/contracts/test_protocol_tokens.py`, `docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md`, `docs/architecture/00-current-state.md`, `docs/architecture/2026-05-05-coding-result-return-path-live-proof.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/flows.md`
+- Commit count: 19
+- Unique files changed: 51
+- Files changed: `guardian/core/chat_completion_service.py`, `tests/core/test_chat_completion_service_model_selection_trace.py`, `docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md`, `guardian/routes/chat.py`, `guardian/memory_graph/graph_backend.py`, `tests/memory_graph/test_graph_backend_adapter.py`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/persona/layout/__tests__/AppShell.test.tsx`, `frontend/src/hooks/useUploader.ts`, `docs/audits/daily/evening/2026-05-08-audit.json`, `docs/audits/daily/evening/2026-05-08-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/architecture/00-current-state.md`, `docs/architecture/2026-05-08-supported-profile-live-proof.md`, `docker-compose.yml`, `docs/architecture/README.md`, `docs/architecture/adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/candidate-ingest-pipeline.md`, `docs/architecture/config-and-ops.md`, `docs/architecture/memory-graph-indexing-plan.md`, `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py`, `guardian/workers/graph_write_worker.py`, `tests/memory_graph/test_graph_backend_factory.py`, `tests/workers/test_graph_write_worker.py`, `docs/proofs/2026-05-07-neo4j-graph-backend-live-proof.md`, `docs/proofs/2026-05-07-platform-readiness-audit-extension-boundary-proof.md`, `scripts/audit_platform_readiness.py`, `tests/scripts/test_audit_platform_readiness.py`, `docs/architecture/adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md`, `guardian/memory_graph/neo4j_graph_backend.py`, `guardian/memory_graph/noop_graph_backend.py`, `tests/memory_graph/test_neo4j_graph_backend.py`, `docs/architecture/self-extending-agent-plugin-system.md`, `guardian/extensions/contracts.py`, `guardian/extensions/reentry.py`, `guardian/extensions/tokens.py`, `tests/extensions/test_capability_one_turn_reentry.py`, `docs/DEV_LOG/2026-05-07/Dev Log - 2026-05-07`, `docs/architecture/flows.md`, `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`, `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `tests/context/test_retrieval_trace_provenance.py`, `tests/contracts/test_protocol_tokens.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py`, `guardian/context/broker.py`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `e20f3aacd0f0` | Remove nested card layer from Guardian surfaces | `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/sidebar/ThreadList.tsx` |
-| `e63d3a6583de` | Finish Guardian thread rail visual cleanup | `frontend/src/components/sidebar/ThreadList.tsx`, `frontend/src/components/sidebar/__tests__/ThreadList.test.tsx` |
-| `39077c784321` | Bound graph-write adapter failure messages at store boundary | `guardian/core/graph_write_inspection_store.py`, `tests/routes/test_graph_write_inspection.py` |
-| `18908e99ba60` | docs: rerun image-turn containment proof after origin bridge | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
-| `cd7521264c30` | Finish Guardian thread rail visual cleanup | `frontend/src/components/sidebar/ThreadList.tsx`, `frontend/src/components/sidebar/__tests__/ThreadList.test.tsx` |
-| `25c2ca5f631b` | Restore health and media routes in server app | `guardian/routes/health.py`, `guardian/server/app.py`, `tests/server/test_core_route_wiring.py` |
-| `0334761d700e` | Restore compact Guardian thread rail tiles | `frontend/src/components/sidebar/ThreadList.tsx`, `frontend/src/components/sidebar/__tests__/ThreadList.test.tsx` |
-| `1e53ba27649a` | Repair Guardian thread rail tile regression | `.playwright-mcp/page-2026-05-06T16-49-35-311Z.yml`, `.playwright-mcp/page-2026-05-06T17-15-15-134Z.yml`, `docs/DEV_LOG/2026-05-05/Dev Log - 2026-05-05`, `frontend/src/components/sidebar/ThreadList.tsx`, `frontend/src/components/sidebar/__tests__/ThreadList.test.tsx`, `frontend/src/features/workspace/components/WorkspaceDrawer.tsx` |
-| `aa6a76b2d0b2` | runtime: propagate image routing truth on live turns | `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/core/chat_completion_service.py`, `guardian/core/llm_catalog.py`, `guardian/routes/chat.py`, `tests/core/test_chat_completion_service_image_routing.py`, `tests/providers/test_vision_capability_validation.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py` |
-| `81181082010c` | Remove nested card layer from Guardian surfaces | `frontend/src/components/sidebar/ThreadList.tsx`, `frontend/src/components/sidebar/__tests__/ThreadList.test.tsx`, `frontend/src/features/workspace/components/WorkspaceDrawer.tsx` |
-| `1174a32c5e59` | docs: rerun image-turn containment proof after native routing truth | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
-| `ee3f2adf02e5` | Exclude default cloud bases from release-hold checks | `guardian/core/provider_truth.py`, `guardian/routes/health.py`, `guardian/tests/core/test_provider_truth.py`, `guardian/tests/test_health_endpoints.py` |
-| `a10c11b5eb85` | runtime: stamp native image routing truth | `docs/architecture/runtime-protocol-token-contract.md`, `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/core/ai_router.py`, `guardian/core/chat_completion_service.py`, `guardian/protocol_tokens.py`, `tests/contracts/test_protocol_tokens.py`, `tests/core/test_chat_completion_service_image_routing.py`, `tests/providers/test_vision_capability_validation.py`, `tests/routes/test_image_turn_live_trace_contract.py` |
-| `be0f09f6624f` | docs(proof): capture coding-result return path proof status | `docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md`, `docs/architecture/00-current-state.md`, `docs/architecture/2026-05-05-coding-result-return-path-live-proof.md` |
-| `dec45fb563e7` | docs: rerun image-turn containment proof after promotion fix | `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
-| `1d9fc88f8009` | runtime: promote containment trace and image routing absence | `docs/architecture/completion_pipeline.md`, `docs/architecture/flows.md`, `docs/architecture/runtime-protocol-token-contract.md`, `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/core/chat_completion_service.py`, `guardian/protocol_tokens.py`, `guardian/routes/chat.py`, `tests/contracts/test_protocol_tokens.py`, `tests/core/test_chat_completion_service_image_routing.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py` |
+| `6e0fca808c3e` | fix(chat): repair model selection trace helper invocation on main | `guardian/core/chat_completion_service.py`, `tests/core/test_chat_completion_service_model_selection_trace.py` |
+| `135d7ed64cdd` | docs(proof): re-run neo4j graph backend live proof after runtime boundary fix | `docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md` |
+| `8654bcc22d18` | docs(proof): re-run neo4j graph backend live proof after runtime boundary fix | `docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md`, `guardian/core/chat_completion_service.py`, `guardian/routes/chat.py` |
+| `f947a407201d` | fix: repair graph backend syntax errors and merge conflicts | `guardian/memory_graph/graph_backend.py`, `tests/memory_graph/test_graph_backend_adapter.py` |
+| `ba47588bd3fe` | Merge remote-tracking branch 'origin/main' into main | `guardian/memory_graph/graph_backend.py` |
+| `dd8fd19233a4` | Harden stored general project context | `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/persona/layout/__tests__/AppShell.test.tsx`, `frontend/src/hooks/useUploader.ts` |
+| `8b6eb383909f` | docs: capture fresh platform readiness audit | `docs/audits/daily/evening/2026-05-08-audit.json`, `docs/audits/daily/evening/2026-05-08-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `a5881aefa3b8` | docs: add 2026-05-08 supported profile live proof (PARTIAL) | `docs/architecture/00-current-state.md`, `docs/architecture/2026-05-08-supported-profile-live-proof.md` |
+| `9ca4caf56973` | fix: enforce default-off graph write runtime boundary on compose path | `docker-compose.yml`, `docs/architecture/README.md`, `docs/architecture/adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/candidate-ingest-pipeline.md`, `docs/architecture/config-and-ops.md`, `docs/architecture/memory-graph-indexing-plan.md`, `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py`, `guardian/workers/graph_write_worker.py`, `tests/memory_graph/test_graph_backend_factory.py`, `tests/workers/test_graph_write_worker.py` |
+| `8cbf733c96dd` | docs(proof): capture live neo4j graph backend proof behind explicit flag | `docs/proofs/2026-05-07-neo4j-graph-backend-live-proof.md` |
+| `ae1ee8f9f5b8` | fix: align readiness audit extension boundary checks | `docs/proofs/2026-05-07-platform-readiness-audit-extension-boundary-proof.md`, `scripts/audit_platform_readiness.py`, `tests/scripts/test_audit_platform_readiness.py` |
+| `1ae2bcb31c7e` | feat: add feature-flagged neo4j graph backend behind adapter seam | `docs/architecture/README.md`, `docs/architecture/adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/candidate-ingest-pipeline.md`, `docs/architecture/config-and-ops.md`, `docs/architecture/memory-graph-indexing-plan.md`, `guardian/core/config.py`, `guardian/memory_graph/graph_backend.py`, `guardian/memory_graph/graph_backend_factory.py`, `guardian/memory_graph/neo4j_graph_backend.py`, `guardian/memory_graph/noop_graph_backend.py`, `guardian/workers/graph_write_worker.py`, `tests/memory_graph/test_graph_backend_adapter.py`, `tests/memory_graph/test_graph_backend_factory.py`, `tests/memory_graph/test_neo4j_graph_backend.py`, `tests/workers/test_graph_write_worker.py` |
+| `c9427bb2f815` | feat: add one-turn assistant reentry seam | `docs/architecture/self-extending-agent-plugin-system.md`, `guardian/core/chat_completion_service.py`, `guardian/extensions/contracts.py`, `guardian/extensions/reentry.py`, `guardian/extensions/tokens.py`, `tests/extensions/test_capability_one_turn_reentry.py` |
+| `dffb8f66a49d` | fix: repair chat route trace evidence block | `guardian/routes/chat.py` |
+| `f2dc2d93e2a6` | Capture workspace obsidian e2e proof | `docs/DEV_LOG/2026-05-07/Dev Log - 2026-05-07` |
+| `09a6ceeca943` | docs(proof): capture workspace obsidian e2e proof | `docs/architecture/00-current-state.md`, `docs/architecture/flows.md`, `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md` |
+| `b04f9ec52bd3` | tests: repair image-turn regression syntax gate | `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `guardian/core/chat_completion_service.py`, `guardian/routes/chat.py`, `tests/context/test_retrieval_trace_provenance.py`, `tests/contracts/test_protocol_tokens.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py` |
+| `09d849af87ae` | docs(proof): capture workspace obsidian e2e proof | `docs/architecture/00-current-state.md`, `docs/architecture/flows.md`, `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md` |
+| `9f083c7141c6` | fix: repair context broker result filtering block | `guardian/context/broker.py` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
 | `chat` | 1 | `guardian/routes/chat.py` |
-| `docs` | 8 | `docs/proofs/2026-05-04-image-turn-containment-proof.md`, `docs/DEV_LOG/2026-05-05/Dev Log - 2026-05-05`, `docs/architecture/runtime-protocol-token-contract.md`, `docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md`, `docs/architecture/00-current-state.md`, `docs/architecture/2026-05-05-coding-result-return-path-live-proof.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/flows.md` |
-| `providers` | 5 | `guardian/core/llm_catalog.py`, `tests/providers/test_vision_capability_validation.py`, `guardian/core/provider_truth.py`, `guardian/tests/core/test_provider_truth.py`, `guardian/core/ai_router.py` |
-| `frontend` | 5 | `frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx`, `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/sidebar/ThreadList.tsx`, `frontend/src/components/sidebar/__tests__/ThreadList.test.tsx`, `frontend/src/features/workspace/components/WorkspaceDrawer.tsx` |
-| `tests` | 7 | `tests/routes/test_graph_write_inspection.py`, `tests/server/test_core_route_wiring.py`, `tests/core/test_chat_completion_service_image_routing.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py`, `guardian/tests/test_health_endpoints.py`, `tests/contracts/test_protocol_tokens.py` |
-| `unknown` | 7 | `guardian/core/graph_write_inspection_store.py`, `guardian/routes/health.py`, `guardian/server/app.py`, `.playwright-mcp/page-2026-05-06T16-49-35-311Z.yml`, `.playwright-mcp/page-2026-05-06T17-15-15-134Z.yml`, `guardian/core/chat_completion_service.py`, `guardian/protocol_tokens.py` |
+| `docs` | 16 | `docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md`, `docs/architecture/00-current-state.md`, `docs/architecture/2026-05-08-supported-profile-live-proof.md`, `docs/architecture/README.md`, `docs/architecture/adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md`, `docs/architecture/adr/adr-index.md`, `docs/architecture/config-and-ops.md`, `docs/architecture/memory-graph-indexing-plan.md`, `docs/proofs/2026-05-07-neo4j-graph-backend-live-proof.md`, `docs/proofs/2026-05-07-platform-readiness-audit-extension-boundary-proof.md`, `docs/architecture/adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md`, `docs/architecture/self-extending-agent-plugin-system.md`, `docs/DEV_LOG/2026-05-07/Dev Log - 2026-05-07`, `docs/architecture/flows.md`, `docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md`, `docs/proofs/2026-05-04-image-turn-containment-proof.md` |
+| `audit` | 8 | `docs/audits/daily/evening/2026-05-08-audit.json`, `docs/audits/daily/evening/2026-05-08-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `scripts/audit_platform_readiness.py`, `tests/scripts/test_audit_platform_readiness.py` |
+| `config` | 1 | `guardian/core/config.py` |
+| `ingestion` | 1 | `docs/architecture/candidate-ingest-pipeline.md` |
+| `frontend` | 3 | `frontend/src/components/persona/layout/AppShell.tsx`, `frontend/src/components/persona/layout/__tests__/AppShell.test.tsx`, `frontend/src/hooks/useUploader.ts` |
+| `tests` | 10 | `tests/core/test_chat_completion_service_model_selection_trace.py`, `tests/memory_graph/test_graph_backend_adapter.py`, `tests/memory_graph/test_graph_backend_factory.py`, `tests/workers/test_graph_write_worker.py`, `tests/memory_graph/test_neo4j_graph_backend.py`, `tests/extensions/test_capability_one_turn_reentry.py`, `tests/context/test_retrieval_trace_provenance.py`, `tests/contracts/test_protocol_tokens.py`, `tests/routes/test_chat_profile_trace.py`, `tests/routes/test_image_turn_live_trace_contract.py` |
+| `infra` | 1 | `docker-compose.yml` |
+| `unknown` | 10 | `guardian/core/chat_completion_service.py`, `guardian/memory_graph/graph_backend.py`, `guardian/memory_graph/graph_backend_factory.py`, `guardian/workers/graph_write_worker.py`, `guardian/memory_graph/neo4j_graph_backend.py`, `guardian/memory_graph/noop_graph_backend.py`, `guardian/extensions/contracts.py`, `guardian/extensions/reentry.py`, `guardian/extensions/tokens.py`, `guardian/context/broker.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
@@ -85,8 +101,16 @@
 - `sync_not_durable`: Sync subscriptions are still process-local rather than durable across restarts. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`, `docs/architecture/data-and-storage.md`
 - `federation_high_blast_radius`: Federation remains sensitive to trust policy, feature flags, and egress behavior. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
 
-## Manual Notes
-- Finished today: 
-- Blocked: 
-- Next priority: 
+## Notable Change From Prior Audit
+- Extension Boundary no longer fails solely because legacy `guardian/routes/tools.py` is absent; this run records `FAIL 0`.
+- `--json` remains unsupported by `scripts/audit_platform_readiness.py` in this checkout (the `--json` probe returned non-JSON text), so this capture stays in `text_fallback` mode.
+- No release-promise widening is implied by this capture.
 
+## Manual Review Summary
+- Domains requiring human review: `Alternate Surface Readiness`, `Governance Readiness`
+- Primary cautions: federation remains high-blast-radius and config-sensitive; sync subscriptions remain process-local; observability docs still carry unverified logging guarantees.
+
+## Manual Notes
+- Finished today: Captured fresh 2026-05-08 evening readiness artifacts after Extension Boundary audit repair and updated latest pointers.
+- Blocked: `scripts/audit_platform_readiness.py --json` returned non-JSON text output; JSON capture remains via fallback schema.
+- Next priority: Keep current-state/release truth synchronized with future readiness deltas, especially if any new FAIL appears.

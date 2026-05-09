@@ -1885,10 +1885,13 @@ def _run_chat_completion_task_compat(
         "payload_summary": payload_summary,
     }
     if isinstance(completion_result, dict):
+        helper_tool_loop_execution = completion_result.get("execution")
         helper_payload_summary = completion_result.get("payload_summary")
         if isinstance(helper_payload_summary, dict):
             payload_summary.update(helper_payload_summary)
             result["payload_summary"] = payload_summary
+        if helper_tool_loop_execution is not None:
+            result["tool_loop_execution"] = helper_tool_loop_execution
         for key in (
             "messageId",
             "requestId",
@@ -1908,6 +1911,9 @@ def _run_chat_completion_task_compat(
             value = completion_result.get(key)
             if value is not None:
                 result[key] = value
+        if helper_tool_loop_execution is not None:
+            payload_summary["tool_loop_execution"] = helper_tool_loop_execution
+        payload_summary["execution"] = execution
         if completion_result.get("execution") is not None:
             result["execution"] = completion_result.get("execution")
 
@@ -2007,6 +2013,8 @@ def _run_chat_completion_task_compat(
                 "message_id": message_id,
                 "provider": final_provider,
                 "model": final_model,
+                "execution": execution,
+                "tool_loop_execution": result.get("tool_loop_execution"),
                 **tool_loop_observability,
             },
         )
@@ -2042,6 +2050,7 @@ def _run_chat_completion_task_compat(
                     "image_routing_absence_reason"
                 ),
                 "execution": execution,
+                "tool_loop_execution": result.get("tool_loop_execution"),
                 **tool_loop_observability,
             },
         )
@@ -2566,10 +2575,10 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                     "image_routing_absence_reason"
                 ),
                 "execution": result.get("execution"),
+                "tool_loop_execution": result.get("tool_loop_execution"),
                 "persistence_outcome": result.get("persistence_outcome"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
-                "tool_loop": result.get("tool_loop"),
                 "payload_summary": result.get("payload_summary"),
                 "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_query": result_retrieval_query,

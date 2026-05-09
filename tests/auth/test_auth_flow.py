@@ -119,6 +119,20 @@ def test_login_and_authenticated_request(monkeypatch):
         )
 
 
+def test_default_user_bootstrap_does_not_seed_known_password(monkeypatch):
+    from guardian.core import user_manager as user_manager_module
+
+    monkeypatch.setattr(
+        user_manager_module,
+        "load_guardian_db_from_env",
+        lambda: None,
+    )
+
+    user = get_or_create_default_user()
+
+    assert user["id"] == "local"
+    assert user["username"] == "local"
+    assert not verify_password("local", user["password_hash"])
 def test_default_local_bootstrap_is_canonical_but_not_guessable(monkeypatch):
     monkeypatch.delenv("GUARDIAN_BOOTSTRAP_PASSWORD", raising=False)
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")

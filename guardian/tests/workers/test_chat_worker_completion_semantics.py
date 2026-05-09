@@ -407,15 +407,10 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
         else None,
     )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(
-        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *a, **k: "rescued locally",
     )
 
     def _chat_with_ai(_messages, *, model=None, provider=None, **_kwargs):
@@ -458,6 +453,14 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
         "final_model": "qwen3.5:27b",
         "fallback_triggered": True,
     }
+    assert result["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
+    }
     assert result["completion_truth"] == {
         "accepted": True,
         "attempted": True,
@@ -474,6 +477,31 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
         "final_provider": "local",
         "final_model": "qwen3.5:27b",
         "fallback_triggered": True,
+    }
+    assert persisted_extra_meta["payload"]["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
+    }
+    assert persisted_extra_meta["payload"]["payload_summary"]["execution"] == {
+        "attempted_provider": "groq",
+        "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": True,
+    }
+    assert persisted_extra_meta["payload"]["payload_summary"][
+        "tool_loop_execution"
+    ] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
     }
 
 
@@ -506,16 +534,11 @@ def test_completion_result_includes_execution_metadata_without_fallback(
             {},
         )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
     monkeypatch.setattr(
-        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *a, **k: "ready",
     )
     monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
 
@@ -536,12 +559,28 @@ def test_completion_result_includes_execution_metadata_without_fallback(
         "final_model": "qwen3.5:27b",
         "fallback_triggered": False,
     }
+    assert result["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
+    }
     assert persisted_extra_meta["payload"]["execution"] == {
         "attempted_provider": "local",
         "attempted_model": "qwen3.5:27b",
         "final_provider": "local",
         "final_model": "qwen3.5:27b",
         "fallback_triggered": False,
+    }
+    assert persisted_extra_meta["payload"]["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
     }
 
 

@@ -40,6 +40,7 @@ def _load_document(db: GuardianDB, doc_id: str) -> dict[str, Any] | None:
             return None
         return {
             "id": doc.id,
+            "asset_id": doc.asset_id,
             "parsed_text": doc.parsed_text,
             "filename": doc.filename,
             "user_id": doc.user_id,
@@ -80,6 +81,7 @@ def _build_chunk_metadata(
         "source": "document",
         "filename": doc.get("filename"),
         "doc_id": doc.get("id"),
+        "media_asset_id": doc.get("asset_id"),
         "user_id": doc.get("user_id"),
         "project_id": doc.get("project_id"),
         "thread_id": doc.get("thread_id"),

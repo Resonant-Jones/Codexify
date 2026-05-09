@@ -162,17 +162,22 @@ python scripts/proofs/prove_workspace_obsidian_e2e.py
 | Variable | Current behavior | Anchors |
 |---|---|---|
 | `GUARDIAN_ENABLE_GRAPH_CONTEXT` | Enables graph snippets during context assembly | `guardian/context/broker.py`, `guardian/core/config.py` |
-| `CODEXIFY_ENABLE_GRAPH_WRITES` | Explicit default-off gate for derived graph-write persistence. `false` keeps `NoOpGraphBackend`; `true` allows backend selection via `CODEXIFY_GRAPH_BACKEND`. | `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py`, `guardian/workers/graph_write_worker.py` |
-| `CODEXIFY_GRAPH_BACKEND` | Derived graph-write backend selector (`noop` or `neo4j`). Only honored when `CODEXIFY_ENABLE_GRAPH_WRITES=true`; reachable Neo4j alone is not enablement. | `guardian/core/config.py`, `guardian/memory_graph/graph_backend_factory.py` |
+| `CODEXIFY_ENABLE_GRAPH_WRITES` | Master runtime gate for graph-write persistence. Defaults to `false`. When false, the graph backend factory always returns `NoopGraphBackendAdapter` regardless of `CODEXIFY_GRAPH_BACKEND` or Neo4j container presence. | `guardian/memory_graph/graph_backend_factory.py`, `guardian/core/config.py`, `docker-compose.yml` |
+| `CODEXIFY_GRAPH_BACKEND` | Graph backend adapter selection. Defaults to `noop`. Valid values: `noop`, `neo4j`. Only effective when `CODEXIFY_ENABLE_GRAPH_WRITES=true`. Neo4j container presence alone does not enable graph writes. | `guardian/memory_graph/graph_backend_factory.py`, `guardian/core/config.py`, `docker-compose.yml` |
 | `GUARDIAN_FEDERATION_ENABLED` | Master feature gate for federation routes | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | trust policy envs | Signed policy, node allowlist, and federation auth requirements are env-driven | `guardian/routes/federation.py`, `guardian/core/config.py` |
 | `GUARDIAN_COMMAND_BUS_LOOPBACK_BASE` | Base URL for command bus loopback execution | `guardian/command_bus/loopback_http_adapter.py`, `docker-compose.yml` |
 | WebSocket rate-limit envs | Guard `/api/ws/rpc` connection and payload behavior | `guardian/routes/websocket.py`, `guardian/core/config.py` |
 
-Graph-write enablement note:
-- Supported beta behavior remains unchanged by default on `main`.
-- Neo4j being reachable in local Compose does not implicitly turn on graph writes.
-- Postgres remains canonical truth even when `CODEXIFY_ENABLE_GRAPH_WRITES=true`.
+#### Graph-write runtime boundary on the supported Compose path
+
+The supported local Docker Compose path enforces a default-off contract for graph writes:
+
+- `CODEXIFY_ENABLE_GRAPH_WRITES=false` and `CODEXIFY_GRAPH_BACKEND=noop` are explicitly wired into the `backend` and worker services in `docker-compose.yml`.
+- Running `docker compose config` should visibly show these env vars on the `backend`, `worker-chat`, `worker-coding`, `worker-warmup`, and `graph-backfill` services.
+- The Neo4j service may be present in the Compose topology, but its presence does not imply graph-write enablement.
+- Graph-write enablement requires both flags to be explicitly set: `CODEXIFY_ENABLE_GRAPH_WRITES=true` AND `CODEXIFY_GRAPH_BACKEND=neo4j`.
+- The factory in `guardian/memory_graph/graph_backend_factory.py` is fail-closed: invalid backend values, missing flags, or absent Neo4j adapter all resolve to `NoopGraphBackendAdapter`.
 
 ### Frontend and desktop runtime
 
@@ -189,6 +194,8 @@ Graph-write enablement note:
 - The wizard/launcher presents the user-facing local provider posture as “Local via Ollama.”
 - The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`, with `LOCAL_BASE_URL=http://host.docker.internal:11434` for the Docker Compose runtime.
 - Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
+- Local backend smoke testing should start the runtime backend with `CODEXIFY_CONFIG_SOURCE=core` so the canonical local provider path can boot without a Groq key when AI inference is not being exercised.
+- If someone intentionally forces `CODEXIFY_CONFIG_SOURCE=legacy`, the legacy validator still applies and `AI_BACKEND=groq` continues to require `GROQ_API_KEY`.
 
 ### Packaged launcher and runtime distribution contract
 

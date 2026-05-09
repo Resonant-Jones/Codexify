@@ -5,8 +5,13 @@ from guardian.memory_graph.graph_backend import (
     GRAPH_BACKEND_RESULT_STATUS_NOOP,
     GRAPH_BACKEND_RESULT_STATUS_SKIPPED,
     GRAPH_BACKEND_RESULT_STATUS_WRITTEN,
+    GraphBackendWriteResult,
 )
-from guardian.memory_graph.noop_graph_backend import NoOpGraphBackend
+from guardian.memory_graph.noop_graph_backend import (
+    NoOpGraphBackend,
+    NoopGraphBackendAdapter,
+    get_graph_backend_adapter,
+)
 
 
 def test_graph_backend_result_status_tokens_are_canonical() -> None:
@@ -31,14 +36,6 @@ def test_noop_graph_backend_returns_noop_result() -> None:
     assert result.graph_write_id == "gwr_1"
     assert result.node_count == 1
     assert result.edge_count == 1
-    GRAPH_BACKEND_RESULT_STATUS_NOOP,
-    GRAPH_BACKEND_RESULT_STATUS_SKIPPED,
-    GraphBackendWriteResult,
-)
-from guardian.memory_graph.noop_graph_backend import (
-    NoopGraphBackendAdapter,
-    get_graph_backend_adapter,
-)
 
 
 def test_noop_graph_backend_adapter_returns_noop_result():
