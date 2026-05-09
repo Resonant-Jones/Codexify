@@ -43,7 +43,7 @@ importers:
         version: 19.2.0(react@19.2.0)
       react-force-graph:
         specifier: ^1.48.1
-        version: 1.48.1(aframe@1.7.1)(react@19.2.0)(three@0.181.1)
+        version: 1.48.1(aframe@1.7.1)(react@19.2.0)(three@0.164.1)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.7)(react@19.2.0)

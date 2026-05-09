@@ -32,11 +32,11 @@ function normalizeAuthToken(token: string | null | undefined): string | null {
 }
 
 function readRuntimeEnv(name: string, fallback = ""): string {
-  const viteEnv =
-    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
   const nodeEnv =
     typeof process !== "undefined" ? ((process as any).env ?? {}) : {};
-  const raw = viteEnv[name] ?? nodeEnv[name] ?? fallback;
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  const raw = nodeEnv[name] ?? viteEnv[name] ?? fallback;
   return String(raw ?? "");
 }
 

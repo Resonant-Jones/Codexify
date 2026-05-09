@@ -484,7 +484,7 @@ export function ChatBubble({
       : resolvedPlayState === "pending"
         ? "Generating audio"
       : resolvedPlayState === "unavailable"
-        ? "Audio unavailable"
+        ? "Generate audio"
         : resolvedPlayState === "disabled"
           ? "Voice disabled"
           : "Read Aloud";
@@ -493,11 +493,11 @@ export function ChatBubble({
       ? "Playing audio"
       : resolvedPlayState === "pending"
         ? "Generating audio"
-        : "Read message aloud";
+        : resolvedPlayState === "unavailable"
+          ? "Generate audio"
+          : "Read message aloud";
   const playDisabled =
-    resolvedPlayState === "pending" ||
-    resolvedPlayState === "unavailable" ||
-    resolvedPlayState === "disabled";
+    resolvedPlayState === "pending" || resolvedPlayState === "disabled";
   const boundedUserMessage = !isGuardian && isOversizedUserMessage(cleanedContent);
   const [expandedUserMessage, setExpandedUserMessage] = React.useState(false);
 
