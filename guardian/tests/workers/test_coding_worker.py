@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from contextlib import suppress
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -206,6 +207,7 @@ def _build_task(
     source_message_id: int | None,
     coding_task_id: str = "coding-task-1",
     attempt_id: str = "attempt-1",
+    cwd: str = "/workspace/repo",
     validation_command: str | None = None,
     max_validation_attempts: int | None = None,
     permission_policy: dict[str, Any] | None = None,
@@ -215,7 +217,7 @@ def _build_task(
         "run_id": run_id,
         "deployment_id": deployment_id,
         "instructions": "Patch the seam and keep the return path intact.",
-        "cwd": "/workspace/repo",
+        "cwd": cwd,
         "timeout_seconds": 60,
         "coding_task_id": coding_task_id,
         "attempt_id": attempt_id,
@@ -277,6 +279,7 @@ def _install_fake_validation_runner(
     side_effect: BaseException | None = None,
 ) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
+    real_run = subprocess.run
 
     def _fake_run(
         argv: list[str],
@@ -286,7 +289,16 @@ def _install_fake_validation_runner(
         text: bool | None = None,
         check: bool | None = None,
         timeout: int | float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
+        ) -> subprocess.CompletedProcess[str]:
+        if argv and str(argv[0]) == "git":
+            return real_run(
+                argv,
+                cwd=cwd,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                timeout=timeout,
+            )
         calls.append(
             {
                 "argv": list(argv),
@@ -365,6 +377,61 @@ def _fetch_coding_result_artifacts(
     store: AgentStore, run_id: str
 ) -> list[dict[str, Any]]:
     return store.list_artifacts(run_id=run_id, artifact_type="coding_result")
+
+
+def _run_git(repo_root: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _init_git_repo(
+    tmp_path: Path,
+    *,
+    tracked_files: dict[str, str] | None = None,
+) -> Path:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _run_git(repo_root, "init")
+    _run_git(repo_root, "config", "user.email", "codex@example.com")
+    _run_git(repo_root, "config", "user.name", "Codex")
+    for relative_path, content in (tracked_files or {}).items():
+        target = repo_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+    if tracked_files:
+        _run_git(repo_root, "add", ".")
+        _run_git(repo_root, "commit", "-m", "initial commit")
+    return repo_root
+
+
+def _install_repo_mutating_adapter(
+    monkeypatch,
+    result: Any,
+    *,
+    writes: dict[str, str] | None = None,
+    adapter_kind: str = "pi_codex_runner",
+) -> list[SimpleNamespace]:
+    calls: list[SimpleNamespace] = []
+
+    class _FakeAdapter:
+        def execute(self, request: Any) -> Any:
+            calls.append(request)
+            if writes:
+                cwd = Path(str(getattr(request, "cwd", "") or ""))
+                for relative_path, content in writes.items():
+                    target = cwd / relative_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content)
+            return result
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {adapter_kind: _FakeAdapter()}
+    )
+    return calls
 
 
 def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
@@ -985,7 +1052,12 @@ def test_validation_timeout_is_normalized_and_fails_closed(
 def test_validation_failure_retries_once_and_completes(
     db,
     monkeypatch,
+    tmp_path,
 ) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
     seeded = _seed_source_context(
         db, user_id="validation-retry-user", project_name="validation-retry"
     )
@@ -1023,10 +1095,11 @@ def test_validation_failure_retries_once_and_completes(
                 returncode=0,
                 stdout="2 passed in 0.02s\n",
                 stderr="",
-            ),
-        ]
-    )
-    validation_calls = _install_fake_validation_runner(monkeypatch)
+                ),
+            ]
+        )
+    validation_calls: list[dict[str, Any]] = []
+    real_run = subprocess.run
 
     def _sequenced_validation_run(
         argv: list[str],
@@ -1037,6 +1110,15 @@ def test_validation_failure_retries_once_and_completes(
         check: bool | None = None,
         timeout: int | float | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        if argv and str(argv[0]) == "git":
+            return real_run(
+                argv,
+                cwd=cwd,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                timeout=timeout,
+            )
         validation_calls.append(
             {
                 "argv": list(argv),
@@ -1059,13 +1141,14 @@ def test_validation_failure_retries_once_and_completes(
         thread_id=seeded["thread_id"],
         source_message_id=seeded["source_message_id"],
         coding_task_id="coding-task-validation-retry",
+        cwd=str(repo_root),
         validation_command="pytest -q",
         max_validation_attempts=2,
         permission_policy={
             "allow_shell": True,
             "allow_network": False,
             "allow_write": True,
-            "allowed_paths": ["/workspace/repo"],
+            "allowed_paths": ["src/"],
             "max_runtime_seconds": 60,
         },
     )
@@ -1110,7 +1193,12 @@ def test_validation_failure_retries_once_and_completes(
 def test_validation_failure_across_all_attempts_emits_terminal_failure(
     db,
     monkeypatch,
+    tmp_path,
 ) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
     seeded = _seed_source_context(
         db,
         user_id="validation-exhausted-user",
@@ -1150,10 +1238,11 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
                 returncode=1,
                 stdout="FAILED tests/unit/test_beta.py::test_other - still broken\n",
                 stderr="E AssertionError: still broken\n",
-            ),
-        ]
-    )
-    validation_calls = _install_fake_validation_runner(monkeypatch)
+                ),
+            ]
+        )
+    validation_calls: list[dict[str, Any]] = []
+    real_run = subprocess.run
 
     def _sequenced_validation_run(
         argv: list[str],
@@ -1164,6 +1253,15 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
         check: bool | None = None,
         timeout: int | float | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        if argv and str(argv[0]) == "git":
+            return real_run(
+                argv,
+                cwd=cwd,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                timeout=timeout,
+            )
         validation_calls.append(
             {
                 "argv": list(argv),
@@ -1186,13 +1284,14 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
         thread_id=seeded["thread_id"],
         source_message_id=seeded["source_message_id"],
         coding_task_id="coding-task-validation-exhausted",
+        cwd=str(repo_root),
         validation_command="pytest -q",
         max_validation_attempts=2,
         permission_policy={
             "allow_shell": True,
             "allow_network": False,
             "allow_write": True,
-            "allowed_paths": ["/workspace/repo"],
+            "allowed_paths": ["src/"],
             "max_runtime_seconds": 60,
         },
     )
@@ -1299,13 +1398,23 @@ def test_successful_completion_writes_one_result_message_with_lineage(
         "guardian/workers/coding_worker.py",
         "guardian/agents/store.py",
     ]
-    assert message.extra_meta["artifacts"] == [
-        {
-            "path": "guardian/workers/coding_worker.py",
-            "commit_hash": "abc123def",
-            "validation_results": {"pytest": "passed"},
-        }
-    ]
+    assert message.extra_meta["artifacts"][0] == {
+        "path": "guardian/workers/coding_worker.py",
+        "commit_hash": "abc123def",
+        "validation_results": {"pytest": "passed"},
+    }
+    assert message.extra_meta["artifacts"][-1]["kind"] == "mutation_guard"
+    assert message.extra_meta["artifacts"][-1]["mutation_guard_status"] == (
+        "unverified"
+    )
+    assert message.extra_meta["artifacts"][-1]["mutation_guard_error_code"] == (
+        "MUTATION_SCOPE_UNVERIFIED"
+    )
+    assert message.extra_meta["artifacts"][-1]["mutation_guard_enabled"] is True
+    assert message.extra_meta["artifacts"][-1]["changed_paths"] == []
+    assert message.extra_meta["artifacts"][-1]["disallowed_paths"] == []
+    assert message.extra_meta["artifacts"][-1]["allowed_paths"] == []
+    assert len(message.extra_meta["artifacts"]) == 2
     assert message.extra_meta["adapter_session_ref"] == "pi-session-123"
     assert message.extra_meta["commit_hash"] == "abc123def"
     assert "abc123def" in message.content
@@ -1651,3 +1760,724 @@ def test_delivery_failure_is_observable_and_persists_result_artifact(
         artifacts[0]["content_json"]["delivery_reason"]
         == "delivery_database_unavailable"
     )
+
+
+def test_clean_repo_allowed_path_mutation_passes_scope_guard(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="allowed-mutation-user",
+        project_name="allowed-mutation",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Allowed mutation applied.",
+            files_changed=("src/app.py",),
+            artifacts=(),
+            errors=(),
+            adapter_session_ref="session-allowed",
+        ),
+        writes={"src/app.py": "print('ok')\n"},
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-guard-allowed",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["src/app.py"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.completed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "verified"
+    assert terminal_payload["mutation_guard_error_code"] is None
+    assert terminal_payload["changed_paths"] == ["src/app.py"]
+    assert terminal_payload["disallowed_paths"] == []
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    guard_artifact = messages[0].extra_meta["artifacts"][-1]
+    assert guard_artifact["kind"] == "mutation_guard"
+    assert guard_artifact["mutation_guard_status"] == "verified"
+    assert guard_artifact["changed_paths"] == ["src/app.py"]
+
+
+def test_clean_repo_disallowed_path_mutation_fails_with_mutation_scope_violation(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="disallowed-mutation-user",
+        project_name="disallowed-mutation",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="This mutation escapes the approved scope.",
+            files_changed=("docs/bad.md",),
+            artifacts=(),
+            errors=(),
+        ),
+        writes={"docs/bad.md": "blocked\n"},
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-guard-disallowed",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["src/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    assert terminal_payload["mutation_guard_status"] == "violated"
+    assert "docs/bad.md" in terminal_payload["changed_paths"]
+    assert "docs/bad.md" in terminal_payload["disallowed_paths"]
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+
+
+def test_allow_write_false_mutation_fails_closed(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="readonly-mutation-user",
+        project_name="readonly-mutation",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Any mutation should fail closed.",
+            files_changed=("src/deny.py",),
+            artifacts=(),
+            errors=(),
+        ),
+        writes={"src/deny.py": "denied\n"},
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-guard-readonly",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": False,
+            "allowed_paths": ["src/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    assert terminal_payload["mutation_guard_status"] == "violated"
+    assert "src/deny.py" in terminal_payload["changed_paths"]
+    assert "src/deny.py" in terminal_payload["disallowed_paths"]
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+
+
+def test_dirty_preflight_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    dirty_file = repo_root / "stale.txt"
+    dirty_file.write_text("dirty\n")
+    seeded = _seed_source_context(
+        db,
+        user_id="dirty-preflight-user",
+        project_name="dirty-preflight",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Should not run."),
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-dirty-precheck",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["src/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    failure_payload = published[-1][2]
+    assert failure_payload["error_code"] == "DIRTY_WORKTREE_PRECHECK_FAILED"
+    assert failure_payload["mutation_guard_status"] == "precheck_failed"
+    assert "stale.txt" in failure_payload["changed_paths"]
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+
+
+def test_validation_retry_does_not_continue_after_scope_violation(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="scope-retry-user",
+        project_name="scope-retry",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Scope violation should stop retries.",
+            files_changed=("docs/bad.md",),
+            artifacts=(),
+            errors=(),
+        ),
+        writes={"docs/bad.md": "blocked\n"},
+        adapter_kind="codex",
+    )
+    validation_calls: list[dict[str, Any]] = []
+    real_run = subprocess.run
+    validation_results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+                stderr="E AssertionError: boom\n",
+            )
+        ]
+    )
+
+    def _validation_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        if argv and str(argv[0]) == "git":
+            return real_run(
+                argv,
+                cwd=cwd,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                timeout=timeout,
+            )
+        validation_calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        return next(validation_results)
+
+    monkeypatch.setattr(coding_worker.subprocess, "run", _validation_run)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-scope-retry",
+        cwd=str(repo_root),
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["src/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert validation_calls == []
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.failed",
+    ]
+    assert all(event != "task.retrying" for _, event, _ in published)
+    terminal_payload = published[-1][2]
+    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    assert terminal_payload["mutation_guard_status"] == "violated"
+    assert terminal_payload["validation_attempt_count"] is None
+    assert terminal_payload["validation_result"] is None
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+
+
+def test_allowed_directory_prefix_mutation_passes_scope_guard(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="prefix-user",
+        project_name="prefix-user",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Directory prefix allowed.",
+            files_changed=("src/module/file.py",),
+            artifacts=(),
+            errors=(),
+        ),
+        writes={"src/module/file.py": "print('prefix')\n"},
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-prefix",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["src/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.completed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "verified"
+    assert terminal_payload["changed_paths"] == ["src/module/file.py"]
+    assert terminal_payload["disallowed_paths"] == []
+
+
+def test_allowed_glob_pattern_mutation_passes_scope_guard(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="glob-user",
+        project_name="glob-user",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Glob pattern allowed.",
+            files_changed=("docs/notes.md",),
+            artifacts=(),
+            errors=(),
+        ),
+        writes={"docs/notes.md": "glob\n"},
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-glob",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["docs/*.md"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.completed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "verified"
+    assert terminal_payload["changed_paths"] == ["docs/notes.md"]
+    assert terminal_payload["disallowed_paths"] == []
+
+
+def test_absolute_or_parent_policy_paths_do_not_escape_repo(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="unsafe-policy-user",
+        project_name="unsafe-policy",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Unsafe policy paths must be ignored.",
+            files_changed=("src/escaped.py",),
+            artifacts=(),
+            errors=(),
+        ),
+        writes={"src/escaped.py": "blocked\n"},
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-unsafe-policy",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/tmp/*", "../*", "docs/../safe/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    assert terminal_payload["mutation_guard_status"] == "violated"
+    assert terminal_payload["allowed_paths"] == []
+    assert "src/escaped.py" in terminal_payload["disallowed_paths"]
+
+
+def test_non_git_cwd_emits_unverified_mutation_guard_metadata(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    cwd = tmp_path / "scratch"
+    cwd.mkdir()
+    seeded = _seed_source_context(
+        db,
+        user_id="non-git-user",
+        project_name="non-git",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Non-git cwd should degrade explicitly.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-non-git",
+        cwd=str(cwd),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["scratch/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.completed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "unverified"
+    assert terminal_payload["mutation_guard_error_code"] == (
+        "MUTATION_SCOPE_UNVERIFIED"
+    )
+    assert terminal_payload["changed_paths"] == []
+    assert terminal_payload["disallowed_paths"] == []
+
+
+def test_changed_path_metadata_is_bounded_and_truncated(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo_root = _init_git_repo(
+        tmp_path,
+        tracked_files={"README.md": "seed\n"},
+    )
+    seeded = _seed_source_context(
+        db,
+        user_id="bounded-user",
+        project_name="bounded-user",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    writes = {
+        f"src/file-{index}.txt": f"{index}\n" for index in range(55)
+    }
+    calls = _install_repo_mutating_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Many changes within scope.",
+            files_changed=tuple(writes.keys()),
+            artifacts=(),
+            errors=(),
+        ),
+        writes=writes,
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-bounded",
+        cwd=str(repo_root),
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["src/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.completed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "verified"
+    assert terminal_payload["changed_paths_truncated"] is True
+    assert terminal_payload["changed_paths_total"] == 55
+    assert len(terminal_payload["changed_paths"]) == 50
+    assert terminal_payload["disallowed_paths"] == []
