@@ -346,7 +346,13 @@ def test_pi_invocation_boundary_tokens() -> None:
     assert PiProviderLaneClass.LOCAL.value == "local"
     assert PiProviderLaneClass.EXTERNAL.value == "external"
     assert PiProviderLaneClass.MINIMAX.value == "minimax"
-    assert PI_PROVIDER_LANE_CLASSES == {"local", "external", "minimax"}
+    assert PI_PROVIDER_LANE_CLASSES == {
+        "local",
+        "remote",
+        "hybrid",
+        "external",
+        "minimax",
+    }
 
     assert PiInvocationValidationOutcome.VALID.value == "valid"
     assert PiInvocationValidationOutcome.FAILED_CLOSED.value == "failed_closed"
@@ -515,6 +521,18 @@ def test_error_code_tokens() -> None:
     )
     assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
+        ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value
+        == "DIRTY_WORKTREE_PRECHECK_FAILED"
+    )
+    assert (
+        ErrorCode.MUTATION_SCOPE_VIOLATION.value
+        == "MUTATION_SCOPE_VIOLATION"
+    )
+    assert (
+        ErrorCode.MUTATION_SCOPE_UNVERIFIED.value
+        == "MUTATION_SCOPE_UNVERIFIED"
+    )
+    assert (
         ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     )
     assert (
@@ -558,6 +576,9 @@ def test_error_code_tokens() -> None:
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
         "VALIDATION_FAILED",
+        "DIRTY_WORKTREE_PRECHECK_FAILED",
+        "MUTATION_SCOPE_VIOLATION",
+        "MUTATION_SCOPE_UNVERIFIED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
         "VALIDATION_FAILED",
         "CODING_ADAPTER_NOT_FOUND",

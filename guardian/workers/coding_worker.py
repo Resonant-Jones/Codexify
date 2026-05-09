@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import os
+import posixpath
 import shlex
 import subprocess
 import time
@@ -55,6 +57,8 @@ _VALIDATION_TIMEOUT_CAP_SECONDS = 120
 _VALIDATION_ATTEMPTS_DEFAULT = 3
 _VALIDATION_ATTEMPTS_MIN = 1
 _VALIDATION_ATTEMPTS_MAX = 10
+_MUTATION_GUARD_PATH_LIMIT = 50
+_GIT_COMMAND_TIMEOUT_SECONDS = 5
 
 
 def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
@@ -310,6 +314,230 @@ def _append_retry_feedback(prompt: str, feedback_blocks: list[str]) -> str:
     return f"{base}\n\n{feedback}"
 
 
+def _normalize_repo_relative_path(raw_path: Any) -> str | None:
+    text = str(raw_path or "").strip().replace("\\", "/")
+    if not text:
+        return None
+    if os.path.isabs(text):
+        return None
+    parts: list[str] = []
+    for part in text.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            return None
+        parts.append(part)
+    if not parts:
+        return None
+    return "/".join(parts)
+
+
+def _sanitize_allowed_path(raw_path: Any) -> str | None:
+    text = str(raw_path or "").strip().replace("\\", "/")
+    if not text:
+        return None
+    if os.path.isabs(text):
+        return None
+    trailing_slash = text.endswith("/")
+    parts: list[str] = []
+    for part in text.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            return None
+        parts.append(part)
+    if not parts:
+        return None
+    normalized = "/".join(parts)
+    if trailing_slash and normalized:
+        normalized = f"{normalized}/"
+    return normalized
+
+
+def _bounded_path_metadata(paths: list[str]) -> dict[str, Any]:
+    total = len(paths)
+    bounded = paths[:_MUTATION_GUARD_PATH_LIMIT]
+    return {
+        "paths": bounded,
+        "paths_total": total,
+        "paths_truncated": total > len(bounded),
+    }
+
+
+def _git_repo_root(cwd: str | None) -> str | None:
+    if not cwd:
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_GIT_COMMAND_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    root = (completed.stdout or "").strip()
+    return root or None
+
+
+def _git_porcelain_paths(repo_root: str) -> list[str]:
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                repo_root,
+                "status",
+                "--porcelain=1",
+                "-z",
+                "--untracked-files=all",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_GIT_COMMAND_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return []
+    if completed.returncode != 0:
+        return []
+
+    tokens = (completed.stdout or "").split("\0")
+    paths: list[str] = []
+    seen: set[str] = set()
+    index = 0
+    while index < len(tokens):
+        entry = tokens[index]
+        if not entry:
+            index += 1
+            continue
+        status = entry[:2]
+        first_path = entry[3:] if len(entry) > 3 else ""
+        candidate_paths = [first_path]
+        if status[:1] in {"R", "C"} and index + 1 < len(tokens):
+            candidate_paths.append(tokens[index + 1])
+            index += 2
+        else:
+            index += 1
+        for candidate in candidate_paths:
+            normalized = _normalize_repo_relative_path(candidate)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                paths.append(normalized)
+    return paths
+
+
+def _changed_paths_since_preflight(
+    repo_root: str,
+    before: list[str],
+    after: list[str],
+) -> list[str]:
+    before_set = set(before)
+    return [path for path in after if path not in before_set]
+
+
+def _path_allowed(path: str, allowed_paths: list[str]) -> bool:
+    normalized_path = _normalize_repo_relative_path(path)
+    if normalized_path is None:
+        return False
+
+    for candidate in allowed_paths:
+        allowed = _sanitize_allowed_path(candidate)
+        if allowed is None:
+            continue
+        if allowed.endswith("/"):
+            prefix = allowed[:-1]
+            if normalized_path == prefix or normalized_path.startswith(
+                f"{prefix}/"
+            ):
+                return True
+            continue
+        if any(char in allowed for char in "*?[]"):
+            if fnmatch.fnmatchcase(normalized_path, allowed):
+                return True
+            continue
+        if normalized_path == allowed:
+            return True
+    return False
+
+
+def _build_mutation_guard_metadata(
+    *,
+    repo_root: str | None,
+    before_paths: list[str],
+    allow_write: bool,
+    allowed_paths: list[str],
+    after_paths: list[str] | None = None,
+    status_override: str | None = None,
+    error_code_override: str | None = None,
+) -> dict[str, Any]:
+    sanitized_allowed_paths = [
+        path
+        for path in (_sanitize_allowed_path(path) for path in allowed_paths)
+        if path is not None
+    ]
+    if repo_root is None:
+        changed_paths: list[str] = []
+        disallowed_paths: list[str] = []
+        mutation_guard_status = status_override or "unverified"
+        mutation_guard_error_code = (
+            error_code_override
+            or ErrorCode.MUTATION_SCOPE_UNVERIFIED.value
+        )
+    else:
+        current_paths = list(after_paths or before_paths)
+        changed_paths = _changed_paths_since_preflight(
+            repo_root,
+            before_paths,
+            current_paths,
+        )
+        if allow_write:
+            disallowed_paths = [
+                path
+                for path in changed_paths
+                if not _path_allowed(path, sanitized_allowed_paths)
+            ]
+        else:
+            disallowed_paths = list(changed_paths)
+
+        if status_override is not None:
+            mutation_guard_status = status_override
+        elif changed_paths and disallowed_paths:
+            mutation_guard_status = "violated"
+        else:
+            mutation_guard_status = "verified"
+
+        if error_code_override is not None:
+            mutation_guard_error_code = error_code_override
+        elif mutation_guard_status == "violated":
+            mutation_guard_error_code = ErrorCode.MUTATION_SCOPE_VIOLATION.value
+        else:
+            mutation_guard_error_code = None
+
+    changed_path_metadata = _bounded_path_metadata(changed_paths)
+    disallowed_path_metadata = _bounded_path_metadata(disallowed_paths)
+    allowed_path_metadata = _bounded_path_metadata(sanitized_allowed_paths)
+    return {
+        "mutation_guard_enabled": True,
+        "mutation_guard_status": mutation_guard_status,
+        "mutation_guard_error_code": mutation_guard_error_code,
+        "allowed_paths": allowed_path_metadata["paths"],
+        "allowed_paths_total": allowed_path_metadata["paths_total"],
+        "allowed_paths_truncated": allowed_path_metadata["paths_truncated"],
+        "changed_paths": changed_path_metadata["paths"],
+        "changed_paths_total": changed_path_metadata["paths_total"],
+        "changed_paths_truncated": changed_path_metadata["paths_truncated"],
+        "disallowed_paths": disallowed_path_metadata["paths"],
+        "disallowed_paths_total": disallowed_path_metadata["paths_total"],
+        "disallowed_paths_truncated": disallowed_path_metadata[
+            "paths_truncated"
+        ],
+    }
+
+
 def configure_db(db: Any | None) -> None:
     """Bind the worker to a database-backed agent store."""
     global _store
@@ -367,6 +595,8 @@ class CodingWorker:
         )
         validation_command = _resolve_validation_command(task, deployment_spec)
         permission_policy = _validation_permissions(task, deployment_spec)
+        allow_write = bool(permission_policy.get("allow_write"))
+        allowed_paths = list(permission_policy.get("allowed_paths") or [])
         max_validation_attempts = _resolve_max_validation_attempts(
             task, deployment_spec
         )
@@ -374,8 +604,75 @@ class CodingWorker:
             max_validation_attempts if validation_command else 1
         )
 
+        repo_root = _git_repo_root(task.cwd)
+        preflight_paths = _git_porcelain_paths(repo_root) if repo_root else []
+        if preflight_paths:
+            sanitized_allowed_paths = [
+                path
+                for path in (
+                    _sanitize_allowed_path(path) for path in allowed_paths
+                )
+                if path is not None
+            ]
+            dirty_path_metadata = _bounded_path_metadata(preflight_paths)
+            allowed_path_metadata = _bounded_path_metadata(
+                sanitized_allowed_paths
+            )
+            mutation_guard = {
+                "mutation_guard_enabled": True,
+                "mutation_guard_status": "precheck_failed",
+                "mutation_guard_error_code": (
+                    ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value
+                ),
+                "allowed_paths": allowed_path_metadata["paths"],
+                "allowed_paths_total": allowed_path_metadata["paths_total"],
+                "allowed_paths_truncated": allowed_path_metadata[
+                    "paths_truncated"
+                ],
+                "changed_paths": dirty_path_metadata["paths"],
+                "changed_paths_total": dirty_path_metadata["paths_total"],
+                "changed_paths_truncated": dirty_path_metadata[
+                    "paths_truncated"
+                ],
+                "disallowed_paths": dirty_path_metadata["paths"],
+                "disallowed_paths_total": dirty_path_metadata["paths_total"],
+                "disallowed_paths_truncated": dirty_path_metadata[
+                    "paths_truncated"
+                ],
+            }
+            self._emit_failure(
+                task,
+                adapter_kind=adapter_kind,
+                error_message=(
+                    "mutation scope precheck failed because the repository "
+                    "was already dirty before the coding attempt started"
+                ),
+                error_code=ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value,
+                mutation_guard=mutation_guard,
+            )
+            return
+
+        preflight_mutation_guard = _build_mutation_guard_metadata(
+            repo_root=repo_root,
+            before_paths=[],
+            allow_write=allow_write,
+            allowed_paths=allowed_paths,
+            status_override=(
+                "unverified" if repo_root is None else None
+            ),
+            error_code_override=(
+                ErrorCode.MUTATION_SCOPE_UNVERIFIED.value
+                if repo_root is None
+                else None
+            ),
+        )
+
         # Emit running event
-        self._emit_running(task, adapter_kind=adapter_kind)
+        self._emit_running(
+            task,
+            adapter_kind=adapter_kind,
+            mutation_guard=preflight_mutation_guard,
+        )
 
         # Get adapter
         adapter = ADAPTERS.get(adapter_kind)
@@ -385,6 +682,7 @@ class CodingWorker:
                 adapter_kind=adapter_kind,
                 error_message=f"coding adapter not configured: {adapter_kind}",
                 error_code="ADAPTER_NOT_FOUND",
+                mutation_guard=preflight_mutation_guard,
             )
             return
 
@@ -403,10 +701,20 @@ class CodingWorker:
             errors: list[str],
             error_code: str | None,
             error_message: str | None,
+            mutation_guard: dict[str, Any] | None = None,
             validation_result: NormalizedTestResult | None = None,
             validation_attempt_count: int | None = None,
         ) -> None:
             result_artifact_payload = list(artifacts)
+            if mutation_guard is not None:
+                result_artifact_payload = [
+                    *result_artifact_payload,
+                    {
+                        "name": "mutation_guard",
+                        "kind": "mutation_guard",
+                        **mutation_guard,
+                    },
+                ]
             if validation_result is not None:
                 result_artifact_payload = [
                     {
@@ -453,6 +761,7 @@ class CodingWorker:
                         or "coding result delivery failed"
                     ),
                     error_code="RESULT_DELIVERY_FAILED",
+                    mutation_guard=mutation_guard,
                 )
                 return
 
@@ -487,6 +796,7 @@ class CodingWorker:
                     if best_validation_result is not None
                     else None
                 ),
+                mutation_guard=mutation_guard,
             )
 
         attempt_budget = validation_attempt_budget
@@ -509,6 +819,7 @@ class CodingWorker:
                     validation_command=validation_command,
                     validation_attempt_count=attempt_index,
                     max_validation_attempts=attempt_budget,
+                    mutation_guard=preflight_mutation_guard,
                 )
 
             request = AgentExecutionRequest(
@@ -541,6 +852,54 @@ class CodingWorker:
             if not error_message and not success_like:
                 error_message = getattr(result, "summary", None)
 
+            adapter_mutation_guard = (
+                _build_mutation_guard_metadata(
+                    repo_root=repo_root,
+                    before_paths=preflight_paths,
+                    allow_write=allow_write,
+                    allowed_paths=allowed_paths,
+                    after_paths=(
+                        _git_porcelain_paths(repo_root)
+                        if repo_root is not None
+                        else None
+                    ),
+                )
+                if repo_root is not None
+                else preflight_mutation_guard
+            )
+
+            if adapter_mutation_guard["mutation_guard_status"] == (
+                "violated"
+            ):
+                final_summary = getattr(result, "summary", "")
+                final_errors = list(getattr(result, "errors", []) or [])
+                final_errors.append("mutation_scope_violation")
+                _persist_and_emit_terminal(
+                    result=result,
+                    result_status="failed",
+                    summary=(
+                        f"{final_summary} | mutation scope violation"
+                        if final_summary
+                        else "mutation scope violation"
+                    ),
+                    files_changed=files_changed,
+                    artifacts=result_artifacts,
+                    adapter_session_ref=adapter_session_ref,
+                    errors=final_errors,
+                    error_code=(
+                        adapter_mutation_guard[
+                            "mutation_guard_error_code"
+                        ]
+                        or ErrorCode.MUTATION_SCOPE_VIOLATION.value
+                    ),
+                    error_message=(
+                        "mutation scope violation: repository changes escaped "
+                        "the approved task scope"
+                    ),
+                    mutation_guard=adapter_mutation_guard,
+                )
+                return
+
             if not success_like:
                 final_summary = getattr(result, "summary", "")
                 final_errors = list(getattr(result, "errors", []) or [])
@@ -555,6 +914,7 @@ class CodingWorker:
                     error_code=error_code,
                     error_message=error_message
                     or "coding adapter execution failed",
+                    mutation_guard=adapter_mutation_guard,
                 )
                 return
 
@@ -597,6 +957,54 @@ class CodingWorker:
                     best_validation_result,
                 )
 
+                post_attempt_mutation_guard = (
+                    _build_mutation_guard_metadata(
+                        repo_root=repo_root,
+                        before_paths=preflight_paths,
+                        allow_write=allow_write,
+                        allowed_paths=allowed_paths,
+                        after_paths=(
+                            _git_porcelain_paths(repo_root)
+                            if repo_root is not None
+                            else None
+                        ),
+                    )
+                    if repo_root is not None
+                    else preflight_mutation_guard
+                )
+
+                if post_attempt_mutation_guard["mutation_guard_status"] == (
+                    "violated"
+                ):
+                    final_errors.append("mutation_scope_violation")
+                    _persist_and_emit_terminal(
+                        result=result,
+                        result_status="failed",
+                        summary=(
+                            f"{final_summary} | mutation scope violation"
+                            if final_summary
+                            else "mutation scope violation"
+                        ),
+                        files_changed=files_changed,
+                        artifacts=result_artifacts,
+                        adapter_session_ref=adapter_session_ref,
+                        errors=final_errors,
+                        error_code=(
+                            post_attempt_mutation_guard[
+                                "mutation_guard_error_code"
+                            ]
+                            or ErrorCode.MUTATION_SCOPE_VIOLATION.value
+                        ),
+                        error_message=(
+                            "mutation scope violation: repository changes "
+                            "escaped the approved task scope"
+                        ),
+                        validation_result=validation_result,
+                        validation_attempt_count=validation_attempt_count,
+                        mutation_guard=post_attempt_mutation_guard,
+                    )
+                    return
+
                 if validation_result.status in {"passed", "not_run"}:
                     _persist_and_emit_terminal(
                         result=result,
@@ -610,6 +1018,7 @@ class CodingWorker:
                         error_message=final_error_message,
                         validation_result=validation_result,
                         validation_attempt_count=validation_attempt_count,
+                        mutation_guard=post_attempt_mutation_guard,
                     )
                     return
 
@@ -627,9 +1036,14 @@ class CodingWorker:
                     validation_attempt_count=validation_attempt_count,
                     max_validation_attempts=attempt_budget,
                     best_validation_result=best_validation_result,
+                    mutation_guard=post_attempt_mutation_guard,
                 )
 
-                if attempt_index < attempt_budget:
+                if (
+                    attempt_index < attempt_budget
+                    and post_attempt_mutation_guard["mutation_guard_status"]
+                    == "verified"
+                ):
                     prompt_blocks.append(validation_feedback)
                     self._emit_retrying(
                         task,
@@ -640,6 +1054,7 @@ class CodingWorker:
                         max_validation_attempts=attempt_budget,
                         best_validation_result=best_validation_result,
                         retry_feedback=validation_feedback,
+                        mutation_guard=post_attempt_mutation_guard,
                     )
                     continue
 
@@ -667,6 +1082,7 @@ class CodingWorker:
                     error_message=final_error_message,
                     validation_result=validation_result,
                     validation_attempt_count=validation_attempt_count,
+                    mutation_guard=post_attempt_mutation_guard,
                 )
                 return
 
@@ -680,6 +1096,7 @@ class CodingWorker:
                 errors=final_errors,
                 error_code=final_error_code,
                 error_message=final_error_message,
+                mutation_guard=adapter_mutation_guard,
             )
             return
 
@@ -688,6 +1105,7 @@ class CodingWorker:
         task: CodingExecutionTask,
         *,
         adapter_kind: str | None,
+        mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.running event."""
         try:
@@ -707,6 +1125,7 @@ class CodingWorker:
                         ),
                         adapter_kind=adapter_kind,
                     ),
+                    **(mutation_guard or {}),
                     "status": "running",
                 },
             )
@@ -724,6 +1143,7 @@ class CodingWorker:
         validation_command: str,
         validation_attempt_count: int,
         max_validation_attempts: int,
+        mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.attempt_started for a validation-bearing attempt."""
         try:
@@ -743,6 +1163,7 @@ class CodingWorker:
                         ),
                         adapter_kind=adapter_kind,
                     ),
+                    **(mutation_guard or {}),
                     "status": "running",
                     "validation_attempt_count": validation_attempt_count,
                     "max_validation_attempts": max_validation_attempts,
@@ -764,6 +1185,7 @@ class CodingWorker:
         validation_attempt_count: int,
         max_validation_attempts: int,
         best_validation_result: NormalizedTestResult | None,
+        mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.validation_failed for a failed validation attempt."""
         try:
@@ -783,6 +1205,7 @@ class CodingWorker:
                         ),
                         adapter_kind=adapter_kind,
                     ),
+                    **(mutation_guard or {}),
                     "status": "validation_failed",
                     "validation_attempt_count": validation_attempt_count,
                     "max_validation_attempts": max_validation_attempts,
@@ -811,6 +1234,7 @@ class CodingWorker:
         max_validation_attempts: int,
         best_validation_result: NormalizedTestResult | None,
         retry_feedback: str,
+        mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.retrying with bounded retry feedback."""
         try:
@@ -830,6 +1254,7 @@ class CodingWorker:
                         ),
                         adapter_kind=adapter_kind,
                     ),
+                    **(mutation_guard or {}),
                     "status": "retrying",
                     "validation_attempt_count": validation_attempt_count,
                     "next_validation_attempt_count": next_validation_attempt_count,
@@ -869,6 +1294,7 @@ class CodingWorker:
         validation_attempt_count: int | None = None,
         validation_attempts: list[dict[str, Any]] | None = None,
         best_validation_result: dict[str, Any] | None = None,
+        mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit terminal task event."""
         try:
@@ -888,6 +1314,7 @@ class CodingWorker:
                         ),
                         adapter_kind=adapter_kind,
                     ),
+                    **(mutation_guard or {}),
                     "status": event_type,
                     "coding_result_status": result_status,
                     "result_captured_by_guardian": True,
@@ -920,6 +1347,7 @@ class CodingWorker:
         adapter_kind: str | None,
         error_message: str,
         error_code: str,
+        mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.failed event for unrecoverable errors."""
         self.store.update_run_status(
@@ -944,6 +1372,7 @@ class CodingWorker:
                         ),
                         adapter_kind=adapter_kind,
                     ),
+                    **(mutation_guard or {}),
                     "status": "failed",
                     "error_code": error_code,
                     "error_message": error_message,
