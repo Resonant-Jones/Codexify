@@ -61,6 +61,43 @@ Source anchors:
 - Validation failures may retry only when mutation scope is clean or within the
   allowed path set.
 
+## Mutation Scope Guard
+
+- The worker now inspects Git porcelain state before the first adapter attempt
+  and again after each attempt, including any validation step that runs before
+  the final decision.
+- If `cwd` is inside a Git repository, the worker treats the repository root as
+  the mutation boundary and compares post-attempt porcelain paths against the
+  clean preflight baseline.
+- If `cwd` is not inside a Git repository, the guard degrades explicitly:
+  validation can still run, the attempt can still complete, and the emitted
+  metadata marks the mutation scope as `unverified`.
+- If the repository is already dirty before execution starts, the worker fails
+  closed with `DIRTY_WORKTREE_PRECHECK_FAILED` before calling the adapter.
+- If `allow_write=false`, any new porcelain changes fail closed with
+  `MUTATION_SCOPE_VIOLATION`.
+- If `allow_write=true`, every changed path must match a sanitized
+  `allowed_paths` entry. Supported matches are:
+  - exact repo-relative paths
+  - directory prefixes ending in `/`
+  - simple `fnmatch` glob patterns
+- Absolute policy paths and paths containing `..` are ignored safely and do
+  not widen the allowed scope.
+- Mutation guard metadata is emitted on task events and stored result artifacts
+  using bounded lists and totals:
+  - `mutation_guard_enabled`
+  - `mutation_guard_status`
+  - `mutation_guard_error_code`
+  - `changed_paths`
+  - `disallowed_paths`
+  - `allowed_paths`
+  - `changed_paths_truncated` and `changed_paths_total`
+- Path lists are truncated to 50 entries when necessary.
+- Scope violations stop the retry loop immediately.
+- Validation failures can retry only when the guard status is verified.
+- This still does not add commits, worktree isolation, auto-merge, or infinite
+  retry.
+
 ## Operator Interpretation
 
 - `passed` means the test subprocess exited cleanly and may carry summary counts.
